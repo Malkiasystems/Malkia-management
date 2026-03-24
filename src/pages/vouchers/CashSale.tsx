@@ -142,11 +142,7 @@ export default function CashSale({ onNav }: Props) {
     const nl = [...paymentLines]; nl[i] = { ...nl[i], [field]: val }; setPaymentLines(nl)
   }
 
-  const _setExact = () => {
-    const nl = [...paymentLines]
-    nl[0] = { ...nl[0], amount: total.toString() }
-    setPaymentLines(nl)
-  }
+
 
   // Totals
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
