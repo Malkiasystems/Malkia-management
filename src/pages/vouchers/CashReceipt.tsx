@@ -33,8 +33,6 @@ export default function CashReceipt({ onNav }: Props) {
   }
 
   const cashAccounts = accounts.filter(a => ['1010', '1020', '1030'].includes(a.code))
-    accounts.find(x => x.id === a.id) ? 'revenue' : ''
-  ))
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
