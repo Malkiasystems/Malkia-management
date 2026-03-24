@@ -57,7 +57,7 @@ export default function CashPayment({ onNav }: Props) {
     set('ref', genRef('CPV', num))
   }
 
-  const cashAccounts = accounts.filter(a => ['1010', '1020', '1030', '1040'].includes(a.code))
+  const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {

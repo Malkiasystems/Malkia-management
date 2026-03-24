@@ -24,7 +24,7 @@ export default function BankTransfer({ onNav }: Props) {
 
   const loadAccounts = async () => {
     const { data } = await supabase.from('accounts').select('id, code, name')
-      .in('code', ['1010','1020','1030','1031','1040']).order('code')
+      .eq('type', 'asset').eq('category', 'Cash & Bank').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
 

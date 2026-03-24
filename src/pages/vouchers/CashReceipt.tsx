@@ -32,7 +32,7 @@ export default function CashReceipt({ onNav }: Props) {
     set('ref', genRef('CRV', (count || 0) + 1))
   }
 
-  const cashAccounts = accounts.filter(a => ['1010', '1020', '1030'].includes(a.code))
+  const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
