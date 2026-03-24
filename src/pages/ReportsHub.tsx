@@ -12,6 +12,7 @@ export default function ReportsHub({ onNav }: Props) {
     },
     {
       title: 'Registers', reports: [
+        { name: 'Sales Day Book', icon: '📒', page: 'sales-day-book' as Page, desc: 'Full sales detail with filters' },
         { name: 'Sales Register', icon: '🛒', page: 'sales-register' as Page, desc: 'All sales in date order' },
         { name: 'Purchase Register', icon: '🏭', page: 'purchase-register' as Page, desc: 'All purchase transactions' },
         { name: 'Payment Register', icon: '💸', page: 'payment-register' as Page, desc: 'All payments made' },
