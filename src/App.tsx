@@ -1,10 +1,6 @@
 import { useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  'https://ebokhvibnypiomzqimfg.supabase.co',
-  'sb_publishable_saT1HG94KaXbphgVVIv9hg_w_dXberP'
-)
+
 
 // ── TYPES ──────────────────────────────────────────
 type Page = 'dashboard' | 'vouchers' | 'chart-of-accounts' | 'cash-sale' |
@@ -159,7 +155,7 @@ function Toast({ message, type='success', onClose }: { message:string; type?:'su
 
 // ── DASHBOARD ─────────────────────────────────────
 function Dashboard({ onNav }: { onNav:(p:Page)=>void }) {
-  const totalValue = PRODUCTS.reduce((s,p)=>s+p.cost*p.qty,0)
+  const _totalValue = PRODUCTS.reduce((s,p)=>s+p.cost*p.qty,0)
   return (
     <div className="page">
       <div className="page-header">
@@ -564,7 +560,7 @@ function Inventory() {
   const [toast, setToast] = useState('')
 
   const filtered = PRODUCTS.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.sku.toLowerCase().includes(search.toLowerCase()))
-  const totalValue = PRODUCTS.reduce((s,p)=>s+p.cost*p.qty,0)
+  const _totalValue = PRODUCTS.reduce((s,p)=>s+p.cost*p.qty,0)
   const lowStock = PRODUCTS.filter(p=>getStatus(p.qty,p.reorder)!=='ok').length
 
   return (
@@ -577,7 +573,7 @@ function Inventory() {
       </div>
       <div className="grid g4" style={{marginBottom:20}}>
         <div className="stat-card blue"><div className="stat-label">Total Products</div><div className="stat-value">{PRODUCTS.length}</div><div className="stat-change up">▲ Active SKUs</div></div>
-        <div className="stat-card green"><div className="stat-label">Stock Value</div><div className="stat-value">TZS {(totalValue/1000000).toFixed(1)}M</div><div className="stat-change up">▲ At cost price</div></div>
+        <div className="stat-card green"><div className="stat-label">Stock Value</div><div className="stat-value">TZS {(_totalValue/1000000).toFixed(1)}M</div><div className="stat-change up">▲ At cost price</div></div>
         <div className="stat-card yellow"><div className="stat-label">Low Stock Items</div><div className="stat-value">{lowStock}</div><div className="stat-change down">▼ Reorder soon</div></div>
         <div className="stat-card red"><div className="stat-label">Out of Stock</div><div className="stat-value">{PRODUCTS.filter(p=>p.qty===0).length}</div><div className="stat-change down">▼ Action required</div></div>
       </div>
