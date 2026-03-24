@@ -44,11 +44,11 @@ export default function StockAdjustment({ onNav }: Props) {
     try {
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['1110', '3040', '5080'])
       const inventoryId = acctData?.find(a => a.code === '1110')?.id
-      const equityId = acctData?.find(a => a.code === '3040')?.id
+      // equityId not needed
       const writeoffId = acctData?.find(a => a.code === '5080')?.id
       if (!inventoryId) throw new Error('Inventory account 1110 not found')
 
-      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+      const { error: vErr } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'stock_adjustment', posting_date: form.date,
         description: `Stock Adjustment — ${form.type} — ${form.reason}`,
         status: 'posted', posted_by: form.approvedBy, notes: form.notes,

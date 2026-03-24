@@ -12,7 +12,7 @@ interface DBAccount { id: string; code: string; name: string }
 export default function CashReceipt({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
-  const [posting, setPosting] = useState(false)
+  const [, setPosting] = useState(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [form, setForm] = useState({
     date: today(), ref: '', receivedFrom: '', incomeAccount: '',
@@ -33,7 +33,6 @@ export default function CashReceipt({ onNav }: Props) {
   }
 
   const cashAccounts = accounts.filter(a => ['1010', '1020', '1030'].includes(a.code))
-  const incomeAccounts = accounts.filter(a => ['revenue', 'asset', 'liability'].includes(
     accounts.find(x => x.id === a.id) ? 'revenue' : ''
   ))
 

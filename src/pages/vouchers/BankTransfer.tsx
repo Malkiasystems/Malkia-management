@@ -12,7 +12,7 @@ interface DBAccount { id: string; code: string; name: string }
 export default function BankTransfer({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
-  const [posting, setPosting] = useState(false)
+  const [, setPosting] = useState(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [form, setForm] = useState({
     date: today(), ref: '', fromAccount: '', toAccount: '',
