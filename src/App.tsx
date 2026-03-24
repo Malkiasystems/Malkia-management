@@ -12,6 +12,7 @@ import Inventory from './pages/Inventory'
 import ReportsHub from './pages/ReportsHub'
 import PnL from './pages/PnL'
 import SalesRegister from './pages/SalesRegister'
+import SalesDayBook from './pages/SalesDayBook'
 import Settings from './pages/Settings'
 
 import VouchersHub from './pages/vouchers/VouchersHub'
@@ -46,6 +47,7 @@ export default function App() {
       case 'reports':           return <ReportsHub onNav={setPage} />
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
+      case 'sales-day-book':    return <SalesDayBook />
       case 'settings':          return <Settings />
       case 'cash-payment':      return <CashPayment onNav={setPage} />
       case 'bank-payment':      return <CashPayment onNav={setPage} />
