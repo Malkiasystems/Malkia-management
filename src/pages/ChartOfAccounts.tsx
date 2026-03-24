@@ -1,19 +1,10 @@
-import { useState } from 'react'
-import { ACCOUNTS } from '../lib/data'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 
-const ALL_ACCTS = [
-  ...ACCOUNTS,
-  { id:'x1', code:'1060', name:'VAT Receivable (Input Tax)', type:'asset' as const, category:'Tax', balance:42000 },
-  { id:'x2', code:'1120', name:'Goods in Transit', type:'asset' as const, category:'Inventory', balance:0 },
-  { id:'x3', code:'3040', name:'Opening Stock Equity', type:'equity' as const, category:'Equity', balance:0 },
-  { id:'x4', code:'5090', name:'Inventory Adjustment — Cost Variance', type:'cogs' as const, category:'COGS', balance:0 },
-  { id:'x5', code:'6011', name:'Salaries — Part-Time / Casual', type:'expense' as const, category:'People', balance:0 },
-  { id:'x6', code:'6120', name:'Utilities — Electricity & Water', type:'expense' as const, category:'Premises', balance:0 },
-  { id:'x7', code:'6211', name:'Influencer & Content Costs', type:'expense' as const, category:'Marketing', balance:0 },
-  { id:'x8', code:'6412', name:'Packaging Materials', type:'expense' as const, category:'Logistics', balance:0 },
-  { id:'x9', code:'6511', name:'Professional Fees (Legal/Audit)', type:'expense' as const, category:'Admin', balance:0 },
-  { id:'x10', code:'7012', name:'FX Gain/Loss — Unrealised', type:'other' as const, category:'FX', balance:0 },
-]
+interface Account {
+  id: string; code: string; name: string; type: string;
+  category: string; balance: number; is_active: boolean
+}
 
 const TYPE_COLOR: Record<string, string> = {
   asset: 'pill-blue', liability: 'pill-red', equity: 'pill-gray',
@@ -21,29 +12,38 @@ const TYPE_COLOR: Record<string, string> = {
 }
 
 export default function ChartOfAccounts() {
+  const [accounts, setAccounts] = useState<Account[]>([])
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
 
-  const filtered = ALL_ACCTS.filter(a =>
+  useEffect(() => { loadAccounts() }, [])
+
+  const loadAccounts = async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('accounts')
+      .select('id, code, name, type, category, balance, is_active')
+      .order('code')
+    if (data) setAccounts(data)
+    setLoading(false)
+  }
+
+  const filtered = accounts.filter(a =>
     (filter === 'all' || a.type === filter) &&
     (a.name.toLowerCase().includes(search.toLowerCase()) || a.code.includes(search))
-  ).sort((a, b) => a.code.localeCompare(b.code))
+  ).filter(a => a.type !== 'heading' && a.type !== 'end_total' && a.type !== 'begin_total')
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
           <div className="page-title">📂 Chart of Accounts</div>
-          <div className="page-sub">Full double-entry COA · NAV/Business Central structure · {ALL_ACCTS.length} accounts</div>
+          <div className="page-sub">Live balances from Supabase · {accounts.length} accounts · <span className="sync-dot"></span></div>
         </div>
         <div className="page-actions">
-          <input
-            className="form-input"
-            style={{ width: 200, padding: '6px 10px', fontSize: 12 }}
-            placeholder="🔍 Search accounts…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <input className="form-input" style={{ width: 200, padding: '6px 10px', fontSize: 12 }} placeholder="🔍 Search accounts…" value={search} onChange={e => setSearch(e.target.value)} />
+          <button className="btn btn-ghost btn-sm" onClick={loadAccounts}>🔄 Refresh</button>
           <button className="btn btn-primary btn-sm">+ New Account</button>
         </div>
       </div>
@@ -56,27 +56,31 @@ export default function ChartOfAccounts() {
         ))}
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Code</th><th>Account Name</th><th>Type</th><th>Category</th><th className="td-right">Balance (TZS)</th><th>Status</th></tr>
-          </thead>
-          <tbody>
-            {filtered.map((a, i) => (
-              <tr key={i}>
-                <td className="td-mono td-amber">{a.code}</td>
-                <td className="td-bold">{a.name}</td>
-                <td><span className={`pill ${TYPE_COLOR[a.type]}`}>{a.type.charAt(0).toUpperCase() + a.type.slice(1)}</span></td>
-                <td style={{ fontSize: 12, color: 'var(--text3)' }}>{a.category}</td>
-                <td className={`td-right td-mono ${a.balance >= 0 ? 'td-green' : 'td-red'}`}>
-                  {a.balance < 0 ? `(${Math.abs(a.balance).toLocaleString()})` : a.balance.toLocaleString()}
-                </td>
-                <td><span className="pill pill-green">Active</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading accounts…</div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Code</th><th>Account Name</th><th>Type</th><th>Category</th><th className="td-right">Balance (TZS)</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((a, i) => (
+                <tr key={i}>
+                  <td className="td-mono td-amber">{a.code}</td>
+                  <td className="td-bold">{a.name}</td>
+                  <td><span className={`pill ${TYPE_COLOR[a.type] || 'pill-gray'}`}>{a.type.charAt(0).toUpperCase() + a.type.slice(1)}</span></td>
+                  <td style={{ fontSize: 12, color: 'var(--text3)' }}>{a.category}</td>
+                  <td className={`td-right td-mono ${a.balance >= 0 ? 'td-green' : 'td-red'}`}>
+                    {a.balance < 0 ? `(${Math.abs(a.balance).toLocaleString()})` : a.balance.toLocaleString()}
+                  </td>
+                  <td><span className={`pill ${a.is_active ? 'pill-green' : 'pill-gray'}`}>{a.is_active ? 'Active' : 'Inactive'}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
