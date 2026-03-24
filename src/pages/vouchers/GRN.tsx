@@ -1,25 +1,158 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
-import LineItemsTable from '../../components/LineItemsTable'
 import Toast from '../../components/Toast'
-import { SUPPLIERS } from '../../lib/data'
-import { genRef, today } from '../../lib/utils'
-import type { Page, LineItem } from '../../lib/types'
+import { genRef, today, tzs } from '../../lib/utils'
+import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
+interface DBProduct { id: string; sku: string; name: string; cost_price: number; qty_on_hand: number }
+interface DBSupplier { id: string; name: string }
+interface GRNLine { productId: string; qty: number; unitCost: number; amount: number }
 
 export default function GRN({ onNav }: Props) {
   const [toast, setToast] = useState('')
-  const [lines, setLines] = useState<LineItem[]>([{ productId: '', desc: '', qty: 1, price: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: genRef('GRN', 19), supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '' })
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [posting, setPosting] = useState(false)
+  const [products, setProducts] = useState<DBProduct[]>([])
+  const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
+  const [lines, setLines] = useState<GRNLine[]>([{ productId: '', qty: 1, unitCost: 0, amount: 0 }])
+  const [form, setForm] = useState({ date: today(), ref: genRef('GRN', 1), supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
-  const post = () => { setToast(`✅ ${form.ref} posted · Dr Inventory (1110) / Cr GRN Interim (1121) · Stock & avg cost updated`); onNav('vouchers') }
+
+  useEffect(() => { loadProducts(); loadSuppliers(); loadNextRef() }, [])
+
+  const loadProducts = async () => {
+    const { data } = await supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).order('name')
+    if (data) setProducts(data)
+  }
+
+  const loadSuppliers = async () => {
+    const { data } = await supabase.from('suppliers').select('id, name').eq('is_active', true).order('name')
+    if (data) setSuppliers(data)
+  }
+
+  const loadNextRef = async () => {
+    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'grn')
+    set('ref', genRef('GRN', (count || 0) + 1))
+  }
+
+  const updateLine = (i: number, field: keyof GRNLine, val: string | number) => {
+    const nl = [...lines]
+    nl[i] = { ...nl[i], [field]: val as never }
+    if (field === 'productId') {
+      const p = products.find(p => p.id === val)
+      if (p) { nl[i].unitCost = p.cost_price; nl[i].amount = nl[i].qty * p.cost_price }
+    }
+    if (field === 'qty' || field === 'unitCost') nl[i].amount = nl[i].qty * nl[i].unitCost
+    setLines(nl)
+  }
+
+  const totalCost = lines.reduce((s, l) => s + l.amount, 0)
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
+
+  const post = async () => {
+    if (!form.supplier) { showToast('❌ Please select a supplier', 'error'); return }
+    if (lines.every(l => !l.productId)) { showToast('❌ Please add at least one product', 'error'); return }
+    setPosting(true)
+
+    try {
+      // Get account IDs
+      const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['1110', '1121'])
+      const inventoryAcctId = acctData?.find(a => a.code === '1110')?.id
+      const grnInterimAcctId = acctData?.find(a => a.code === '1121')?.id
+      if (!inventoryAcctId || !grnInterimAcctId) throw new Error('Inventory accounts not found. Check Chart of Accounts.')
+
+      // Create journal: Dr Inventory / Cr GRN Interim
+      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+        ref: 'JV-' + form.ref,
+        posting_date: form.date,
+        description: `GRN — ${suppliers.find(s => s.id === form.supplier)?.name} — ${form.ref}`,
+        journal_type: 'grn',
+        source_type: 'grn',
+        source_ref: form.ref,
+        posted_by: form.receivedBy,
+        status: 'posted',
+      }).select('id').single()
+      if (jErr) throw new Error('Journal: ' + jErr.message)
+
+      const { error: jlErr } = await supabase.from('journal_lines').insert([
+        { journal_id: journal.id, line_number: 1, account_id: inventoryAcctId, description: `Stock received — ${form.ref}`, debit: totalCost, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: grnInterimAcctId, description: `GRN Interim — ${form.ref}`, debit: 0, credit: totalCost },
+      ])
+      if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
+
+      // Update account balances
+      await Promise.all([
+        supabase.rpc('update_account_balance', { p_account_id: inventoryAcctId, p_debit: totalCost, p_credit: 0 }),
+        supabase.rpc('update_account_balance', { p_account_id: grnInterimAcctId, p_debit: 0, p_credit: totalCost }),
+      ])
+
+      // Create voucher
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref,
+        type: 'grn',
+        posting_date: form.date,
+        description: `GRN — ${suppliers.find(s => s.id === form.supplier)?.name}`,
+        total_amount: totalCost,
+        status: 'posted',
+        supplier_id: form.supplier,
+        journal_id: journal.id,
+        notes: form.notes,
+        posted_by: form.receivedBy,
+      }).select('id').single()
+      if (vErr) throw new Error('Voucher: ' + vErr.message)
+
+      // Update stock quantities and item ledger
+      for (const line of lines) {
+        if (!line.productId) continue
+        const prod = products.find(p => p.id === line.productId)
+        if (!prod) continue
+
+        // Recalculate average cost
+        const newQty = prod.qty_on_hand + line.qty
+        const newAvgCost = ((prod.qty_on_hand * prod.cost_price) + (line.qty * line.unitCost)) / newQty
+
+        await supabase.from('products').update({ qty_on_hand: newQty, cost_price: newAvgCost }).eq('id', line.productId)
+
+        await supabase.from('item_ledger_entries').insert({
+          product_id: line.productId,
+          entry_type: 'purchase',
+          document_type: 'grn',
+          document_ref: form.ref,
+          posting_date: form.date,
+          qty: line.qty,
+          cost_amount: line.amount,
+        })
+
+        await supabase.from('voucher_lines').insert({
+          voucher_id: voucher.id,
+          line_number: lines.indexOf(line) + 1,
+          product_id: line.productId,
+          qty: line.qty,
+          unit_cost: line.unitCost,
+          subtotal: line.amount,
+          total: line.amount,
+        })
+      }
+
+      showToast(`✅ ${form.ref} posted · Dr Inventory / Cr GRN Interim · Stock updated · Avg cost recalculated`)
+      onNav('vouchers')
+
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
 
   return (
-    <VoucherPage title="Goods Received Note (GRN)" icon="🚛" subtitle="Record goods received from supplier — posts to inventory" color="rgba(251,146,60,.12)"
-      onPost={post} postLabel="✅ Confirm GRN & Update Stock"
-      journalNote="Dr Inventory (1110) · Cr GRN Interim (1121) · Qty added · Weighted avg cost recalculated">
+    <VoucherPage title="Goods Received Note (GRN)" icon="🚛" subtitle="Record goods received — updates stock and average cost" color="rgba(251,146,60,.12)"
+      onPost={post} postLabel={posting ? '⏳ Posting…' : '✅ Confirm GRN & Update Stock'}
+      journalNote="Dr Inventory (1110) · Cr GRN Interim (1121) · Stock qty increases · Weighted avg cost recalculates">
+
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
           <div>
@@ -30,8 +163,12 @@ export default function GRN({ onNav }: Props) {
             </div>
             <FG label="Related PO Reference"><input className="form-input" placeholder="e.g. PO-0022" value={form.poRef} onChange={e => set('poRef', e.target.value)} /></FG>
             <div className="form-row">
-              <FG label="FX Rate on Receipt Date" req><input className="form-input" placeholder="2540" value={form.fxRate} onChange={e => set('fxRate', e.target.value)} /></FG>
-              <FG label="Received By"><select className="form-input" value={form.receivedBy} onChange={e => set('receivedBy', e.target.value)}><option>Joe Gembe</option><option>Jane Mwatonoka</option><option>Lilian Mallya</option></select></FG>
+              <FG label="FX Rate on Receipt Date"><input className="form-input" placeholder="2540" value={form.fxRate} onChange={e => set('fxRate', e.target.value)} /></FG>
+              <FG label="Received By">
+                <select className="form-input" value={form.receivedBy} onChange={e => set('receivedBy', e.target.value)}>
+                  <option>Joe Gembe</option><option>Jane Mwatonoka</option><option>Lilian Mallya</option>
+                </select>
+              </FG>
             </div>
           </div>
           <div>
@@ -39,7 +176,7 @@ export default function GRN({ onNav }: Props) {
             <FG label="Supplier" req>
               <select className="form-input" value={form.supplier} onChange={e => set('supplier', e.target.value)}>
                 <option value="">— Select supplier —</option>
-                {SUPPLIERS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </FG>
             <FG label="Goods Condition">
@@ -53,14 +190,47 @@ export default function GRN({ onNav }: Props) {
           </div>
         </div>
       </div>
+
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title" style={{ marginBottom: 14 }}>Items Received</div>
-        <LineItemsTable lines={lines} setLines={setLines} priceLabel="Unit Cost (USD)" />
+        <div className="table-wrap" style={{ marginBottom: 8 }}>
+          <table>
+            <thead><tr><th>Product</th><th style={{ width: 80, textAlign: 'center' }}>Qty</th><th style={{ textAlign: 'right', width: 150 }}>Unit Cost (TZS)</th><th style={{ textAlign: 'right', width: 150 }}>Amount (TZS)</th><th style={{ width: 40 }}></th></tr></thead>
+            <tbody>
+              {lines.map((line, i) => (
+                <tr key={i}>
+                  <td>
+                    <select className="form-input" style={{ fontSize: 12, padding: '6px 8px' }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
+                      <option value="">— Select product —</option>
+                      {products.map(p => <option key={p.id} value={p.id}>{p.name} (Current stock: {p.qty_on_hand})</option>)}
+                    </select>
+                  </td>
+                  <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'center' }} value={line.qty} min={1} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} /></td>
+                  <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--mono)' }} value={line.unitCost} onChange={e => updateLine(i, 'unitCost', parseFloat(e.target.value) || 0)} /></td>
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text)' }}>{line.amount.toLocaleString()}</td>
+                  <td><button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14 }}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', qty: 1, unitCost: 0, amount: 0 }])}>+ Add item</button>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14, width: 280 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700 }}>
+              <span>Total Received Value</span>
+              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{tzs(totalCost)}</span>
+            </div>
+          </div>
+        </div>
       </div>
+
       <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(212,135,74,.2)', borderRadius: 'var(--r)', padding: 14, fontSize: 11, color: 'var(--accent)', lineHeight: 1.8 }}>
         ⚡ After posting: Stock qty increases · Weighted avg cost recalculates · GRN Interim (1121) clears when purchase invoice is matched
       </div>
-      {toast && <Toast message={toast} type="success" onClose={() => setToast('')} />}
+
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </VoucherPage>
   )
 }
