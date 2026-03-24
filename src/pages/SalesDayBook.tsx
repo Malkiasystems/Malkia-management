@@ -26,8 +26,6 @@ interface Sale {
   }[]
 }
 
-const VOUCHER_TYPES = ['all', 'cash_sale', 'sales_invoice']
-const STATUSES = ['all', 'posted', 'draft']
 
 export default function SalesDayBook() {
   const [sales, setSales] = useState<Sale[]>([])
@@ -98,7 +96,7 @@ export default function SalesDayBook() {
   const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
   const totalVat = filtered.reduce((s, v) => s + (v.vat_amount || 0), 0)
   const totalNet = totalRevenue - totalVat
-  const totalCost = filtered.reduce((s, v) => (s.voucher_lines || []).reduce((acc: number, l: any) => acc + (l.unit_cost * l.qty || 0), s), 0)
+  const totalCost = filtered.reduce((s: number, sale: any) => s + (sale.voucher_lines || []).reduce((acc: number, l: any) => acc + ((l.unit_cost || 0) * (l.qty || 0)), 0), 0)
   const totalMargin = totalNet - totalCost
   const marginPct = totalNet > 0 ? Math.round((totalMargin / totalNet) * 100) : 0
   const podCount = filtered.filter(s => s.status === 'draft').length
@@ -438,7 +436,6 @@ export default function SalesDayBook() {
                         </thead>
                         <tbody>
                           {(s.voucher_lines as any[]).map((l, li) => {
-                            const lineMargin = (l.unit_price - l.unit_cost) * l.qty
                             const linePct = l.unit_price > 0 ? Math.round(((l.unit_price - l.unit_cost) / l.unit_price) * 100) : 0
                             return (
                               <tr key={li}>
