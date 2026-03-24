@@ -2,8 +2,8 @@ import { useState } from 'react'
 import LineItemsTable from '../../components/LineItemsTable'
 import Toast from '../../components/Toast'
 import { FG } from '../../components/FormHelpers'
-import { PRODUCTS, CUSTOMERS } from '../../lib/data'
-import { genRef, today, tzs } from '../../lib/utils'
+import { CUSTOMERS } from '../../lib/data'
+import { genRef, tzs } from '../../lib/utils'
 import type { Page, LineItem } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -38,6 +38,7 @@ export default function CashSale({ onNav }: Props) {
     setWa(''); setCustName(''); setFoundCust(null)
     setLines([{ productId: '', desc: '', qty: 1, price: 0, amount: 0 }])
     setTendered(''); setPayment('cash')
+    setTimeout(() => onNav('vouchers'), 1500)
   }
 
   const RECENT = [
