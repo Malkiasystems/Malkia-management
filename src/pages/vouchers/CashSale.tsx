@@ -22,11 +22,10 @@ export default function CashSale({ onNav }: Props) {
 
   // Settings
   const [autoReceipt, setAutoReceipt] = useState(true)
-  const [allowedAccountCodes, setAllowedAccountCodes] = useState<string[]>([])
+  const [, setAllowedAccountCodes] = useState<string[]>([])
 
   // Customer
   const [waInput, setWaInput] = useState('')
-  const [custSearch, setCustSearch] = useState('')
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
   const [newCustName, setNewCustName] = useState('')
@@ -143,7 +142,7 @@ export default function CashSale({ onNav }: Props) {
     const nl = [...paymentLines]; nl[i] = { ...nl[i], [field]: val }; setPaymentLines(nl)
   }
 
-  const setExact = () => {
+  const _setExact = () => {
     const nl = [...paymentLines]
     nl[0] = { ...nl[0], amount: total.toString() }
     setPaymentLines(nl)
@@ -291,6 +290,7 @@ export default function CashSale({ onNav }: Props) {
       setPaymentLines([{ method: 'Cash', accountId: bankAccounts.find(a => a.code === '1010')?.id || '', amount: '', ref: '' }])
       setTownDelivery(''); setUpcountryShipping(''); setIsPOD(false)
       loadTodayStats(); loadRecentSales(); loadProducts()
+      setTimeout(() => onNav('vouchers'), 2000)
 
     } catch (err: any) {
       showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
@@ -299,7 +299,6 @@ export default function CashSale({ onNav }: Props) {
     }
   }
 
-  const defaultCashAcct = bankAccounts.find(a => a.code === '1010')
 
   return (
     <div className="page" style={{ paddingBottom: 40 }}>
