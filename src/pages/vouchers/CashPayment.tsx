@@ -17,7 +17,7 @@ export default function CashPayment({ onNav }: Props) {
   const [posting, setPosting] = useState(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
-  const [refNum, setRefNum] = useState(1)
+  const [, setRefNum] = useState(1)
 
   const [form, setForm] = useState({
     date: today(),
