@@ -155,7 +155,6 @@ function Toast({ message, type='success', onClose }: { message:string; type?:'su
 
 // ── DASHBOARD ─────────────────────────────────────
 function Dashboard({ onNav }: { onNav:(p:Page)=>void }) {
-  const _totalValue = PRODUCTS.reduce((s,p)=>s+p.cost*p.qty,0)
   return (
     <div className="page">
       <div className="page-header">
