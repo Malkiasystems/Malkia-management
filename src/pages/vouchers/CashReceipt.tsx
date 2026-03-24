@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -6,12 +7,81 @@ import { genRef, today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
+interface DBAccount { id: string; code: string; name: string }
 
 export default function CashReceipt({ onNav }: Props) {
   const [toast, setToast] = useState('')
-  const [form, setForm] = useState({ date: today(), ref: genRef('CRV', 28), receivedFrom: '', incomeAccount: '', cashAccount: '1010', amount: '', method: 'cash', narration: '' })
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [posting, setPosting] = useState(false)
+  const [accounts, setAccounts] = useState<DBAccount[]>([])
+  const [form, setForm] = useState({
+    date: today(), ref: '', receivedFrom: '', incomeAccount: '',
+    cashAccount: '', amount: '', method: 'cash', narration: ''
+  })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
-  const post = () => { setToast(`✅ ${form.ref} posted · Dr Cash / Cr Income — Journal created`); onNav('vouchers') }
+
+  useEffect(() => { loadAccounts(); loadNextRef() }, [])
+
+  const loadAccounts = async () => {
+    const { data } = await supabase.from('accounts').select('id, code, name').eq('is_active', true).order('code')
+    if (data) setAccounts(data)
+  }
+
+  const loadNextRef = async () => {
+    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'cash_receipt')
+    set('ref', genRef('CRV', (count || 0) + 1))
+  }
+
+  const cashAccounts = accounts.filter(a => ['1010', '1020', '1030'].includes(a.code))
+  const incomeAccounts = accounts.filter(a => ['revenue', 'asset', 'liability'].includes(
+    accounts.find(x => x.id === a.id) ? 'revenue' : ''
+  ))
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
+
+  const post = async () => {
+    if (!form.receivedFrom.trim()) { showToast('❌ Please enter who paid', 'error'); return }
+    if (!form.amount) { showToast('❌ Please enter amount', 'error'); return }
+    if (!form.cashAccount) { showToast('❌ Please select deposit account', 'error'); return }
+    if (!form.incomeAccount) { showToast('❌ Please select income account', 'error'); return }
+    setPosting(true)
+    const amount = parseFloat(form.amount)
+
+    try {
+      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+        ref: 'JV-' + form.ref, posting_date: form.date,
+        description: `Cash Receipt — ${form.receivedFrom} — ${form.ref}`,
+        journal_type: 'cash_receipt', source_type: 'cash_receipt',
+        source_ref: form.ref, posted_by: 'Joe Gembe', status: 'posted',
+      }).select('id').single()
+      if (jErr) throw new Error('Journal: ' + jErr.message)
+
+      const { error: jlErr } = await supabase.from('journal_lines').insert([
+        { journal_id: journal.id, line_number: 1, account_id: form.cashAccount, description: `Received from ${form.receivedFrom}`, debit: amount, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: form.incomeAccount, description: `Income — ${form.narration || form.receivedFrom}`, debit: 0, credit: amount },
+      ])
+      if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
+
+      await Promise.all([
+        supabase.rpc('update_account_balance', { p_account_id: form.cashAccount, p_debit: amount, p_credit: 0 }),
+        supabase.rpc('update_account_balance', { p_account_id: form.incomeAccount, p_debit: 0, p_credit: amount }),
+      ])
+
+      await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'cash_receipt', posting_date: form.date,
+        description: `Cash Receipt — ${form.receivedFrom}`, total_amount: amount,
+        status: 'posted', journal_id: journal.id, payment_method: form.method,
+        notes: form.narration, posted_by: 'Joe Gembe',
+      })
+
+      showToast(`✅ ${form.ref} posted · Dr Cash / Cr Income · Journal created`)
+      onNav('vouchers')
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
 
   return (
     <VoucherPage title="Cash Receipt" icon="📥" subtitle="Record money received in cash or M-Pesa" color="rgba(0,229,160,.12)"
@@ -41,35 +111,34 @@ export default function CashReceipt({ onNav }: Props) {
           <div className="card-title" style={{ marginBottom: 16 }}>Accounting</div>
           <FG label="Deposit To (Debit Account)" req>
             <select className="form-input" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
-              <option value="1010">1010 — Cash — DSM HQ Till</option>
-              <option value="1020">1020 — M-Pesa — Business Account</option>
-              <option value="1030">1030 — CRDB Bank — TZS Operating</option>
+              <option value="">— Select account —</option>
+              {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
             </select>
           </FG>
           <FG label="Income / Credit Account" req>
             <select className="form-input" value={form.incomeAccount} onChange={e => set('incomeAccount', e.target.value)}>
               <option value="">— Select account —</option>
-              <option value="4010">4010 — Sales B2C</option>
-              <option value="4011">4011 — Sales B2B</option>
-              <option value="4110">4110 — Konnect Subscription Revenue</option>
-              <option value="1050">1050 — Accounts Receivable — B2B</option>
-              <option value="2070">2070 — Customer Deposits</option>
+              {accounts.filter(a => ['4010','4011','4020','4110','1050','2070'].includes(a.code)).map(a => (
+                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+              ))}
             </select>
           </FG>
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14, marginTop: 8 }}>
-            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 10 }}>Journal Preview</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ color: 'var(--blue)' }}>Dr Cash Account</span>
-              <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{form.amount ? parseInt(form.amount).toLocaleString() : '—'}</span>
+          {form.amount && form.cashAccount && form.incomeAccount && (
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14, marginTop: 8 }}>
+              <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 10 }}>Journal Preview</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ color: 'var(--blue)' }}>Dr {accounts.find(a => a.id === form.cashAccount)?.code} — {accounts.find(a => a.id === form.cashAccount)?.name}</span>
+                <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{parseInt(form.amount).toLocaleString()}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0' }}>
+                <span style={{ color: 'var(--green)' }}>Cr {accounts.find(a => a.id === form.incomeAccount)?.code} — {accounts.find(a => a.id === form.incomeAccount)?.name}</span>
+                <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{parseInt(form.amount).toLocaleString()}</span>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0' }}>
-              <span style={{ color: 'var(--green)' }}>Cr Income Account</span>
-              <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{form.amount ? parseInt(form.amount).toLocaleString() : '—'}</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
-      {toast && <Toast message={toast} type="success" onClose={() => setToast('')} />}
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </VoucherPage>
   )
 }

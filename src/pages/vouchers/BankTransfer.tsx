@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -6,12 +7,75 @@ import { genRef, today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
+interface DBAccount { id: string; code: string; name: string }
 
 export default function BankTransfer({ onNav }: Props) {
   const [toast, setToast] = useState('')
-  const [form, setForm] = useState({ date: today(), ref: genRef('BTV', 14), fromAccount: '1030', toAccount: '1020', amount: '', fxRate: '', narration: '' })
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [posting, setPosting] = useState(false)
+  const [accounts, setAccounts] = useState<DBAccount[]>([])
+  const [form, setForm] = useState({
+    date: today(), ref: '', fromAccount: '', toAccount: '',
+    amount: '', fxRate: '', narration: ''
+  })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
-  const post = () => { setToast(`✅ ${form.ref} posted · Dr Target / Cr Source — Journal created`); onNav('vouchers') }
+
+  useEffect(() => { loadAccounts(); loadNextRef() }, [])
+
+  const loadAccounts = async () => {
+    const { data } = await supabase.from('accounts').select('id, code, name')
+      .in('code', ['1010','1020','1030','1031','1040']).order('code')
+    if (data) setAccounts(data)
+  }
+
+  const loadNextRef = async () => {
+    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'bank_transfer')
+    set('ref', genRef('BTV', (count || 0) + 1))
+  }
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
+
+  const post = async () => {
+    if (!form.fromAccount || !form.toAccount) { showToast('❌ Please select both accounts', 'error'); return }
+    if (form.fromAccount === form.toAccount) { showToast('❌ From and To accounts cannot be the same', 'error'); return }
+    if (!form.amount) { showToast('❌ Please enter amount', 'error'); return }
+    setPosting(true)
+    const amount = parseFloat(form.amount)
+
+    try {
+      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+        ref: 'JV-' + form.ref, posting_date: form.date,
+        description: `Bank Transfer — ${accounts.find(a => a.id === form.fromAccount)?.code} to ${accounts.find(a => a.id === form.toAccount)?.code} — ${form.ref}`,
+        journal_type: 'bank_transfer', source_type: 'bank_transfer',
+        source_ref: form.ref, posted_by: 'Joe Gembe', status: 'posted',
+      }).select('id').single()
+      if (jErr) throw new Error('Journal: ' + jErr.message)
+
+      const { error: jlErr } = await supabase.from('journal_lines').insert([
+        { journal_id: journal.id, line_number: 1, account_id: form.toAccount, description: `Transfer in — ${form.narration || form.ref}`, debit: amount, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: form.fromAccount, description: `Transfer out — ${form.narration || form.ref}`, debit: 0, credit: amount },
+      ])
+      if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
+
+      await Promise.all([
+        supabase.rpc('update_account_balance', { p_account_id: form.toAccount, p_debit: amount, p_credit: 0 }),
+        supabase.rpc('update_account_balance', { p_account_id: form.fromAccount, p_debit: 0, p_credit: amount }),
+      ])
+
+      await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'bank_transfer', posting_date: form.date,
+        description: `Bank Transfer — ${form.ref}`, total_amount: amount,
+        status: 'posted', journal_id: journal.id, posted_by: 'Joe Gembe', notes: form.narration,
+      })
+
+      showToast(`✅ ${form.ref} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
+      onNav('vouchers')
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
 
   return (
     <VoucherPage title="Bank Transfer" icon="🔁" subtitle="Move funds between your own bank accounts" color="rgba(61,139,255,.12)"
@@ -25,20 +89,14 @@ export default function BankTransfer({ onNav }: Props) {
           </div>
           <FG label="From Account" req>
             <select className="form-input" value={form.fromAccount} onChange={e => set('fromAccount', e.target.value)}>
-              <option value="1010">1010 — Cash — DSM HQ Till</option>
-              <option value="1020">1020 — M-Pesa — Business Account</option>
-              <option value="1030">1030 — CRDB Bank — TZS Operating</option>
-              <option value="1031">1031 — CRDB Bank — USD Account</option>
-              <option value="1040">1040 — Petty Cash</option>
+              <option value="">— Select source account —</option>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
             </select>
           </FG>
           <FG label="To Account" req>
             <select className="form-input" value={form.toAccount} onChange={e => set('toAccount', e.target.value)}>
-              <option value="1030">1030 — CRDB Bank — TZS Operating</option>
-              <option value="1010">1010 — Cash — DSM HQ Till</option>
-              <option value="1020">1020 — M-Pesa — Business Account</option>
-              <option value="1031">1031 — CRDB Bank — USD Account</option>
-              <option value="1040">1040 — Petty Cash</option>
+              <option value="">— Select destination account —</option>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
             </select>
           </FG>
           <div className="form-row">
@@ -49,22 +107,26 @@ export default function BankTransfer({ onNav }: Props) {
         </div>
         <div className="card">
           <div className="card-title" style={{ marginBottom: 16 }}>Journal Preview</div>
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ color: 'var(--blue)' }}>Dr To Account</span>
-              <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{form.amount ? parseInt(form.amount).toLocaleString() : '—'}</span>
+          {form.amount && form.fromAccount && form.toAccount ? (
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ color: 'var(--blue)' }}>Dr {accounts.find(a => a.id === form.toAccount)?.code} — {accounts.find(a => a.id === form.toAccount)?.name}</span>
+                <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{parseInt(form.amount).toLocaleString()}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0' }}>
+                <span style={{ color: 'var(--red)' }}>Cr {accounts.find(a => a.id === form.fromAccount)?.code} — {accounts.find(a => a.id === form.fromAccount)?.name}</span>
+                <span style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>{parseInt(form.amount).toLocaleString()}</span>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0' }}>
-              <span style={{ color: 'var(--red)' }}>Cr From Account</span>
-              <span style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>{form.amount ? parseInt(form.amount).toLocaleString() : '—'}</span>
-            </div>
-          </div>
+          ) : (
+            <div style={{ color: 'var(--text3)', fontSize: 12 }}>Fill in the form to see journal preview</div>
+          )}
           <div style={{ background: 'var(--yellow-dim)', border: '1px solid rgba(255,211,42,.2)', borderRadius: 'var(--r)', padding: 12, marginTop: 14, fontSize: 11, color: 'var(--yellow)' }}>
-            ⚠️ If transferring between TZS and USD accounts, the system will automatically post the FX difference to account 7010 or 7011.
+            ⚠️ If transferring between TZS and USD accounts, manually post the FX difference via Journal Entry to account 7010 or 7011.
           </div>
         </div>
       </div>
-      {toast && <Toast message={toast} type="success" onClose={() => setToast('')} />}
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </VoucherPage>
   )
 }
