@@ -6,7 +6,7 @@ export type Page =
   | 'sales-return' | 'debit-note' | 'credit-note'
   | 'purchase-order' | 'grn' | 'purchase-invoice' | 'purchase-return'
   | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry'
-  | 'sales' | 'inventory' | 'reports' | 'pnl' | 'sales-register'
+  | 'sales' | 'inventory' | 'reports' | 'pnl' | 'sales-register' | 'sales-day-book'
   | 'purchase-register' | 'payment-register' | 'trial-balance'
   | 'settings' | 'coming-soon' | 'stock-levels' | 'suppliers' | 'stock-movements'
 
