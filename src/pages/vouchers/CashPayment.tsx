@@ -8,7 +8,7 @@ import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 
-interface DBAccount { id: string; code: string; name: string; type: string }
+interface DBAccount { id: string; code: string; name: string; type: string; category: string }
 interface DBSupplier { id: string; name: string; balance_tzs: number }
 
 export default function CashPayment({ onNav }: Props) {
@@ -41,7 +41,7 @@ export default function CashPayment({ onNav }: Props) {
   }, [])
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name, type').eq('is_active', true).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, type, category').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
 

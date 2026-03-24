@@ -7,7 +7,7 @@ import { genRef, today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
-interface DBAccount { id: string; code: string; name: string }
+interface DBAccount { id: string; code: string; name: string; category: string }
 
 export default function CashReceipt({ onNav }: Props) {
   const [toast, setToast] = useState('')
@@ -23,7 +23,7 @@ export default function CashReceipt({ onNav }: Props) {
   useEffect(() => { loadAccounts(); loadNextRef() }, [])
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name').eq('is_active', true).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, category').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
 
