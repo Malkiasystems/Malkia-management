@@ -1,10 +1,100 @@
-import { PRODUCTS } from '../lib/data'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { greeting, getStatus } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 
+interface Stats {
+  totalRevenue: number
+  totalCogs: number
+  netProfit: number
+  productCount: number
+  lowStockCount: number
+  pendingVouchers: number
+}
+
+interface RecentVoucher {
+  ref: string
+  description: string
+  type: string
+  total_amount: number
+  status: string
+  posting_date: string
+}
+
+interface LowStockProduct {
+  name: string
+  qty_on_hand: number
+  reorder_point: number
+}
+
 export default function Dashboard({ onNav }: Props) {
+  const [stats, setStats] = useState<Stats>({ totalRevenue: 0, totalCogs: 0, netProfit: 0, productCount: 0, lowStockCount: 0, pendingVouchers: 0 })
+  const [recentVouchers, setRecentVouchers] = useState<RecentVoucher[]>([])
+  const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { loadDashboard() }, [])
+
+  const loadDashboard = async () => {
+    setLoading(true)
+    await Promise.all([loadStats(), loadRecentVouchers(), loadLowStock()])
+    setLoading(false)
+  }
+
+  const loadStats = async () => {
+    // Revenue from accounts
+    const { data: revenueAcct } = await supabase.from('accounts').select('balance').eq('code', '4010').single()
+    const { data: cogsAcct } = await supabase.from('accounts').select('balance').eq('code', '5010').single()
+    const { data: products } = await supabase.from('products').select('qty_on_hand, reorder_point').eq('is_active', true)
+    const { count: voucherCount } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('status', 'draft')
+
+    const revenue = Math.abs(revenueAcct?.balance || 0)
+    const cogs = cogsAcct?.balance || 0
+    const productList = products || []
+
+    setStats({
+      totalRevenue: revenue,
+      totalCogs: cogs,
+      netProfit: revenue - cogs,
+      productCount: productList.length,
+      lowStockCount: productList.filter(p => getStatus(p.qty_on_hand, p.reorder_point) !== 'ok').length,
+      pendingVouchers: voucherCount || 0,
+    })
+  }
+
+  const loadRecentVouchers = async () => {
+    const { data } = await supabase
+      .from('vouchers')
+      .select('ref, description, type, total_amount, status, posting_date')
+      .eq('status', 'posted')
+      .order('created_at', { ascending: false })
+      .limit(5)
+    if (data) setRecentVouchers(data)
+  }
+
+  const loadLowStock = async () => {
+    const { data } = await supabase
+      .from('products')
+      .select('name, qty_on_hand, reorder_point')
+      .eq('is_active', true)
+      .order('qty_on_hand')
+      .limit(5)
+    if (data) setLowStock(data.filter(p => getStatus(p.qty_on_hand, p.reorder_point) !== 'ok'))
+  }
+
+  const fmt = (n: number) => n >= 1000000 ? (n / 1000000).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(0) + 'K' : n.toLocaleString()
+
+  const TYPE_PILL: Record<string, string> = {
+    cash_sale: 'pill-green', cash_payment: 'pill-red', grn: 'pill-blue',
+    purchase_invoice: 'pill-amber', journal: 'pill-gray', bank_transfer: 'pill-blue',
+  }
+  const TYPE_LABEL: Record<string, string> = {
+    cash_sale: 'Sale', cash_payment: 'Payment', grn: 'GRN',
+    purchase_invoice: 'Purchase', journal: 'Journal', bank_transfer: 'Transfer',
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -16,35 +106,70 @@ export default function Dashboard({ onNav }: Props) {
           </div>
         </div>
         <div className="page-actions">
+          <button className="btn btn-ghost btn-sm" onClick={loadDashboard}>🔄 Refresh</button>
           <button className="btn btn-ghost btn-sm" onClick={() => onNav('cash-sale')}>💵 Cash Sale</button>
           <button className="btn btn-primary btn-sm" onClick={() => onNav('vouchers')}>+ New Voucher</button>
         </div>
       </div>
 
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card amber"><span className="stat-icon">💰</span><div className="stat-label">Revenue — Mar 2026</div><div className="stat-value">4.25M</div><div className="stat-change up">▲ +18% vs Feb</div></div>
-        <div className="stat-card green"><span className="stat-icon">📊</span><div className="stat-label">Net Profit — Mar</div><div className="stat-value">1.82M</div><div className="stat-change up">▲ Margin 43%</div></div>
-        <div className="stat-card blue"><span className="stat-icon">📦</span><div className="stat-label">Products in Stock</div><div className="stat-value">{PRODUCTS.length}</div><div className="stat-change down">▼ 3 low stock</div></div>
-        <div className="stat-card red"><span className="stat-icon">⚠️</span><div className="stat-label">Pending Vouchers</div><div className="stat-value">7</div><div className="stat-change down">▼ Needs attention</div></div>
+        <div className="stat-card amber">
+          <span className="stat-icon">💰</span>
+          <div className="stat-label">Total Revenue</div>
+          <div className="stat-value">{loading ? '…' : fmt(stats.totalRevenue)}</div>
+          <div className="stat-change up">▲ From posted sales</div>
+        </div>
+        <div className="stat-card green">
+          <span className="stat-icon">📊</span>
+          <div className="stat-label">Gross Profit</div>
+          <div className="stat-value">{loading ? '…' : fmt(stats.netProfit)}</div>
+          <div className="stat-change up">▲ Revenue minus COGS</div>
+        </div>
+        <div className="stat-card blue">
+          <span className="stat-icon">📦</span>
+          <div className="stat-label">Products in Stock</div>
+          <div className="stat-value">{loading ? '…' : stats.productCount}</div>
+          <div className="stat-change down">▼ {stats.lowStockCount} low stock</div>
+        </div>
+        <div className="stat-card red">
+          <span className="stat-icon">📝</span>
+          <div className="stat-label">Draft Vouchers</div>
+          <div className="stat-value">{loading ? '…' : stats.pendingVouchers}</div>
+          <div className="stat-change down">▼ Needs attention</div>
+        </div>
       </div>
 
       <div className="grid g32" style={{ marginBottom: 20 }}>
         <div className="card">
           <div className="card-header">
-            <div><div className="card-title">Recent Transactions</div><div className="card-sub">Last posted vouchers</div></div>
+            <div>
+              <div className="card-title">Recent Transactions</div>
+              <div className="card-sub">Last posted vouchers · Live from Supabase</div>
+            </div>
             <button className="btn btn-ghost btn-sm" onClick={() => onNav('reports')}>View all</button>
           </div>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Ref</th><th>Description</th><th>Type</th><th className="td-right">Amount (TZS)</th><th>Status</th></tr></thead>
-              <tbody>
-                <tr><td className="td-mono td-amber">CS-0042</td><td>Cash Sale — Amina Hassan</td><td><span className="pill pill-green">Receipt</span></td><td className="td-right td-mono td-green">185,000</td><td><span className="pill pill-green">Posted</span></td></tr>
-                <tr><td className="td-mono td-amber">PV-0031</td><td>Supplier payment — Meditech</td><td><span className="pill pill-red">Payment</span></td><td className="td-right td-mono td-red">420,000</td><td><span className="pill pill-green">Posted</span></td></tr>
-                <tr><td className="td-mono td-amber">GRN-0018</td><td>Breast pumps — 20 units received</td><td><span className="pill pill-blue">GRN</span></td><td className="td-right td-mono td-blue">1,200,000</td><td><span className="pill pill-green">Posted</span></td></tr>
-                <tr><td className="td-mono td-amber">CS-0041</td><td>Cash Sale — Grace Mwanza</td><td><span className="pill pill-green">Receipt</span></td><td className="td-right td-mono td-green">95,000</td><td><span className="pill pill-green">Posted</span></td></tr>
-              </tbody>
-            </table>
-          </div>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text3)' }}>Loading…</div>
+          ) : recentVouchers.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text3)', fontSize: 13 }}>No transactions yet. Post your first voucher.</div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Ref</th><th>Description</th><th>Type</th><th className="td-right">Amount (TZS)</th><th>Status</th></tr></thead>
+                <tbody>
+                  {recentVouchers.map((v, i) => (
+                    <tr key={i}>
+                      <td className="td-mono td-amber">{v.ref}</td>
+                      <td style={{ fontSize: 12 }}>{v.description}</td>
+                      <td><span className={`pill ${TYPE_PILL[v.type] || 'pill-gray'}`}>{TYPE_LABEL[v.type] || v.type}</span></td>
+                      <td className="td-right td-mono td-green">{v.total_amount?.toLocaleString()}</td>
+                      <td><span className="pill pill-green">{v.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -53,20 +178,21 @@ export default function Dashboard({ onNav }: Props) {
               <div className="card-title">⚠️ Stock Alerts</div>
               <button className="btn btn-ghost btn-sm" onClick={() => onNav('inventory')}>Manage</button>
             </div>
-            {PRODUCTS.filter(p => getStatus(p.qty, p.reorder) !== 'ok').map((p, i) => {
-              const s = getStatus(p.qty, p.reorder)
-              return (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
-                  background: `var(--${s === 'critical' ? 'red' : 'yellow'}-dim)`,
-                  border: `1px solid rgba(${s === 'critical' ? '255,71,87' : '255,211,42'},.2)`,
-                  borderRadius: 8, marginBottom: 6
-                }}>
-                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text2)' }}>{p.name}</span>
-                  <span className={`pill pill-${s === 'critical' ? 'red' : 'yellow'}`} style={{ fontSize: 10 }}>{p.qty} left · {s.toUpperCase()}</span>
-                </div>
-              )
-            })}
+            {loading ? (
+              <div style={{ color: 'var(--text3)', fontSize: 12 }}>Loading…</div>
+            ) : lowStock.length === 0 ? (
+              <div style={{ color: 'var(--green)', fontSize: 12 }}>✅ All products have sufficient stock</div>
+            ) : (
+              lowStock.map((p, i) => {
+                const s = getStatus(p.qty_on_hand, p.reorder_point)
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: `var(--${s === 'critical' ? 'red' : 'yellow'}-dim)`, border: `1px solid rgba(${s === 'critical' ? '255,71,87' : '255,211,42'},.2)`, borderRadius: 8, marginBottom: 6 }}>
+                    <span style={{ flex: 1, fontSize: 12, color: 'var(--text2)' }}>{p.name}</span>
+                    <span className={`pill pill-${s === 'critical' ? 'red' : 'yellow'}`} style={{ fontSize: 10 }}>{p.qty_on_hand} left · {s.toUpperCase()}</span>
+                  </div>
+                )
+              })
+            )}
           </div>
 
           <div className="card card-sm">
@@ -74,15 +200,17 @@ export default function Dashboard({ onNav }: Props) {
               <div className="card-title">P&L Snapshot</div>
               <button className="btn btn-ghost btn-sm" onClick={() => onNav('pnl')}>Full report</button>
             </div>
-            {[{ l: 'Revenue', v: '4,250,000', c: 'td-green' }, { l: 'Cost of Goods', v: '(1,680,000)', c: 'td-red' }, { l: 'Operating Exp', v: '(750,000)', c: 'td-red' }].map((r, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
-                <span style={{ color: 'var(--text3)' }}>{r.l}</span>
-                <span className={`td-mono ${r.c}`}>{r.v}</span>
-              </div>
-            ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ color: 'var(--text3)' }}>Revenue</span>
+              <span className="td-mono td-green">{loading ? '…' : stats.totalRevenue.toLocaleString()}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ color: 'var(--text3)' }}>Cost of Goods</span>
+              <span className="td-mono td-red">{loading ? '…' : `(${stats.totalCogs.toLocaleString()})`}</span>
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, padding: '10px 0 0' }}>
-              <span>Net Profit</span>
-              <span className="td-mono" style={{ color: 'var(--green)' }}>1,820,000</span>
+              <span>Gross Profit</span>
+              <span className="td-mono" style={{ color: stats.netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{loading ? '…' : stats.netProfit.toLocaleString()}</span>
             </div>
           </div>
         </div>
