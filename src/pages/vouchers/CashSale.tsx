@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { genRef, today, tzs } from '../../lib/utils'
+import { MalkiaReceipt } from '../ReceiptTemplate'
 
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
 interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
@@ -69,9 +70,12 @@ export default function CashSale() {
   const [recentSales, setRecentSales] = useState<any[]>([])
   const [paymentSplit, setPaymentSplit] = useState<Record<string, number>>({})
   const [refNum, setRefNum] = useState(1)
+  const [showReceipt, setShowReceipt] = useState(false)
+  const [lastVoucher, setLastVoucher] = useState<any>(null)
+  const [receiptSettings, setReceiptSettings] = useState<any>(null)
 
   useEffect(() => {
-    loadProducts(); loadDeliveryAccount(); loadAccountMap()
+    loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings()
     loadTodayStats(); loadRecentSales(); loadNextRef()
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -94,6 +98,13 @@ export default function CashSale() {
   const loadProducts = async () => {
     const { data } = await supabase.from('products').select('id, sku, name, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name')
     if (data) setDbProducts(data)
+  }
+
+  const loadReceiptSettings = async () => {
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'receipt_template').single()
+    if (data?.value) {
+      try { setReceiptSettings(JSON.parse(data.value)) } catch {}
+    }
   }
 
   const loadDeliveryAccount = async () => {
@@ -202,7 +213,9 @@ export default function CashSale() {
   const post = async () => {
     if (!newCustName.trim()) { showToast('Customer name required', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
-    if (!isPOD && !isSplit && currentMethod.showRef && !paymentRef.trim()) { showToast(`Please enter the ${currentMethod.label} reference/transaction number`, 'error'); return }
+    if (!isPOD && !isSplit && currentMethod.showRef && !paymentRef.trim()) {
+      showToast(`Reference number missing for ${currentMethod.label} — posting anyway`, 'success')
+    }
     setPosting(true)
     const ref = genRef('CS', refNum)
     const postingDate = today()
@@ -255,15 +268,14 @@ export default function CashSale() {
       if (!isPOD && autoReceipt) {
         // Primary payment method
         const primaryAcctId = accountMap[currentMethod.accountCode]
-        if (primaryAcctId) {
-          const primaryAmount = isSplit ? total - totalSplitPaid : total
-          jLines.push({
-            journal_id: journal.id, line_number: ln++,
-            account_id: primaryAcctId,
-            description: `${currentMethod.label}${paymentRef ? ' · ' + paymentRef : ''} — ${newCustName}`,
-            debit: primaryAmount > 0 ? primaryAmount : total, credit: 0
-          })
-        }
+        if (!primaryAcctId) throw new Error(`Payment account not found for ${currentMethod.label} (code: ${currentMethod.accountCode}). Check Chart of Accounts.`)
+        const primaryAmount = isSplit ? total - totalSplitPaid : total
+        jLines.push({
+          journal_id: journal.id, line_number: ln++,
+          account_id: primaryAcctId,
+          description: `${currentMethod.label}${paymentRef ? ' · ' + paymentRef : ''} — ${newCustName}`,
+          debit: primaryAmount > 0 ? primaryAmount : total, credit: 0
+        })
         // Split payment lines
         for (const sl of splitLines) {
           if (!sl.accountId || !sl.amount) continue
@@ -329,7 +341,26 @@ export default function CashSale() {
       }
 
       showToast(`${ref} posted · ${isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
-      setRefNum(n => n + 1); setShowModal(false); resetForm()
+      setRefNum(n => n + 1)
+      // Build voucher data for receipt
+      if (!isPOD) {
+        const receiptData = {
+          ref, posting_date: postingDate,
+          description: `Cash Sale — ${newCustName}`,
+          total_amount: total, vat_amount: vat, subtotal: netRevenue,
+          payment_method: currentMethod.label, notes: '', posted_by: 'Joe Gembe',
+          customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp, pregnancy_stage: selectedCust.pregnancy_stage, crown_points: (selectedCust.crown_points || 0) + crownPoints } : { name: newCustName, whatsapp: waInput, pregnancy_stage: '', crown_points: crownPoints },
+          voucher_lines: lines.filter(l => l.productId).map(l => {
+            const prod = dbProducts.find(p => p.id === l.productId)
+            return { qty: l.qty, unit_price: l.price, total: l.amount, products: prod ? { name: prod.name, sku: prod.sku, category: '' } : null }
+          }),
+        }
+        setLastVoucher(receiptData)
+        setShowModal(false)
+        setShowReceipt(true)
+      } else {
+        setShowModal(false); resetForm()
+      }
       loadTodayStats(); loadRecentSales(); loadProducts()
 
     } catch (err: any) {
@@ -747,6 +778,50 @@ export default function CashSale() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RECEIPT MODAL */}
+      {showReceipt && lastVoucher && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-primary" onClick={() => {
+                const win = window.open('', '_blank')
+                if (!win) return
+                const el = document.getElementById('malkia-receipt-modal')
+                if (!el) return
+                win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt ${lastVoucher.ref}</title>
+                  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+                  <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
+                  </head><body>${el.innerHTML}</body></html>`)
+                win.document.close()
+                setTimeout(() => win.print(), 600)
+              }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Print / Save PDF
+              </button>
+              <button className="btn btn-ghost" onClick={() => { setShowReceipt(false); resetForm() }}>Close</button>
+            </div>
+            {/* Receipt */}
+            <div id="malkia-receipt-modal">
+              <MalkiaReceipt voucher={lastVoucher} settings={receiptSettings || {
+                company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
+                address: 'Dar es Salaam, Tanzania', phone: '+255 700 000 000',
+                email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
+                tin: '—', vrn: '—', primary_color: '#85c2be', accent_color: '#f7a6ad',
+                konnect_url: 'https://www.malkia.co.tz/join', konnect_enabled: true,
+                community_url: '', community_enabled: false, community_name: 'Mama Community', community_qr_enabled: false,
+                show_crown_points: true, show_vat_breakdown: true, show_cashier: true,
+                show_care_tip: true, show_stage_message: true, konnect_utm_tracking: true,
+                footer_message: 'Share your Malkia moment — tag us on Instagram',
+                msg_pregnant: 'You are doing something extraordinary. Every choice you make matters, Mama.',
+                msg_postpartum: 'The hardest work is invisible. We see you, and we are with you.',
+                msg_general: 'Motherhood deserves better. That is why we exist.',
+              }} />
             </div>
           </div>
         </div>
