@@ -4,7 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import LineItemsTable from '../../components/LineItemsTable'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { today, tzs } from '../../lib/utils'
 import type { Page, LineItem } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -33,7 +33,6 @@ export default function PurchaseOrder({ onNav }: Props) {
   const post = async () => {
     if (!form.supplier) { setToast('Select a supplier'); setToast2Type('error'); return }
     if (lines.every(l => !l.desc || !l.amount)) { setToast('Add at least one order line'); setToast2Type('error'); return }
-    const total = subtotalUSD
     try {
       const supplier = suppliers.find(s => s.id === form.supplier)
       await supabase.from('vouchers').insert({
