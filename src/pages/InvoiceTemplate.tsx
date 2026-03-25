@@ -6,6 +6,7 @@ const MALKIA_LOGO = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUND
 
 // ── TYPES ─────────────────────────────────────
 interface InvoiceSettings {
+  logo_url: string
   company_name: string
   tagline: string
   address: string
@@ -56,6 +57,7 @@ interface InvoiceVoucher {
 }
 
 const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
+  logo_url: '',
   company_name: 'Malkia Wellness Group Ltd',
   tagline: 'Reimagining Motherhood',
   address: 'Dar es Salaam, Tanzania',
@@ -105,7 +107,7 @@ export const MalkiaInvoice = ({ voucher, settings }: { voucher: InvoiceVoucher; 
 
           {/* Left — Logo + Company */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, maxWidth: '55%' }}>
-            <img src={MALKIA_LOGO} alt="Malkia" style={{ height: 110, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
+            <img src={s.logo_url || MALKIA_LOGO} alt="Malkia" style={{ height: 110, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
             <div>
               <div style={{ fontFamily: "'Syne', serif", fontSize: 24, fontWeight: 800, color: '#1a1a1a', letterSpacing: '-0.5px', lineHeight: 1.15 }}>{s.company_name}</div>
               <div style={{ fontSize: 11, color: p, fontStyle: 'italic', marginTop: 4 }}>{s.tagline}</div>
@@ -408,6 +410,32 @@ export default function InvoiceTemplatePage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 14 }}>Company Details</div>
+              {/* Logo Upload */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Company Logo</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 80, height: 80, border: '2px dashed var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: 'var(--surface2)', flexShrink: 0 }}>
+                    {settings.logo_url
+                      ? <img src={settings.logo_url} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      : <svg width="28" height="28" fill="none" stroke="var(--text3)" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    }
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'inline-block', cursor: 'pointer', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '7px 14px', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                      Upload Logo
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const reader = new FileReader()
+                        reader.onload = ev => set('logo_url', ev.target?.result as string)
+                        reader.readAsDataURL(file)
+                      }} />
+                    </label>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', lineHeight: 1.5 }}>PNG or JPG · Will replace default logo<br/>Recommended: square or portrait format</div>
+                    {settings.logo_url && <button onClick={() => set('logo_url', '')} style={{ fontSize: 10, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', marginTop: 4, padding: 0 }}>Remove logo</button>}
+                  </div>
+                </div>
+              </div>
               <InvoiceField label="Company Name" k="company_name"  settings={settings} onChange={set} />
               <InvoiceField label="Tagline" k="tagline"  settings={settings} onChange={set} />
               <InvoiceField label="Address" k="address"  settings={settings} onChange={set} />
