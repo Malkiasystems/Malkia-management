@@ -21,12 +21,14 @@ export default function VATReport() {
 
   useEffect(() => { load() }, [])
 
-  const load = async () => {
+  const load = async (from?: string, to?: string) => {
+    const f = from || fromDate
+    const t = to || toDate
     setLoading(true)
     const { data } = await supabase.from('vouchers')
       .select('ref, type, posting_date, description, total_amount, vat_amount, subtotal')
       .in('type', ['cash_sale', 'sales_invoice', 'sales_return', 'credit_note'])
-      .gte('posting_date', fromDate).lte('posting_date', toDate)
+      .gte('posting_date', f).lte('posting_date', t)
       .eq('status', 'posted').order('posting_date', { ascending: true })
     if (data) {
       setLines(data.map(v => ({
@@ -105,9 +107,9 @@ export default function VATReport() {
             <input type="date" className="form-input" style={{ fontSize:11,padding:'3px 4px',border:'none',background:'transparent',width:120 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
             <span style={{ fontSize:11,color:'var(--text3)' }}>to</span>
             <input type="date" className="form-input" style={{ fontSize:11,padding:'3px 4px',border:'none',background:'transparent',width:120 }} value={toDate} onChange={e => setToDate(e.target.value)} />
-            <button className="btn btn-primary btn-sm" onClick={load}>Load</button>
+            <button className="btn btn-primary btn-sm" onClick={() => load()}>Load</button>
           </div>
-          <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
+          <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => load()}><Ic n="refresh" /> Refresh</button>
           <div style={{ position:'relative' }}>
             <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => setShowExport(!showExport)}><Ic n="pdf" /> Export</button>
             {showExport && (
