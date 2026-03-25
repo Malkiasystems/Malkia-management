@@ -5,7 +5,8 @@ import { FG } from '../components/FormHelpers'
 
 interface DBAccount { id: string; code: string; name: string; category: string }
 
-export default function Settings() {
+interface Props { onNav: (p: import('../lib/types').Page) => void }
+export default function Settings({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [allBankAccounts, setAllBankAccounts] = useState<DBAccount[]>([])
@@ -110,6 +111,23 @@ export default function Settings() {
           </div>
           <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => showToast('Cash sale settings saved')}>Save Cash Sale Settings</button>
         </div>
+      </div>
+
+      {/* Receipt Template */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(133,194,190,.12) 0%, rgba(247,166,173,.08) 100%)', border: '1px solid rgba(133,194,190,.3)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(133,194,190,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#85c2be" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2"/><line x1="16" y1="8" x2="8" y2="8"/><line x1="16" y1="12" x2="8" y2="12"/><line x1="16" y1="16" x2="12" y2="16"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Receipt Template</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Branded cash sale receipt · Teal & blush · Malkia identity · PDF & WhatsApp ready</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Edit messages · Toggle sections · Set Konnect link · Brand colors</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('receipt-template')} className="btn btn-primary" style={{ background: '#85c2be', border: 'none', flexShrink: 0 }}>
+          Edit Template →
+        </button>
       </div>
 
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
