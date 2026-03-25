@@ -15,20 +15,19 @@ interface PaymentMethod {
   id: string
   label: string
   sublabel: string
-  icon: string
-  iconImg?: string
   accountCode: string
   color: string
+  bg: string
   showRef: boolean
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = [
-  { id: 'cash', label: 'Cash', sublabel: 'Cash in Hand', icon: '💵', accountCode: '1010', color: '#22c55e', showRef: false },
-  { id: 'mpesa', label: 'M-Pesa', sublabel: '50582099 · Malkia Wellness', icon: '/icons/M-pesa-logo.png', accountCode: '1020', color: '#cc0000', showRef: true },
-  { id: 'mixx', label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness', icon: '/icons/mixx-by-yass-tigo-pesa.png', accountCode: '1021', color: '#1e3a8a', showRef: true },
-  { id: 'nmb', label: 'NMB Bank', sublabel: '22510074972 · Malkia Wellness', icon: '/icons/NMB3.png', accountCode: '1022', color: '#1d4ed8', showRef: true },
-  { id: 'crdb', label: 'CRDB Bank', sublabel: '015C874857300 · Malkia Wellness', icon: '/icons/crdb.png', accountCode: '1030', color: '#16a34a', showRef: true },
-  { id: 'pos', label: 'POS Card', sublabel: 'CRDB Card Machine', icon: '💳', accountCode: '1030', color: '#8b5cf6', showRef: true },
+  { id: 'cash',  label: 'Cash',        sublabel: 'Cash in Hand',                    accountCode: '1010', color: '#22c55e', bg: '#14532d', showRef: false },
+  { id: 'mpesa', label: 'M-Pesa',      sublabel: '50582099 · Malkia Wellness',      accountCode: '1020', color: '#ef4444', bg: '#7f1d1d', showRef: true  },
+  { id: 'mixx',  label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness',      accountCode: '1021', color: '#facc15', bg: '#1e3a8a', showRef: true  },
+  { id: 'nmb',   label: 'NMB Bank',    sublabel: '22510074972 · Malkia Wellness',   accountCode: '1022', color: '#60a5fa', bg: '#1e3a5f', showRef: true  },
+  { id: 'crdb',  label: 'CRDB Bank',   sublabel: '015C874857300 · Malkia Wellness', accountCode: '1030', color: '#4ade80', bg: '#14532d', showRef: true  },
+  { id: 'pos',   label: 'POS Card',    sublabel: 'CRDB Card Machine',               accountCode: '1030', color: '#c084fc', bg: '#3b0764', showRef: true  },
 ]
 
 interface SplitLine { methodId: string; accountId: string; amount: number; ref: string }
@@ -343,24 +342,69 @@ export default function CashSale({ onNav: _onNav }: Props) {
   }
 
   // ── PAYMENT BUTTON COMPONENT ──────────────────
+  // ── SVG icons per payment method ─────────────
+  const PayIcon = ({ id, color }: { id: string; color: string }) => {
+    const s = { width: 22, height: 22 }
+    if (id === 'cash') return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <rect x="2" y="6" width="20" height="12" rx="2"/>
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M6 12h.01M18 12h.01"/>
+      </svg>
+    )
+    if (id === 'mpesa') return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <rect x="7" y="2" width="10" height="18" rx="2"/>
+        <path d="M10 18h4"/>
+        <path d="M9 6l3 3 3-3"/>
+        <path d="M12 9v5"/>
+      </svg>
+    )
+    if (id === 'mixx') return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <rect x="7" y="2" width="10" height="18" rx="2"/>
+        <path d="M10 18h4"/>
+        <path d="M9 7h6M9 11h6M9 15h4"/>
+      </svg>
+    )
+    if (id === 'nmb') return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <rect x="2" y="5" width="20" height="14" rx="2"/>
+        <path d="M2 10h20"/>
+        <path d="M6 15h4M14 15h4"/>
+      </svg>
+    )
+    if (id === 'crdb') return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9z"/>
+        <path d="M3 9l9-5 9 5"/>
+        <path d="M12 12v5"/>
+      </svg>
+    )
+    // pos
+    return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <rect x="2" y="5" width="20" height="14" rx="2"/>
+        <path d="M2 10h20"/>
+        <path d="M6 15h2M10 15h6"/>
+        <rect x="6" y="12.5" width="2" height="1.5" rx=".5" fill={color}/>
+      </svg>
+    )
+  }
+
   const PayBtn = ({ method }: { method: PaymentMethod }) => {
     const isSelected = selectedMethod === method.id
-    const isImage = method.icon.startsWith('/')
     return (
       <div onClick={() => { setSelectedMethod(method.id); setIsSplit(false); setSplitLines([]) }}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: isSelected ? `${method.color}22` : 'var(--surface2)', border: `2px solid ${isSelected ? method.color : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', transition: 'all .15s' }}>
-        <div style={{ width: 48, height: 32, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden', padding: 3 }}>
-          {isImage ? (
-            <img src={method.icon} alt={method.label} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-          ) : (
-            <span style={{ fontSize: 22 }}>{method.icon}</span>
-          )}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: isSelected ? `${method.color}18` : 'var(--surface2)', border: `2px solid ${isSelected ? method.color : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', transition: 'all .15s' }}>
+        <div style={{ width: 38, height: 38, borderRadius: 8, background: method.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <PayIcon id={method.id} color={method.color} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: isSelected ? method.color : 'var(--text)' }}>{method.label}</div>
-          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{method.sublabel}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: isSelected ? method.color : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{method.label}</div>
+          <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{method.sublabel}</div>
         </div>
-        {isSelected && <div style={{ width: 10, height: 10, borderRadius: '50%', background: method.color, flexShrink: 0 }}></div>}
+        {isSelected && <div style={{ width: 8, height: 8, borderRadius: '50%', background: method.color, flexShrink: 0 }}></div>}
       </div>
     )
   }
@@ -449,7 +493,7 @@ export default function CashSale({ onNav: _onNav }: Props) {
                 return (
                   <div key={i} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                      <span style={{ color: 'var(--text3)' }}>{pm?.icon || '🏦'} {method}</span>
+                      <span style={{ color: 'var(--text3)' }}>● {method}</span>
                       <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(amount)}</span>
                     </div>
                     <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2 }}>
