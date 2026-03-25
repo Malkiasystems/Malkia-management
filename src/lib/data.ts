@@ -80,6 +80,6 @@ export const BREADCRUMBS: Record<string, string> = {
   'trial-balance':'Trial Balance', 'balance-sheet':'Balance Sheet',
   'ar-aging':'AR Aging', 'ap-aging':'AP Aging', 'vat-report':'VAT Report',
   'stock-valuation':'Stock Valuation', 'purchase-register':'Purchase Register',
-  'payment-register':'Payment Register', 'receipt-template':'Receipt Template',
+  'payment-register':'Payment Register', 'receipt-template':'Receipt Template', 'invoice-template':'Invoice Template',
   'settings':'Settings', 'coming-soon':'Coming Soon',
 }
