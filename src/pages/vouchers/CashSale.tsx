@@ -23,10 +23,10 @@ interface PaymentMethod {
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'cash', label: 'Cash', sublabel: 'Cash in Hand', icon: '💵', accountCode: '1010', color: '#22c55e', showRef: false },
-  { id: 'mpesa', label: 'M-Pesa', sublabel: '50582099 · Malkia Wellness', icon: '📱', accountCode: '1020', color: '#16a34a', showRef: true },
-  { id: 'mixx', label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness', icon: '🏦', accountCode: '1021', color: '#3b82f6', showRef: true },
-  { id: 'nmb', label: 'NMB Bank', sublabel: '22510074972 · Malkia Wellness', icon: '🏛️', accountCode: '1022', color: '#6366f1', showRef: true },
-  { id: 'crdb', label: 'CRDB Bank', sublabel: '015C874857300 · Malkia Wellness', icon: '🏦', accountCode: '1030', color: '#f97316', showRef: true },
+  { id: 'mpesa', label: 'M-Pesa', sublabel: '50582099 · Malkia Wellness', icon: '/icons/mpesa.png', accountCode: '1020', color: '#cc0000', showRef: true },
+  { id: 'mixx', label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness', icon: '/icons/mixx.png', accountCode: '1021', color: '#1e3a8a', showRef: true },
+  { id: 'nmb', label: 'NMB Bank', sublabel: '22510074972 · Malkia Wellness', icon: '/icons/nmb.png', accountCode: '1022', color: '#1d4ed8', showRef: true },
+  { id: 'crdb', label: 'CRDB Bank', sublabel: '015C874857300 · Malkia Wellness', icon: '/icons/crdb.png', accountCode: '1030', color: '#16a34a', showRef: true },
   { id: 'pos', label: 'POS Card', sublabel: 'CRDB Card Machine', icon: '💳', accountCode: '1030', color: '#8b5cf6', showRef: true },
 ]
 
@@ -344,13 +344,18 @@ export default function CashSale({ onNav: _onNav }: Props) {
   // ── PAYMENT BUTTON COMPONENT ──────────────────
   const PayBtn = ({ method }: { method: PaymentMethod }) => {
     const isSelected = selectedMethod === method.id
+    const isImage = method.icon.startsWith('/')
     return (
       <div onClick={() => { setSelectedMethod(method.id); setIsSplit(false); setSplitLines([]) }}
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: isSelected ? `${method.color}22` : 'var(--surface2)', border: `2px solid ${isSelected ? method.color : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', transition: 'all .15s' }}>
-        <span style={{ fontSize: 20 }}>{method.icon}</span>
-        <div style={{ flex: 1 }}>
+        {isImage ? (
+          <img src={method.icon} alt={method.label} style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 4, flexShrink: 0 }} />
+        ) : (
+          <span style={{ fontSize: 22, flexShrink: 0 }}>{method.icon}</span>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: isSelected ? method.color : 'var(--text)' }}>{method.label}</div>
-          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{method.sublabel}</div>
+          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{method.sublabel}</div>
         </div>
         {isSelected && <div style={{ width: 10, height: 10, borderRadius: '50%', background: method.color, flexShrink: 0 }}></div>}
       </div>
@@ -611,7 +616,7 @@ export default function CashSale({ onNav: _onNav }: Props) {
                           <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 10, marginBottom: 8 }}>
                             <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                               <select className="form-input" style={{ flex: 1, fontSize: 12 }} value={sl.methodId} onChange={e => updateSplitLine(i, 'methodId', e.target.value)}>
-                                {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.icon} {m.label}</option>)}
+                                {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.label} — {m.sublabel}</option>)}
                               </select>
                               <button onClick={() => setSplitLines(splitLines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>✕</button>
                             </div>
