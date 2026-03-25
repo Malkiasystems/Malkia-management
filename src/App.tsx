@@ -21,6 +21,7 @@ import VATReport from './pages/VATReport'
 import StockValuationReport from './pages/StockValuationReport'
 import PurchaseRegister from './pages/PurchaseRegister'
 import PaymentRegister from './pages/PaymentRegister'
+import ReceiptTemplatePage from './pages/ReceiptTemplate'
 import Settings from './pages/Settings'
 import Banks from './pages/Banks'
 
@@ -65,6 +66,7 @@ export default function App() {
       case 'stock-valuation':  return <StockValuationReport />
       case 'purchase-register': return <PurchaseRegister />
       case 'payment-register': return <PaymentRegister />
+      case 'receipt-template':  return <ReceiptTemplatePage />
       case 'banks':            return <Banks />
       case 'settings':          return <Settings />
       case 'cash-payment':      return <CashPayment onNav={setPage} />
