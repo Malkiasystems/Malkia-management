@@ -64,7 +64,7 @@ export default function BalanceSheet() {
     g[a.category].push(a); return g
   }, {} as Record<string, BSAccount[]>)
 
-  const BSSection = ({ title, accts, color }: { title: string; accts: BSAccount[]; color: string }) => {
+  const BSSection = ({ title, accts, color }: { title: string; accts: BSAccount[]; color: string }) => { // eslint-disable-line
     const grp = grouped(accts)
     const total = accts.reduce((s, a) => s + Math.abs(a.balance), 0)
     return (
@@ -72,7 +72,7 @@ export default function BalanceSheet() {
         <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 700, marginBottom: 12, padding: '8px 12px', background: 'var(--surface2)', borderRadius: 8, color }}>
           {title}
         </div>
-        {Object.entries(grp).map(([cat, catAccts]) => (
+        {Object.entries(grp).map(([cat, catAccts]) => { const _label = cat; return (
           <div key={cat} style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, padding: '6px 0 4px', borderBottom: '1px solid var(--border)', marginBottom: 4 }}>{cat}</div>
             {catAccts.map((a, i) => (
@@ -97,7 +97,7 @@ export default function BalanceSheet() {
   const exportPDF = () => {
     const win = window.open('', '_blank'); if (!win) return
     const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-    const renderSection = (accts: BSAccount[], label: string) => {
+    const renderSection = (accts: BSAccount[], _label: string) => {
       const g = grouped(accts)
       return Object.entries(g).map(([cat, catAccts]) => `
         <div class="section-label">${cat}</div>
