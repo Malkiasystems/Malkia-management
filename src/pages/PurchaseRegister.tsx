@@ -20,12 +20,14 @@ export default function PurchaseRegister() {
 
   useEffect(() => { load() }, [])
 
-  const load = async () => {
+  const load = async (from?: string, to?: string) => {
+    const f = from || fromDate
+    const t = to || toDate
     setLoading(true)
     const { data } = await supabase.from('vouchers')
       .select('ref, type, posting_date, description, total_amount, status, notes, suppliers(name)')
       .in('type', ['purchase_order', 'grn', 'purchase_invoice', 'purchase_return'])
-      .gte('posting_date', fromDate).lte('posting_date', toDate)
+      .gte('posting_date', f).lte('posting_date', t)
       .order('posting_date', { ascending: false })
     if (data) {
       setRecords(data.map((v: any) => ({ ...v, supplier_name: v.suppliers?.name || '—' })))
@@ -56,7 +58,7 @@ export default function PurchaseRegister() {
             <input type="date" className="form-input" style={{ fontSize:11,padding:'3px 4px',border:'none',background:'transparent',width:120 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
             <span style={{ fontSize:11,color:'var(--text3)' }}>to</span>
             <input type="date" className="form-input" style={{ fontSize:11,padding:'3px 4px',border:'none',background:'transparent',width:120 }} value={toDate} onChange={e => setToDate(e.target.value)} />
-            <button className="btn btn-primary btn-sm" onClick={load}>Load</button>
+            <button className="btn btn-primary btn-sm" onClick={() => load()}>Load</button>
           </div>
           <select className="form-input" style={{ fontSize:12,padding:'6px 10px' }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
             <option value="all">All Types</option>
@@ -65,7 +67,7 @@ export default function PurchaseRegister() {
             <option value="purchase_invoice">Purchase Invoices</option>
             <option value="purchase_return">Purchase Returns</option>
           </select>
-          <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
+          <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => load()}><Ic n="refresh" /> Refresh</button>
           <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={exportCSV}><Ic n="csv" /> Export CSV</button>
         </div>
       </div>
