@@ -14,6 +14,7 @@ import PnL from './pages/PnL'
 import SalesRegister from './pages/SalesRegister'
 import SalesDayBook from './pages/SalesDayBook'
 import Settings from './pages/Settings'
+import Banks from './pages/Banks'
 
 import VouchersHub from './pages/vouchers/VouchersHub'
 import CashPayment from './pages/vouchers/CashPayment'
@@ -48,6 +49,7 @@ export default function App() {
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
       case 'sales-day-book':    return <SalesDayBook />
+      case 'banks':            return <Banks />
       case 'settings':          return <Settings />
       case 'cash-payment':      return <CashPayment onNav={setPage} />
       case 'bank-payment':      return <CashPayment onNav={setPage} />
