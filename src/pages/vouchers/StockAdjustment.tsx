@@ -38,7 +38,7 @@ export default function StockAdjustment({ onNav }: Props) {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
-    if (lines.every(l => !l.productId)) { showToast('❌ Please select at least one product', 'error'); return }
+    if (lines.every(l => !l.productId)) { showToast('Please select at least one product', 'error'); return }
     setPosting(true)
 
     try {
@@ -91,18 +91,18 @@ export default function StockAdjustment({ onNav }: Props) {
         }
       }
 
-      showToast(`✅ ${form.ref} posted · Stock quantities updated · ${form.type === 'writeoff' ? 'Write-off journal posted' : 'No P&L impact'}`)
+      showToast(`${form.ref} posted · Stock quantities updated · ${form.type === 'writeoff' ? 'Write-off journal posted' : 'No P&L impact'}`)
       onNav('vouchers')
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
   }
 
   return (
-    <VoucherPage title="Stock Adjustment" icon="🔧" subtitle="Correct stock quantities — physical count, damage, write-off" color="rgba(255,71,87,.12)"
-      onPost={post} postLabel={posting ? '⏳ Posting…' : '✅ Post Adjustment'}
+    <VoucherPage title="Stock Adjustment" icon="" subtitle="Correct stock quantities — physical count, damage, write-off" color="rgba(255,71,87,.12)"
+      onPost={post} postLabel={posting ? 'Posting…' : 'Post Adjustment'}
       journalNote={form.type === 'writeoff' ? 'Dr Write-off (5080) · Cr Inventory (1110) · P&L impact' : 'Stock qty updated · No journal for count corrections'}>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
@@ -110,9 +110,9 @@ export default function StockAdjustment({ onNav }: Props) {
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
           <FG label="Adjustment Type" req>
             <select className="form-input" value={form.type} onChange={e => set('type', e.target.value)}>
-              <option value="increase">📈 Increase Stock</option>
-              <option value="decrease">📉 Decrease Stock</option>
-              <option value="writeoff">❌ Write-off (Damaged/Expired)</option>
+              <option value="increase">Increase Stock</option>
+              <option value="decrease"> Decrease Stock</option>
+              <option value="writeoff">Write-off (Damaged/Expired)</option>
             </select>
           </FG>
           <FG label="Reason">
@@ -143,14 +143,14 @@ export default function StockAdjustment({ onNav }: Props) {
             <div style={{ width: 80 }}>
               <input type="number" className="form-input" style={{ fontSize: 12, textAlign: 'center' }} placeholder="Qty" min={1} value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
             </div>
-            {lines.length > 1 && <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16, paddingBottom: 8 }}>✕</button>}
+            {lines.length > 1 && <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16, paddingBottom: 8 }}>×</button>}
           </div>
         ))}
         <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', qty: 1, reason: '' }])}>+ Add product</button>
         <div style={{ background: form.type === 'writeoff' ? 'var(--red-dim)' : form.type === 'increase' ? 'var(--green-dim)' : 'var(--yellow-dim)', border: `1px solid ${form.type === 'writeoff' ? 'var(--red)' : form.type === 'increase' ? 'var(--green)' : 'var(--yellow)'}`, borderRadius: 'var(--r)', padding: 12, marginTop: 12, fontSize: 11 }}>
-          {form.type === 'increase' && <span style={{ color: 'var(--green)' }}>📈 Stock will increase · No P&L impact</span>}
-          {form.type === 'decrease' && <span style={{ color: 'var(--yellow)' }}>📉 Stock will decrease · No P&L impact</span>}
-          {form.type === 'writeoff' && <span style={{ color: 'var(--red)' }}>❌ Stock written off · Dr Write-off (5080) / Cr Inventory (1110) · P&L impact</span>}
+          {form.type === 'increase' && <span style={{ color: 'var(--green)' }}>Stock will increase · No P&L impact</span>}
+          {form.type === 'decrease' && <span style={{ color: 'var(--yellow)' }}> Stock will decrease · No P&L impact</span>}
+          {form.type === 'writeoff' && <span style={{ color: 'var(--red)' }}>Stock written off · Dr Write-off (5080) / Cr Inventory (1110) · P&L impact</span>}
         </div>
       </div>
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}

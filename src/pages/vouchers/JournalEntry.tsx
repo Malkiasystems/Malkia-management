@@ -44,8 +44,8 @@ export default function JournalEntry({ onNav }: Props) {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
-    if (!balanced) { showToast('❌ Journal not balanced — Debits must equal Credits', 'error'); return }
-    if (!form.narration.trim()) { showToast('❌ Please enter a narration/description', 'error'); return }
+    if (!balanced) { showToast('Journal not balanced — Debits must equal Credits', 'error'); return }
+    if (!form.narration.trim()) { showToast('Please enter a narration/description', 'error'); return }
     setPosting(true)
 
     try {
@@ -70,18 +70,18 @@ export default function JournalEntry({ onNav }: Props) {
         await supabase.rpc('update_account_balance', { p_account_id: line.account_id, p_debit: line.debit, p_credit: line.credit })
       }
 
-      showToast(`✅ ${form.ref} posted · ${linesToInsert.length} lines · Balanced at TZS ${totalDr.toLocaleString()}`)
+      showToast(`${form.ref} posted · ${linesToInsert.length} lines · Balanced at TZS ${totalDr.toLocaleString()}`)
       onNav('vouchers')
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
   }
 
   return (
-    <VoucherPage title="Journal Entry" icon="🔄" subtitle="Manual double-entry — corrections and adjustments" color="rgba(212,135,74,.12)"
-      onPost={post} postLabel={posting ? '⏳ Posting…' : '📤 Post Journal'}
+    <VoucherPage title="Journal Entry" icon="" subtitle="Manual double-entry — corrections and adjustments" color="rgba(212,135,74,.12)"
+      onPost={post} postLabel={posting ? 'Posting…' : 'Post Journal'}
       journalNote="Manual entry — debits must equal credits before posting is allowed">
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
@@ -106,7 +106,7 @@ export default function JournalEntry({ onNav }: Props) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div className="card-title">Journal Lines</div>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: balanced ? 'var(--green)' : 'var(--red)' }}>
-            {balanced ? '✅ BALANCED' : totalDr > 0 || totalCr > 0 ? `⚠️ Difference: ${Math.abs(totalDr - totalCr).toLocaleString()}` : 'Enter amounts'}
+            {balanced ? 'BALANCED' : totalDr > 0 || totalCr > 0 ? `Difference: ${Math.abs(totalDr - totalCr).toLocaleString()}` : 'Enter amounts'}
           </span>
         </div>
         <div className="table-wrap" style={{ marginBottom: 8 }}>
@@ -124,7 +124,7 @@ export default function JournalEntry({ onNav }: Props) {
                   <td><input className="form-input" style={{ fontSize: 12, padding: '6px 8px' }} value={line.desc} onChange={e => updateLine(i, 'desc', e.target.value)} placeholder="Line description" /></td>
                   <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--blue)' }} value={line.dr || ''} onChange={e => updateLine(i, 'dr', parseFloat(e.target.value) || 0)} placeholder="0" /></td>
                   <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--red)' }} value={line.cr || ''} onChange={e => updateLine(i, 'cr', parseFloat(e.target.value) || 0)} placeholder="0" /></td>
-                  <td><button onClick={() => setJLines(jLines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14 }}>✕</button></td>
+                  <td><button onClick={() => setJLines(jLines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14 }}>×</button></td>
                 </tr>
               ))}
               <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>

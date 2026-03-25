@@ -37,10 +37,10 @@ export default function CashReceipt({ onNav }: Props) {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
-    if (!form.receivedFrom.trim()) { showToast('❌ Please enter who paid', 'error'); return }
-    if (!form.amount) { showToast('❌ Please enter amount', 'error'); return }
-    if (!form.cashAccount) { showToast('❌ Please select deposit account', 'error'); return }
-    if (!form.incomeAccount) { showToast('❌ Please select income account', 'error'); return }
+    if (!form.receivedFrom.trim()) { showToast('Please enter who paid', 'error'); return }
+    if (!form.amount) { showToast('Please enter amount', 'error'); return }
+    if (!form.cashAccount) { showToast('Please select deposit account', 'error'); return }
+    if (!form.incomeAccount) { showToast('Please select income account', 'error'); return }
     setPosting(true)
     const amount = parseFloat(form.amount)
 
@@ -71,17 +71,17 @@ export default function CashReceipt({ onNav }: Props) {
         notes: form.narration, posted_by: 'Joe Gembe',
       })
 
-      showToast(`✅ ${form.ref} posted · Dr Cash / Cr Income · Journal created`)
+      showToast(`${form.ref} posted · Dr Cash / Cr Income · Journal created`)
       onNav('vouchers')
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
   }
 
   return (
-    <VoucherPage title="Cash Receipt" icon="📥" subtitle="Record money received in cash or M-Pesa" color="rgba(0,229,160,.12)"
+    <VoucherPage title="Cash Receipt" icon="" subtitle="Record money received in cash or M-Pesa" color="rgba(0,229,160,.12)"
       onPost={post} journalNote="Dr Cash/M-Pesa Account · Cr Revenue/Customer Account">
       <div className="grid g2" style={{ gap: 20 }}>
         <div className="card">
@@ -95,10 +95,10 @@ export default function CashReceipt({ onNav }: Props) {
             <FG label="Amount (TZS)" req><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="0" value={form.amount} onChange={e => set('amount', e.target.value)} /></FG>
             <FG label="Payment Method" req>
               <select className="form-input" value={form.method} onChange={e => set('method', e.target.value)}>
-                <option value="cash">💵 Cash</option>
-                <option value="mpesa">📱 M-Pesa</option>
-                <option value="bank">🏦 Bank Transfer</option>
-                <option value="pos">💳 POS Card</option>
+                <option value="cash"> Cash</option>
+                <option value="mpesa"> M-Pesa</option>
+                <option value="bank"> Bank Transfer</option>
+                <option value="pos"> POS Card</option>
               </select>
             </FG>
           </div>

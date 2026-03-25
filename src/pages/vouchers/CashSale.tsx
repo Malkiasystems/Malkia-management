@@ -200,9 +200,9 @@ export default function CashSale() {
   }
 
   const post = async () => {
-    if (!newCustName.trim()) { showToast('❌ Customer name required', 'error'); return }
-    if (lines.every(l => !l.productId)) { showToast('❌ Add at least one product', 'error'); return }
-    if (!isPOD && !isSplit && currentMethod.showRef && !paymentRef.trim()) { showToast(`❌ Please enter the ${currentMethod.label} reference/transaction number`, 'error'); return }
+    if (!newCustName.trim()) { showToast('Customer name required', 'error'); return }
+    if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
+    if (!isPOD && !isSplit && currentMethod.showRef && !paymentRef.trim()) { showToast(`Please enter the ${currentMethod.label} reference/transaction number`, 'error'); return }
     setPosting(true)
     const ref = genRef('CS', refNum)
     const postingDate = today()
@@ -328,12 +328,12 @@ export default function CashSale() {
         await supabase.from('customer_ledger_entries').insert({ customer_id: customerId, posting_date: postingDate, document_type: 'invoice', document_ref: ref, description: `POD — ${newCustName}`, amount: total, remaining_amount: total, is_open: true, journal_id: journal.id })
       }
 
-      showToast(`✅ ${ref} posted · ${isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
+      showToast(`${ref} posted · ${isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
       setRefNum(n => n + 1); setShowModal(false); resetForm()
       loadTodayStats(); loadRecentSales(); loadProducts()
 
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
@@ -412,24 +412,24 @@ export default function CashSale() {
     <div className="page">
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(212,135,74,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>💵</div>
+          <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(212,135,74,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}></div>
           <div>
             <div className="page-title">Cash Sale</div>
             <div className="page-sub">Counter sales · WhatsApp ID required · Auto-posts journal + Crown points</div>
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" onClick={loadRecentSales}>🔄 Refresh</button>
+          <button className="btn btn-ghost btn-sm" onClick={loadRecentSales}>Refresh</button>
           <button className="btn btn-primary" onClick={openNewSale} style={{ padding: '10px 20px', fontSize: 14, fontWeight: 700 }}>+ New Cash Sale</button>
         </div>
       </div>
 
       {/* TODAY STATS */}
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-label">Sales Today</div><div className="stat-value">{todayStats.count}</div><div className="stat-change up">▲ Transactions</div></div>
-        <div className="stat-card amber"><div className="stat-label">Revenue Today</div><div className="stat-value">{todayStats.total >= 1000000 ? (todayStats.total/1000000).toFixed(2)+'M' : (todayStats.total/1000).toFixed(0)+'K'}</div><div className="stat-change up">▲ TZS</div></div>
-        <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{todayStats.avgSale >= 1000 ? (todayStats.avgSale/1000).toFixed(0)+'K' : todayStats.avgSale || '—'}</div><div className="stat-change up">▲ TZS</div></div>
-        <div className="stat-card yellow"><div className="stat-label">Crown Pts Awarded</div><div className="stat-value">{todayStats.crownPts.toLocaleString()}</div><div className="stat-change up">▲ Today</div></div>
+        <div className="stat-card green"><div className="stat-label">Sales Today</div><div className="stat-value">{todayStats.count}</div><div className="stat-change up">↑ Transactions</div></div>
+        <div className="stat-card amber"><div className="stat-label">Revenue Today</div><div className="stat-value">{todayStats.total >= 1000000 ? (todayStats.total/1000000).toFixed(2)+'M' : (todayStats.total/1000).toFixed(0)+'K'}</div><div className="stat-change up">↑ TZS</div></div>
+        <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{todayStats.avgSale >= 1000 ? (todayStats.avgSale/1000).toFixed(0)+'K' : todayStats.avgSale || '—'}</div><div className="stat-change up">↑ TZS</div></div>
+        <div className="stat-card yellow"><div className="stat-label">Crown Pts Awarded</div><div className="stat-value">{todayStats.crownPts.toLocaleString()}</div><div className="stat-change up">↑ Today</div></div>
       </div>
 
       <div className="grid g32" style={{ marginBottom: 20 }}>
@@ -443,7 +443,7 @@ export default function CashSale() {
           </div>
           {recentSales.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>
-              <div style={{ fontSize: 32, marginBottom: 10 }}>💵</div>
+              <div style={{ fontSize: 32, marginBottom: 10 }}></div>
               <div style={{ fontSize: 14 }}>No sales yet today</div>
               <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>Click + New Cash Sale to start</div>
             </div>
@@ -460,12 +460,12 @@ export default function CashSale() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span>{s.payment_method?.includes('M-Pesa') ? '📱' : s.payment_method?.includes('Cash') ? '💵' : s.payment_method?.includes('POS') ? '💳' : '🏦'}</span>
+                          <span>{s.payment_method?.includes('M-Pesa') ? '' : s.payment_method?.includes('Cash') ? '' : s.payment_method?.includes('POS') ? '' : ''}</span>
                           <span style={{ fontSize: 12 }}>{s.payment_method}</span>
                         </div>
                       </td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
-                      <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? '🛵 POD' : 'Posted ✓'}</span></td>
+                      <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted '}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -476,7 +476,7 @@ export default function CashSale() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card" style={{ textAlign: 'center', padding: 28, cursor: 'pointer', border: '2px dashed var(--accent)' }} onClick={openNewSale}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>💵</div>
+            <div style={{ fontSize: 40, marginBottom: 10 }}></div>
             <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>New Cash Sale</div>
             <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>WhatsApp · Products · Payment · Crown points</div>
             <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: 14, fontWeight: 700 }}>+ Start New Sale</button>
@@ -513,7 +513,7 @@ export default function CashSale() {
             {/* Modal Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 22 }}>💵</span>
+                <span style={{ fontSize: 22 }}></span>
                 <div>
                   <div style={{ fontFamily: 'var(--display)', fontSize: 17, fontWeight: 800 }}>New Cash Sale</div>
                   <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>Posts journal · Crown points · WhatsApp receipt → customer</div>
@@ -525,7 +525,7 @@ export default function CashSale() {
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{genRef('CS', refNum)}</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginLeft: 6 }}>Auto · Read only</span>
                 </div>
-                <button onClick={() => setShowModal(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: 'var(--text3)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                <button onClick={() => setShowModal(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: 'var(--text3)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
               </div>
             </div>
 
@@ -556,7 +556,7 @@ export default function CashSale() {
                               <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{c.whatsapp} · {c.pregnancy_stage || '—'}</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 11, color: 'var(--yellow)' }}>👑 {(c.crown_points || 0).toLocaleString()} pts</div>
+                              <div style={{ fontSize: 11, color: 'var(--yellow)' }}>{(c.crown_points || 0).toLocaleString()} pts</div>
                               <div style={{ fontSize: 10, color: 'var(--text3)' }}>{tzs(c.balance || 0)} LFV</div>
                             </div>
                           </div>
@@ -567,7 +567,7 @@ export default function CashSale() {
 
                   {selectedCust ? (
                     <div style={{ background: 'var(--surface2)', border: '1px solid var(--green)', borderRadius: 'var(--r)', padding: 12, marginTop: 8 }}>
-                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>✓ Existing Customer Found</div>
+                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}> Existing Customer Found</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                         <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>NAME</div><div style={{ fontSize: 13, fontWeight: 600 }}>{selectedCust.name}</div></div>
                         <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>STAGE</div><div style={{ fontSize: 12 }}>{selectedCust.pregnancy_stage || '—'}</div></div>
@@ -576,7 +576,7 @@ export default function CashSale() {
                       </div>
                       <div style={{ background: 'var(--surface)', borderRadius: 6, padding: '6px 10px', display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: 11, color: 'var(--text3)' }}>Crown Points Balance</span>
-                        <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--yellow)', fontSize: 13 }}>👑 {(selectedCust.crown_points || 0).toLocaleString()} pts</span>
+                        <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--yellow)', fontSize: 13 }}>{(selectedCust.crown_points || 0).toLocaleString()} pts</span>
                       </div>
                     </div>
                   ) : (
@@ -595,7 +595,7 @@ export default function CashSale() {
                       </select>
                       <input type="number" className="form-input" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700 }} min={1} value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
                       <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'right' }} value={line.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)} />
-                      {lines.length > 1 ? <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>✕</button> : <div />}
+                      {lines.length > 1 ? <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button> : <div />}
                     </div>
                   ))}
                   <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>PRODUCT · QTY · PRICE (editable for custom amounts)</div>
@@ -607,18 +607,18 @@ export default function CashSale() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setShowDelivery(!showDelivery)}>
                     <div className="step-num">3</div>
                     <div className="step-title">DELIVERY / SHIPPING FEES</div>
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>{showDelivery ? '▲ Hide' : '▼ Add fees'}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>{showDelivery ? '↑ Hide' : '↓ Add fees'}</span>
                   </div>
                   {showDelivery && (
                     <div style={{ marginTop: 12 }}>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>⚡ Posts to 2085 Delivery & Shipping Float — not product revenue</div>
+                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>Posts to 2085 Delivery & Shipping Float — not product revenue</div>
                       <div className="form-row">
                         <FG label="Town Delivery (TZS)"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={townDelivery} onChange={e => setTownDelivery(e.target.value)} /></FG>
                         <FG label="Upcountry Shipping (TZS)"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={upcountryShipping} onChange={e => setUpcountryShipping(e.target.value)} /></FG>
                       </div>
                       {deliveryTotal > 0 && (
                         <div style={{ background: 'var(--blue-dim)', border: '1px solid rgba(61,139,255,.2)', borderRadius: 'var(--r)', padding: '8px 12px', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text3)' }}>🚚 Total delivery/shipping</span>
+                          <span style={{ color: 'var(--text3)' }}>Total delivery/shipping</span>
                           <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)', fontWeight: 700 }}>{tzs(deliveryTotal)}</span>
                         </div>
                       )}
@@ -636,8 +636,8 @@ export default function CashSale() {
 
                   {/* POD toggle */}
                   <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                    <button onClick={() => setIsPOD(false)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: !isPOD ? 'var(--green-dim)' : 'transparent', border: `1px solid ${!isPOD ? 'var(--green)' : 'var(--border)'}`, color: !isPOD ? 'var(--green)' : 'var(--text3)' }}>💵 Paid at Counter</button>
-                    <button onClick={() => setIsPOD(true)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: isPOD ? 'var(--yellow-dim)' : 'transparent', border: `1px solid ${isPOD ? 'var(--yellow)' : 'var(--border)'}`, color: isPOD ? 'var(--yellow)' : 'var(--text3)' }}>🛵 Pay on Delivery (POD)</button>
+                    <button onClick={() => setIsPOD(false)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: !isPOD ? 'var(--green-dim)' : 'transparent', border: `1px solid ${!isPOD ? 'var(--green)' : 'var(--border)'}`, color: !isPOD ? 'var(--green)' : 'var(--text3)' }}>Paid at Counter</button>
+                    <button onClick={() => setIsPOD(true)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: isPOD ? 'var(--yellow-dim)' : 'transparent', border: `1px solid ${isPOD ? 'var(--yellow)' : 'var(--border)'}`, color: isPOD ? 'var(--yellow)' : 'var(--text3)' }}>Pay on Delivery (POD)</button>
                   </div>
 
                   {!isPOD && (
@@ -663,7 +663,7 @@ export default function CashSale() {
                               <select className="form-input" style={{ flex: 1, fontSize: 12 }} value={sl.methodId} onChange={e => updateSplitLine(i, 'methodId', e.target.value)}>
                                 {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.label} — {m.sublabel}</option>)}
                               </select>
-                              <button onClick={() => setSplitLines(splitLines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>✕</button>
+                              <button onClick={() => setSplitLines(splitLines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button>
                             </div>
                             <div style={{ display: 'flex', gap: 6 }}>
                               <input type="number" className="form-input" style={{ flex: 1, fontFamily: 'var(--mono)', fontWeight: 700 }} placeholder="Amount (TZS)" value={sl.amount || ''} onChange={e => updateSplitLine(i, 'amount', parseFloat(e.target.value) || 0)} />
@@ -711,7 +711,7 @@ export default function CashSale() {
 
                   {isPOD && (
                     <div style={{ background: 'var(--yellow-dim)', border: '1px solid rgba(255,211,42,.3)', borderRadius: 'var(--r)', padding: 12, fontSize: 12, color: 'var(--yellow)' }}>
-                      🛵 POD — Stock deducted and sale recorded now. Cash receipt posted manually when rider returns with payment.
+                      POD — Stock deducted and sale recorded now. Cash receipt posted manually when rider returns with payment.
                     </div>
                   )}
                 </div>
@@ -721,7 +721,7 @@ export default function CashSale() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Products subtotal</span><span style={{ fontFamily: 'var(--mono)' }}>{subtotal.toLocaleString()}</span></div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>VAT (18% incl.)</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{vat.toLocaleString()}</span></div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Net revenue (excl. VAT)</span><span style={{ fontFamily: 'var(--mono)' }}>{netRevenue.toLocaleString()}</span></div>
-                  {deliveryTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>🚚 Delivery → Float 2085</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{deliveryTotal.toLocaleString()}</span></div>}
+                  {deliveryTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Delivery → Float 2085</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{deliveryTotal.toLocaleString()}</span></div>}
                   {margin > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 800, padding: '12px 0 0', borderTop: '1px solid var(--border2)', marginTop: 8 }}>
                     <span>TOTAL</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(total)}</span>
@@ -730,20 +730,20 @@ export default function CashSale() {
 
                 {/* Info tags */}
                 <div style={{ background: 'var(--surface2)', borderRadius: 'var(--r)', padding: 10, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {!isPOD && <div style={{ color: 'var(--green)' }}>💬 WhatsApp receipt auto-sent to customer</div>}
-                  {isPOD && <div style={{ color: 'var(--yellow)' }}>🛵 Receipt posted manually after delivery</div>}
-                  <div style={{ color: 'var(--text3)' }}>📦 Inventory deducted · COGS → 5010 · Revenue → 4010</div>
-                  <div style={{ color: 'var(--yellow)' }}>👑 {crownPoints} Crown pts will be awarded</div>
-                  {!isPOD && currentMethod.id === 'pos' && <div style={{ color: 'var(--blue)' }}>💳 POS → tagged separately in GL reports from CRDB transfers</div>}
-                  {deliveryTotal > 0 && <div style={{ color: 'var(--blue)' }}>🚚 {tzs(deliveryTotal)} → Delivery & Shipping Float (2085)</div>}
+                  {!isPOD && <div style={{ color: 'var(--green)' }}>WhatsApp receipt auto-sent to customer</div>}
+                  {isPOD && <div style={{ color: 'var(--yellow)' }}>Receipt posted manually after delivery</div>}
+                  <div style={{ color: 'var(--text3)' }}>Inventory deducted · COGS → 5010 · Revenue → 4010</div>
+                  <div style={{ color: 'var(--yellow)' }}>{crownPoints} Crown pts will be awarded</div>
+                  {!isPOD && currentMethod.id === 'pos' && <div style={{ color: 'var(--blue)' }}>POS → tagged separately in GL reports from CRDB transfers</div>}
+                  {deliveryTotal > 0 && <div style={{ color: 'var(--blue)' }}>{tzs(deliveryTotal)} → Delivery & Shipping Float (2085)</div>}
                 </div>
 
                 {/* Action buttons */}
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowModal(false)}>Cancel</button>
-                  <button className="btn btn-ghost btn-sm" style={{ padding: '10px 14px' }}>📋 Draft</button>
+                  <button className="btn btn-ghost btn-sm" style={{ padding: '10px 14px' }}>Draft</button>
                   <button className="btn btn-primary" onClick={post} disabled={posting} style={{ flex: 2, justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 700, opacity: posting ? 0.6 : 1 }}>
-                    {posting ? '⏳ Posting…' : isPOD ? '🛵 Post POD Sale' : `📤 Post · ${currentMethod.label}`}
+                    {posting ? 'Posting…' : isPOD ? 'Post POD Sale' : `Post · ${currentMethod.label}`}
                   </button>
                 </div>
               </div>

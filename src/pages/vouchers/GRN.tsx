@@ -54,8 +54,8 @@ export default function GRN({ onNav }: Props) {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
-    if (!form.supplier) { showToast('❌ Please select a supplier', 'error'); return }
-    if (lines.every(l => !l.productId)) { showToast('❌ Please add at least one product', 'error'); return }
+    if (!form.supplier) { showToast('Please select a supplier', 'error'); return }
+    if (lines.every(l => !l.productId)) { showToast('Please add at least one product', 'error'); return }
     setPosting(true)
 
     try {
@@ -138,19 +138,19 @@ export default function GRN({ onNav }: Props) {
         })
       }
 
-      showToast(`✅ ${form.ref} posted · Dr Inventory / Cr GRN Interim · Stock updated · Avg cost recalculated`)
+      showToast(`${form.ref} posted · Dr Inventory / Cr GRN Interim · Stock updated · Avg cost recalculated`)
       onNav('vouchers')
 
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
   }
 
   return (
-    <VoucherPage title="Goods Received Note (GRN)" icon="🚛" subtitle="Record goods received — updates stock and average cost" color="rgba(251,146,60,.12)"
-      onPost={post} postLabel={posting ? '⏳ Posting…' : '✅ Confirm GRN & Update Stock'}
+    <VoucherPage title="Goods Received Note (GRN)" icon="" subtitle="Record goods received — updates stock and average cost" color="rgba(251,146,60,.12)"
+      onPost={post} postLabel={posting ? 'Posting…' : 'Confirm GRN & Update Stock'}
       journalNote="Dr Inventory (1110) · Cr GRN Interim (1121) · Stock qty increases · Weighted avg cost recalculates">
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -181,9 +181,9 @@ export default function GRN({ onNav }: Props) {
             </FG>
             <FG label="Goods Condition">
               <select className="form-input" value={form.condition} onChange={e => set('condition', e.target.value)}>
-                <option value="good">✅ Good — All items accepted</option>
-                <option value="partial">⚠️ Partial — Some items rejected</option>
-                <option value="damaged">❌ Damaged — Return required</option>
+                <option value="good">Good — All items accepted</option>
+                <option value="partial">Partial — Some items rejected</option>
+                <option value="damaged">Damaged — Return required</option>
               </select>
             </FG>
             <FG label="Notes"><textarea className="form-input" rows={2} style={{ resize: 'none' }} value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>
@@ -208,7 +208,7 @@ export default function GRN({ onNav }: Props) {
                   <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'center' }} value={line.qty} min={1} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} /></td>
                   <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--mono)' }} value={line.unitCost} onChange={e => updateLine(i, 'unitCost', parseFloat(e.target.value) || 0)} /></td>
                   <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text)' }}>{line.amount.toLocaleString()}</td>
-                  <td><button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14 }}>✕</button></td>
+                  <td><button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14 }}>×</button></td>
                 </tr>
               ))}
             </tbody>
@@ -227,7 +227,7 @@ export default function GRN({ onNav }: Props) {
       </div>
 
       <div style={{ background: 'var(--accent-dim)', border: '1px solid rgba(212,135,74,.2)', borderRadius: 'var(--r)', padding: 14, fontSize: 11, color: 'var(--accent)', lineHeight: 1.8 }}>
-        ⚡ After posting: Stock qty increases · Weighted avg cost recalculates · GRN Interim (1121) clears when purchase invoice is matched
+        After posting: Stock qty increases · Weighted avg cost recalculates · GRN Interim (1121) clears when purchase invoice is matched
       </div>
 
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}

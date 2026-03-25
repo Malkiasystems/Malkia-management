@@ -65,10 +65,10 @@ export default function CashPayment({ onNav }: Props) {
   }
 
   const post = async () => {
-    if (!form.payTo.trim()) { showToast('❌ Please enter payee name', 'error'); return }
-    if (!form.amount) { showToast('❌ Please enter amount', 'error'); return }
-    if (!form.cashAccount) { showToast('❌ Please select cash/bank account', 'error'); return }
-    if (!form.expAccount) { showToast('❌ Please select expense/debit account', 'error'); return }
+    if (!form.payTo.trim()) { showToast('Please enter payee name', 'error'); return }
+    if (!form.amount) { showToast('Please enter amount', 'error'); return }
+    if (!form.cashAccount) { showToast('Please select cash/bank account', 'error'); return }
+    if (!form.expAccount) { showToast('Please select expense/debit account', 'error'); return }
 
     setPosting(true)
     const amount = parseFloat(form.amount)
@@ -131,11 +131,11 @@ export default function CashPayment({ onNav }: Props) {
         }
       }
 
-      showToast(`✅ ${form.ref} posted · Dr ${expAcct.code} / Cr ${cashAcct.code} · Journal created`)
+      showToast(`${form.ref} posted · Dr ${expAcct.code} / Cr ${cashAcct.code} · Journal created`)
       onNav('vouchers')
 
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
@@ -144,7 +144,7 @@ export default function CashPayment({ onNav }: Props) {
   return (
     <VoucherPage
       title="Cash Payment"
-      icon="💸"
+      icon=""
       subtitle="Record a cash expense or supplier payment"
       color="rgba(255,71,87,.12)"
       onPost={post}
@@ -214,7 +214,7 @@ export default function CashPayment({ onNav }: Props) {
           </FG>
 
           <button className="btn btn-primary" onClick={post} disabled={posting} style={{ width: '100%', justifyContent: 'center', marginTop: 14, padding: '12px', opacity: posting ? 0.6 : 1 }}>
-            {posting ? '⏳ Posting…' : '📤 Post Payment'}
+            {posting ? 'Posting…' : 'Post Payment'}
           </button>
         </div>
       </div>

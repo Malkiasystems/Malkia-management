@@ -53,13 +53,14 @@ export default function PurchaseInvoice({ onNav }: Props) {
   }
 
   const total = lines.reduce((s, l) => s + l.amount, 0)
+  // No VAT on purchases — VAT is only on sales
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
-    if (!form.supplier) { showToast('❌ Please select a supplier', 'error'); return }
-    if (lines.every(l => !l.productId && !l.desc)) { showToast('❌ Please add at least one line', 'error'); return }
-    if (total <= 0) { showToast('❌ Total amount must be greater than zero', 'error'); return }
+    if (!form.supplier) { showToast('Please select a supplier', 'error'); return }
+    if (lines.every(l => !l.productId && !l.desc)) { showToast('Please add at least one line', 'error'); return }
+    if (total <= 0) { showToast('Total amount must be greater than zero', 'error'); return }
     setPosting(true)
 
     try {
@@ -148,19 +149,19 @@ export default function PurchaseInvoice({ onNav }: Props) {
         journal_id: journal.id,
       })
 
-      showToast(`✅ ${form.ref} posted · Dr GRN Interim (1121) / Cr AP (2010) · 1121 cleared · Supplier balance updated`)
+      showToast(`${form.ref} posted · Dr GRN Interim (1121) / Cr AP (2010) · 1121 cleared · Supplier balance updated`)
       onNav('vouchers')
 
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
   }
 
   return (
-    <VoucherPage title="Purchase Invoice" icon="🧾" subtitle="Match supplier invoice to GRN — clears 1121, creates AP entry" color="rgba(168,85,247,.12)"
-      onPost={post} postLabel={posting ? '⏳ Posting…' : '📤 Post Invoice'}
+    <VoucherPage title="Purchase Invoice" icon="" subtitle="Match supplier invoice to GRN — clears 1121, creates AP entry" color="rgba(168,85,247,.12)"
+      onPost={post} postLabel={posting ? 'Posting…' : 'Post Invoice'}
       journalNote="Dr GRN Interim (1121) · Cr Accounts Payable (2010) · Clears the GRN interim balance · Creates open AP entry">
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -216,7 +217,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
                   <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'center' }} value={line.qty} min={1} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} /></td>
                   <td><input type="number" className="form-input" style={{ fontSize: 12, padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--mono)' }} value={line.unitCost} onChange={e => updateLine(i, 'unitCost', parseFloat(e.target.value) || 0)} /></td>
                   <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12 }}>{line.amount.toLocaleString()}</td>
-                  <td><button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14 }}>✕</button></td>
+                  <td><button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14 }}>×</button></td>
                 </tr>
               ))}
             </tbody>
@@ -235,7 +236,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
       </div>
 
       <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14, fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
-        ⚡ After posting: GRN Interim (1121) clears · AP Suppliers (2010) increases · Vendor ledger entry created · Supplier balance updated
+        After posting: GRN Interim (1121) clears · AP Suppliers (2010) increases · Vendor ledger entry created · Supplier balance updated
       </div>
 
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}

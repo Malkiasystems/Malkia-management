@@ -36,9 +36,9 @@ export default function BankTransfer({ onNav }: Props) {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
-    if (!form.fromAccount || !form.toAccount) { showToast('❌ Please select both accounts', 'error'); return }
-    if (form.fromAccount === form.toAccount) { showToast('❌ From and To accounts cannot be the same', 'error'); return }
-    if (!form.amount) { showToast('❌ Please enter amount', 'error'); return }
+    if (!form.fromAccount || !form.toAccount) { showToast('Please select both accounts', 'error'); return }
+    if (form.fromAccount === form.toAccount) { showToast('From and To accounts cannot be the same', 'error'); return }
+    if (!form.amount) { showToast('Please enter amount', 'error'); return }
     setPosting(true)
     const amount = parseFloat(form.amount)
 
@@ -68,17 +68,17 @@ export default function BankTransfer({ onNav }: Props) {
         status: 'posted', journal_id: journal.id, posted_by: 'Joe Gembe', notes: form.narration,
       })
 
-      showToast(`✅ ${form.ref} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
+      showToast(`${form.ref} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
       onNav('vouchers')
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Something went wrong'), 'error')
+      showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
       setPosting(false)
     }
   }
 
   return (
-    <VoucherPage title="Bank Transfer" icon="🔁" subtitle="Move funds between your own bank accounts" color="rgba(61,139,255,.12)"
+    <VoucherPage title="Bank Transfer" icon="" subtitle="Move funds between your own bank accounts" color="rgba(61,139,255,.12)"
       onPost={post} journalNote="Dr Target Account · Cr Source Account · FX difference to 7010/7011 if cross-currency">
       <div className="grid g2" style={{ gap: 20 }}>
         <div className="card">
@@ -122,7 +122,7 @@ export default function BankTransfer({ onNav }: Props) {
             <div style={{ color: 'var(--text3)', fontSize: 12 }}>Fill in the form to see journal preview</div>
           )}
           <div style={{ background: 'var(--yellow-dim)', border: '1px solid rgba(255,211,42,.2)', borderRadius: 'var(--r)', padding: 12, marginTop: 14, fontSize: 11, color: 'var(--yellow)' }}>
-            ⚠️ If transferring between TZS and USD accounts, manually post the FX difference via Journal Entry to account 7010 or 7011.
+            If transferring between TZS and USD accounts, manually post the FX difference via Journal Entry to account 7010 or 7011.
           </div>
         </div>
       </div>
