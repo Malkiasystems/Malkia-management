@@ -188,18 +188,22 @@ export default function SalesInvoice({ onNav }: Props) {
         })
       }
 
-            const invoiceData = {
+      const invoiceData = {
         ref: form.ref, posting_date: form.date, due_date: form.dueDate,
         payment_terms: form.paymentTerms, notes: form.notes,
         total_amount: subtotal, vat_amount: vat, subtotal: netRevenue,
         posted_by: form.salesperson,
-        customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp || '', address: '', balance: selectedCust.balance || 0 } : { name: form.customer, whatsapp: form.wa || '', address: '', balance: 0 },
-        voucher_lines: lines.filter(l => l.productId).map(l => ({ qty: l.qty, unit_price: l.price, total: l.amount, description: l.name, products: { name: l.name, sku: '' } })),
+        customers: selectedCust
+          ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp || '', address: '', balance: selectedCust.balance || 0 }
+          : { name: form.customer, whatsapp: form.wa || '', address: '', balance: 0 },
+        voucher_lines: lines.filter(l => l.productId).map(l => ({
+          qty: l.qty, unit_price: l.price, total: l.amount,
+          description: l.name, products: { name: l.name, sku: '' }
+        })),
       }
       setLastInvoice(invoiceData)
       setShowInvoice(true)
-      showToast(`${form.ref} posted — Dr AR ${subtotal.toLocaleString()} / Cr Revenue ${netRevenue.toLocaleString()} — Stock deducted`)
-      setTimeout(() => onNav('vouchers'), 1800)
+      showToast(`${form.ref} posted · AR updated · Stock deducted`)
     } catch (err: any) {
       console.error('SalesInvoice post error:', err)
       showToast(err.message || 'Something went wrong — check browser console', 'error')
@@ -313,6 +317,49 @@ export default function SalesInvoice({ onNav }: Props) {
           </div>
         </div>
       </div>
+
+      {/* INVOICE MODAL */}
+      {showInvoice && lastInvoice && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', flexDirection: 'column', zIndex: 200 }}>
+          <div style={{ background: 'rgba(0,0,0,.95)', borderBottom: '1px solid rgba(255,255,255,.1)', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, color: '#fff' }}>Invoice — {lastInvoice.ref}</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-primary" onClick={() => {
+                const el = document.getElementById('malkia-invoice')
+                if (!el) return
+                const win = window.open('', '_blank')
+                if (!win) return
+                win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${lastInvoice.ref}</title>
+                  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+                  <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
+                </head><body>${el.outerHTML}</body></html>`)
+                win.document.close()
+                setTimeout(() => win.print(), 600)
+              }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Print / Save PDF
+              </button>
+              <button className="btn btn-ghost" onClick={() => { setShowInvoice(false); onNav('vouchers') }}>Close</button>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
+            <div id="malkia-invoice">
+              <MalkiaInvoice voucher={lastInvoice} settings={invoiceSettings || {
+                company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
+                address: 'Dar es Salaam, Tanzania', city: 'Dar es Salaam',
+                phone: '+255 700 000 000', email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz',
+                tin: '—', vrn: '—', primary_color: '#85c2be',
+                bank_name: 'NMB Bank', bank_account_name: 'Malkia Wellness Group Ltd',
+                bank_account_number: '22510074972', bank_branch: 'Dar es Salaam Branch',
+                show_bank_details: true, show_salesperson: true, show_vat_breakdown: true,
+                show_outstanding_balance: true, show_payment_terms: true, show_notes: true,
+                footer_note: 'Thank you for your business. Payment is due by the date above.',
+                payment_note: 'Please include the invoice number as payment reference.',
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </VoucherPage>
