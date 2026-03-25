@@ -16,6 +16,7 @@ interface PaymentMethod {
   label: string
   sublabel: string
   icon: string
+  iconImg?: string
   accountCode: string
   color: string
   showRef: boolean
@@ -23,9 +24,9 @@ interface PaymentMethod {
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'cash', label: 'Cash', sublabel: 'Cash in Hand', icon: '💵', accountCode: '1010', color: '#22c55e', showRef: false },
-  { id: 'mpesa', label: 'M-Pesa', sublabel: '50582099 · Malkia Wellness', icon: '/icons/mpesa.png', accountCode: '1020', color: '#cc0000', showRef: true },
-  { id: 'mixx', label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness', icon: '/icons/mixx.png', accountCode: '1021', color: '#1e3a8a', showRef: true },
-  { id: 'nmb', label: 'NMB Bank', sublabel: '22510074972 · Malkia Wellness', icon: '/icons/nmb.png', accountCode: '1022', color: '#1d4ed8', showRef: true },
+  { id: 'mpesa', label: 'M-Pesa', sublabel: '50582099 · Malkia Wellness', icon: '/icons/M-pesa-logo.png', accountCode: '1020', color: '#cc0000', showRef: true },
+  { id: 'mixx', label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness', icon: '/icons/mixx-by-yass-tigo-pesa.png', accountCode: '1021', color: '#1e3a8a', showRef: true },
+  { id: 'nmb', label: 'NMB Bank', sublabel: '22510074972 · Malkia Wellness', icon: '/icons/NMB3.png', accountCode: '1022', color: '#1d4ed8', showRef: true },
   { id: 'crdb', label: 'CRDB Bank', sublabel: '015C874857300 · Malkia Wellness', icon: '/icons/crdb.png', accountCode: '1030', color: '#16a34a', showRef: true },
   { id: 'pos', label: 'POS Card', sublabel: 'CRDB Card Machine', icon: '💳', accountCode: '1030', color: '#8b5cf6', showRef: true },
 ]
@@ -348,11 +349,13 @@ export default function CashSale({ onNav: _onNav }: Props) {
     return (
       <div onClick={() => { setSelectedMethod(method.id); setIsSplit(false); setSplitLines([]) }}
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: isSelected ? `${method.color}22` : 'var(--surface2)', border: `2px solid ${isSelected ? method.color : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', transition: 'all .15s' }}>
-        {isImage ? (
-          <img src={method.icon} alt={method.label} style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 4, flexShrink: 0 }} />
-        ) : (
-          <span style={{ fontSize: 22, flexShrink: 0 }}>{method.icon}</span>
-        )}
+        <div style={{ width: 48, height: 32, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden', padding: 3 }}>
+          {isImage ? (
+            <img src={method.icon} alt={method.label} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          ) : (
+            <span style={{ fontSize: 22 }}>{method.icon}</span>
+          )}
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: isSelected ? method.color : 'var(--text)' }}>{method.label}</div>
           <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{method.sublabel}</div>
