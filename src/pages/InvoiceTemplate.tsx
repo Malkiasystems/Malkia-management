@@ -277,6 +277,37 @@ export const MalkiaInvoice = ({ voucher, settings }: { voucher: InvoiceVoucher; 
 }
 
 // ── INVOICE TEMPLATE PAGE ─────────────────────
+
+// ── SETTINGS FIELD COMPONENT (outside to prevent re-mount on state change) ──
+const InvoiceField = ({
+  label, k, placeholder, multiline, settings, onChange
+}: {
+  label: string; k: keyof InvoiceSettings; placeholder?: string; multiline?: boolean
+  settings: InvoiceSettings; onChange: (k: keyof InvoiceSettings, v: string) => void
+}) => (
+  <div style={{ marginBottom: 12 }}>
+    <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{label}</div>
+    {multiline
+      ? <textarea className="form-input" rows={2} style={{ resize: 'none', fontSize: 12 }} value={String(settings[k])} onChange={e => onChange(k, e.target.value)} placeholder={placeholder} />
+      : <input className="form-input" style={{ fontSize: 12 }} value={String(settings[k])} onChange={e => onChange(k, e.target.value)} placeholder={placeholder} />
+    }
+  </div>
+)
+
+const InvoiceToggle = ({
+  label, desc, k, settings, onToggle
+}: {
+  label: string; desc: string; k: keyof InvoiceSettings
+  settings: InvoiceSettings; onToggle: (k: keyof InvoiceSettings, v: boolean) => void
+}) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: '1px solid var(--border)' }}>
+    <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{desc}</div></div>
+    <div onClick={() => onToggle(k, !settings[k])} style={{ width: 44, height: 24, background: settings[k] ? 'var(--green)' : 'var(--surface3)', borderRadius: 12, cursor: 'pointer', position: 'relative', transition: 'background .2s', flexShrink: 0, marginLeft: 16 }}>
+      <div style={{ position: 'absolute', top: 2, left: settings[k] ? 22 : 2, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }}></div>
+    </div>
+  </div>
+)
+
 export default function InvoiceTemplatePage() {
   const [settings, setSettings] = useState<InvoiceSettings>(DEFAULT_INVOICE_SETTINGS)
   const [saving, setSaving] = useState(false)
@@ -326,24 +357,9 @@ export default function InvoiceTemplatePage() {
     setTimeout(() => win.print(), 600)
   }
 
-  const Toggle = ({ label, desc, k }: { label: string; desc: string; k: keyof InvoiceSettings }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: '1px solid var(--border)' }}>
-      <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{desc}</div></div>
-      <div onClick={() => set(k, !settings[k as keyof InvoiceSettings])} style={{ width: 44, height: 24, background: settings[k as keyof InvoiceSettings] ? 'var(--green)' : 'var(--surface3)', borderRadius: 12, cursor: 'pointer', position: 'relative', transition: 'background .2s', flexShrink: 0, marginLeft: 16 }}>
-        <div style={{ position: 'absolute', top: 2, left: settings[k as keyof InvoiceSettings] ? 22 : 2, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }}></div>
-      </div>
-    </div>
-  )
 
-  const Field = ({ label, k, placeholder, multiline }: { label: string; k: keyof InvoiceSettings; placeholder?: string; multiline?: boolean }) => (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{label}</div>
-      {multiline
-        ? <textarea className="form-input" rows={2} style={{ resize: 'none', fontSize: 12 }} value={String(settings[k])} onChange={e => set(k, e.target.value)} placeholder={placeholder} />
-        : <input className="form-input" style={{ fontSize: 12 }} value={String(settings[k])} onChange={e => set(k, e.target.value)} placeholder={placeholder} />
-      }
-    </div>
-  )
+
+
 
   return (
     <div className="page">
@@ -371,12 +387,12 @@ export default function InvoiceTemplatePage() {
           <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 12 }}>Quick Toggles</div>
-              <Toggle label="Bank Details" desc="Show payment account info" k="show_bank_details" />
-              <Toggle label="VAT Breakdown" desc="Net + VAT separately" k="show_vat_breakdown" />
-              <Toggle label="Outstanding Balance" desc="Previous balance + total due" k="show_outstanding_balance" />
-              <Toggle label="Payment Terms" desc="Due date and terms" k="show_payment_terms" />
-              <Toggle label="Salesperson" desc="Show sales rep name" k="show_salesperson" />
-              <Toggle label="Notes" desc="Invoice notes field" k="show_notes" />
+              <InvoiceToggle label="Bank Details" desc="Show payment account info" k="show_bank_details" settings={settings} onToggle={set} />
+              <InvoiceToggle label="VAT Breakdown" desc="Net + VAT separately" k="show_vat_breakdown" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Outstanding Balance" desc="Previous balance + total due" k="show_outstanding_balance" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Payment Terms" desc="Due date and terms" k="show_payment_terms" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Salesperson" desc="Show sales rep name" k="show_salesperson" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Notes" desc="Invoice notes field" k="show_notes" settings={settings} onToggle={set} />
             </div>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 10 }}>Brand Color</div>
@@ -392,41 +408,41 @@ export default function InvoiceTemplatePage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 14 }}>Company Details</div>
-              <Field label="Company Name" k="company_name" />
-              <Field label="Tagline" k="tagline" />
-              <Field label="Address" k="address" />
+              <InvoiceField label="Company Name" k="company_name"  settings={settings} onChange={set} />
+              <InvoiceField label="Tagline" k="tagline"  settings={settings} onChange={set} />
+              <InvoiceField label="Address" k="address"  settings={settings} onChange={set} />
               <div className="form-row">
-                <Field label="Phone" k="phone" />
-                <Field label="Email" k="email" />
+                <InvoiceField label="Phone" k="phone"  settings={settings} onChange={set} />
+                <InvoiceField label="Email" k="email"  settings={settings} onChange={set} />
               </div>
               <div className="form-row">
-                <Field label="Website" k="website" />
-                <Field label="TIN" k="tin" />
+                <InvoiceField label="Website" k="website"  settings={settings} onChange={set} />
+                <InvoiceField label="TIN" k="tin"  settings={settings} onChange={set} />
               </div>
-              <Field label="VRN" k="vrn" />
+              <InvoiceField label="VRN" k="vrn"  settings={settings} onChange={set} />
             </div>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 14 }}>Footer & Notes</div>
-              <Field label="Footer Note" k="footer_note" multiline />
-              <Field label="Payment Note (on bank details)" k="payment_note" multiline />
+              <InvoiceField label="Footer Note" k="footer_note" multiline  settings={settings} onChange={set} />
+              <InvoiceField label="Payment Note (on bank details)" k="payment_note" multiline  settings={settings} onChange={set} />
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 14 }}>Bank Details</div>
-              <Field label="Bank Name" k="bank_name" placeholder="NMB Bank" />
-              <Field label="Account Name" k="bank_account_name" />
-              <Field label="Account Number" k="bank_account_number" />
-              <Field label="Branch" k="bank_branch" />
+              <InvoiceField label="Bank Name" k="bank_name" placeholder="NMB Bank"  settings={settings} onChange={set} />
+              <InvoiceField label="Account Name" k="bank_account_name"  settings={settings} onChange={set} />
+              <InvoiceField label="Account Number" k="bank_account_number"  settings={settings} onChange={set} />
+              <InvoiceField label="Branch" k="bank_branch"  settings={settings} onChange={set} />
             </div>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 12 }}>Visibility</div>
-              <Toggle label="Bank Details" desc="Show payment account on invoice" k="show_bank_details" />
-              <Toggle label="VAT Breakdown" desc="Show net + VAT separately" k="show_vat_breakdown" />
-              <Toggle label="Outstanding Balance" desc="Previous balance and total due" k="show_outstanding_balance" />
-              <Toggle label="Payment Terms" desc="Due date and terms" k="show_payment_terms" />
-              <Toggle label="Salesperson Name" desc="Show who raised the invoice" k="show_salesperson" />
-              <Toggle label="Notes Section" desc="Invoice notes field" k="show_notes" />
+              <InvoiceToggle label="Bank Details" desc="Show payment account on invoice" k="show_bank_details" settings={settings} onToggle={set} />
+              <InvoiceToggle label="VAT Breakdown" desc="Show net + VAT separately" k="show_vat_breakdown" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Outstanding Balance" desc="Previous balance and total due" k="show_outstanding_balance" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Payment Terms" desc="Due date and terms" k="show_payment_terms" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Salesperson Name" desc="Show who raised the invoice" k="show_salesperson" settings={settings} onToggle={set} />
+              <InvoiceToggle label="Notes Section" desc="Invoice notes field" k="show_notes" settings={settings} onToggle={set} />
             </div>
           </div>
         </div>
