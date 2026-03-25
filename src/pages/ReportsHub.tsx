@@ -6,16 +6,16 @@ export default function ReportsHub({ onNav }: Props) {
   const SECTIONS = [
     {
       title: 'Financial Statements', reports: [
-        { name: 'Profit & Loss', icon: '📊', page: 'pnl' as Page, desc: 'Income vs expenses' },
-        { name: 'Trial Balance', icon: '📋', page: 'trial-balance' as Page, desc: 'All account balances' },
+        { name: 'Profit & Loss', icon: '', page: 'pnl' as Page, desc: 'Income vs expenses' },
+        { name: 'Trial Balance', icon: '', page: 'trial-balance' as Page, desc: 'All account balances' },
       ]
     },
     {
       title: 'Registers', reports: [
-        { name: 'Sales Day Book', icon: '📒', page: 'sales-day-book' as Page, desc: 'Full sales detail with filters' },
-        { name: 'Sales Register', icon: '🛒', page: 'sales-register' as Page, desc: 'All sales in date order' },
-        { name: 'Purchase Register', icon: '🏭', page: 'purchase-register' as Page, desc: 'All purchase transactions' },
-        { name: 'Payment Register', icon: '💸', page: 'payment-register' as Page, desc: 'All payments made' },
+        { name: 'Sales Day Book', icon: '', page: 'sales-day-book' as Page, desc: 'Full sales detail with filters' },
+        { name: 'Sales Register', icon: '', page: 'sales-register' as Page, desc: 'All sales in date order' },
+        { name: 'Purchase Register', icon: 'procure', page: 'purchase-register' as Page, desc: 'All purchase transactions' },
+        { name: 'Payment Register', icon: 'payment', page: 'payment-register' as Page, desc: 'All payments made' },
       ]
     },
   ]
@@ -24,12 +24,12 @@ export default function ReportsHub({ onNav }: Props) {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">📈 Reports</div>
+          <div className="page-title">Reports</div>
           <div className="page-sub">Financial statements and registers — all live from transactions</div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm">🖨️ Print</button>
-          <button className="btn btn-primary btn-sm">📥 Export</button>
+          <button className="btn btn-ghost btn-sm">Print</button>
+          <button className="btn btn-primary btn-sm">Export</button>
         </div>
       </div>
 

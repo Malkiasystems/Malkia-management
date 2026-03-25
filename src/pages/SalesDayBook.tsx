@@ -123,15 +123,15 @@ export default function SalesDayBook() {
       {/* HEADER */}
       <div className="page-header">
         <div>
-          <div className="page-title">📒 Sales Day Book</div>
+          <div className="page-title">Sales Day Book</div>
           <div className="page-sub">
             All sales transactions · {filtered.length} vouchers · <span className="sync-dot"></span> Live
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" onClick={loadSales}>🔄 Refresh</button>
-          <button className="btn btn-ghost btn-sm">🖨️ Print</button>
-          <button className="btn btn-ghost btn-sm">📥 Export CSV</button>
+          <button className="btn btn-ghost btn-sm" onClick={loadSales} style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+          <button className="btn btn-ghost btn-sm" style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print</button>
+          <button className="btn btn-ghost btn-sm" style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
         </div>
       </div>
 
@@ -156,7 +156,7 @@ export default function SalesDayBook() {
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button onClick={() => setShowFilters(!showFilters)} className="btn btn-ghost btn-sm" style={{ position: 'relative' }}>
-            🔽 Filters
+            Filters
             {activeFilters > 0 && <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, background: 'var(--accent)', borderRadius: '50%', fontSize: 9, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{activeFilters}</span>}
           </button>
           <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
@@ -171,7 +171,7 @@ export default function SalesDayBook() {
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 16, marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 700 }}>Filters</div>
-            {activeFilters > 0 && <button className="btn btn-ghost btn-sm" onClick={clearFilters}>✕ Clear all filters</button>}
+            {activeFilters > 0 && <button className="btn btn-ghost btn-sm" onClick={clearFilters}>× Clear all filters</button>}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
             <div>
@@ -220,10 +220,10 @@ export default function SalesDayBook() {
 
       {/* STAT CARDS */}
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-label">Gross Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">▲ {filtered.length} vouchers</div></div>
-        <div className="stat-card blue"><div className="stat-label">Net Revenue (excl. VAT)</div><div className="stat-value">{totalNet >= 1000000 ? (totalNet/1000000).toFixed(2)+'M' : (totalNet/1000).toFixed(0)+'K'}</div><div className="stat-change up">▲ After VAT</div></div>
-        <div className="stat-card amber"><div className="stat-label">VAT Collected</div><div className="stat-value">{tzs(totalVat)}</div><div className="stat-change down">▼ Payable to TRA</div></div>
-        <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">▲ {tzs(totalMargin)}</div></div>
+        <div className="stat-card green"><div className="stat-label">Gross Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
+        <div className="stat-card blue"><div className="stat-label">Net Revenue (excl. VAT)</div><div className="stat-value">{totalNet >= 1000000 ? (totalNet/1000000).toFixed(2)+'M' : (totalNet/1000).toFixed(0)+'K'}</div><div className="stat-change up">After VAT</div></div>
+        <div className="stat-card amber"><div className="stat-label">VAT Collected</div><div className="stat-value">{tzs(totalVat)}</div><div className="stat-change down">Payable to TRA</div></div>
+        <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>
       </div>
 
       {/* PAYMENT SPLIT + STATUS */}
@@ -237,7 +237,7 @@ export default function SalesDayBook() {
             return (
               <div key={i} style={{ marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--text3)' }}>{method.includes('Cash') ? '💵' : method.includes('Pesa') || method.includes('pesa') ? '📱' : '🏦'} {method}</span>
+                  <span style={{ color: 'var(--text3)' }}>{method.includes('Cash') ? '' : method.includes('Pesa') || method.includes('pesa') ? '' : ''} {method}</span>
                   <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(amount)} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
                 </div>
                 <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3 }}>
@@ -256,7 +256,7 @@ export default function SalesDayBook() {
             </div>
             <div style={{ flex: 1, background: 'var(--yellow-dim)', border: '1px solid rgba(255,211,42,.2)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--yellow)', fontFamily: 'var(--display)' }}>{podCount}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>POD Pending 🛵</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>POD Pending </div>
             </div>
             <div style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--display)' }}>{filtered.length}</div>
@@ -308,12 +308,12 @@ export default function SalesDayBook() {
                       <td className="td-bold">{(s.customers as any)?.name || '—'}</td>
                       <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{(s.customers as any)?.whatsapp || '—'}</td>
                       <td>
-                        <span className={`pill ${s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('Pesa') ? 'pill-blue' : 'pill-amber'}`} style={{ fontSize: 10 }}>
-                          {s.payment_method?.includes('Cash') ? '💵' : s.payment_method?.includes('Pesa') ? '📱' : '🏦'} {s.payment_method}
+                        <span className={`pill ${s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('M-Pesa') ? 'pill-blue' : s.payment_method?.includes('Mixx') ? 'pill-yellow' : s.payment_method?.includes('NMB') ? 'pill-blue' : s.payment_method?.includes('CRDB') ? 'pill-green' : s.payment_method?.includes('POS') ? 'pill-gray' : 'pill-amber'}`} style={{ fontSize: 10 }}>
+                          {s.payment_method?.includes('Cash') ? '' : s.payment_method?.includes('M-Pesa') ? '' : s.payment_method?.includes('Mixx') ? '' : s.payment_method?.includes('NMB') ? '' : s.payment_method?.includes('CRDB') ? '' : s.payment_method?.includes('POS') ? '' : ''} {s.payment_method}
                         </span>
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.posted_by || '—'}</td>
-                      <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? '🛵 POD' : 'Posted ✓'}</span></td>
+                      <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted ✓'}</span></td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
                     </tr>
                   ))}
@@ -362,16 +362,16 @@ export default function SalesDayBook() {
                         <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 800, color: 'var(--accent)' }}>{s.ref}</div>
                         <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>{s.posting_date} · {s.posted_by}</div>
                       </div>
-                      <span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`}>{s.status === 'draft' ? '🛵 POD Pending' : 'Posted ✓'}</span>
-                      <span className={`pill ${s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('Pesa') ? 'pill-blue' : 'pill-amber'}`}>
-                        {s.payment_method?.includes('Cash') ? '💵' : s.payment_method?.includes('Pesa') ? '📱' : '🏦'} {s.payment_method}
+                      <span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`}>{s.status === 'draft' ? 'POD Pending' : 'Posted ✓'}</span>
+                      <span className={`pill ${s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('M-Pesa') ? 'pill-blue' : s.payment_method?.includes('Mixx') ? 'pill-yellow' : s.payment_method?.includes('NMB') ? 'pill-blue' : s.payment_method?.includes('CRDB') ? 'pill-green' : s.payment_method?.includes('POS') ? 'pill-gray' : 'pill-amber'}`}>
+                        {s.payment_method?.includes('Cash') ? '' : s.payment_method?.includes('M-Pesa') ? '' : s.payment_method?.includes('Mixx') ? '' : s.payment_method?.includes('NMB') ? '' : s.payment_method?.includes('CRDB') ? '' : s.payment_method?.includes('POS') ? '' : ''} {s.payment_method}
                       </span>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>{tzs(s.total_amount || 0)}</div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>incl. VAT {tzs(s.vat_amount || 0)}</div>
                       <div style={{ fontSize: 11, color: s.status === 'draft' ? 'var(--yellow)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {s.status === 'draft' ? '⚠️ Receipt pending' : '✓ Receipted'}
+                        {s.status === 'draft' ? 'Receipt pending' : '✓ Receipted'}
                       </div>
                     </div>
                   </div>
@@ -383,7 +383,7 @@ export default function SalesDayBook() {
                       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{(s.customers as any)?.name || '—'}</div>
                       <div style={{ fontSize: 11, color: 'var(--wa)', fontFamily: 'var(--mono)' }}>{(s.customers as any)?.whatsapp || '—'}</div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>{(s.customers as any)?.pregnancy_stage || '—'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4, fontFamily: 'var(--mono)' }}>👑 {((s.customers as any)?.crown_points || 0).toLocaleString()} pts</div>
+                      <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4, fontFamily: 'var(--mono)' }}>{((s.customers as any)?.crown_points || 0).toLocaleString()} pts</div>
                     </div>
 
                     {/* Financial Summary */}
@@ -405,17 +405,17 @@ export default function SalesDayBook() {
                         <span style={{ color: 'var(--text3)' }}>Margin</span>
                         <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 700 }}>{custMarginPct}% · {tzs(custMargin)}</span>
                       </div>
-                      {s.notes && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 6, fontStyle: 'italic' }}>📝 {s.notes}</div>}
+                      {s.notes && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 6, fontStyle: 'italic' }}> {s.notes}</div>}
                     </div>
 
                     {/* Crown Points + CRM */}
                     <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
                       <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 8 }}>CRM & Loyalty</div>
                       <div style={{ fontSize: 13, color: 'var(--yellow)', fontFamily: 'var(--mono)', fontWeight: 700, marginBottom: 6 }}>
-                        👑 +{Math.round((s.total_amount || 0) / 1000)} Crown pts earned
+                        +{Math.round((s.total_amount || 0) / 1000)} Crown pts earned
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text3)' }}>Total pts: {((s.customers as any)?.crown_points || 0).toLocaleString()}</div>
-                      <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 4 }}>💬 WhatsApp receipt {s.status === 'draft' ? 'pending' : 'sent'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 4 }}>WhatsApp receipt {s.status === 'draft' ? 'pending' : 'sent'}</div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Posted by: {s.posted_by}</div>
                     </div>
                   </div>

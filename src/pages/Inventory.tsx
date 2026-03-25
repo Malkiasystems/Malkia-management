@@ -59,9 +59,9 @@ export default function Inventory() {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const save = async () => {
-    if (!form.sku.trim()) { showToast('❌ SKU is required', 'error'); return }
-    if (!form.name.trim()) { showToast('❌ Product name is required', 'error'); return }
-    if (!form.cost_price || !form.selling_price) { showToast('❌ Cost and selling price required', 'error'); return }
+    if (!form.sku.trim()) { showToast('SKU is required', 'error'); return }
+    if (!form.name.trim()) { showToast('Product name is required', 'error'); return }
+    if (!form.cost_price || !form.selling_price) { showToast('Cost and selling price required', 'error'); return }
     setSaving(true)
 
     const payload = {
@@ -81,16 +81,16 @@ export default function Inventory() {
       if (editProduct) {
         const { error } = await supabase.from('products').update(payload).eq('id', editProduct.id)
         if (error) throw new Error(error.message)
-        showToast(`✅ ${form.name} updated successfully`)
+        showToast(`${form.name} updated successfully`)
       } else {
         const { error } = await supabase.from('products').insert(payload)
         if (error) throw new Error(error.message)
-        showToast(`✅ ${form.name} added to inventory`)
+        showToast(`${form.name} added to inventory`)
       }
       setShowModal(false)
       loadProducts()
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Save failed'), 'error')
+      showToast('' + (err.message || 'Save failed'), 'error')
     } finally {
       setSaving(false)
     }
@@ -116,22 +116,22 @@ export default function Inventory() {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">📦 Inventory</div>
+          <div className="page-title">Inventory</div>
           <div className="page-sub">
             {products.length} products · DSM HQ · <span className="sync-dot"></span> Live Supabase
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" onClick={loadProducts}>🔄 Refresh</button>
+          <button className="btn btn-ghost btn-sm" onClick={loadProducts} style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
           <button className="btn btn-primary btn-sm" onClick={openAdd}>+ Add Product</button>
         </div>
       </div>
 
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card blue"><div className="stat-label">Total Products</div><div className="stat-value">{products.length}</div><div className="stat-change up">▲ Active SKUs</div></div>
-        <div className="stat-card green"><div className="stat-label">Stock Value</div><div className="stat-value">TZS {(totalValue / 1000000).toFixed(1)}M</div><div className="stat-change up">▲ At cost</div></div>
-        <div className="stat-card yellow"><div className="stat-label">Low Stock</div><div className="stat-value">{lowStock}</div><div className="stat-change down">▼ Reorder soon</div></div>
-        <div className="stat-card red"><div className="stat-label">Out of Stock</div><div className="stat-value">{products.filter(p => p.qty_on_hand === 0).length}</div><div className="stat-change down">▼ Action needed</div></div>
+        <div className="stat-card blue"><div className="stat-label">Total Products</div><div className="stat-value">{products.length}</div><div className="stat-change up">Active SKUs</div></div>
+        <div className="stat-card green"><div className="stat-label">Stock Value</div><div className="stat-value">TZS {(totalValue / 1000000).toFixed(1)}M</div><div className="stat-change up">At cost</div></div>
+        <div className="stat-card yellow"><div className="stat-label">Low Stock</div><div className="stat-value">{lowStock}</div><div className="stat-change down">Reorder soon</div></div>
+        <div className="stat-card red"><div className="stat-label">Out of Stock</div><div className="stat-value">{products.filter(p => p.qty_on_hand === 0).length}</div><div className="stat-change down">Action needed</div></div>
       </div>
 
       <div className="card">
@@ -140,7 +140,7 @@ export default function Inventory() {
             <div className="card-title">Products — Stock Levels</div>
             <div className="card-sub">Click any row to edit · Updates after every GRN and Sale</div>
           </div>
-          <input className="form-input" style={{ width: 200, padding: '6px 10px', fontSize: 12 }} placeholder="🔍 Search…" value={search} onChange={e => setSearch(e.target.value)} />
+          <input className="form-input" style={{ width: 200, padding: '6px 10px', fontSize: 12 }} placeholder=" Search…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
 
         {loading ? (
@@ -177,7 +177,7 @@ export default function Inventory() {
                           <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: colors[s], textTransform: 'uppercase' }}>{s}</span>
                         </div>
                       </td>
-                      <td onClick={e => { e.stopPropagation(); deactivate(p) }} style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 12, cursor: 'pointer' }}>🗑️</td>
+                      <td onClick={e => { e.stopPropagation(); deactivate(p) }} style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 12, cursor: 'pointer' }}></td>
                     </tr>
                   )
                 })}
@@ -193,9 +193,9 @@ export default function Inventory() {
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 28, width: 560, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>
-                {editProduct ? '✏️ Edit Product' : '+ Add New Product'}
+                {editProduct ? ' Edit Product' : '+ Add New Product'}
               </div>
-              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 20 }}>✕</button>
+              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 20 }}>×</button>
             </div>
 
             <div className="form-row">
@@ -234,7 +234,7 @@ export default function Inventory() {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={save} disabled={saving}>
-                {saving ? '⏳ Saving…' : editProduct ? '✅ Save Changes' : '✅ Add Product'}
+                {saving ? 'Saving…' : editProduct ? 'Save Changes' : 'Add Product'}
               </button>
             </div>
           </div>

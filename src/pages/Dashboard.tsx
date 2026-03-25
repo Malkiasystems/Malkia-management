@@ -99,43 +99,43 @@ export default function Dashboard({ onNav }: Props) {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">{greeting()}, Joe 👋</div>
+          <div className="page-title">{greeting()}, Joe</div>
           <div className="page-sub">
             {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             {' '}· DSM HQ · <span className="sync-dot"></span> Live
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" onClick={loadDashboard}>🔄 Refresh</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => onNav('cash-sale')}>💵 Cash Sale</button>
+          <button className="btn btn-ghost btn-sm" onClick={loadDashboard} style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => onNav('cash-sale')} style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg> New Cash Sale</button>
           <button className="btn btn-primary btn-sm" onClick={() => onNav('vouchers')}>+ New Voucher</button>
         </div>
       </div>
 
       <div className="grid g4" style={{ marginBottom: 20 }}>
         <div className="stat-card amber">
-          <span className="stat-icon">💰</span>
+          
           <div className="stat-label">Total Revenue</div>
           <div className="stat-value">{loading ? '…' : fmt(stats.totalRevenue)}</div>
-          <div className="stat-change up">▲ From posted sales</div>
+          <div className="stat-change up">From posted sales</div>
         </div>
         <div className="stat-card green">
-          <span className="stat-icon">📊</span>
+          
           <div className="stat-label">Gross Profit</div>
           <div className="stat-value">{loading ? '…' : fmt(stats.netProfit)}</div>
-          <div className="stat-change up">▲ Revenue minus COGS</div>
+          <div className="stat-change up">Revenue minus COGS</div>
         </div>
         <div className="stat-card blue">
-          <span className="stat-icon">📦</span>
+          
           <div className="stat-label">Products in Stock</div>
           <div className="stat-value">{loading ? '…' : stats.productCount}</div>
-          <div className="stat-change down">▼ {stats.lowStockCount} low stock</div>
+          <div className="stat-change down">↓ {stats.lowStockCount} low stock</div>
         </div>
         <div className="stat-card red">
-          <span className="stat-icon">📝</span>
+          
           <div className="stat-label">Draft Vouchers</div>
           <div className="stat-value">{loading ? '…' : stats.pendingVouchers}</div>
-          <div className="stat-change down">▼ Needs attention</div>
+          <div className="stat-change down">Needs attention</div>
         </div>
       </div>
 
@@ -175,13 +175,13 @@ export default function Dashboard({ onNav }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card card-sm">
             <div className="card-header" style={{ marginBottom: 10 }}>
-              <div className="card-title">⚠️ Stock Alerts</div>
+              <div className="card-title">Stock Alerts</div>
               <button className="btn btn-ghost btn-sm" onClick={() => onNav('inventory')}>Manage</button>
             </div>
             {loading ? (
               <div style={{ color: 'var(--text3)', fontSize: 12 }}>Loading…</div>
             ) : lowStock.length === 0 ? (
-              <div style={{ color: 'var(--green)', fontSize: 12 }}>✅ All products have sufficient stock</div>
+              <div style={{ color: 'var(--green)', fontSize: 12 }}>All products have sufficient stock</div>
             ) : (
               lowStock.map((p, i) => {
                 const s = getStatus(p.qty_on_hand, p.reorder_point)
@@ -218,10 +218,10 @@ export default function Dashboard({ onNav }: Props) {
 
       <div className="grid g4">
         {[
-          { icon: '💵', label: 'New Cash Sale', page: 'cash-sale' as Page, color: 'rgba(212,135,74,.12)' },
-          { icon: '🚛', label: 'New GRN', page: 'grn' as Page, color: 'rgba(251,146,60,.12)' },
-          { icon: '📊', label: 'P&L Report', page: 'pnl' as Page, color: 'rgba(0,229,160,.12)' },
-          { icon: '📒', label: 'Chart of Accounts', page: 'chart-of-accounts' as Page, color: 'rgba(168,85,247,.12)' },
+          { icon: '', label: 'New Cash Sale', page: 'cash-sale' as Page, color: 'rgba(212,135,74,.12)' },
+          { icon: '', label: 'New GRN', page: 'grn' as Page, color: 'rgba(251,146,60,.12)' },
+          { icon: '', label: 'P&L Report', page: 'pnl' as Page, color: 'rgba(0,229,160,.12)' },
+          { icon: '', label: 'Chart of Accounts', page: 'chart-of-accounts' as Page, color: 'rgba(168,85,247,.12)' },
         ].map((item, i) => (
           <div key={i} className="card card-sm" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => onNav(item.page)}>
             <div style={{ width: 40, height: 40, background: item.color, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{item.icon}</div>

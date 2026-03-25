@@ -38,12 +38,12 @@ export default function ChartOfAccounts() {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">📂 Chart of Accounts</div>
+          <div className="page-title">Chart of Accounts</div>
           <div className="page-sub">Live balances from Supabase · {accounts.length} accounts · <span className="sync-dot"></span></div>
         </div>
         <div className="page-actions">
-          <input className="form-input" style={{ width: 200, padding: '6px 10px', fontSize: 12 }} placeholder="🔍 Search accounts…" value={search} onChange={e => setSearch(e.target.value)} />
-          <button className="btn btn-ghost btn-sm" onClick={loadAccounts}>🔄 Refresh</button>
+          <input className="form-input" style={{ width: 200, padding: '6px 10px', fontSize: 12 }} placeholder=" Search accounts…" value={search} onChange={e => setSearch(e.target.value)} />
+          <button className="btn btn-ghost btn-sm" onClick={loadAccounts} style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
           <button className="btn btn-primary btn-sm">+ New Account</button>
         </div>
       </div>

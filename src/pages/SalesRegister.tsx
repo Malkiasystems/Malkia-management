@@ -42,24 +42,24 @@ export default function SalesRegister() {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">🛒 Sales Register</div>
+          <div className="page-title">Sales Register</div>
           <div className="page-sub">All cash sales · Live from Supabase · <span className="sync-dot"></span></div>
         </div>
         <div className="page-actions">
           <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
           <span style={{ color: 'var(--text3)' }}>to</span>
           <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={toDate} onChange={e => setToDate(e.target.value)} />
-          <button className="btn btn-primary btn-sm" onClick={loadSales}>🔄 Load</button>
-          <button className="btn btn-ghost btn-sm">📥 Export</button>
+          <button className="btn btn-primary btn-sm" onClick={loadSales}>Load</button>
+          <button className="btn btn-ghost btn-sm" style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export</button>
         </div>
       </div>
 
       {/* Totals */}
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-label">Total Sales</div><div className="stat-value">{sales.length}</div><div className="stat-change up">▲ Transactions</div></div>
-        <div className="stat-card amber"><div className="stat-label">Gross Revenue</div><div className="stat-value">TZS {(totalRevenue / 1000).toFixed(0)}K</div><div className="stat-change up">▲ Inc. VAT</div></div>
-        <div className="stat-card blue"><div className="stat-label">Net Revenue</div><div className="stat-value">TZS {(totalNet / 1000).toFixed(0)}K</div><div className="stat-change up">▲ Excl. VAT</div></div>
-        <div className="stat-card red"><div className="stat-label">VAT Collected</div><div className="stat-value">TZS {(totalVat / 1000).toFixed(0)}K</div><div className="stat-change down">▼ Payable to TRA</div></div>
+        <div className="stat-card green"><div className="stat-label">Total Sales</div><div className="stat-value">{sales.length}</div><div className="stat-change up">Transactions</div></div>
+        <div className="stat-card amber"><div className="stat-label">Gross Revenue</div><div className="stat-value">TZS {(totalRevenue / 1000).toFixed(0)}K</div><div className="stat-change up">Inc. VAT</div></div>
+        <div className="stat-card blue"><div className="stat-label">Net Revenue</div><div className="stat-value">TZS {(totalNet / 1000).toFixed(0)}K</div><div className="stat-change up">Excl. VAT</div></div>
+        <div className="stat-card red"><div className="stat-label">VAT Collected</div><div className="stat-value">TZS {(totalVat / 1000).toFixed(0)}K</div><div className="stat-change down">Payable to TRA</div></div>
       </div>
 
       <div className="table-wrap">

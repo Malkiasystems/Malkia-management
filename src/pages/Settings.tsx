@@ -31,7 +31,7 @@ export default function Settings() {
   return (
     <div className="page">
       <div className="page-header">
-        <div><div className="page-title">⚙️ Settings</div><div className="page-sub">System configuration · Malkia Wellness Group Ltd</div></div>
+        <div><div className="page-title">Settings</div><div className="page-sub">System configuration · Malkia Wellness Group Ltd</div></div>
       </div>
 
       <div className="grid g2" style={{ gap: 20, marginBottom: 20 }}>
@@ -79,7 +79,7 @@ export default function Settings() {
 
       {/* Cash Sale Settings */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-title" style={{ marginBottom: 6 }}>💵 Cash Sale Settings</div>
+        <div className="card-title" style={{ marginBottom: 6 }}>Cash Sale Settings</div>
         <div className="card-sub" style={{ marginBottom: 20 }}>Control how cash sales behave at the counter</div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
