@@ -3,9 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { genRef, today, tzs } from '../../lib/utils'
-import type { Page } from '../../lib/types'
 
-interface Props { onNav?: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
 interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
 interface SaleLine { productId: string; name: string; qty: number; price: number; amount: number }
@@ -32,7 +30,7 @@ const PAYMENT_METHODS: PaymentMethod[] = [
 
 interface SplitLine { methodId: string; accountId: string; amount: number; ref: string }
 
-export default function CashSale({ onNav }: Props) {
+export default function CashSale() {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
