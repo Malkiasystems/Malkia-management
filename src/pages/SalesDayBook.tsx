@@ -131,7 +131,7 @@ export default function SalesDayBook() {
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" onClick={loadSales} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => loadSales()} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
           <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print</button>
           <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
         </div>
@@ -144,7 +144,7 @@ export default function SalesDayBook() {
           <input type="date" className="form-input" style={{ width: 140, padding: '4px 8px', fontSize: 12, border: 'none', background: 'transparent' }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
           <span style={{ fontSize: 12, color: 'var(--text3)' }}>To</span>
           <input type="date" className="form-input" style={{ width: 140, padding: '4px 8px', fontSize: 12, border: 'none', background: 'transparent' }} value={toDate} onChange={e => setToDate(e.target.value)} />
-          <button className="btn btn-primary btn-sm" onClick={loadSales}>Load</button>
+          <button className="btn btn-primary btn-sm" onClick={() => loadSales()}>Load</button>
         </div>
 
         {/* Quick date presets */}
