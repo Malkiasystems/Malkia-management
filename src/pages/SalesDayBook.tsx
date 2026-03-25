@@ -47,8 +47,10 @@ export default function SalesDayBook() {
 
   useEffect(() => { loadSales() }, [])
 
-  const loadSales = async () => {
+  const loadSales = async (from?: string, to?: string) => {
     setLoading(true)
+    const f = from || fromDate
+    const t = to || toDate
     let query = supabase
       .from('vouchers')
       .select(`
@@ -61,8 +63,8 @@ export default function SalesDayBook() {
         )
       `)
       .in('type', ['cash_sale', 'sales_invoice'])
-      .gte('posting_date', fromDate)
-      .lte('posting_date', toDate)
+      .gte('posting_date', f)
+      .lte('posting_date', t)
       .order('posting_date', { ascending: false })
       .order('created_at', { ascending: false })
 
@@ -151,7 +153,7 @@ export default function SalesDayBook() {
           { label: 'This Week', from: new Date(Date.now() - 6*86400000).toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
           { label: 'This Month', from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
         ].map(p => (
-          <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setFromDate(p.from); setToDate(p.to) }}>{p.label}</button>
+          <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setFromDate(p.from); setToDate(p.to); loadSales(p.from, p.to) }}>{p.label}</button>
         ))}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
