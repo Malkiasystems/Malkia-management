@@ -105,7 +105,7 @@ export const MalkiaInvoice = ({ voucher, settings }: { voucher: InvoiceVoucher; 
 
           {/* Left — Logo + Company */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <img src={MALKIA_LOGO} alt="Malkia" style={{ height: 64, width: 'auto', objectFit: 'contain', filter: 'brightness(0) saturate(100%) invert(62%) sepia(19%) saturate(600%) hue-rotate(130deg) brightness(0.9)' }} />
+            <img src={MALKIA_LOGO} alt="Malkia" style={{ height: 64, width: 'auto', objectFit: 'contain' }} />
             <div>
               <div style={{ fontFamily: "'Syne', serif", fontSize: 22, fontWeight: 800, color: '#1a1a1a', letterSpacing: '-0.5px', lineHeight: 1.1 }}>{s.company_name}</div>
               <div style={{ fontSize: 11, color: p, fontStyle: 'italic', marginTop: 3 }}>{s.tagline}</div>
