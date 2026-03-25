@@ -90,44 +90,76 @@ export default function Banks() {
   const loadMonthStats = async (accts: BankAccount[]) => {
     const stats: Record<string, { in: number; out: number }> = {}
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
-    const today = new Date().toISOString().split('T')[0]
+    const todayStr = new Date().toISOString().split('T')[0]
 
-    for (const acct of accts) {
-      const { data } = await supabase.from('journal_lines').select('debit, credit').eq('account_id', acct.id).gte('created_at', monthStart + 'T00:00:00').lte('created_at', today + 'T23:59:59')
-      if (data) {
-        stats[acct.id] = { in: data.reduce((s, l) => s + (l.debit || 0), 0), out: data.reduce((s, l) => s + (l.credit || 0), 0) }
-      }
+    // Fetch all month journal lines for bank accounts in one query
+    const ids = accts.map(a => a.id)
+    const { data } = await supabase
+      .from('journal_lines')
+      .select('account_id, debit, credit, journals(posting_date)')
+      .in('account_id', ids)
+
+    if (data) {
+      // Filter by month in JS
+      data.forEach((l: any) => {
+        const pd = l.journals?.posting_date || ''
+        if (pd >= monthStart && pd <= todayStr) {
+          if (!stats[l.account_id]) stats[l.account_id] = { in: 0, out: 0 }
+          stats[l.account_id].in += (l.debit || 0)
+          stats[l.account_id].out += (l.credit || 0)
+        }
+      })
     }
     setMonthStats(stats)
   }
 
   const loadLedger = async (acct: BankAccount) => {
     setLoadingLedger(true)
-    const { data } = await supabase
+    // Step 1: get all journal lines for this account
+    const { data: lines } = await supabase
       .from('journal_lines')
-      .select(`debit, credit, description, created_at, journals(ref, posting_date, journal_type, source_ref)`)
+      .select('id, debit, credit, description, journal_id')
       .eq('account_id', acct.id)
-      .gte('created_at', fromDate + 'T00:00:00')
-      .lte('created_at', toDate + 'T23:59:59')
       .order('created_at', { ascending: true })
 
-    if (data) {
-      let running = 0
-      const entries = data.map((l: any) => {
+    if (!lines || lines.length === 0) { setLedger([]); setLoadingLedger(false); return }
+
+    // Step 2: get journal headers to filter by date and get ref/type
+    const journalIds = [...new Set(lines.map((l: any) => l.journal_id))]
+    const { data: journals } = await supabase
+      .from('journals')
+      .select('id, ref, posting_date, journal_type, source_ref, status')
+      .in('id', journalIds)
+      .gte('posting_date', fromDate)
+      .lte('posting_date', toDate)
+      .eq('status', 'posted')
+
+    if (!journals) { setLedger([]); setLoadingLedger(false); return }
+
+    const journalMap: Record<string, any> = {}
+    journals.forEach((j: any) => { journalMap[j.id] = j })
+
+    // Step 3: join and build ledger
+    let running = 0
+    const entries = lines
+      .filter((l: any) => journalMap[l.journal_id])
+      .map((l: any) => {
+        const j = journalMap[l.journal_id]
         running += (l.debit || 0) - (l.credit || 0)
         return {
-          id: l.id || Math.random().toString(),
-          posting_date: l.journals?.posting_date || l.created_at?.split('T')[0],
+          id: l.id,
+          posting_date: j.posting_date,
           description: l.description || '—',
           debit: l.debit || 0,
           credit: l.credit || 0,
-          voucher_ref: l.journals?.source_ref || l.journals?.ref || '—',
-          voucher_type: l.journals?.journal_type || '',
+          voucher_ref: j.source_ref || j.ref || '—',
+          voucher_type: j.journal_type || '',
           running_balance: running,
         }
       })
-      setLedger(entries.reverse()) // most recent first
-    }
+      .sort((a: any, b: any) => b.posting_date.localeCompare(a.posting_date))
+
+    setLedger(entries)
     setLoadingLedger(false)
   }
 
