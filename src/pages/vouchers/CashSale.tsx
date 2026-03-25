@@ -214,7 +214,8 @@ export default function CashSale() {
     if (!newCustName.trim()) { showToast('Customer name required', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (!isPOD && !isSplit && currentMethod.showRef && !paymentRef.trim()) {
-      showToast(`Reference number missing for ${currentMethod.label} — posting anyway`, 'success')
+      showToast(`Please enter the ${currentMethod.label} transaction reference number`, 'error')
+      return
     }
     setPosting(true)
     const ref = genRef('CS', refNum)
@@ -781,13 +782,17 @@ export default function CashSale() {
             </div>
           </div>
         </div>
+        </div>
       )}
 
       {/* RECEIPT MODAL */}
       {showReceipt && lastVoucher && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-            {/* Action buttons */}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', flexDirection: 'column', zIndex: 200 }}>
+          {/* Sticky action bar — always visible at top */}
+          <div style={{ background: 'rgba(0,0,0,.95)', borderBottom: '1px solid rgba(255,255,255,.1)', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, color: '#fff' }}>
+              Receipt — {lastVoucher.ref}
+            </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-primary" onClick={() => {
                 const win = window.open('', '_blank')
@@ -806,7 +811,9 @@ export default function CashSale() {
               </button>
               <button className="btn btn-ghost" onClick={() => { setShowReceipt(false); resetForm() }}>Close</button>
             </div>
-            {/* Receipt */}
+          </div>
+          {/* Scrollable receipt area */}
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '24px 20px' }}>
             <div id="malkia-receipt-modal">
               <MalkiaReceipt voucher={lastVoucher} settings={receiptSettings || {
                 company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
