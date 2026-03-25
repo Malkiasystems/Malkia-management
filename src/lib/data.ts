@@ -78,6 +78,6 @@ export const BREADCRUMBS: Record<string, string> = {
   'sales':'Sales', 'inventory':'Inventory', 'reports':'Reports', 'pnl':'Profit & Loss',
   'sales-register':'Sales Register', 'sales-day-book':'Sales Day Book', 'purchase-register':'Purchase Register',
   'payment-register':'Payment Register', 'trial-balance':'Trial Balance',
-  'settings':'Settings', 'coming-soon':'Coming Soon', 'stock-levels':'Stock Levels',
+  'banks':'Banks & Cash', 'settings':'Settings', 'coming-soon':'Coming Soon', 'stock-levels':'Stock Levels',
   'suppliers':'Suppliers', 'stock-movements':'Stock Movements',
 }

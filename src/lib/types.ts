@@ -8,7 +8,7 @@ export type Page =
   | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry'
   | 'sales' | 'inventory' | 'reports' | 'pnl' | 'sales-register' | 'sales-day-book'
   | 'purchase-register' | 'payment-register' | 'trial-balance'
-  | 'settings' | 'coming-soon' | 'stock-levels' | 'suppliers' | 'stock-movements'
+  | 'banks' | 'settings' | 'coming-soon' | 'stock-levels' | 'suppliers' | 'stock-movements'
 
 export interface Product {
   id: string
