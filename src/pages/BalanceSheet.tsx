@@ -72,7 +72,7 @@ export default function BalanceSheet() {
         <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 700, marginBottom: 12, padding: '8px 12px', background: 'var(--surface2)', borderRadius: 8, color }}>
           {title}
         </div>
-        {Object.entries(grp).map(([cat, catAccts]) => { const _label = cat; return (
+        {Object.entries(grp).map(([cat, catAccts]) => (
           <div key={cat} style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, padding: '6px 0 4px', borderBottom: '1px solid var(--border)', marginBottom: 4 }}>{cat}</div>
             {catAccts.map((a, i) => (
