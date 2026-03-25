@@ -88,7 +88,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
               transition: 'all .15s', margin: '1px 0',
               position: 'relative', cursor: item.coming ? 'default' : 'pointer'
             }}>
-            <span style={{ fontSize: 18 }}><SideIcon name={item.icon} active={page === item.page} /></span>
+            <span style={{ fontSize: 18 }}><SideIcon name={item.icon || "home"} active={current === item.page} /></span>
             <span style={{
               fontSize: 8, fontWeight: 600,
               color: active ? 'var(--accent)' : 'var(--text3)',
