@@ -782,7 +782,6 @@ export default function CashSale() {
             </div>
           </div>
         </div>
-        </div>
       )}
 
       {/* RECEIPT MODAL */}
