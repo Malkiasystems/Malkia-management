@@ -13,6 +13,7 @@ const NAV = [
   { sep: true },
   { icon: '📝', label: 'Vouchers', page: 'vouchers' as Page },
   { icon: '📒', label: 'Accounts', page: 'chart-of-accounts' as Page },
+  { icon: '🏛', label: 'Banks', page: 'banks' as Page },
   { icon: '🛒', label: 'Sales', page: 'sales' as Page, badge: '7' },
   { icon: '📦', label: 'Inventory', page: 'inventory' as Page },
   { icon: '📈', label: 'Reports', page: 'reports' as Page },
