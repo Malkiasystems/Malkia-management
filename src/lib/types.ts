@@ -6,8 +6,8 @@ export type Page =
   | 'sales-return' | 'debit-note' | 'credit-note'
   | 'purchase-order' | 'grn' | 'purchase-invoice' | 'purchase-return'
   | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry'
-  | 'sales' | 'inventory' | 'reports' | 'pnl' | 'sales-register' | 'sales-day-book' | 'trial-balance' | 'balance-sheet' | 'ar-aging' | 'ap-aging' | 'vat-report' | 'stock-valuation' | 'purchase-register' | 'payment-register'
-  | 'purchase-register' | 'payment-register' | 'trial-balance'
+  | 'sales' | 'inventory' | 'reports' | 'pnl' | 'sales-register' | 'sales-day-book' | 'trial-balance' | 'balance-sheet' | 'ar-aging' | 'ap-aging' | 'vat-report' | 'stock-valuation' | 'purchase-register' | 'payment-register' | 'receipt-template'
+  | 'purchase-register' | 'payment-register' | 'receipt-template' | 'trial-balance'
   | 'banks' | 'settings' | 'coming-soon' | 'stock-levels' | 'suppliers' | 'stock-movements'
 
 export interface Product {
