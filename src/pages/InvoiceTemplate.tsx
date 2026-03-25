@@ -104,12 +104,12 @@ export const MalkiaInvoice = ({ voucher, settings }: { voucher: InvoiceVoucher; 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
 
           {/* Left — Logo + Company */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, maxWidth: '55%' }}>
             <img src={MALKIA_LOGO} alt="Malkia" style={{ height: 110, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
             <div>
-              <div style={{ fontFamily: "'Syne', serif", fontSize: 22, fontWeight: 800, color: '#1a1a1a', letterSpacing: '-0.5px', lineHeight: 1.1 }}>{s.company_name}</div>
-              <div style={{ fontSize: 11, color: p, fontStyle: 'italic', marginTop: 3 }}>{s.tagline}</div>
-              <div style={{ fontSize: 10, color: '#888', marginTop: 4, fontFamily: "'DM Mono', monospace", lineHeight: 1.6 }}>
+              <div style={{ fontFamily: "'Syne', serif", fontSize: 24, fontWeight: 800, color: '#1a1a1a', letterSpacing: '-0.5px', lineHeight: 1.15 }}>{s.company_name}</div>
+              <div style={{ fontSize: 11, color: p, fontStyle: 'italic', marginTop: 4 }}>{s.tagline}</div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 6, fontFamily: "'DM Mono', monospace", lineHeight: 1.8 }}>
                 {s.address} · {s.phone}<br/>
                 {s.email} · {s.website}
               </div>
@@ -117,10 +117,10 @@ export const MalkiaInvoice = ({ voucher, settings }: { voucher: InvoiceVoucher; 
           </div>
 
           {/* Right — Invoice details */}
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontFamily: "'Syne', serif", fontSize: 28, fontWeight: 800, color: p, letterSpacing: '-1px', lineHeight: 1 }}>INVOICE</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600, color: '#1a1a1a', marginTop: 6 }}>{voucher.ref}</div>
-            <div style={{ fontSize: 11, color: '#888', fontFamily: "'DM Mono', monospace", marginTop: 8, lineHeight: 1.8 }}>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontFamily: "'Syne', serif", fontSize: 36, fontWeight: 800, color: p, letterSpacing: '-1px', lineHeight: 1 }}>INVOICE</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 18, fontWeight: 600, color: '#1a1a1a', marginTop: 8 }}>{voucher.ref}</div>
+            <div style={{ fontSize: 11, color: '#888', fontFamily: "'DM Mono', monospace", marginTop: 10, lineHeight: 2 }}>
               <div>Date: <span style={{ color: '#1a1a1a' }}>{voucher.posting_date}</span></div>
               {s.show_payment_terms && voucher.due_date && (
                 <div>Due: <span style={{ color: '#c0392b', fontWeight: 600 }}>{voucher.due_date}</span></div>
