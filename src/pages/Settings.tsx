@@ -130,6 +130,24 @@ export default function Settings({ onNav }: Props) {
         </button>
       </div>
 
+
+      {/* Invoice Template */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(26,26,26,.06) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(133,194,190,.2)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(26,26,26,.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#85c2be" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Sales Invoice Template</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>B2B invoice · Classic layout · Logo + bank details · PDF ready</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Edit bank details · Toggle sections · Outstanding balance · Payment terms</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('invoice-template')} className="btn btn-primary" style={{ background: '#1a1a1a', border: 'none', flexShrink: 0 }}>
+          Edit Template →
+        </button>
+      </div>
+
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
   )
