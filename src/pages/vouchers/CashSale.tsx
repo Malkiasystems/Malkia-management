@@ -745,7 +745,7 @@ export default function CashSale({ onNav: _onNav }: Props) {
                   <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowModal(false)}>Cancel</button>
                   <button className="btn btn-ghost btn-sm" style={{ padding: '10px 14px' }}>📋 Draft</button>
                   <button className="btn btn-primary" onClick={post} disabled={posting} style={{ flex: 2, justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 700, opacity: posting ? 0.6 : 1 }}>
-                    {posting ? '⏳ Posting…' : isPOD ? '🛵 Post POD Sale' : `📤 Post · ${currentMethod.icon} ${currentMethod.label}`}
+                    {posting ? '⏳ Posting…' : isPOD ? '🛵 Post POD Sale' : `📤 Post · ${currentMethod.label}`}
                   </button>
                 </div>
               </div>
