@@ -58,8 +58,8 @@ export default function App() {
       case 'bank-transfer':     return <BankTransfer onNav={setPage} />
       case 'petty-cash':        return <PettyCash onNav={setPage} />
       case 'contra':            return <ContraEntry onNav={setPage} />
-      case 'cash-sale':         return <CashSale onNav={setPage} />
-      case 'sales':             return <CashSale onNav={setPage} />
+      case 'cash-sale':         return <CashSale />
+      case 'sales':             return <CashSale />
       case 'sales-invoice':     return <SalesInvoice onNav={setPage} />
       case 'sales-return':      return <SalesReturn onNav={setPage} />
       case 'debit-note':        return <DebitNote onNav={setPage} />
