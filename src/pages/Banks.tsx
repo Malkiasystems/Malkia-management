@@ -113,7 +113,9 @@ export default function Banks() {
     setMonthStats(stats)
   }
 
-  const loadLedger = async (acct: BankAccount) => {
+  const loadLedger = async (acct: BankAccount, from?: string, to?: string) => {
+    const f = from || fromDate
+    const t = to || toDate
     setLoadingLedger(true)
     // Step 1: get all journal lines for this account
     const { data: lines } = await supabase
@@ -130,8 +132,8 @@ export default function Banks() {
       .from('journals')
       .select('id, ref, posting_date, journal_type, source_ref, status')
       .in('id', journalIds)
-      .gte('posting_date', fromDate)
-      .lte('posting_date', toDate)
+      .gte('posting_date', f)
+      .lte('posting_date', t)
       .eq('status', 'posted')
 
     if (!journals) { setLedger([]); setLoadingLedger(false); return }
@@ -314,12 +316,14 @@ export default function Banks() {
                       <input type="date" className="form-input" style={{ width: 130, padding: '3px 6px', fontSize: 12, border: 'none', background: 'transparent' }} value={toDate} onChange={e => setToDate(e.target.value)} />
                       <button className="btn btn-primary btn-sm" onClick={() => loadLedger(selected)}>Load</button>
                     </div>
-                    {['Today', 'This Week', 'This Month'].map(p => (
-                      <button key={p} className="btn btn-ghost btn-sm" onClick={() => {
-                        const now = new Date()
-                        if (p === 'Today') { const d = now.toISOString().split('T')[0]; setFromDate(d); setToDate(d) }
-                        else if (p === 'This Week') { setFromDate(new Date(Date.now() - 6*86400000).toISOString().split('T')[0]); setToDate(now.toISOString().split('T')[0]) }
-                        else { setFromDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setToDate(now.toISOString().split('T')[0]) }
+                    {[
+                        { label: 'Today', f: new Date().toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
+                        { label: 'This Week', f: new Date(Date.now()-6*86400000).toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
+                        { label: 'This Month', f: new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
+                      ].map(p => (
+                      <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => {
+                        setFromDate(p.f); setToDate(p.t)
+                        if (selected) loadLedger(selected, p.f, p.t)
                       }}>{p}</button>
                     ))}
                     <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, color: showReconcile ? 'var(--green)' : 'var(--text3)' }} onClick={() => setShowReconcile(!showReconcile)}>
