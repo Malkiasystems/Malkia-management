@@ -177,17 +177,6 @@ export default function SalesInvoice({ onNav }: Props) {
         })
       }
 
-      // Customer AR ledger entry
-      if (customerId) {
-        await supabase.from('customer_ledger_entries').insert({
-          customer_id: customerId, posting_date: form.date,
-          document_type: 'invoice', document_ref: form.ref,
-          description: `Sales Invoice — ${form.customer}`,
-          amount: subtotal, remaining_amount: subtotal,
-          due_date: form.dueDate || null, is_open: true, journal_id: journal.id,
-        })
-      }
-
       const invoiceData = {
         ref: form.ref, posting_date: form.date, due_date: form.dueDate,
         payment_terms: form.paymentTerms, notes: form.notes,
@@ -204,6 +193,17 @@ export default function SalesInvoice({ onNav }: Props) {
       setLastInvoice(invoiceData)
       setShowInvoice(true)
       showToast(`${form.ref} posted · AR updated · Stock deducted`)
+
+      // Customer AR ledger entry (non-blocking)
+      if (customerId) {
+        supabase.from('customer_ledger_entries').insert({
+          customer_id: customerId, posting_date: form.date,
+          document_type: 'invoice', document_ref: form.ref,
+          description: `Sales Invoice — ${form.customer}`,
+          amount: subtotal, remaining_amount: subtotal,
+          due_date: form.dueDate || null, is_open: true, journal_id: journal.id,
+        }).then(({ error }) => { if (error) console.warn('Ledger entry:', error.message) })
+      }
     } catch (err: any) {
       console.error('SalesInvoice post error:', err)
       showToast(err.message || 'Something went wrong — check browser console', 'error')
