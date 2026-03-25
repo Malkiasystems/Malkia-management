@@ -83,12 +83,24 @@ export default function SalesInvoice({ onNav }: Props) {
       let customerId = selectedCust?.id || null
       if (!customerId && form.customer.trim()) {
         const cleaned = form.wa.replace(/[\s+\-()]/g, '')
-        const { data: cData } = await supabase.from('customers').upsert({
-          code: 'CUST-' + (cleaned.slice(-6) || Date.now().toString().slice(-6)),
-          name: form.customer.trim(), whatsapp: cleaned || null, customer_type: 'B2B',
-          balance: (selectedCust?.balance || 0) + subtotal,
-          last_purchase_date: form.date, last_purchase_amount: subtotal,
-        }, { onConflict: 'whatsapp' }).select('id').single()
+        const custPayload = {
+          code: 'CUST-' + Date.now().toString().slice(-6),
+          name: form.customer.trim(),
+          whatsapp: cleaned || null,
+          customer_type: 'B2B',
+          balance: subtotal,
+          last_purchase_date: form.date,
+          last_purchase_amount: subtotal,
+        }
+        // If whatsapp provided, upsert to avoid duplicates; otherwise plain insert
+        let cData = null
+        if (cleaned) {
+          const { data } = await supabase.from('customers').upsert(custPayload, { onConflict: 'whatsapp' }).select('id').single()
+          cData = data
+        } else {
+          const { data } = await supabase.from('customers').insert(custPayload).select('id').single()
+          cData = data
+        }
         if (cData) customerId = cData.id
       }
 
@@ -124,14 +136,18 @@ export default function SalesInvoice({ onNav }: Props) {
       await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
 
       // Create voucher
-      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+      const voucherPayload: Record<string, unknown> = {
         ref: form.ref, type: 'sales_invoice', posting_date: form.date,
         description: `Sales Invoice — ${form.customer}`,
         subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
-        due_date: form.dueDate || null, payment_terms: form.paymentTerms,
         status: 'posted', customer_id: customerId, journal_id: journal.id,
         notes: form.notes || null, posted_by: form.salesperson,
-      }).select('id').single()
+      }
+      // Add optional columns only if they have values
+      if (form.dueDate) voucherPayload.due_date = form.dueDate
+      if (form.paymentTerms) voucherPayload.payment_terms = form.paymentTerms
+
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert(voucherPayload).select('id').single()
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
       // Voucher lines + stock deduction
@@ -166,7 +182,8 @@ export default function SalesInvoice({ onNav }: Props) {
       showToast(`${form.ref} posted — Dr AR ${subtotal.toLocaleString()} / Cr Revenue ${netRevenue.toLocaleString()} — Stock deducted`)
       setTimeout(() => onNav('vouchers'), 1800)
     } catch (err: any) {
-      showToast(err.message || 'Something went wrong', 'error')
+      console.error('SalesInvoice post error:', err)
+      showToast(err.message || 'Something went wrong — check browser console', 'error')
     } finally {
       setPosting(false)
     }
