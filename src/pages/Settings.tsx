@@ -32,7 +32,7 @@ export default function Settings({ onNav }: Props) {
   return (
     <div className="page">
       <div className="page-header">
-        <div><div className="page-title">Settings</div><div className="page-sub">System configuration · Malkia Wellness Group Ltd</div></div>
+        <div><div className="page-title">Settings</div><div className="page-sub">System configuration · Malkia Wellness Group Ltd· v2</div></div>
       </div>
 
       <div className="grid g2" style={{ gap: 20, marginBottom: 20 }}>
