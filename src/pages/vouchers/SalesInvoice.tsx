@@ -118,7 +118,8 @@ export default function SalesInvoice({ onNav }: Props) {
       const acct = (code: string) => acctData?.find(a => a.code === code)?.id
       const revenueId = acct('4011'); const cogsId = acct('5010')
       const inventoryId = acct('1110'); const vatId = acct('2020'); const arId = acct('1050')
-      if (!revenueId || !cogsId || !inventoryId || !arId) throw new Error('Required GL accounts not found')
+      if (!revenueId || !cogsId || !inventoryId || !arId) throw new Error('Required GL accounts not found: check 4011, 5010, 1110, 1050 exist in Chart of Accounts')
+      console.log('Accounts loaded OK — arId:', arId, 'revenueId:', revenueId, 'vatId:', vatId)
 
       // Create journal
       const { data: journal, error: jErr } = await supabase.from('journals').insert({
@@ -190,8 +191,10 @@ export default function SalesInvoice({ onNav }: Props) {
           description: l.name, products: { name: l.name, sku: '' }
         })),
       }
+      console.log('About to show invoice modal...')
       setLastInvoice(invoiceData)
       setShowInvoice(true)
+      console.log('setShowInvoice(true) called')
       showToast(`${form.ref} posted · AR updated · Stock deducted`)
 
       // Customer AR ledger entry (non-blocking)
