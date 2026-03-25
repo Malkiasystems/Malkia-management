@@ -86,7 +86,7 @@ const CARE_TIPS: Record<string, string> = {
 }
 
 // ── QR CODE GENERATOR (simple SVG-based) ──────
-const QRPlaceholder = ({ url, size = 80, color = '#1a1a1a' }: { url: string; size?: number; color?: string }) => {
+const QRPlaceholder = ({ size = 80, color = '#1a1a1a' }: { url?: string; size?: number; color?: string }) => {
   // We generate a visual placeholder that communicates QR intent
   // Real QR generation would use a library like qrcode.react
   return (
