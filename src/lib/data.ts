@@ -60,9 +60,9 @@ export const SUPPLIERS: Supplier[] = [
 ]
 
 export const CUSTOMERS: Record<string, Customer> = {
-  '255712345678': { name:'Amina Hassan', stage:'28 wks pregnant', last:'Breast pump · TZS 185,000 · 2 days ago', ai:'💡 She may need a belly binder or hospital bag kit soon', points:1850 },
-  '255758221043': { name:'Grace Mwanza', stage:'6 wks postpartum', last:'Nipple cream · TZS 95,000 · 1 week ago', ai:'💡 Recommend Scar Sheet za Malkia at this stage', points:950 },
-  '255743100212': { name:'Fatuma Iddi', stage:'34 wks pregnant', last:'Pregnancy pillow · TZS 145,000 · 5 days ago', ai:'💡 Hospital bag kit or breast pump next', points:1450 },
+  '255712345678': { name:'Amina Hassan', stage:'28 wks pregnant', last:'Breast pump · TZS 185,000 · 2 days ago', ai:' She may need a belly binder or hospital bag kit soon', points:1850 },
+  '255758221043': { name:'Grace Mwanza', stage:'6 wks postpartum', last:'Nipple cream · TZS 95,000 · 1 week ago', ai:' Recommend Scar Sheet za Malkia at this stage', points:950 },
+  '255743100212': { name:'Fatuma Iddi', stage:'34 wks pregnant', last:'Pregnancy pillow · TZS 145,000 · 5 days ago', ai:' Hospital bag kit or breast pump next', points:1450 },
 }
 
 export const BREADCRUMBS: Record<string, string> = {
