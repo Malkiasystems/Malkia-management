@@ -321,7 +321,7 @@ const ReceiptField = ({
   label, k, placeholder, multiline, settings, onChange
 }: {
   label: string; k: string; placeholder?: string; multiline?: boolean
-  settings: any; onChange: (k: string, v: string) => void
+  settings: any; onChange: (k: any, v: any) => void
 }) => (
   <div style={{ marginBottom: 12 }}>
     <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{label}</div>
@@ -336,7 +336,7 @@ const ReceiptToggle = ({
   label, desc, k, settings, onToggle
 }: {
   label: string; desc: string; k: string
-  settings: any; onToggle: (k: string, v: boolean) => void
+  settings: any; onToggle: (k: any, v: any) => void
 }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
     <div>
