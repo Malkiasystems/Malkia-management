@@ -1,119 +1,107 @@
 import React from 'react'
-import type { Page } from '../lib/types'
+import type { Page } from '../../lib/types'
 
-const VOUCHER_PAGES: Page[] = [
-  'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
-  'bank-receipt', 'bank-transfer', 'petty-cash', 'contra', 'sales-invoice',
-  'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
-  'grn', 'purchase-invoice', 'purchase-return', 'opening-stock',
-  'stock-adjustment', 'stock-transfer', 'journal-entry'
+interface Props { onNav: (p: Page) => void }
+
+const SECTIONS = [
+  {
+    title: 'Money Vouchers', desc: 'Payments, receipts and transfers', items: [
+      { icon: 'cash-out', name: 'Cash Payment', desc: 'Pay expense or supplier in cash', color: 'rgba(255,71,87,.12)', page: 'cash-payment' as Page },
+      { icon: 'cash-in', name: 'Cash Receipt', desc: 'Record money received in cash', color: 'rgba(0,229,160,.12)', page: 'cash-receipt' as Page },
+      { icon: 'bank', name: 'Bank Payment', desc: 'Pay via bank transfer or cheque', color: 'rgba(61,139,255,.12)', page: 'bank-payment' as Page },
+      { icon: 'send', name: 'Bank Receipt', desc: 'Record money received in bank', color: 'rgba(0,229,160,.12)', page: 'bank-receipt' as Page },
+      { icon: 'transfer', name: 'Bank Transfer', desc: 'Between your own accounts', color: 'rgba(61,139,255,.12)', page: 'bank-transfer' as Page },
+      { icon: 'petty', name: 'Petty Cash', desc: 'Small cash office expenses', color: 'rgba(255,211,42,.12)', page: 'petty-cash' as Page },
+      { icon: 'contra', name: 'Contra Entry', desc: 'Cash deposit to bank or withdrawal', color: 'rgba(168,85,247,.12)', page: 'contra' as Page },
+    ]
+  },
+  {
+    title: 'Sales', desc: 'Sales invoices, cash sales and returns', items: [
+      { icon: 'cash-sale', name: 'Cash Sale', desc: 'Counter POS — WhatsApp receipt', color: 'rgba(212,135,74,.12)', page: 'cash-sale' as Page },
+      { icon: 'invoice', name: 'Sales Invoice', desc: 'Credit sale — creates AR entry', color: 'rgba(0,229,160,.12)', page: 'sales-invoice' as Page },
+      { icon: 'po', name: 'Quotation', desc: 'Price quote / proforma invoice', color: 'rgba(61,139,255,.12)', page: 'coming-soon' as Page },
+      { icon: 'return', name: 'Sales Return', desc: 'Customer return / refund', color: 'rgba(255,71,87,.12)', page: 'sales-return' as Page },
+      { icon: 'send', name: 'Debit Note', desc: 'Charge customer additional amount', color: 'rgba(255,71,87,.12)', page: 'debit-note' as Page },
+      { icon: 'cash-in', name: 'Credit Note', desc: 'Credit customer — reduce balance', color: 'rgba(0,229,160,.12)', page: 'credit-note' as Page },
+    ]
+  },
+  {
+    title: 'Procurement', desc: 'Purchasing stock and receiving goods', items: [
+      { icon: 'po', name: 'Purchase Order', desc: 'Order to supplier — no journal', color: 'rgba(100,116,139,.12)', page: 'purchase-order' as Page },
+      { icon: 'grn', name: 'GRN', desc: 'Receive goods — updates stock', color: 'rgba(251,146,60,.12)', page: 'grn' as Page },
+      { icon: 'pinv', name: 'Purchase Invoice', desc: 'Supplier bill — creates AP entry', color: 'rgba(168,85,247,.12)', page: 'purchase-invoice' as Page },
+      { icon: 'return', name: 'Purchase Return', desc: 'Return goods to supplier', color: 'rgba(255,71,87,.12)', page: 'purchase-return' as Page },
+    ]
+  },
+  {
+    title: 'Inventory Adjustments', desc: 'Stock corrections and transfers', items: [
+      { icon: 'package', name: 'Opening Stock', desc: 'Enter initial stock quantities', color: 'rgba(212,135,74,.12)', page: 'opening-stock' as Page },
+      { icon: 'adjust', name: 'Stock Adjustment', desc: 'Physical count correction or write-off', color: 'rgba(255,71,87,.12)', page: 'stock-adjustment' as Page },
+      { icon: 'stock-xfer', name: 'Stock Transfer', desc: 'Move stock between branches', color: 'rgba(61,139,255,.12)', page: 'stock-transfer' as Page },
+    ]
+  },
+  {
+    title: 'Journal & Corrections', desc: 'Manual double-entry postings', items: [
+      { icon: 'stock-xfer', name: 'Journal Entry', desc: 'Manual debit/credit — must balance', color: 'rgba(212,135,74,.12)', page: 'journal-entry' as Page },
+    ]
+  },
 ]
 
-const NAV = [
-  { icon: 'home', label: 'Home', page: 'dashboard' as Page },
-  { sep: true },
-  { icon: 'vouchers', label: 'Vouchers', page: 'vouchers' as Page },
-  { icon: 'accounts', label: 'Accounts', page: 'chart-of-accounts' as Page },
-  { icon: 'bank', label: 'Banks', page: 'banks' as Page },
-  { icon: 'sales', label: 'Sales', page: 'sales' as Page, badge: '7' },
-  { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page },
-  { icon: 'reports', label: 'Reports', page: 'reports' as Page },
-  { sep: true },
-  { icon: 'services', label: 'Services', page: 'coming-soon' as Page, coming: true },
-  { icon: 'konnect', label: 'Konnect', page: 'coming-soon' as Page, coming: true },
-  { icon: 'crm', label: 'CRM', page: 'coming-soon' as Page, coming: true },
-  { icon: 'hrm', label: 'HRM', page: 'coming-soon' as Page, coming: true },
-  { sep: true },
-  { icon: 'settings', label: 'Settings', page: 'settings' as Page },
-]
 
-interface SidebarProps {
-  current: Page
-  onNav: (p: Page) => void
-}
-
-
-const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
-  const c = active ? 'var(--accent)' : 'var(--text3)'
-  const p = { width: 20, height: 20, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
+const VIcon = ({ name, color }: { name: string; color: string }) => {
+  const p = { width: 28, height: 28, fill: 'none', stroke: color, strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
   const icons: Record<string, React.ReactNode> = {
-    home:      <svg {...p}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
-    vouchers:  <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
-    accounts:  <svg {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
-    bank:      <svg {...p}><path d="M3 10L12 3l9 7"/><rect x="5" y="10" width="3" height="8"/><rect x="10.5" y="10" width="3" height="8"/><rect x="16" y="10" width="3" height="8"/><path d="M2 18h20"/></svg>,
-    sales:     <svg {...p}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
-    procure:   <svg {...p}><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
-    inventory: <svg {...p}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
-    reports:   <svg {...p}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
-    services:  <svg {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.1 1.24h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.64a16 16 0 0 0 6.29 6.29l1.46-1.46a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
-    konnect:   <svg {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
-    crm:       <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-    hrm:       <svg {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
-    settings:  <svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
-    building:  <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>,
+    'cash-sale': <svg {...p}><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>,
+    'cash-out':  <svg {...p}><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 9v6M9 12l3-3 3 3"/></svg>,
+    'cash-in':   <svg {...p}><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 15V9M9 12l3 3 3-3"/></svg>,
+    bank:        <svg {...p}><path d="M3 10L12 3l9 7"/><rect x="5" y="10" width="3" height="8"/><rect x="10.5" y="10" width="3" height="8"/><rect x="16" y="10" width="3" height="8"/><path d="M2 18h20"/></svg>,
+    send:        <svg {...p}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+    transfer:    <svg {...p}><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
+    contra:      <svg {...p}><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>,
+    petty:       <svg {...p}><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>,
+    invoice:     <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
+    return:      <svg {...p}><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
+    po:          <svg {...p}><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>,
+    grn:         <svg {...p}><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
+    pinv:        <svg {...p}><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2"/><line x1="16" y1="8" x2="8" y2="8"/><line x1="16" y1="12" x2="8" y2="12"/></svg>,
+    package:     <svg {...p}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+    adjust:      <svg {...p}><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
+    'stock-xfer':<svg {...p}><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
+    journal:     <svg {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
+    debit:       <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>,
+    credit:      <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="12" x2="12" y2="18"/><polyline points="9 15 12 18 15 15"/></svg>,
   }
-  return <>{icons[name] ?? icons.home}</>
+  return <>{icons[name] ?? icons.journal}</>
 }
 
-export default function Sidebar({ current, onNav }: SidebarProps) {
+export default function VouchersHub({ onNav }: Props) {
   return (
-    <div style={{
-      width: 'var(--sidebar)', background: 'var(--surface)',
-      borderRight: '1px solid var(--border)', display: 'flex',
-      flexDirection: 'column', alignItems: 'center',
-      padding: '10px 0', flexShrink: 0, overflowY: 'auto', scrollbarWidth: 'none'
-    }}>
-      {NAV.map((item, i) => {
-        if ('sep' in item && item.sep) return (
-          <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
-        )
-
-        const isVoucherActive = VOUCHER_PAGES.includes(current)
-        const active =
-          current === item.page ||
-          (item.page === 'vouchers' && isVoucherActive) ||
-          (item.page === 'sales' && current === 'cash-sale')
-
-        return (
-          <div
-            key={i}
-            onClick={() => !item.coming && item.page && onNav(item.page)}
-            style={{
-              width: 52, height: 52, display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 3,
-              borderRadius: 10,
-              borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
-              background: active ? 'var(--accent-dim)' : 'transparent',
-              opacity: item.coming ? 0.4 : 1,
-              transition: 'all .15s', margin: '1px 0',
-              position: 'relative', cursor: item.coming ? 'default' : 'pointer'
-            }}>
-            <span style={{ fontSize: 18 }}><SideIcon name={item.icon || "home"} active={current === item.page} /></span>
-            <span style={{
-              fontSize: 8, fontWeight: 600,
-              color: active ? 'var(--accent)' : 'var(--text3)',
-              textTransform: 'uppercase', letterSpacing: '.4px'
-            }}>{item.label}</span>
-
-            {'badge' in item && item.badge && (
-              <span style={{
-                position: 'absolute', top: 5, right: 6, minWidth: 14, height: 14,
-                background: 'var(--red)', borderRadius: 7, fontSize: 7, fontWeight: 800,
-                color: '#fff', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', padding: '0 3px'
-              }}>{item.badge}</span>
-            )}
-
-            {item.coming && (
-              <span style={{
-                position: 'absolute', top: 4, right: 2, background: 'var(--surface3)',
-                border: '1px solid var(--border)', borderRadius: 3, fontSize: 6,
-                fontFamily: 'var(--mono)', color: 'var(--text3)', padding: '1px 3px'
-              }}>SOON</span>
-            )}
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <div className="page-title">Vouchers</div>
+          <div className="page-sub">Every voucher auto-creates a double-entry journal · Stock updates automatically</div>
+        </div>
+      </div>
+      {SECTIONS.map((section, si) => (
+        <div key={si} style={{ marginBottom: 32 }}>
+          <div className="section-label">
+            <div className="section-bar"></div>
+            <div className="section-title-txt">{section.title}</div>
+            <div className="section-desc-txt">— {section.desc}</div>
           </div>
-        )
-      })}
+          <div className="voucher-grid">
+            {section.items.map((item, ii) => (
+              <div key={ii} className="voucher-card" onClick={() => onNav(item.page)}>
+                <div className="voucher-card-icon" style={{ background: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><VIcon name={item.icon} color="currentColor" /></div>
+                <div className="voucher-card-name">{item.name}</div>
+                <div className="voucher-card-desc">{item.desc}</div>
+                <div className="voucher-card-action">Open {item.name} →</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
