@@ -13,6 +13,14 @@ import ReportsHub from './pages/ReportsHub'
 import PnL from './pages/PnL'
 import SalesRegister from './pages/SalesRegister'
 import SalesDayBook from './pages/SalesDayBook'
+import TrialBalance from './pages/TrialBalance'
+import BalanceSheet from './pages/BalanceSheet'
+import ARAgingReport from './pages/ARAgingReport'
+import APAgingReport from './pages/APAgingReport'
+import VATReport from './pages/VATReport'
+import StockValuationReport from './pages/StockValuationReport'
+import PurchaseRegister from './pages/PurchaseRegister'
+import PaymentRegister from './pages/PaymentRegister'
 import Settings from './pages/Settings'
 import Banks from './pages/Banks'
 
@@ -49,6 +57,14 @@ export default function App() {
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
       case 'sales-day-book':    return <SalesDayBook />
+      case 'trial-balance':    return <TrialBalance />
+      case 'balance-sheet':    return <BalanceSheet />
+      case 'ar-aging':         return <ARAgingReport />
+      case 'ap-aging':         return <APAgingReport />
+      case 'vat-report':       return <VATReport />
+      case 'stock-valuation':  return <StockValuationReport />
+      case 'purchase-register': return <PurchaseRegister />
+      case 'payment-register': return <PaymentRegister />
       case 'banks':            return <Banks />
       case 'settings':          return <Settings />
       case 'cash-payment':      return <CashPayment onNav={setPage} />
