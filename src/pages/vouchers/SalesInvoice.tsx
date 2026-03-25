@@ -213,6 +213,7 @@ export default function SalesInvoice({ onNav }: Props) {
   }
 
   return (
+    <>
     <VoucherPage title="Sales Invoice" icon="" subtitle="Credit sale — creates open AR entry · Stock deducted · Customer ledger updated"
       color="rgba(0,229,160,.12)" onPost={post}
       postLabel={posting ? 'Posting…' : 'Post Invoice'}
@@ -318,9 +319,12 @@ export default function SalesInvoice({ onNav }: Props) {
         </div>
       </div>
 
-      {/* INVOICE MODAL */}
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
+    </VoucherPage>
+
+      {/* INVOICE MODAL — outside VoucherPage so fixed positioning works */}
       {showInvoice && lastInvoice && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', flexDirection: 'column', zIndex: 200 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', flexDirection: 'column', zIndex: 9999 }}>
           <div style={{ background: 'rgba(0,0,0,.95)', borderBottom: '1px solid rgba(255,255,255,.1)', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, color: '#fff' }}>Invoice — {lastInvoice.ref}</div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -360,8 +364,6 @@ export default function SalesInvoice({ onNav }: Props) {
           </div>
         </div>
       )}
-
-      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
-    </VoucherPage>
+  </>
   )
 }
