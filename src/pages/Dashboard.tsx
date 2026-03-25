@@ -106,8 +106,8 @@ export default function Dashboard({ onNav }: Props) {
           </div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" onClick={loadDashboard} style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => onNav('cash-sale')} style={ display:"flex",alignItems:"center",gap:6 }><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg> New Cash Sale</button>
+          <button className="btn btn-ghost btn-sm" onClick={loadDashboard} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => onNav('cash-sale')} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg> New Cash Sale</button>
           <button className="btn btn-primary btn-sm" onClick={() => onNav('vouchers')}>+ New Voucher</button>
         </div>
       </div>
