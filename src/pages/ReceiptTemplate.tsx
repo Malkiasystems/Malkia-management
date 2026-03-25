@@ -382,7 +382,7 @@ export default function ReceiptTemplatePage() {
     setSaving(false)
   }
 
-  const set = (k: keyof ReceiptSettings, v: string | boolean) => setSettings(s => ({ ...s, [k]: v }))
+  const set = (k: any, v: string | boolean) => setSettings(s => ({ ...s, [k]: v }))
 
   const printPreview = () => {
     const el = document.getElementById('malkia-receipt')
