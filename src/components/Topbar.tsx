@@ -37,7 +37,7 @@ export default function Topbar({ breadcrumb, onNav }: TopbarProps) {
       </div>
 
       <div style={{ flex: 1, maxWidth: 400, margin: '0 auto', position: 'relative' }}>
-        <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 13 }}>🔍</span>
+        <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontSize: 13 }}></span>
         <input
           placeholder="Search transactions, products, accounts…"
           style={{
