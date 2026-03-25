@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 
 // ── TYPES ─────────────────────────────────────
 interface ReceiptSettings {
+  logo_url: string
   company_name: string
   tagline: string
   address: string
@@ -47,6 +48,7 @@ interface VoucherData {
 }
 
 const DEFAULT_SETTINGS: ReceiptSettings = {
+  logo_url: '',
   company_name: 'Malkia Wellness Group Ltd',
   tagline: 'Reimagining Motherhood',
   address: 'Dar es Salaam, Tanzania',
@@ -154,14 +156,18 @@ export const MalkiaReceipt = ({ voucher, settings }: { voucher: VoucherData; set
         <div style={{ position: 'absolute', bottom: -30, left: 60, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,.1)' }}></div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' }}>
-          <div>
-            <div style={{ fontFamily: "'Syne', 'Georgia', serif", fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>{s.company_name}</div>
-            <div style={{ fontSize: 11, color: `${a}`, fontStyle: 'italic', marginTop: 4, fontWeight: 500 }}>{s.tagline}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {s.logo_url && <img src={s.logo_url} alt="Logo" style={{ height: 48, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />}
+            <div>
+              <div style={{ fontFamily: "'Syne', 'Georgia', serif", fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>{s.company_name}</div>
+              <div style={{ fontSize: 11, color: `${a}`, fontStyle: 'italic', marginTop: 4, fontWeight: 500 }}>{s.tagline}</div>
+            </div>
           </div>
-          {/* Logo mark */}
-          <div style={{ width: 40, height: 40, background: 'rgba(255,255,255,.2)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: 22, height: 22, background: a, borderRadius: 6 }}></div>
-          </div>
+          {!s.logo_url && (
+            <div style={{ width: 40, height: 40, background: 'rgba(255,255,255,.2)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 22, height: 22, background: a, borderRadius: 6 }}></div>
+            </div>
+          )}
         </div>
 
         {/* Receipt ref */}
@@ -309,6 +315,40 @@ export const MalkiaReceipt = ({ voucher, settings }: { voucher: VoucherData; set
 }
 
 // ── PREVIEW PAGE ──────────────────────────────
+
+// ── STANDALONE FIELD + TOGGLE (outside component to prevent focus loss) ──
+const ReceiptField = ({
+  label, k, placeholder, multiline, settings, onChange
+}: {
+  label: string; k: string; placeholder?: string; multiline?: boolean
+  settings: any; onChange: (k: string, v: string) => void
+}) => (
+  <div style={{ marginBottom: 12 }}>
+    <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{label}</div>
+    {multiline
+      ? <textarea className="form-input" rows={2} style={{ resize: 'none' }} value={String(settings[k] ?? '')} onChange={e => onChange(k, e.target.value)} placeholder={placeholder} />
+      : <input className="form-input" style={{ fontSize: 12 }} value={String(settings[k] ?? '')} onChange={e => onChange(k, e.target.value)} placeholder={placeholder} />
+    }
+  </div>
+)
+
+const ReceiptToggle = ({
+  label, desc, k, settings, onToggle
+}: {
+  label: string; desc: string; k: string
+  settings: any; onToggle: (k: string, v: boolean) => void
+}) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{desc}</div>
+    </div>
+    <div onClick={() => onToggle(k, !settings[k])} style={{ width: 44, height: 24, background: settings[k] ? 'var(--green)' : 'var(--surface3)', borderRadius: 12, cursor: 'pointer', position: 'relative', transition: 'background .2s', flexShrink: 0, marginLeft: 16 }}>
+      <div style={{ position: 'absolute', top: 2, left: settings[k] ? 22 : 2, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }}></div>
+    </div>
+  </div>
+)
+
 export default function ReceiptTemplatePage() {
   const [settings, setSettings] = useState<ReceiptSettings>(DEFAULT_SETTINGS)
   const [saving, setSaving] = useState(false)
@@ -367,27 +407,9 @@ export default function ReceiptTemplatePage() {
     <button onClick={() => setActiveTab(id)} style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600, background: activeTab === id ? 'var(--accent)' : 'transparent', color: activeTab === id ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderRadius: 'var(--r)', transition: 'all .15s' }}>{label}</button>
   )
 
-  const Toggle = ({ label, desc, k }: { label: string; desc: string; k: keyof ReceiptSettings }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
-        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{desc}</div>
-      </div>
-      <div onClick={() => set(k, !settings[k])} style={{ width: 44, height: 24, background: settings[k] ? 'var(--green)' : 'var(--surface3)', borderRadius: 12, cursor: 'pointer', position: 'relative', transition: 'background .2s', flexShrink: 0, marginLeft: 16 }}>
-        <div style={{ position: 'absolute', top: 2, left: settings[k] ? 22 : 2, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }}></div>
-      </div>
-    </div>
-  )
 
-  const Field = ({ label, k, placeholder, multiline }: { label: string; k: keyof ReceiptSettings; placeholder?: string; multiline?: boolean }) => (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{label}</div>
-      {multiline
-        ? <textarea className="form-input" rows={2} style={{ resize: 'none', fontSize: 12 }} value={String(settings[k])} onChange={e => set(k, e.target.value)} placeholder={placeholder} />
-        : <input className="form-input" style={{ fontSize: 12 }} value={String(settings[k])} onChange={e => set(k, e.target.value)} placeholder={placeholder} />
-      }
-    </div>
-  )
+
+
 
   return (
     <div className="page">
@@ -418,13 +440,13 @@ export default function ReceiptTemplatePage() {
           <div style={{ width: 280, flexShrink: 0 }}>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 14 }}>Quick Toggles</div>
-              <Toggle label="Crown Points" desc="Show loyalty points section" k="show_crown_points" />
-              <Toggle label="Stage Message" desc="Personalized message by pregnancy stage" k="show_stage_message" />
-              <Toggle label="Midwife Tip" desc="Product care tip relevant to purchase" k="show_care_tip" />
-              <Toggle label="VAT Breakdown" desc="Show net + VAT separately" k="show_vat_breakdown" />
-              <Toggle label="Cashier Name" desc="Show who served the customer" k="show_cashier" />
-              <Toggle label="Konnect CTA" desc="Join Malkia Konnect button" k="konnect_enabled" />
-              <Toggle label="Community Section" desc="Mama community link/QR" k="community_enabled" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Crown Points" desc="Show loyalty points section" k="show_crown_points" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Stage Message" desc="Personalized message by pregnancy stage" k="show_stage_message" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Midwife Tip" desc="Product care tip relevant to purchase" k="show_care_tip" />
+              <ReceiptToggle settings={settings} onToggle={set} label="VAT Breakdown" desc="Show net + VAT separately" k="show_vat_breakdown" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Cashier Name" desc="Show who served the customer" k="show_cashier" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Konnect CTA" desc="Join Malkia Konnect button" k="konnect_enabled" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Community Section" desc="Mama community link/QR" k="community_enabled" />
             </div>
             <div className="card" style={{ marginTop: 12 }}>
               <div className="card-title" style={{ marginBottom: 12 }}>Brand Colors</div>
@@ -450,32 +472,32 @@ export default function ReceiptTemplatePage() {
           {/* Brand */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 16 }}>Brand Identity</div>
-            <Field label="Company Name" k="company_name" />
-            <Field label="Tagline" k="tagline" placeholder="Reimagining Motherhood" />
-            <Field label="Address" k="address" />
+            <ReceiptField settings={settings} onChange={set} label="Company Name" k="company_name" />
+            <ReceiptField settings={settings} onChange={set} label="Tagline" k="tagline" placeholder="Reimagining Motherhood" />
+            <ReceiptField settings={settings} onChange={set} label="Address" k="address" />
             <div className="form-row">
-              <Field label="Phone" k="phone" />
-              <Field label="Email" k="email" />
+              <ReceiptField settings={settings} onChange={set} label="Phone" k="phone" />
+              <ReceiptField settings={settings} onChange={set} label="Email" k="email" />
             </div>
             <div className="form-row">
-              <Field label="Website" k="website" />
-              <Field label="Instagram" k="instagram" />
+              <ReceiptField settings={settings} onChange={set} label="Website" k="website" />
+              <ReceiptField settings={settings} onChange={set} label="Instagram" k="instagram" />
             </div>
             <div className="form-row">
-              <Field label="TIN Number" k="tin" />
-              <Field label="VRN Number" k="vrn" />
+              <ReceiptField settings={settings} onChange={set} label="TIN Number" k="tin" />
+              <ReceiptField settings={settings} onChange={set} label="VRN Number" k="vrn" />
             </div>
-            <Field label="Footer Message" k="footer_message" multiline />
+            <ReceiptField settings={settings} onChange={set} label="Footer Message" k="footer_message" multiline />
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* Konnect */}
             <div className="card">
               <div className="card-title" style={{ marginBottom: 14 }}>Malkia Konnect</div>
-              <Toggle label="Show Konnect CTA" desc="Include join button on receipt" k="konnect_enabled" />
-              <Toggle label="UTM Tracking" desc="Add tracking params to link" k="konnect_utm_tracking" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Show Konnect CTA" desc="Include join button on receipt" k="konnect_enabled" />
+              <ReceiptToggle settings={settings} onToggle={set} label="UTM Tracking" desc="Add tracking params to link" k="konnect_utm_tracking" />
               <div style={{ marginTop: 12 }}>
-                <Field label="Konnect Join URL" k="konnect_url" placeholder="https://www.malkia.co.tz/join" />
+                <ReceiptField settings={settings} onChange={set} label="Konnect Join URL" k="konnect_url" placeholder="https://www.malkia.co.tz/join" />
               </div>
             </div>
 
@@ -485,18 +507,18 @@ export default function ReceiptTemplatePage() {
               <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 14, fontFamily: 'var(--mono)', background: 'var(--surface2)', padding: '6px 10px', borderRadius: 'var(--r)' }}>
                 Community is being built — configure now, activate when ready
               </div>
-              <Field label="Community Name" k="community_name" placeholder="e.g. Malkia Mama Circle" />
-              <Field label="Community URL" k="community_url" placeholder="https://community.malkia.co.tz" />
-              <Toggle label="Enable Community Section" desc="Show on receipt when URL is ready" k="community_enabled" />
-              <Toggle label="Show QR Code" desc="Display scannable QR code" k="community_qr_enabled" />
+              <ReceiptField settings={settings} onChange={set} label="Community Name" k="community_name" placeholder="e.g. Malkia Mama Circle" />
+              <ReceiptField settings={settings} onChange={set} label="Community URL" k="community_url" placeholder="https://community.malkia.co.tz" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Enable Community Section" desc="Show on receipt when URL is ready" k="community_enabled" />
+              <ReceiptToggle settings={settings} onToggle={set} label="Show QR Code" desc="Display scannable QR code" k="community_qr_enabled" />
             </div>
 
             {/* Stage messages */}
             <div className="card">
               <div className="card-title" style={{ marginBottom: 14 }}>Brand Messages by Stage</div>
-              <Field label="Pregnant Customers" k="msg_pregnant" multiline />
-              <Field label="Postpartum Customers" k="msg_postpartum" multiline />
-              <Field label="General / Other" k="msg_general" multiline />
+              <ReceiptField settings={settings} onChange={set} label="Pregnant Customers" k="msg_pregnant" multiline />
+              <ReceiptField settings={settings} onChange={set} label="Postpartum Customers" k="msg_postpartum" multiline />
+              <ReceiptField settings={settings} onChange={set} label="General / Other" k="msg_general" multiline />
             </div>
           </div>
         </div>
