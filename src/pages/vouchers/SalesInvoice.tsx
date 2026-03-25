@@ -5,6 +5,7 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { genRef, today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
+import { MalkiaInvoice } from '../InvoiceTemplate'
 
 interface Props { onNav: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
@@ -15,6 +16,9 @@ export default function SalesInvoice({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
+  const [showInvoice, setShowInvoice] = useState(false)
+  const [lastInvoice, setLastInvoice] = useState<any>(null)
+  const [invoiceSettings, setInvoiceSettings] = useState<any>(null)
   const [products, setProducts] = useState<DBProduct[]>([])
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
@@ -26,7 +30,12 @@ export default function SalesInvoice({ onNav }: Props) {
   })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  useEffect(() => { loadProducts(); loadNextRef() }, [])
+  useEffect(() => { loadProducts(); loadNextRef(); loadInvoiceSettings() }, [])
+
+  const loadInvoiceSettings = async () => {
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
+    if (data?.value) { try { setInvoiceSettings(JSON.parse(data.value)) } catch {} }
+  }
 
   const loadProducts = async () => {
     const { data } = await supabase.from('products').select('id, sku, name, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name')
@@ -179,6 +188,16 @@ export default function SalesInvoice({ onNav }: Props) {
         })
       }
 
+            const invoiceData = {
+        ref: form.ref, posting_date: form.date, due_date: form.dueDate,
+        payment_terms: form.paymentTerms, notes: form.notes,
+        total_amount: subtotal, vat_amount: vat, subtotal: netRevenue,
+        posted_by: form.salesperson,
+        customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp || '', address: '', balance: selectedCust.balance || 0 } : { name: form.customer, whatsapp: form.wa || '', address: '', balance: 0 },
+        voucher_lines: lines.filter(l => l.productId).map(l => ({ qty: l.qty, unit_price: l.price, total: l.amount, description: l.name, products: { name: l.name, sku: '' } })),
+      }
+      setLastInvoice(invoiceData)
+      setShowInvoice(true)
       showToast(`${form.ref} posted — Dr AR ${subtotal.toLocaleString()} / Cr Revenue ${netRevenue.toLocaleString()} — Stock deducted`)
       setTimeout(() => onNav('vouchers'), 1800)
     } catch (err: any) {
