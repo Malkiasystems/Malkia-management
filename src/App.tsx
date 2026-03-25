@@ -68,7 +68,7 @@ export default function App() {
       case 'payment-register': return <PaymentRegister />
       case 'receipt-template':  return <ReceiptTemplatePage />
       case 'banks':            return <Banks />
-      case 'settings':          return <Settings />
+      case 'settings':          return <Settings onNav={setPage} />
       case 'cash-payment':      return <CashPayment onNav={setPage} />
       case 'bank-payment':      return <CashPayment onNav={setPage} />
       case 'cash-receipt':      return <CashReceipt onNav={setPage} />
