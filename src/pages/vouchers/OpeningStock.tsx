@@ -13,7 +13,7 @@ export default function OpeningStock({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
-  const [products, setProducts] = useState<{id:string;sku:string;name:string;cost_price:number;qty_on_hand:number}[]>([])
+  const [, setProducts] = useState<{id:string;sku:string;name:string;cost_price:number;qty_on_hand:number}[]>([])
   const [alreadyPosted, setAlreadyPosted] = useState(false)
   const [lines, setLines] = useState<OSLine[]>([{ productId: '', name: '', qty: 0, cost: 0, amount: 0 }])
   const [form, setForm] = useState({ date: today(), ref: genRef('OS', 1), notes: '' })
