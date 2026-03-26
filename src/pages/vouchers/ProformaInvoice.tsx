@@ -162,6 +162,13 @@ export default function ProformaInvoice({ onNav }: Props) {
         )}
       </div>
 
+      <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '12px 0' }}>
+        <button className="btn btn-primary" style={{ background: 'var(--accent)', border: 'none', display: 'flex', alignItems: 'center', gap: 8 }}
+          onClick={convertToInvoice} disabled={converting || !form.customer.trim()}>
+          {converting ? 'Converting…' : '→ Convert to Sales Invoice'}
+        </button>
+      </div>
+
       {/* Proforma notice */}
       <div style={{ background: 'rgba(133,194,190,.06)', border: '1px solid rgba(133,194,190,.2)', borderRadius: 10, padding: '12px 16px', marginTop: 12, fontSize: 11, color: 'var(--text3)', lineHeight: 1.7 }}>
         This is a <strong>Proforma Invoice</strong> — for quotation purposes only. No journal entries are created, no stock is deducted, and no accounts are affected. When the customer confirms, click <strong>"Convert to Sales Invoice"</strong> to post the actual invoice.
