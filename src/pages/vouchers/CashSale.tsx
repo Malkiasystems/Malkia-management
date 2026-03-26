@@ -225,7 +225,7 @@ export default function CashSale() {
       for (const line of lines) {
         if (!line.productId) continue
         const prod = dbProducts.find(p => p.id === line.productId)
-        if (prod && prod.qty_on_hand < line.qty) { showToast(`Insufficient stock for ${prod.name}. Available: ${prod.qty_on_hand} ${prod.unit}s`, 'error'); return }
+        if (prod && prod.qty_on_hand < line.qty) { showToast(`Insufficient stock for ${prod.name}. Available: ${prod.qty_on_hand} units`, 'error'); return }
       }
     }
     if (invSettings?.block_sell_below_cost) {
