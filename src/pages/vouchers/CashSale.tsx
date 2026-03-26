@@ -37,6 +37,7 @@ interface SplitLine { methodId: string; accountId: string; amount: number; ref: 
 export default function CashSale() {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [autoRef, setAutoRef] = useState('CS-10-????')
   const [posting, setPosting] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [autoReceipt] = useState(true)
@@ -597,7 +598,7 @@ export default function CashSale() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 12px' }}>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>SALE NO. </span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{form.ref}</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{autoRef}</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginLeft: 6 }}>Auto · Read only</span>
                 </div>
                 <button onClick={() => setShowModal(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: 'var(--text3)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>

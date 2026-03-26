@@ -23,7 +23,7 @@ export default function SalesReturn({ onNav }: Props) {
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { data: cash }, { count }] = await Promise.all([
+    const [{ data: prods }, { data: cash }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name'),
       supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
       supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'sales_return'),

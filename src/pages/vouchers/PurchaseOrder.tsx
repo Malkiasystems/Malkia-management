@@ -4,7 +4,6 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import LineItemsTable from '../../components/LineItemsTable'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page, LineItem } from '../../lib/types'
 

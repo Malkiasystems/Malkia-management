@@ -3,7 +3,6 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 

@@ -3,7 +3,6 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -23,7 +22,7 @@ export default function PurchaseReturn({ onNav }: Props) {
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { data: sups }, { count }] = await Promise.all([
+    const [{ data: prods }, { data: sups }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
       supabase.from('suppliers').select('id, name').eq('is_active', true).order('name'),
       supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'purchase_return'),

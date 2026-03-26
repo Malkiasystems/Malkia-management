@@ -76,16 +76,13 @@ export default function ProformaInvoice({ onNav }: Props) {
     if (!form.customer.trim()) { showToast('Customer name required', 'error'); return }
     setConverting(true)
     try {
-      // Get next SI ref
       const siRef = await nextRef('sales_invoice')
-      // Navigate to sales invoice with pre-filled data via localStorage
       localStorage.setItem('prefill_invoice', JSON.stringify({
         customer: form.customer, wa: form.wa, ref: siRef,
         paymentTerms: form.paymentTerms, notes: form.notes,
         lines: lines.map(l => ({ productId: l.productId, desc: l.desc, qty: l.qty, price: l.price, amount: l.amount })),
         pfRef: form.ref,
       }))
-      // Mark proforma as converted
       await supabase.from('vouchers').update({ status: 'converted', notes: `Converted to ${siRef}` })
         .eq('ref', form.ref).eq('type', 'proforma')
       showToast(`Converting to Sales Invoice ${siRef}…`)
