@@ -9,12 +9,12 @@ export type Page =
   | 'sales' | 'inventory' | 'reports' | 'pnl'
   | 'sales-register' | 'sales-day-book' | 'trial-balance' | 'balance-sheet'
   | 'ar-aging' | 'ap-aging' | 'vat-report' | 'stock-valuation'
-  | 'purchase-register' | 'payment-register'
+  | 'purchase-register' | 'payment-register' | 'stock-transfer-register'
   | 'receipt-template' | 'invoice-template'
   | 'whatsapp-settings' | 'location-settings'
   | 'inventory-settings' | 'pricelist-template'
   | 'banks' | 'settings' | 'coming-soon'
-  | 'stock-levels' | 'suppliers' | 'stock-movements'
+  | 'stock-levels' | 'suppliers' | 'stock-movements' | 'stock-transfer-register'
 
 export interface Product {
   id: string
