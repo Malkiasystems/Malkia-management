@@ -100,6 +100,7 @@ export default function App() {
       case 'opening-stock':     return <OpeningStock onNav={setPage} />
       case 'stock-adjustment':  return <StockAdjustment onNav={setPage} />
       case 'stock-transfer':    return <StockTransfer onNav={setPage} />
+      case 'stock-transfer-register': return <StockTransferRegister />
       case 'journal-entry':     return <JournalEntry onNav={setPage} />
       default:                  return <ComingSoon module={BREADCRUMBS[page] || page} />
     }
