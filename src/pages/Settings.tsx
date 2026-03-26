@@ -166,6 +166,24 @@ export default function Settings({ onNav }: Props) {
         </button>
       </div>
 
+
+      {/* Location Management */}
+      <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Location Management</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Branches · Stock locations · 4-digit location codes · Voucher permissions</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Current: Branch 10 — DSM HQ · Locations: 1001 Front Office · 1002 Warehouse</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('location-settings')} className="btn btn-primary" style={{ flexShrink: 0 }}>
+          Manage →
+        </button>
+      </div>
+
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
   )
