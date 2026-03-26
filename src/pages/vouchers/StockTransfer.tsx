@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
+import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -23,13 +24,13 @@ export default function StockTransfer({ onNav }: Props) {
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { count: stCount }, { data: locs }] = await Promise.all([
+    const [{ data: prods }, { data: locs }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
-      supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'stock_transfer'),
       supabase.from('stock_locations').select('id, code, name, branch_code').eq('is_active', true).order('code'),
     ])
     if (prods) setProducts(prods)
-    const stpRef = `STP-10-${String((stCount || 0) + 1).padStart(4, '0')}`
+    // Use nextRef from refs.ts — handles count internally with fallback
+    const stpRef = await nextRef('stock_transfer')
     if (locs && locs.length > 0) {
       setLocations(locs)
       setForm(f => ({ ...f, ref: stpRef, fromLocation: locs[0].code, toLocation: locs.length >= 2 ? locs[1].code : locs[0].code }))
