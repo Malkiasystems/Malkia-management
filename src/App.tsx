@@ -25,6 +25,8 @@ import ReceiptTemplatePage from './pages/ReceiptTemplate'
 import InvoiceTemplatePage from './pages/InvoiceTemplate'
 import WhatsAppSettings from './pages/WhatsAppSettings'
 import LocationSettings from './pages/LocationSettings'
+import InventorySettings from './pages/InventorySettings'
+import PricelistTemplate from './pages/PricelistTemplate'
 import Settings from './pages/Settings'
 import Banks from './pages/Banks'
 
@@ -73,6 +75,8 @@ export default function App() {
       case 'invoice-template':  return <InvoiceTemplatePage />
       case 'whatsapp-settings':  return <WhatsAppSettings />
       case 'location-settings':  return <LocationSettings />
+      case 'inventory-settings': return <InventorySettings onNav={setPage} />
+      case 'pricelist-template':  return <PricelistTemplate />
       case 'banks':            return <Banks />
       case 'settings':          return <Settings onNav={setPage} />
       case 'cash-payment':      return <CashPayment onNav={setPage} />
