@@ -24,7 +24,7 @@ export default function GRN({ onNav }: Props) {
 
   useEffect(() => {
     loadProducts(); loadSuppliers(); loadNextRef()
-    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).eq('allow_grn',true).order('code')
+    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code')
       .then(({data}) => { if(data) { setLocations(data); const wh = data.find((l:any) => l.code === '1002'); if(wh) set('location_code', wh.code) } })
   }, [])
 
