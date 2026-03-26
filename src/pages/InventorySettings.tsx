@@ -436,9 +436,14 @@ function ReorderAlerts() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.from('reorder_alerts').select('*').eq('acknowledged', false).order('alerted_at', { ascending: false }).limit(10)
-      .then(({ data }) => { if (data) setAlerts(data); setLoading(false) })
-      .catch(() => setLoading(false))
+    const load = async () => {
+      try {
+        const { data } = await supabase.from('reorder_alerts').select('*').eq('acknowledged', false).order('alerted_at', { ascending: false }).limit(10)
+        if (data) setAlerts(data as any[])
+      } catch {}
+      setLoading(false)
+    }
+    load()
   }, [])
 
   const acknowledge = async (id: string) => {
