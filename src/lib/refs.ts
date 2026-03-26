@@ -29,21 +29,30 @@ export const VOUCHER_PREFIXES: Record<string, string> = {
 
 const DEFAULT_BRANCH = '10'
 
-// Generate next ref from Supabase count — automatic and non-overridable
+// Generate next ref — uses MAX existing sequence to avoid duplicates
 export const nextRef = async (type: string, branchCode: string = DEFAULT_BRANCH): Promise<string> => {
   const prefix = VOUCHER_PREFIXES[type] || type.toUpperCase().slice(0, 3)
+  const pattern = `${prefix}-${branchCode}-`
   try {
-    const { count } = await supabase
+    // Get all refs matching this pattern and find the max sequence number
+    const { data } = await supabase
       .from('vouchers')
-      .select('*', { count: 'exact', head: true })
-      .eq('type', type)
-      .like('ref', `${prefix}-${branchCode}-%`)
-    const seq = String((count || 0) + 1).padStart(4, '0')
-    return `${prefix}-${branchCode}-${seq}`
+      .select('ref')
+      .like('ref', `${pattern}%`)
+      .order('ref', { ascending: false })
+      .limit(1)
+    
+    let nextSeq = 1
+    if (data && data.length > 0) {
+      const lastRef = data[0].ref as string
+      const lastSeq = parseInt(lastRef.replace(pattern, '')) || 0
+      nextSeq = lastSeq + 1
+    }
+    return `${pattern}${String(nextSeq).padStart(4, '0')}`
   } catch {
     // Fallback using timestamp if Supabase call fails
     const seq = String(Date.now()).slice(-4)
-    return `${prefix}-${branchCode}-${seq}`
+    return `${pattern}${seq}`
   }
 }
 
