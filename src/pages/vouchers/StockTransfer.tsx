@@ -79,24 +79,33 @@ export default function StockTransfer({ onNav }: Props) {
 
       for (const line of lines) {
         if (!line.productId || !line.qty) continue
-        const prod = products.find(p => p.id === line.productId)
-        if (!prod) continue
-        if (prod.qty_on_hand < line.qty) {
-          showToast(`Insufficient stock: ${prod.name} · Available: ${prod.qty_on_hand}`, 'error')
+        // Fetch fresh qty from Supabase at post time — don't use stale local state
+        const { data: freshProd } = await supabase.from('products').select('name, qty_on_hand, cost_price').eq('id', line.productId).single()
+        if (!freshProd) continue
+        if (freshProd.qty_on_hand < line.qty) {
+          showToast(`Insufficient stock: ${freshProd.name} · Available: ${freshProd.qty_on_hand}`, 'error')
           setPosting(false); return
         }
-        await supabase.from('item_ledger_entries').insert([
-          { product_id: line.productId, entry_type: 'transfer_out', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: -line.qty, cost_amount: line.cost * line.qty, location_code: fromLoc.code },
-          { product_id: line.productId, entry_type: 'transfer_in', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: line.qty, cost_amount: line.cost * line.qty, location_code: toLoc.code },
+        const entryNum = Date.now() + Math.floor(Math.random() * 1000)
+        const { error: leErr } = await supabase.from('item_ledger_entries').insert([
+          { entry_number: entryNum, product_id: line.productId, entry_type: 'transfer_out', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: -line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: fromLoc.code },
+          { entry_number: entryNum + 1, product_id: line.productId, entry_type: 'transfer_in', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: toLoc.code },
         ])
+        if (leErr) console.error('item_ledger_entries error:', leErr.message)
+        // Update product_locations with fresh qty
+        const { data: fromPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', fromLoc.code).single()
+        const { data: toPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', toLoc.code).single()
+        const fromQty = Math.max(0, (fromPL?.qty_on_hand || freshProd.qty_on_hand) - line.qty)
+        const toQty = (toPL?.qty_on_hand || 0) + line.qty
         await supabase.from('product_locations').upsert(
-          { product_id: line.productId, location_id: fromLoc.id, location_code: fromLoc.code, qty_on_hand: Math.max(0, prod.qty_on_hand - line.qty), last_updated: new Date().toISOString() },
+          { product_id: line.productId, location_id: fromLoc.id, location_code: fromLoc.code, qty_on_hand: fromQty, last_updated: new Date().toISOString() },
           { onConflict: 'product_id,location_id' }
         )
         await supabase.from('product_locations').upsert(
-          { product_id: line.productId, location_id: toLoc.id, location_code: toLoc.code, qty_on_hand: (prod.qty_on_hand || 0) + line.qty, last_updated: new Date().toISOString() },
+          { product_id: line.productId, location_id: toLoc.id, location_code: toLoc.code, qty_on_hand: toQty, last_updated: new Date().toISOString() },
           { onConflict: 'product_id,location_id' }
         )
+        // Total stock unchanged — no update to products.qty_on_hand needed
       }
       showToast(`${form.ref} posted · ${fromLabel} → ${toLabel} · ${tzs(totalValue)}`)
       setTimeout(() => onNav('vouchers'), 1500)
