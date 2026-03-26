@@ -23,10 +23,9 @@ export default function PettyCash({ onNav }: Props) {
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: accts }, { data: petty }, { count }] = await Promise.all([
+    const [{ data: accts }, { data: petty }] = await Promise.all([
       supabase.from('accounts').select('id, code, name').eq('type', 'expense').eq('is_active', true).order('code'),
       supabase.from('accounts').select('id, balance').eq('code', '1040').single(),
-      supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'petty_cash'),
     ])
     if (accts) setExpAccounts(accts)
     if (petty) { setPettyCashId(petty.id); setPettyCashBal(petty.balance || 0) }
