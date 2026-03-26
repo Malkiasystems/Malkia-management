@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 
@@ -165,11 +165,11 @@ export default function PricelistTemplate() {
     if (settingsData?.value) { try { setSettings({ ...DEFAULT, ...JSON.parse(settingsData.value) }) } catch {} }
     if (prods) {
       setProducts(prods)
-      const cats = [...new Set(prods.map((p: PLProduct) => p.category))]
+      const cats = [...new Set(prods.map((p: PLProduct) => p.category))] as string[]
       setCategories(cats)
       setSelectedCats(cats)
     }
-    if (catData?.value) { try { setCategories(JSON.parse(catData.value)) } catch {} }
+    if (catData?.value) { try { setCategories(JSON.parse(catData.value) as string[]) } catch {} }
   }
 
   const save = async () => {
