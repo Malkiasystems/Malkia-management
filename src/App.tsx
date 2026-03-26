@@ -27,6 +27,7 @@ import WhatsAppSettings from './pages/WhatsAppSettings'
 import LocationSettings from './pages/LocationSettings'
 import InventorySettings from './pages/InventorySettings'
 // import PricelistTemplate from './pages/PricelistTemplate'
+import StockTransferRegister from './pages/StockTransferRegister'
 import Settings from './pages/Settings'
 import Banks from './pages/Banks'
 
