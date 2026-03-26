@@ -13,15 +13,23 @@ interface GRNLine { productId: string; qty: number; unitCost: number; amount: nu
 
 export default function GRN({ onNav }: Props) {
   const [toast, setToast] = useState('')
+  const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
+  const [locationCode, setLocationCode] = useState('1002')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
   const [lines, setLines] = useState<GRNLine[]>([{ productId: '', qty: 1, unitCost: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: genRef('GRN', 1), supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '' })
+  const [form, setForm] = useState({ date: today(), ref: genRef('GRN', 1), supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '', location_code: '1002' })
+  const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  useEffect(() => { loadProducts(); loadSuppliers(); loadNextRef() }, [])
+  useEffect(() => {
+    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).eq('allow_grn',true).order('code').then(({data})=>{ if(data) setLocations(data); const wh = data?.find((l:any)=>l.code==='1002'); if(wh) setLocationCode(wh.code) })
+  }, [])
+
+    useEffect(() => { loadProducts(); loadSuppliers(); loadNextRef()
+    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).eq('allow_grn',true).order('code').then(({data})=>{ if(data) setLocations(data) }) }, [])
 
   const loadProducts = async () => {
     const { data } = await supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).order('name')
@@ -123,6 +131,7 @@ export default function GRN({ onNav }: Props) {
           document_type: 'grn',
           document_ref: form.ref,
           posting_date: form.date,
+          location_code: form.location_code,
           qty: line.qty,
           cost_amount: line.amount,
         })
@@ -164,6 +173,12 @@ export default function GRN({ onNav }: Props) {
             <FG label="Related PO Reference"><input className="form-input" placeholder="e.g. PO-0022" value={form.poRef} onChange={e => set('poRef', e.target.value)} /></FG>
             <div className="form-row">
               <FG label="FX Rate on Receipt Date"><input className="form-input" placeholder="2540" value={form.fxRate} onChange={e => set('fxRate', e.target.value)} /></FG>
+              <FG label="Receive Into Location">
+                <select className="form-input" value={form.location_code} onChange={e => setForm(f => ({ ...f, location_code: e.target.value }))}>
+                  {locations.length === 0 && <option value="1002">1002 — Warehouse / Godown</option>}
+                  {locations.map(l => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
+                </select>
+              </FG>
               <FG label="Received By">
                 <select className="form-input" value={form.receivedBy} onChange={e => set('receivedBy', e.target.value)}>
                   <option>Joe Gembe</option><option>Jane Mwatonoka</option><option>Lilian Mallya</option>
