@@ -55,7 +55,6 @@ export default function CashPayment({ onNav }: Props) {
     const ref = await nextRef('cash_payment')
     setForm(f => ({ ...f, ref }))
   }
-  }
 
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
