@@ -13,8 +13,6 @@ interface GRNLine { productId: string; qty: number; unitCost: number; amount: nu
 
 export default function GRN({ onNav }: Props) {
   const [toast, setToast] = useState('')
-  const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
-  const [locationCode, setLocationCode] = useState('1002')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
@@ -22,14 +20,14 @@ export default function GRN({ onNav }: Props) {
   const [lines, setLines] = useState<GRNLine[]>([{ productId: '', qty: 1, unitCost: 0, amount: 0 }])
   const [form, setForm] = useState({ date: today(), ref: genRef('GRN', 1), supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '', location_code: '1002' })
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
+  const [locationCode, setLocationCode] = useState('1002')
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => {
-    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).eq('allow_grn',true).order('code').then(({data})=>{ if(data) setLocations(data); const wh = data?.find((l:any)=>l.code==='1002'); if(wh) setLocationCode(wh.code) })
+    loadProducts(); loadSuppliers(); loadNextRef()
+    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).eq('allow_grn',true).order('code')
+      .then(({data}) => { if(data) { setLocations(data); const wh = data.find((l:any) => l.code === '1002'); if(wh) setLocationCode(wh.code) } })
   }, [])
-
-    useEffect(() => { loadProducts(); loadSuppliers(); loadNextRef()
-    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).eq('allow_grn',true).order('code').then(({data})=>{ if(data) setLocations(data) }) }, [])
 
   const loadProducts = async () => {
     const { data } = await supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).order('name')
