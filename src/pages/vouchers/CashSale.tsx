@@ -147,8 +147,6 @@ export default function CashSale() {
     const ref = await nextRef('cash_sale')
     setForm(f => ({ ...f, ref }))
   }
-    setRefNum((count || 0) + 1)
-  }
 
   const searchCustomer = async (val: string) => {
     setWaInput(val)
