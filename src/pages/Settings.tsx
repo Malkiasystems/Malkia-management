@@ -32,7 +32,7 @@ export default function Settings({ onNav }: Props) {
   return (
     <div className="page">
       <div className="page-header">
-        <div><div className="page-title">Settings</div><div className="page-sub">System configuration · Malkia Wellness Group Ltd· v2</div></div>
+        <div><div className="page-title">Settings</div><div className="page-sub">System configuration · Malkia Wellness Group Ltd</div></div>
       </div>
 
       <div className="grid g2" style={{ gap: 20, marginBottom: 20 }}>
@@ -145,6 +145,24 @@ export default function Settings({ onNav }: Props) {
         </div>
         <button onClick={() => onNav('invoice-template')} className="btn btn-primary" style={{ background: '#1a1a1a', border: 'none', flexShrink: 0 }}>
           Edit Template →
+        </button>
+      </div>
+
+
+      {/* WhatsApp Integration */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(37,211,102,.08) 0%, rgba(37,211,102,.04) 100%)', border: '1px solid rgba(37,211,102,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(37,211,102,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#25D366" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>WhatsApp Integration</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Send receipts and invoices directly to customers · Wati · Twilio · Infobip</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Configure API · Message templates · Send logs</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('whatsapp-settings')} className="btn btn-primary" style={{ background: '#25D366', border: 'none', flexShrink: 0 }}>
+          Configure →
         </button>
       </div>
 
