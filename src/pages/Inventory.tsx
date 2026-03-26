@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
@@ -55,7 +55,6 @@ export default function Inventory() {
   const [search, setSearch] = useState('')
   const [filterCat, setFilterCat] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
-  const [filterLoc, setFilterLoc] = useState('all')
   const [sortBy, setSortBy] = useState<'name'|'qty'|'value'|'margin'>('name')
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
@@ -200,6 +199,11 @@ export default function Inventory() {
           </div>
           <div className="page-actions">
             <button className="btn btn-ghost" onClick={() => setView('list')}>Cancel</button>
+            {selectedProduct && (
+              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => { deactivate(selectedProduct); setView('list') }}>
+                Deactivate
+              </button>
+            )}
             <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : selectedProduct ? 'Save Changes' : 'Add Product'}</button>
           </div>
         </div>
