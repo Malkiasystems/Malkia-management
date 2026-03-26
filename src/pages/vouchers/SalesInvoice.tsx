@@ -19,6 +19,8 @@ export default function SalesInvoice({ onNav }: Props) {
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [showInvoice, setShowInvoice] = useState(false)
+  const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
+  const [locationCode, setLocationCode] = useState('1001')
   const [invSettings, setInvSettings] = useState<any>(null)
   const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
   const [sending, setSending] = useState(false)
@@ -37,6 +39,7 @@ export default function SalesInvoice({ onNav }: Props) {
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadProducts(); loadNextRef(); loadInvoiceSettings(); loadWAConfig().then(setWaConfig)
+    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) setLocations(data); if(data?.[0]) setLocationCode(data[0].code) })
     supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} }) }, [])
 
   const loadInvoiceSettings = async () => {
@@ -185,7 +188,7 @@ export default function SalesInvoice({ onNav }: Props) {
         })
         await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand - line.qty }).eq('id', line.productId)
         await supabase.from('item_ledger_entries').insert({
-          product_id: line.productId, entry_type: 'sale',
+          product_id: line.productId, entry_type: 'sale', location_code: locationCode,
           document_type: 'sales_invoice', document_ref: form.ref,
           posting_date: form.date, qty: -line.qty, cost_amount: prod.cost_price * line.qty,
         })
@@ -306,6 +309,20 @@ export default function SalesInvoice({ onNav }: Props) {
       {/* LINE ITEMS */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title" style={{ marginBottom: 14 }}>Invoice Lines</div>
+              {locations.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Deduct Stock From Location</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {locations.map(loc => (
+                      <div key={loc.id} onClick={() => setLocationCode(loc.code)}
+                        style={{ padding: '8px 14px', border: `2px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer', background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface2)', transition: 'all .15s' }}>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800, color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, marginTop: 1 }}>{loc.name}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
         {lines.map((line, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 120px 120px auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
             <select className="form-input" style={{ fontSize: 12 }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
