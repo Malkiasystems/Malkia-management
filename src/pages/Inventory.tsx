@@ -55,6 +55,7 @@ export default function Inventory() {
   const [search, setSearch] = useState('')
   const [filterCat, setFilterCat] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [filterLoc, setFilterLoc] = useState('all')
   const [sortBy, setSortBy] = useState<'name'|'qty'|'value'|'margin'>('name')
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
@@ -74,12 +75,27 @@ export default function Inventory() {
 
   useEffect(() => { loadProducts(); loadLocations() }, [])
 
+  const [productLocations, setProductLocations] = useState<Record<string, Record<string, number>>>({})
+
   const loadProducts = async () => {
     setLoading(true)
-    const { data } = await supabase.from('products')
-      .select('id, sku, name, category, cost_price, selling_price, qty_on_hand, reorder_point, unit, is_active')
-      .eq('is_active', true).order('name')
+    const [{ data }, { data: plData }] = await Promise.all([
+      supabase.from('products')
+        .select('id, sku, name, category, cost_price, selling_price, qty_on_hand, reorder_point, unit, is_active')
+        .eq('is_active', true).order('name'),
+      supabase.from('product_locations')
+        .select('product_id, location_code, qty_on_hand')
+    ])
     if (data) setProducts(data)
+    // Build product→location→qty map
+    if (plData) {
+      const map: Record<string, Record<string, number>> = {}
+      plData.forEach((pl: any) => {
+        if (!map[pl.product_id]) map[pl.product_id] = {}
+        map[pl.product_id][pl.location_code] = pl.qty_on_hand
+      })
+      setProductLocations(map)
+    }
     setLoading(false)
   }
 
@@ -163,6 +179,7 @@ export default function Inventory() {
       if (filterStatus === 'low' && (p.qty_on_hand === 0 || s === 'ok')) return false
       if (filterStatus === 'ok' && s !== 'ok') return false
       if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false
+      if (filterLoc !== 'all' && !productLocations[p.id]?.[filterLoc]) return false
       return true
     })
     .sort((a, b) => {
@@ -254,7 +271,7 @@ export default function Inventory() {
                       <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)', marginRight: 6 }}>{loc.code}</span>
                       {loc.name}
                     </div>
-                    <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 600 }}>— pcs</span>
+                    <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 600 }}>{(productLocations[selectedProduct?.id || '']?.[loc.code] ?? '—')} pcs</span>
                   </div>
                 ))}
                 <button className="btn btn-ghost btn-sm" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => { if (selectedProduct) openLedger(selectedProduct) }}>
@@ -427,6 +444,10 @@ export default function Inventory() {
           <option value="low">Low Stock</option>
           <option value="out">Out of Stock</option>
         </select>
+        <select className="form-input" style={{ fontSize: 12, padding: '7px 10px', width: 150 }} value={filterLoc} onChange={e => setFilterLoc(e.target.value)}>
+          <option value="all">All Locations</option>
+          {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+        </select>
         <select className="form-input" style={{ fontSize: 12, padding: '7px 10px', width: 130 }} value={sortBy} onChange={e => setSortBy(e.target.value as any)}>
           <option value="name">Sort: Name</option>
           <option value="qty">Sort: Qty</option>
@@ -471,7 +492,14 @@ export default function Inventory() {
                       <td className="td-bold">{p.name}</td>
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.category}</td>
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.unit}</td>
-                      <td className="td-right td-mono" style={{ color: colors[s], fontWeight: 700 }}>{p.qty_on_hand}</td>
+                      <td className="td-right td-mono" style={{ color: colors[s], fontWeight: 700 }}>
+                        {filterLoc !== 'all' ? (productLocations[p.id]?.[filterLoc] ?? 0) : p.qty_on_hand}
+                        {filterLoc === 'all' && Object.keys(productLocations[p.id] || {}).length > 0 && (
+                          <div style={{ fontSize: 8, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 1 }}>
+                            {Object.entries(productLocations[p.id] || {}).map(([code, qty]) => `${code}:${qty}`).join(' · ')}
+                          </div>
+                        )}
+                      </td>
                       <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{p.reorder_point}</td>
                       <td className="td-right td-mono" style={{ fontSize: 11 }}>{p.cost_price.toLocaleString()}</td>
                       <td className="td-right td-mono" style={{ fontSize: 11 }}>{p.selling_price.toLocaleString()}</td>
