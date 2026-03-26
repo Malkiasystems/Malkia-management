@@ -26,7 +26,7 @@ export default function StockTransfer({ onNav }: Props) {
     const [{ data: prods }, { count }, { data: locs }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
       supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'stock_transfer'),
-      supabase.from('stock_locations').select('id, code, name, branch_code').eq('is_active', true).eq('allow_stock_transfer', true).order('code'),
+      supabase.from('stock_locations').select('id, code, name, branch_code').eq('is_active', true).order('code'),
     ])
     if (prods) setProducts(prods)
     if (locs && locs.length > 0) {
@@ -34,7 +34,6 @@ export default function StockTransfer({ onNav }: Props) {
       set('fromLocation', locs[0].code)
       if (locs.length >= 2) set('toLocation', locs[1].code)
     }
-    set('ref', genRef('ST', (count || 0) + 1))
   }
 
   const updateLine = (i: number, field: keyof TxLine, val: string | number) => {
