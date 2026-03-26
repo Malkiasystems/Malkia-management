@@ -103,12 +103,6 @@ export default function ProformaInvoice({ onNav }: Props) {
       color="rgba(133,194,190,.12)"
       onPost={saveProforma}
       postLabel={posting ? 'Saving…' : 'Save Proforma'}
-      extraActions={
-        <button className="btn btn-primary btn-sm" style={{ background: 'var(--accent)', border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
-          onClick={convertToInvoice} disabled={converting}>
-          {converting ? 'Converting…' : 'Convert to Sales Invoice →'}
-        </button>
-      }
       journalNote="Proforma — no journal entries · No stock deduction · Informational only">
 
       <div className="card" style={{ marginBottom: 16 }}>

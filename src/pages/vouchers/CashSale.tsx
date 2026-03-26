@@ -145,7 +145,7 @@ export default function CashSale() {
 
   const loadNextRef = async () => {
     const ref = await nextRef('cash_sale')
-    setForm(f => ({ ...f, ref }))
+    set('ref', ref)
   }
 
   const searchCustomer = async (val: string) => {
@@ -385,7 +385,7 @@ export default function CashSale() {
       }
 
       showToast(`${ref} posted · ${isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
-      setRefNum(n => n + 1)
+      
       // Build voucher data for receipt
       if (!isPOD) {
         const receiptData = {
