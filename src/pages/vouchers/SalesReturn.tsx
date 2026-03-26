@@ -36,7 +36,8 @@ export default function SalesReturn({ onNav }: Props) {
       const cashTill = cash.find(a => a.code === '1010')
       if (cashTill) set('refundAccountId', cashTill.id)
     }
-    set('ref', 'SR-10-????' + 1))
+    const ref = await nextRef('sales_return')
+    setForm(f => ({ ...f, ref }))
   }
 
   const updateLine = (i: number, field: keyof ReturnLine, val: string | number) => {

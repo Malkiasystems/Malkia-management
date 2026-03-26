@@ -30,8 +30,6 @@ export default function StockAdjustment({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('stock_adjustment')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'stock_adjustment')
-    set('ref', 'ADJ-10-????' + 1))
   }
 
   const updateLine = (i: number, k: keyof AdjLine, v: string | number) => {

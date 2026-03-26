@@ -146,7 +146,7 @@ export default function CashSale() {
   const loadNextRef = async () => {
     const ref = await nextRef('cash_sale')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'cash_sale')
+  }
     setRefNum((count || 0) + 1)
   }
 

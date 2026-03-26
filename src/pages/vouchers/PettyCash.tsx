@@ -32,7 +32,7 @@ export default function PettyCash({ onNav }: Props) {
     ])
     if (accts) setExpAccounts(accts)
     if (petty) { setPettyCashId(petty.id); setPettyCashBal(petty.balance || 0) }
-    set('ref', 'PCT-10-????' + 1))
+
   }
 
   const updateLine = (i: number, k: keyof ExpLine, v: string | number) => {

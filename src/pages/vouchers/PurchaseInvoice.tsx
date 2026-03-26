@@ -41,8 +41,6 @@ export default function PurchaseInvoice({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('purchase_invoice')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'purchase_invoice')
-    set('ref', 'PIP-10-????' + 1))
   }
 
   const updateLine = (i: number, field: keyof InvLine, val: string | number) => {

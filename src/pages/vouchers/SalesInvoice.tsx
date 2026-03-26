@@ -56,8 +56,6 @@ export default function SalesInvoice({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('sales_invoice')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'sales_invoice')
-    set('ref', 'SI-10-????' + 1))
   }
 
   const searchCustomer = async (val: string) => {

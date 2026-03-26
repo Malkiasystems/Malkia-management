@@ -31,8 +31,6 @@ export default function CashReceipt({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('cash_receipt')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'cash_receipt')
-    set('ref', 'RCP-10-????' + 1))
   }
 
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')

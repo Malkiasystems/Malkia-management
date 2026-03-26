@@ -27,8 +27,6 @@ export default function ContraEntry({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('contra')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'contra')
-    set('ref', 'CTR-10-????' + 1))
   }
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => { setToast(msg); setToastType(type) }

@@ -24,8 +24,6 @@ export default function CreditNote({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('credit_note')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'credit_note')
-    set('ref', 'CN-10-????' + 1))
   }
 
   const searchCust = async (val: string) => {

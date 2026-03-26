@@ -31,7 +31,7 @@ export default function PurchaseReturn({ onNav }: Props) {
     ])
     if (prods) setProducts(prods)
     if (sups) setSuppliers(sups)
-    set('ref', 'PRN-10-????' + 1))
+
   }
 
   const updateLine = (i: number, field: keyof ReturnLine, val: string | number) => {

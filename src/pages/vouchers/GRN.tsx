@@ -43,8 +43,6 @@ export default function GRN({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('grn')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'grn')
-    set('ref', 'GRN-10-????' + 1))
   }
 
   const updateLine = (i: number, field: keyof GRNLine, val: string | number) => {

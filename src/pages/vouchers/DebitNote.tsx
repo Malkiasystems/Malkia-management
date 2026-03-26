@@ -24,8 +24,6 @@ export default function DebitNote({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('debit_note')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'debit_note')
-    set('ref', 'DN-10-????' + 1))
   }
 
   const searchCust = async (val: string) => {

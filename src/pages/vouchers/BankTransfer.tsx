@@ -32,8 +32,6 @@ export default function BankTransfer({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('bank_transfer')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'bank_transfer')
-    set('ref', 'BNK-10-????' + 1))
   }
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }

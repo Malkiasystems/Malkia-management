@@ -32,8 +32,6 @@ export default function JournalEntry({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('journal_entry')
     setForm(f => ({ ...f, ref }))
-  } = await supabase.from('journals').select('*', { count: 'exact', head: true }).eq('journal_type', 'manual')
-    set('ref', 'JNL-10-????' + 1))
   }
 
   const updateLine = (i: number, k: keyof JournalLine, v: string | number) => {
