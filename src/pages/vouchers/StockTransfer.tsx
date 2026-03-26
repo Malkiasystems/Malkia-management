@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -23,9 +23,9 @@ export default function StockTransfer({ onNav }: Props) {
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { count }, { data: locs }] = await Promise.all([
+    const [{ data: prods }, { count: txCount }, { data: locs }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
-      supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'stock_transfer'),
+      supabase.from('vouchers').select('id', { count: 'exact', head: true }).eq('type', 'stock_transfer'),
       supabase.from('stock_locations').select('id, code, name, branch_code').eq('is_active', true).order('code'),
     ])
     if (prods) setProducts(prods)
