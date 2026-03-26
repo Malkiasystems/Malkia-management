@@ -92,12 +92,20 @@ export default function Inventory() {
     setSelectedProduct(p)
     setView('ledger')
     setLoadingLedger(true)
-    const { data } = await supabase.from('item_ledger_entries')
+    const { data, error } = await supabase.from('item_ledger_entries')
       .select('id, entry_type, document_type, document_ref, posting_date, qty, cost_amount, location, location_code')
       .eq('product_id', p.id)
       .order('posting_date', { ascending: false })
-      .order('created_at', { ascending: false })
-    if (data) setLedgerEntries(data as ItemLedgerEntry[])
+    if (error) {
+      // If location_code column doesn't exist yet, retry without it
+      const { data: data2 } = await supabase.from('item_ledger_entries')
+        .select('id, entry_type, document_type, document_ref, posting_date, qty, cost_amount, location')
+        .eq('product_id', p.id)
+        .order('posting_date', { ascending: false })
+      if (data2) setLedgerEntries(data2.map(e => ({ ...e, location_code: e.location || '' })) as ItemLedgerEntry[])
+    } else {
+      if (data) setLedgerEntries(data as ItemLedgerEntry[])
+    }
     setLoadingLedger(false)
   }
 
