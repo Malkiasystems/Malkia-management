@@ -4,6 +4,8 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { genRef, today, tzs } from '../../lib/utils'
 import { MalkiaReceipt } from '../ReceiptTemplate'
+import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
+import type { WAConfig } from '../../lib/whatsapp'
 
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
 interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
@@ -71,11 +73,14 @@ export default function CashSale() {
   const [paymentSplit, setPaymentSplit] = useState<Record<string, number>>({})
   const [refNum, setRefNum] = useState(1)
   const [showReceipt, setShowReceipt] = useState(false)
+  const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
+  const [sending, setSending] = useState(false)
+  const [waSent, setWaSent] = useState(false)
   const [lastVoucher, setLastVoucher] = useState<any>(null)
   const [receiptSettings, setReceiptSettings] = useState<any>(null)
 
   useEffect(() => {
-    loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings()
+    loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings(); loadWAConfig().then(setWaConfig)
     loadTodayStats(); loadRecentSales(); loadNextRef()
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -808,7 +813,29 @@ export default function CashSale() {
                 <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Print / Save PDF
               </button>
-              <button className="btn btn-ghost" onClick={() => { setShowReceipt(false); resetForm() }}>Close</button>
+              <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, background: waSent ? 'rgba(37,211,102,.15)' : waConfig?.enabled && waConfig?.api_key ? 'rgba(37,211,102,.1)' : 'var(--surface2)', color: waSent ? '#25D366' : waConfig?.enabled && waConfig?.api_key ? '#25D366' : 'var(--text3)', border: `1px solid ${waConfig?.enabled && waConfig?.api_key ? 'rgba(37,211,102,.3)' : 'var(--border)'}`, cursor: waConfig?.enabled && waConfig?.api_key ? 'pointer' : 'not-allowed' }}
+                title={!waConfig?.enabled || !waConfig?.api_key ? 'Configure WhatsApp in Settings first' : ''}
+                disabled={sending || waSent || !waConfig?.enabled || !waConfig?.api_key}
+                onClick={async () => {
+                  if (!lastVoucher || !waConfig) return
+                  const phone = lastVoucher.customers?.whatsapp
+                  if (!phone) { alert('No WhatsApp number for this customer'); return }
+                  setSending(true)
+                  const msg = formatReceiptMessage(waConfig.template_receipt || '', {
+                    customer_name: lastVoucher.customers?.name || 'Mama',
+                    ref: lastVoucher.ref, date: lastVoucher.posting_date,
+                    payment_method: lastVoucher.payment_method,
+                    items: lastVoucher.voucher_lines?.map((l: any) => ({ name: l.products?.name || '—', qty: l.qty, amount: l.total })) || [],
+                    total: lastVoucher.total_amount,
+                  })
+                  const result = await sendWhatsApp(waConfig, { to: phone, message: msg, type: 'receipt', ref: lastVoucher.ref, customer_name: lastVoucher.customers?.name })
+                  setSending(false)
+                  if (result.success) { setWaSent(true) } else { alert('Send failed: ' + result.error) }
+                }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                {sending ? 'Sending…' : waSent ? 'Sent ✓' : 'Send via WhatsApp'}
+              </button>
+              <button className="btn btn-ghost" onClick={() => { setShowReceipt(false); resetForm(); setWaSent(false) }}>Close</button>
             </div>
           </div>
           {/* Scrollable receipt area */}
