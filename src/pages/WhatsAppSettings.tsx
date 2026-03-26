@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { DEFAULT_WA_CONFIG, saveWAConfig, sendWhatsApp, formatPhone } from '../lib/whatsapp'
+import { DEFAULT_WA_CONFIG, saveWAConfig, sendWhatsApp } from '../lib/whatsapp'
 import type { WAConfig } from '../lib/whatsapp'
 import Toast from '../components/Toast'
 
