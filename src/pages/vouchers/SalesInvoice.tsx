@@ -19,6 +19,7 @@ export default function SalesInvoice({ onNav }: Props) {
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [showInvoice, setShowInvoice] = useState(false)
+  const [invSettings, setInvSettings] = useState<any>(null)
   const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
   const [sending, setSending] = useState(false)
   const [waSent, setWaSent] = useState(false)
@@ -35,7 +36,8 @@ export default function SalesInvoice({ onNav }: Props) {
   })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  useEffect(() => { loadProducts(); loadNextRef(); loadInvoiceSettings(); loadWAConfig().then(setWaConfig) }, [])
+  useEffect(() => { loadProducts(); loadNextRef(); loadInvoiceSettings(); loadWAConfig().then(setWaConfig)
+    supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} }) }, [])
 
   const loadInvoiceSettings = async () => {
     const { data } = await supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
@@ -90,6 +92,13 @@ export default function SalesInvoice({ onNav }: Props) {
     if (!form.customer.trim()) { showToast('Customer name required', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (subtotal <= 0) { showToast('Invoice total must be greater than zero', 'error'); return }
+    if (invSettings?.block_negative_stock) {
+      for (const line of lines) {
+        if (!line.productId) continue
+        const prod = products.find(p => p.id === line.productId)
+        if (prod && prod.qty_on_hand < line.qty) { showToast(`Insufficient stock for ${prod.name}. Available: ${prod.qty_on_hand}`, 'error'); return }
+      }
+    }
     setPosting(true)
 
     try {
