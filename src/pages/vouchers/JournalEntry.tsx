@@ -3,7 +3,8 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { today } from '../../lib/utils'
 import type { Page, JournalLine } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -29,8 +30,10 @@ export default function JournalEntry({ onNav }: Props) {
   }
 
   const loadNextRef = async () => {
-    const { count } = await supabase.from('journals').select('*', { count: 'exact', head: true }).eq('journal_type', 'manual')
-    set('ref', genRef('JV', (count || 0) + 1))
+    const ref = await nextRef('journal_entry')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('journals').select('*', { count: 'exact', head: true }).eq('journal_type', 'manual')
+    set('ref', 'JNL-10-????' + 1))
   }
 
   const updateLine = (i: number, k: keyof JournalLine, v: string | number) => {
@@ -70,6 +73,14 @@ export default function JournalEntry({ onNav }: Props) {
         await supabase.rpc('update_account_balance', { p_account_id: line.account_id, p_debit: line.debit, p_credit: line.credit })
       }
 
+      // Save to vouchers table
+      await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'journal_entry', posting_date: form.date,
+        description: form.narration || `Journal Entry — ${form.ref}`,
+        total_amount: totalDr, status: 'posted',
+        journal_id: journal.id, posted_by: 'Joe Gembe',
+      })
+
       showToast(`${form.ref} posted · ${linesToInsert.length} lines · Balanced at TZS ${totalDr.toLocaleString()}`)
       onNav('vouchers')
     } catch (err: any) {
@@ -85,7 +96,7 @@ export default function JournalEntry({ onNav }: Props) {
       journalNote="Manual entry — debits must equal credits before posting is allowed">
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
-          <FG label="Journal Ref" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+          <FG label="Journal Ref" req><input className="form-input" value={form.ref} readOnly  /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
           <FG label="Type">
             <select className="form-input" value={form.type} onChange={e => set('type', e.target.value)}>
