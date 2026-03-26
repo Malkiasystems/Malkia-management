@@ -23,7 +23,7 @@ export default function StockTransfer({ onNav }: Props) {
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { count: txCount }, { data: locs }] = await Promise.all([
+    const [{ data: prods }, , { data: locs }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
       supabase.from('vouchers').select('id', { count: 'exact', head: true }).eq('type', 'stock_transfer'),
       supabase.from('stock_locations').select('id, code, name, branch_code').eq('is_active', true).order('code'),
