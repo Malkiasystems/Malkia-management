@@ -146,7 +146,7 @@ export default function CashSale() {
 
   const loadNextRef = async () => {
     const ref = await nextRef('cash_sale')
-    set('ref', ref)
+    setAutoRef(ref)
   }
 
   const searchCustomer = async (val: string) => {
