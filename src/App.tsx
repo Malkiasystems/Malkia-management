@@ -23,6 +23,7 @@ import PurchaseRegister from './pages/PurchaseRegister'
 import PaymentRegister from './pages/PaymentRegister'
 import ReceiptTemplatePage from './pages/ReceiptTemplate'
 import InvoiceTemplatePage from './pages/InvoiceTemplate'
+import WhatsAppSettings from './pages/WhatsAppSettings'
 import Settings from './pages/Settings'
 import Banks from './pages/Banks'
 
@@ -69,6 +70,7 @@ export default function App() {
       case 'payment-register': return <PaymentRegister />
       case 'receipt-template':  return <ReceiptTemplatePage />
       case 'invoice-template':  return <InvoiceTemplatePage />
+      case 'whatsapp-settings':  return <WhatsAppSettings />
       case 'banks':            return <Banks />
       case 'settings':          return <Settings onNav={setPage} />
       case 'cash-payment':      return <CashPayment onNav={setPage} />
@@ -108,4 +110,3 @@ export default function App() {
     </div>
   )
 }
-
