@@ -324,7 +324,7 @@ export default function Banks() {
                       <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => {
                         setFromDate(p.f); setToDate(p.t)
                         if (selected) loadLedger(selected, p.f, p.t)
-                      }}>{p}</button>
+                      }}>{p.label}</button>
                     ))}
                     <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, color: showReconcile ? 'var(--green)' : 'var(--text3)' }} onClick={() => setShowReconcile(!showReconcile)}>
                       <Icon name="reconcile" size={14} color={showReconcile ? 'var(--green)' : 'var(--text3)'} /> Reconcile
