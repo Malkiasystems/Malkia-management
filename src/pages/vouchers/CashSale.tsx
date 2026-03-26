@@ -84,7 +84,7 @@ export default function CashSale() {
 
   useEffect(() => {
     loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings(); loadWAConfig().then(setWaConfig)
-    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).eq('allow_cash_sale',true).order('code').then(({data})=>{ if(data) setLocations(data); if(data?.[0]) setLocationCode(data[0].code) })
+    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) setLocations(data); if(data?.[0]) setLocationCode(data[0].code) })
     supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} })
     loadTodayStats(); loadRecentSales(); loadNextRef()
     document.addEventListener('mousedown', handleClickOutside)
