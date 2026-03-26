@@ -3,7 +3,9 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { nextRef } from '../../lib/refs'
+import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -16,7 +18,7 @@ export default function OpeningStock({ onNav }: Props) {
   const [, setProducts] = useState<{id:string;sku:string;name:string;cost_price:number;qty_on_hand:number}[]>([])
   const [alreadyPosted, setAlreadyPosted] = useState(false)
   const [lines, setLines] = useState<OSLine[]>([{ productId: '', name: '', qty: 0, cost: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: genRef('OS', 1), notes: '' })
+  const [form, setForm] = useState({ date: today(), ref: 'OST-10-????', notes: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
@@ -110,7 +112,7 @@ export default function OpeningStock({ onNav }: Props) {
       </div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
-          <FG label="Ref"><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+          <FG label="Ref"><input className="form-input" value={form.ref} readOnly  /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
         </div>
         <FG label="Notes"><input className="form-input" placeholder="e.g. Opening stock as at 1 July 2025" value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>

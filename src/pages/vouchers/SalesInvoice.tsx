@@ -3,7 +3,8 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
 import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/whatsapp'
@@ -53,8 +54,10 @@ export default function SalesInvoice({ onNav }: Props) {
   }
 
   const loadNextRef = async () => {
-    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'sales_invoice')
-    set('ref', genRef('INV', (count || 0) + 1))
+    const ref = await nextRef('sales_invoice')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'sales_invoice')
+    set('ref', 'SI-10-????' + 1))
   }
 
   const searchCustomer = async (val: string) => {
@@ -241,7 +244,7 @@ export default function SalesInvoice({ onNav }: Props) {
           <div style={{ flex: 1 }}>
             <div className="card-title" style={{ marginBottom: 14 }}>Invoice Header</div>
             <div className="form-row">
-              <FG label="Invoice No" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+              <FG label="Invoice No" req><input className="form-input" value={form.ref} readOnly  /></FG>
               <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
             </div>
             <div className="form-row">

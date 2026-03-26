@@ -3,7 +3,8 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -28,8 +29,10 @@ export default function CashReceipt({ onNav }: Props) {
   }
 
   const loadNextRef = async () => {
-    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'cash_receipt')
-    set('ref', genRef('CRV', (count || 0) + 1))
+    const ref = await nextRef('cash_receipt')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'cash_receipt')
+    set('ref', 'RCP-10-????' + 1))
   }
 
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
@@ -87,7 +90,7 @@ export default function CashReceipt({ onNav }: Props) {
         <div className="card">
           <div className="card-title" style={{ marginBottom: 16 }}>Receipt Details</div>
           <div className="form-row">
-            <FG label="Voucher Ref" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+            <FG label="Voucher Ref" req><input className="form-input" value={form.ref} readOnly  /></FG>
             <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
           </div>
           <FG label="Received From" req><input className="form-input" placeholder="e.g. Amina Hassan, Aga Khan Hospital" value={form.receivedFrom} onChange={e => set('receivedFrom', e.target.value)} /></FG>

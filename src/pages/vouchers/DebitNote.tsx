@@ -3,7 +3,9 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { nextRef } from '../../lib/refs'
+import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -20,8 +22,10 @@ export default function DebitNote({ onNav }: Props) {
 
   useEffect(() => { loadNextRef() }, [])
   const loadNextRef = async () => {
-    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'debit_note')
-    set('ref', genRef('DN', (count || 0) + 1))
+    const ref = await nextRef('debit_note')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'debit_note')
+    set('ref', 'DN-10-????' + 1))
   }
 
   const searchCust = async (val: string) => {
@@ -97,7 +101,7 @@ export default function DebitNote({ onNav }: Props) {
       journalNote="Dr Accounts Receivable (1050) · Cr Revenue (4010) · Customer owes more">
       <div className="card">
         <div className="form-row">
-          <FG label="Debit Note Ref" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+          <FG label="Debit Note Ref" req><input className="form-input" value={form.ref} readOnly  /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
         </div>
         <div style={{ position: 'relative' }}>

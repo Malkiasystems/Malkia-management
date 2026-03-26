@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { today, tzs } from '../../lib/utils'
 import { MalkiaReceipt } from '../ReceiptTemplate'
 import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
@@ -71,7 +72,6 @@ export default function CashSale() {
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0, avgSale: 0, crownPts: 0 })
   const [recentSales, setRecentSales] = useState<any[]>([])
   const [paymentSplit, setPaymentSplit] = useState<Record<string, number>>({})
-  const [refNum, setRefNum] = useState(1)
   const [invSettings, setInvSettings] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
@@ -144,7 +144,9 @@ export default function CashSale() {
   }
 
   const loadNextRef = async () => {
-    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'cash_sale')
+    const ref = await nextRef('cash_sale')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'cash_sale')
     setRefNum((count || 0) + 1)
   }
 
@@ -253,7 +255,7 @@ export default function CashSale() {
       return
     }
     setPosting(true)
-    const ref = genRef('CS', refNum)
+    const ref = await nextRef('cash_sale')
     const postingDate = today()
 
     try {
@@ -597,7 +599,7 @@ export default function CashSale() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 12px' }}>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>SALE NO. </span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{genRef('CS', refNum)}</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{form.ref}</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginLeft: 6 }}>Auto · Read only</span>
                 </div>
                 <button onClick={() => setShowModal(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: 'var(--text3)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>

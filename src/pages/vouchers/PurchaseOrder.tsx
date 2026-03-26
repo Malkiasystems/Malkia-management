@@ -4,6 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import LineItemsTable from '../../components/LineItemsTable'
 import Toast from '../../components/Toast'
+import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page, LineItem } from '../../lib/types'
 
@@ -60,7 +61,7 @@ export default function PurchaseOrder({ onNav }: Props) {
           <div>
             <div className="card-title" style={{ marginBottom: 14 }}>Order Details</div>
             <div className="form-row">
-              <FG label="PO Number" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+              <FG label="PO Number" req><input className="form-input" value={form.ref} readOnly  /></FG>
               <FG label="Order Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
             </div>
             <FG label="Expected Delivery Date"><input type="date" className="form-input" value={form.deliveryDate} onChange={e => set('deliveryDate', e.target.value)} /></FG>

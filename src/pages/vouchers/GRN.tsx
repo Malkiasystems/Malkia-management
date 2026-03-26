@@ -3,7 +3,9 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { nextRef } from '../../lib/refs'
+import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -18,7 +20,7 @@ export default function GRN({ onNav }: Props) {
   const [products, setProducts] = useState<DBProduct[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
   const [lines, setLines] = useState<GRNLine[]>([{ productId: '', qty: 1, unitCost: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: genRef('GRN', 1), supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '', location_code: '1002' })
+  const [form, setForm] = useState({ date: today(), ref: 'GRN-10-????', supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '', location_code: '1002' })
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
@@ -39,8 +41,10 @@ export default function GRN({ onNav }: Props) {
   }
 
   const loadNextRef = async () => {
-    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'grn')
-    set('ref', genRef('GRN', (count || 0) + 1))
+    const ref = await nextRef('grn')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'grn')
+    set('ref', 'GRN-10-????' + 1))
   }
 
   const updateLine = (i: number, field: keyof GRNLine, val: string | number) => {
@@ -164,7 +168,7 @@ export default function GRN({ onNav }: Props) {
           <div>
             <div className="card-title" style={{ marginBottom: 14 }}>Receipt Details</div>
             <div className="form-row">
-              <FG label="GRN Number" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+              <FG label="GRN Number" req><input className="form-input" value={form.ref} readOnly  /></FG>
               <FG label="Received Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
             </div>
             <FG label="Related PO Reference"><input className="form-input" placeholder="e.g. PO-0022" value={form.poRef} onChange={e => set('poRef', e.target.value)} /></FG>

@@ -3,7 +3,9 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { nextRef } from '../../lib/refs'
+import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -29,7 +31,7 @@ export default function PurchaseReturn({ onNav }: Props) {
     ])
     if (prods) setProducts(prods)
     if (sups) setSuppliers(sups)
-    set('ref', genRef('PRN', (count || 0) + 1))
+    set('ref', 'PRN-10-????' + 1))
   }
 
   const updateLine = (i: number, field: keyof ReturnLine, val: string | number) => {
@@ -110,7 +112,7 @@ export default function PurchaseReturn({ onNav }: Props) {
       journalNote="Dr AP Suppliers (2010) · Cr Inventory (1110) · Stock reduced · Supplier balance reduced">
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
-          <FG label="Return Ref" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+          <FG label="Return Ref" req><input className="form-input" value={form.ref} readOnly  /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
         </div>
         <div className="form-row">

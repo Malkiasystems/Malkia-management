@@ -3,7 +3,9 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today, tzs } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { nextRef } from '../../lib/refs'
+import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -23,8 +25,10 @@ export default function ContraEntry({ onNav }: Props) {
     if (data) setAccounts(data)
   }
   const loadNextRef = async () => {
-    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'contra')
-    set('ref', genRef('CON', (count || 0) + 1))
+    const ref = await nextRef('contra')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'contra')
+    set('ref', 'CTR-10-????' + 1))
   }
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => { setToast(msg); setToastType(type) }
@@ -81,7 +85,7 @@ export default function ContraEntry({ onNav }: Props) {
       journalNote="Dr Destination Account · Cr Source Account · Both balance sheet — no P&L impact">
       <div className="card">
         <div className="form-row">
-          <FG label="Ref" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+          <FG label="Ref"><input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, background: 'var(--surface2)', cursor: 'default', color: 'var(--accent)' }} /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
         </div>
         <FG label="From (Source Account)" req>

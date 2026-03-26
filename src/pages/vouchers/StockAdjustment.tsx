@@ -3,7 +3,8 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { genRef, today } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
+import { today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -27,8 +28,10 @@ export default function StockAdjustment({ onNav }: Props) {
   }
 
   const loadNextRef = async () => {
-    const { count } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'stock_adjustment')
-    set('ref', genRef('SA', (count || 0) + 1))
+    const ref = await nextRef('stock_adjustment')
+    setForm(f => ({ ...f, ref }))
+  } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'stock_adjustment')
+    set('ref', 'ADJ-10-????' + 1))
   }
 
   const updateLine = (i: number, k: keyof AdjLine, v: string | number) => {
@@ -106,7 +109,7 @@ export default function StockAdjustment({ onNav }: Props) {
       journalNote={form.type === 'writeoff' ? 'Dr Write-off (5080) · Cr Inventory (1110) · P&L impact' : 'Stock qty updated · No journal for count corrections'}>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
-          <FG label="Ref" req><input className="form-input" value={form.ref} onChange={e => set('ref', e.target.value)} /></FG>
+          <FG label="Ref"><input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, background: 'var(--surface2)', cursor: 'default', color: 'var(--accent)' }} /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
           <FG label="Adjustment Type" req>
             <select className="form-input" value={form.type} onChange={e => set('type', e.target.value)}>
