@@ -6,6 +6,8 @@ import Toast from '../../components/Toast'
 import { genRef, today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
+import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/whatsapp'
+import type { WAConfig } from '../../lib/whatsapp'
 
 interface Props { onNav: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
@@ -17,6 +19,9 @@ export default function SalesInvoice({ onNav }: Props) {
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [showInvoice, setShowInvoice] = useState(false)
+  const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
+  const [sending, setSending] = useState(false)
+  const [waSent, setWaSent] = useState(false)
   const [lastInvoice, setLastInvoice] = useState<any>(null)
   const [invoiceSettings, setInvoiceSettings] = useState<any>(null)
   const [products, setProducts] = useState<DBProduct[]>([])
@@ -30,7 +35,7 @@ export default function SalesInvoice({ onNav }: Props) {
   })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  useEffect(() => { loadProducts(); loadNextRef(); loadInvoiceSettings() }, [])
+  useEffect(() => { loadProducts(); loadNextRef(); loadInvoiceSettings(); loadWAConfig().then(setWaConfig) }, [])
 
   const loadInvoiceSettings = async () => {
     const { data } = await supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
@@ -343,7 +348,31 @@ export default function SalesInvoice({ onNav }: Props) {
                 <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Print / Save PDF
               </button>
-              <button className="btn btn-ghost" onClick={() => { setShowInvoice(false); onNav('vouchers') }}>Close</button>
+              <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, background: waSent ? 'rgba(37,211,102,.15)' : waConfig?.enabled && waConfig?.api_key ? 'rgba(37,211,102,.1)' : 'var(--surface2)', color: waSent ? '#25D366' : waConfig?.enabled && waConfig?.api_key ? '#25D366' : 'var(--text3)', border: `1px solid ${waConfig?.enabled && waConfig?.api_key ? 'rgba(37,211,102,.3)' : 'var(--border)'}`, cursor: waConfig?.enabled && waConfig?.api_key ? 'pointer' : 'not-allowed' }}
+                title={!waConfig?.enabled || !waConfig?.api_key ? 'Configure WhatsApp in Settings first' : ''}
+                disabled={sending || waSent || !waConfig?.enabled || !waConfig?.api_key}
+                onClick={async () => {
+                  if (!lastInvoice || !waConfig) return
+                  const phone = lastInvoice.customers?.whatsapp
+                  if (!phone) { alert('No WhatsApp number for this customer'); return }
+                  setSending(true)
+                  const msg = formatInvoiceMessage(waConfig.template_invoice || '', {
+                    customer_name: lastInvoice.customers?.name || 'Customer',
+                    ref: lastInvoice.ref, date: lastInvoice.posting_date,
+                    due_date: lastInvoice.due_date || '', payment_terms: lastInvoice.payment_terms || '',
+                    items: lastInvoice.voucher_lines?.map((l: any) => ({ name: l.products?.name || l.description || '—', qty: l.qty, amount: l.total })) || [],
+                    total: lastInvoice.total_amount,
+                    outstanding: lastInvoice.customers?.balance || 0,
+                    bank_account: waConfig ? '22510074972 (NMB)' : '—',
+                  })
+                  const result = await sendWhatsApp(waConfig, { to: phone, message: msg, type: 'invoice', ref: lastInvoice.ref, customer_name: lastInvoice.customers?.name })
+                  setSending(false)
+                  if (result.success) { setWaSent(true) } else { alert('Send failed: ' + result.error) }
+                }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                {sending ? 'Sending…' : waSent ? 'Sent ✓' : 'Send via WhatsApp'}
+              </button>
+              <button className="btn btn-ghost" onClick={() => { setShowInvoice(false); onNav('vouchers'); setWaSent(false) }}>Close</button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
