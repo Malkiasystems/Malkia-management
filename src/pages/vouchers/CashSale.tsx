@@ -72,6 +72,7 @@ export default function CashSale() {
   const [recentSales, setRecentSales] = useState<any[]>([])
   const [paymentSplit, setPaymentSplit] = useState<Record<string, number>>({})
   const [refNum, setRefNum] = useState(1)
+  const [invSettings, setInvSettings] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
   const [sending, setSending] = useState(false)
@@ -81,6 +82,7 @@ export default function CashSale() {
 
   useEffect(() => {
     loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings(); loadWAConfig().then(setWaConfig)
+    supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} })
     loadTodayStats(); loadRecentSales(); loadNextRef()
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -218,6 +220,31 @@ export default function CashSale() {
   const post = async () => {
     if (!newCustName.trim()) { showToast('Customer name required', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
+    // Inventory settings enforcement
+    if (invSettings?.block_negative_stock) {
+      for (const line of lines) {
+        if (!line.productId) continue
+        const prod = dbProducts.find(p => p.id === line.productId)
+        if (prod && prod.qty_on_hand < line.qty) { showToast(`Insufficient stock for ${prod.name}. Available: ${prod.qty_on_hand} ${prod.unit}s`, 'error'); return }
+      }
+    }
+    if (invSettings?.block_sell_below_cost) {
+      for (const line of lines) {
+        if (!line.productId || !line.price) continue
+        const prod = dbProducts.find(p => p.id === line.productId)
+        if (prod && line.price < prod.cost_price) { showToast(`Selling ${prod.name} below cost price. Adjust price or change settings.`, 'error'); return }
+      }
+    }
+    if (invSettings?.warn_below_min_margin) {
+      for (const line of lines) {
+        if (!line.productId || !line.price) continue
+        const prod = dbProducts.find(p => p.id === line.productId)
+        if (prod && prod.selling_price > 0) {
+          const margin = ((line.price - prod.cost_price) / line.price) * 100
+          if (margin < (invSettings.global_min_margin || 0)) { showToast(`Warning: ${prod.name} margin is ${Math.round(margin)}% — below minimum ${invSettings.global_min_margin}%`, 'error'); return }
+        }
+      }
+    }
     if (!isPOD && !isSplit && currentMethod.showRef && !paymentRef.trim()) {
       showToast(`Please enter the ${currentMethod.label} transaction reference number`, 'error')
       return
