@@ -70,7 +70,7 @@ export const BREADCRUMBS: Record<string, string> = {
   'banks':'Banks & Cash', 'inventory':'Inventory', 'reports':'Reports',
   'sales':'Cash Sale', 'cash-sale':'Cash Sale', 'cash-payment':'Cash Payment',
   'bank-receipt':'Cash Receipt', 'bank-transfer':'Bank Transfer', 'petty-cash':'Petty Cash',
-  'contra':'Contra Entry', 'sales-invoice':'Sales Invoice', 'sales-return':'Sales Return',
+  'contra':'Contra Entry', 'sales-invoice':'Sales Invoice', 'proforma':'Proforma Invoice', 'sales-return':'Sales Return',
   'debit-note':'Debit Note', 'credit-note':'Credit Note',
   'purchase-order':'Purchase Order', 'grn':'GRN', 'purchase-invoice':'Purchase Invoice',
   'purchase-return':'Purchase Return', 'opening-stock':'Opening Stock',
