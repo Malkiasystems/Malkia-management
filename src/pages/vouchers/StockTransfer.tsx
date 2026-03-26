@@ -86,10 +86,9 @@ export default function StockTransfer({ onNav }: Props) {
           showToast(`Insufficient stock: ${freshProd.name} · Available: ${freshProd.qty_on_hand}`, 'error')
           setPosting(false); return
         }
-        const entryNum = Date.now() + Math.floor(Math.random() * 1000)
         const { error: leErr } = await supabase.from('item_ledger_entries').insert([
-          { entry_number: entryNum, product_id: line.productId, entry_type: 'transfer_out', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: -line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: fromLoc.code },
-          { entry_number: entryNum + 1, product_id: line.productId, entry_type: 'transfer_in', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: toLoc.code },
+          { product_id: line.productId, entry_type: 'transfer_out', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: -line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: fromLoc.code },
+          { product_id: line.productId, entry_type: 'transfer_in', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: toLoc.code },
         ])
         if (leErr) console.error('item_ledger_entries error:', leErr.message)
         // Update product_locations with fresh qty
