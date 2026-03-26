@@ -84,8 +84,8 @@ export default function StockTransfer({ onNav }: Props) {
           setPosting(false); return
         }
         await supabase.from('item_ledger_entries').insert([
-          { product_id: line.productId, entry_type: 'transfer_out', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: -line.qty, cost_amount: line.cost * line.qty, location_code: fromLoc.code, location_id: fromLoc.id },
-          { product_id: line.productId, entry_type: 'transfer_in', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: line.qty, cost_amount: line.cost * line.qty, location_code: toLoc.code, location_id: toLoc.id },
+          { product_id: line.productId, entry_type: 'transfer_out', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: -line.qty, cost_amount: line.cost * line.qty, location_code: fromLoc.code },
+          { product_id: line.productId, entry_type: 'transfer_in', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: line.qty, cost_amount: line.cost * line.qty, location_code: toLoc.code },
         ])
         await supabase.from('product_locations').upsert(
           { product_id: line.productId, location_id: fromLoc.id, location_code: fromLoc.code, qty_on_hand: Math.max(0, prod.qty_on_hand - line.qty), last_updated: new Date().toISOString() },
