@@ -5,7 +5,7 @@ import { FG } from '../components/FormHelpers'
 import { tzs } from '../lib/utils'
 
 interface Customer {
-  id: string; customer_number: string; name: string; company: string
+  id: string; customer_number: string; name: string; company: string; contact_person: string
   customer_type: 'cash' | 'debtor'; segment: string
   whatsapp: string; email: string; phone: string
   credit_limit: number; credit_period: number; payment_terms: string
@@ -37,7 +37,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 }
 
 const EMPTY_FORM = {
-  name: '', company: '', customer_type: 'cash' as 'cash'|'debtor', segment: 'Retail',
+  name: '', company: '', contact_person: '', customer_type: 'cash' as 'cash'|'debtor', segment: 'Retail',
   whatsapp: '', email: '', phone: '', address: '',
   credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: ''
 }
@@ -93,7 +93,7 @@ export default function Customers() {
   const openEdit = (c: Customer) => {
     setSelected(c)
     setForm({
-      name: c.name, company: c.company || '', customer_type: c.customer_type,
+      name: c.name, company: c.company || '', contact_person: c.contact_person || '', customer_type: c.customer_type,
       segment: c.segment, whatsapp: c.whatsapp || '', email: c.email || '',
       phone: (c as any).phone || '', address: (c as any).address || '',
       credit_limit: String(c.credit_limit || 0), credit_period: String(c.credit_period || 0),
@@ -121,7 +121,7 @@ export default function Customers() {
     try {
       const customerNumber = selected?.customer_number || await generateNumber(form.customer_type)
       const payload: any = {
-        name: form.name.trim(), company: form.company.trim() || null,
+        name: form.name.trim(), company: form.company.trim() || null, contact_person: (form as any).contact_person?.trim() || null,
         customer_type: form.customer_type, segment: form.segment.toLowerCase(),
         whatsapp: form.whatsapp.trim() || null, email: form.email.trim() || null,
         credit_limit: parseFloat(form.credit_limit) || 0,
@@ -344,8 +344,14 @@ export default function Customers() {
                 </select>
               </FG>
             </div>
-            <FG label="Full Name" req><input className="form-input" placeholder="e.g. Mama Fatuma Hassan" value={form.name} onChange={e => setF('name', e.target.value)} /></FG>
-            {isDebtor && <FG label="Company / Organization"><input className="form-input" placeholder="e.g. Aga Khan Health Services" value={form.company} onChange={e => setF('company', e.target.value)} /></FG>}
+            {isDebtor ? (
+              <>
+                <FG label="Company / Organization" req><input className="form-input" placeholder="e.g. Aga Khan Health Services" value={form.company} onChange={e => setF('company', e.target.value)} /></FG>
+                <FG label="Contact Person" req><input className="form-input" placeholder="e.g. Dr. Sarah Kimani" value={(form as any).contact_person || ''} onChange={e => setF('contact_person', e.target.value)} /></FG>
+              </>
+            ) : (
+              <FG label="Full Name" req><input className="form-input" placeholder="e.g. Mama Fatuma Hassan" value={form.name} onChange={e => setF('name', e.target.value)} /></FG>
+            )}
             <div className="form-row">
               <FG label={`WhatsApp Number${!isDebtor?' (required)':''}`}>
                 <input className="form-input" placeholder="+255 7XX XXX XXX" value={form.whatsapp} onChange={e => setF('whatsapp', e.target.value)} />
@@ -508,8 +514,8 @@ export default function Customers() {
                       onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
                       <td className="td-mono" style={{ fontSize:11,fontWeight:700,color:'var(--accent)' }}>{c.customer_number||'—'}</td>
                       <td>
-                        <div style={{ fontWeight:600,fontSize:13 }}>{c.name}</div>
-                        {c.company && <div style={{ fontSize:10,color:'var(--text3)' }}>{c.company}</div>}
+                        <div style={{ fontWeight:600,fontSize:13 }}>{tab==='debtors' ? (c.company || c.name) : c.name}</div>
+                        {tab==='debtors' ? <div style={{ fontSize:10,color:'var(--text3)' }}>{(c as any).contact_person || c.company || '—'}</div> : c.company && <div style={{ fontSize:10,color:'var(--text3)' }}>{c.company}</div>}
                       </td>
                       <td><span className="pill pill-gray" style={{ fontSize:9,textTransform:'capitalize' }}>{c.segment}</span></td>
                       {tab==='cash'
