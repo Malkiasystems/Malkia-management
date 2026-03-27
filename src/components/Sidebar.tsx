@@ -121,7 +121,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 <span style={{ position:'absolute', right:4, top:'50%', transform:`translateY(-50%) rotate(${salesOpen?90:0}deg)`, transition:'transform .2s', color:'var(--text3)', fontSize:8 }}>›</span>
               )}
 
-              {'badge' in item && item.badge && (
+              {'badge' in item && (item as any).badge && (
                 <span style={{
                   position: 'absolute', top: 5, right: 6, minWidth: 14, height: 14,
                   background: 'var(--red)', borderRadius: 7, fontSize: 7, fontWeight: 800,
