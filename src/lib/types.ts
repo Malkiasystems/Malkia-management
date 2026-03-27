@@ -13,7 +13,7 @@ export type Page =
   | 'receipt-template' | 'invoice-template'
   | 'whatsapp-settings' | 'location-settings'
   | 'inventory-settings' | 'pricelist-template'
-  | 'banks' | 'settings' | 'coming-soon'
+  | 'banks' | 'settings' | 'data-import' | 'coming-soon'
   | 'stock-levels' | 'suppliers' | 'stock-movements' | 'stock-transfer-register' | 'customers'
 
 export interface Product {
