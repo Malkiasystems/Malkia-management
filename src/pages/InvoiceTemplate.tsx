@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface InvoiceSettings {
@@ -345,6 +346,59 @@ export function InvoiceTemplateSettings({ settings, onChange }: { settings: Invo
           <Toggle label="Notes" desc="Show notes / payment instructions" k="show_notes" settings={settings} onToggle={set} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Default Export: Invoice Template Settings Page ───────────────────────────
+export default function InvoiceTemplatePage() {
+  const [settings, setSettings] = useState<InvoiceSettings>(DEFAULT)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
+      .then(({ data }) => { if (data?.value) try { setSettings(JSON.parse(data.value)) } catch {} })
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    await supabase.from('system_settings').upsert({ key: 'invoice_template', value: JSON.stringify(settings) }, { onConflict: 'key' })
+    setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <div className="page-title">Invoice Template</div>
+          <div className="page-sub">Customise your sales invoice appearance</div>
+        </div>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Settings'}
+        </button>
+      </div>
+      <div className="grid g2" style={{ gap: 24, alignItems: 'start' }}>
+        <div className="card">
+          <InvoiceTemplateSettings settings={settings} onChange={setSettings} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 }}>Live Preview</div>
+          <div style={{ transform: 'scale(0.63)', transformOrigin: 'top left', width: '159%' }}>
+            <MalkiaInvoice settings={settings} voucher={{
+              ref: 'SI-10-0001', posting_date: '2026-03-27', due_date: '2026-04-26',
+              payment_terms: 'NET30', notes: 'Please transfer to the account above.',
+              total_amount: 520000, vat_amount: 79322, subtotal: 440678,
+              posted_by: 'Joe Gembe',
+              customers: { name: 'Dr. Sarah Kimani', company: 'Aga Khan Health Services Tanzania', contact_person: 'Dr. Sarah Kimani', whatsapp: '+255 22 211 5151', address: 'Ocean Road, Dar es Salaam', balance: 185000 },
+              voucher_lines: [
+                { qty: 10, unit_price: 32000, total: 320000, discount_pct: 0, description: 'Nipple Cream', products: { name: 'Nipple Cream — 60ml', sku: 'MK-003' } },
+                { qty: 4, unit_price: 50000, total: 200000, discount_pct: 0, description: 'Prenatal Bundle', products: { name: 'Prenatal Bundle', sku: 'MK-008' } },
+              ],
+            }} />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
