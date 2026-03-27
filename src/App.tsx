@@ -4,7 +4,6 @@ import type { Page } from './lib/types'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
-import SearchPalette from './components/SearchPalette'
 
 import Dashboard from './pages/Dashboard'
 import ComingSoon from './pages/ComingSoon'
@@ -56,7 +55,6 @@ import JournalEntry from './pages/vouchers/JournalEntry'
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
-  const [showSearch, setShowSearch] = useState(false)
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page]) // keep last 20
@@ -125,7 +123,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <Topbar breadcrumb={BREADCRUMBS[page] || 'Dashboard'} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} onSearch={() => setShowSearch(true)} />
+      <Topbar breadcrumb={BREADCRUMBS[page] || 'Dashboard'} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar current={page} onNav={navigate} />
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -133,6 +131,5 @@ export default function App() {
         </div>
       </div>
     </div>
-      {showSearch && <SearchPalette onNav={navigate} onClose={() => setShowSearch(false)} />}
   )
 }
