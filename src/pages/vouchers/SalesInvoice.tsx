@@ -61,7 +61,7 @@ export default function SalesInvoice({ onNav }: Props) {
   const searchCustomer = async (val: string) => {
     set('customer', val)
     if (val.length < 2) { setCustResults([]); setShowDrop(false); return }
-    const { data } = await supabase.from('customers').select('*').or(`name.ilike.%${val}%,whatsapp.ilike.%${val}%`).limit(6)
+    const { data } = await supabase.from('customers').select('*').eq('customer_type', 'debtor').eq('is_active', true).or(`name.ilike.%${val}%,company.ilike.%${val}%`).limit(6)
     if (data && data.length > 0) { setCustResults(data); setShowDrop(true) }
     setSelectedCust(null)
   }
@@ -114,8 +114,8 @@ export default function SalesInvoice({ onNav }: Props) {
           code: 'CUST-' + Date.now().toString().slice(-6),
           name: form.customer.trim(),
           whatsapp: cleaned || null,
-          customer_type: 'B2B',
-          balance: subtotal,
+          customer_type: 'debtor',
+          balance: (selectedCust?.balance || 0) + subtotal,
           last_purchase_date: form.date,
           last_purchase_amount: subtotal,
         }
