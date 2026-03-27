@@ -2,307 +2,307 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-export interface ReceiptSettings {
-  // Identity
-  company_name: string; tagline: string; address: string
-  phone: string; email: string; website: string; instagram: string
-  tin: string; vrn: string
-  // Colours
-  primary_color: string; accent_color: string
+export interface InvoiceSettings {
+  // Company
+  company_name: string; tagline: string; address: string; city: string
+  phone: string; email: string; website: string; tin: string; vrn: string
+  primary_color: string
   // Logo
-  logo_url: string; logo_width: number; logo_x: number; logo_y: number; show_logo: boolean
-  // Labels
-  label_receipt: string; label_billed_to: string; label_items: string
-  label_crown_points: string; label_midwife_tip: string; label_konnect: string
-  label_cashier: string; label_total_paid: string
-  // Messages
-  footer_message: string; msg_pregnant: string; msg_postpartum: string; msg_general: string
-  konnect_cta_text: string; konnect_sub_text: string
-  // Links
-  konnect_url: string; community_url: string; community_name: string
+  logo_url: string; logo_width: number; logo_x: number; logo_y: number
+  // Bank
+  bank_name: string; bank_account_name: string
+  bank_account_number: string; bank_branch: string
+  payment_note: string; footer_note: string
+  // Labels (editable)
+  label_bill_to: string; label_invoice: string; label_payment_details: string
+  label_this_invoice: string; label_account_statement: string
+  label_notes: string; label_salesperson: string
   // Toggles
-  show_crown_points: boolean; show_vat_breakdown: boolean; show_cashier: boolean
-  show_care_tip: boolean; show_stage_message: boolean; konnect_enabled: boolean
-  konnect_utm_tracking: boolean; community_enabled: boolean; community_qr_enabled: boolean
+  show_bank_details: boolean; show_salesperson: boolean
+  show_vat_breakdown: boolean; show_outstanding_balance: boolean
+  show_payment_terms: boolean; show_notes: boolean; show_logo: boolean
 }
 
-export interface ReceiptVoucher {
-  ref: string; posting_date: string; description: string
-  total_amount: number; vat_amount: number; subtotal: number
-  payment_method: string; notes: string; posted_by: string
-  customers: { name: string; whatsapp: string; pregnancy_stage: string; crown_points: number } | null
-  voucher_lines: { qty: number; unit_price: number; total: number; products: { name: string; sku: string; category: string } | null }[]
-}
-
-const DEFAULT: ReceiptSettings = {
+const DEFAULT: InvoiceSettings = {
   company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
-  address: 'Dar es Salaam, Tanzania', phone: '+255 700 000 000',
-  email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
-  tin: '—', vrn: '—',
-  primary_color: '#85c2be', accent_color: '#f7a6ad',
-  logo_url: '', logo_width: 60, logo_x: 0, logo_y: 0, show_logo: true,
-  label_receipt: 'Receipt', label_billed_to: 'Billed To',
-  label_items: 'Items Purchased', label_crown_points: 'Crown Points',
-  label_midwife_tip: 'Midwife Tip', label_konnect: 'Join Malkia Konnect',
-  label_cashier: 'Served by', label_total_paid: 'Total Paid',
-  footer_message: 'Share your Malkia moment — tag us on Instagram',
-  msg_pregnant: 'You are doing something extraordinary. Every choice you make matters, Mama.',
-  msg_postpartum: 'The hardest work is invisible. We see you, and we are with you.',
-  msg_general: 'Motherhood deserves better. That is why we exist.',
-  konnect_cta_text: 'Join Konnect →', konnect_sub_text: 'Weekly guidance · Expert Q&A · Birth prep · Postpartum support',
-  konnect_url: 'https://www.malkia.co.tz/join',
-  community_url: '', community_name: 'Mama Community',
-  show_crown_points: true, show_vat_breakdown: true, show_cashier: true,
-  show_care_tip: true, show_stage_message: true, konnect_enabled: true,
-  konnect_utm_tracking: true, community_enabled: false, community_qr_enabled: false,
+  address: 'Dar es Salaam, Tanzania', city: 'Dar es Salaam',
+  phone: '+255 700 000 000', email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz',
+  tin: '—', vrn: '—', primary_color: '#85c2be',
+  logo_url: '', logo_width: 80, logo_x: 0, logo_y: 0,
+  bank_name: 'NMB Bank', bank_account_name: 'Malkia Wellness Group Ltd',
+  bank_account_number: '22510074972', bank_branch: 'Dar es Salaam Branch',
+  payment_note: 'Please quote the invoice number as payment reference.',
+  footer_note: 'Thank you for your business. Payment is due by the date shown above.',
+  label_bill_to: 'Bill To', label_invoice: 'Tax Invoice',
+  label_payment_details: 'Payment Details', label_this_invoice: 'This Invoice',
+  label_account_statement: 'Account Statement', label_notes: 'Notes',
+  label_salesperson: 'Invoiced by',
+  show_bank_details: true, show_salesperson: true, show_vat_breakdown: true,
+  show_outstanding_balance: true, show_payment_terms: true, show_notes: true, show_logo: true,
 }
 
-const CARE_TIPS: Record<string, string> = {
-  Feeding: 'Hold your baby skin-to-skin for the first hour after birth to support natural breastfeeding.',
-  Postpartum: 'Wear your belly binder 8–12 hours daily for best results. Start from day 3 postpartum.',
-  Comfort: 'Use your pregnancy pillow in a C-shape — one end between your knees, one supporting your belly.',
-  Supplements: 'Take your prenatal supplement with food to reduce nausea. Consistency matters most.',
-  Skincare: 'Apply twice daily — morning after shower and evening before bed — for best results.',
-  default: 'Questions about your purchase? WhatsApp our midwife team anytime. We are here for you.',
+// ── Invoice Voucher type ──────────────────────────────────────────────────────
+interface Voucher {
+  ref: string; posting_date: string; due_date?: string
+  payment_terms?: string; notes?: string
+  total_amount: number; vat_amount: number; subtotal: number
+  posted_by?: string
+  customers: {
+    name: string; company?: string; contact_person?: string
+    whatsapp: string; address: string; balance: number
+  } | null
+  voucher_lines: {
+    qty: number; unit_price: number; total: number
+    discount_pct?: number; description: string
+    products: { name: string; sku: string } | null
+  }[]
 }
 
-// ── Receipt Component ─────────────────────────────────────────────────────────
-export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; settings: ReceiptSettings }) {
-  const s = settings
-  const p = s.primary_color
-  const a = s.accent_color
+// ── MalkiaInvoice Component ───────────────────────────────────────────────────
+export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; settings?: Partial<InvoiceSettings> }) {
+  const s: InvoiceSettings = { ...DEFAULT, ...(settings || {}) }
+  const p = s.primary_color   // brand teal
   const cust = voucher.customers
-  const stage = (cust?.pregnancy_stage || '').toLowerCase()
-  const crownEarned = Math.round((voucher.total_amount || 0) / 1000)
-  const crownTotal = (cust?.crown_points || 0) + crownEarned
-
-  const stageMsg = stage.includes('pregnant') || stage.includes('wks') || stage.includes('week')
-    ? s.msg_pregnant
-    : stage.includes('postpartum') || stage.includes('post')
-    ? s.msg_postpartum
-    : s.msg_general
-
-  const mainCat = voucher.voucher_lines?.[0]?.products?.category || 'default'
-  const careTip = CARE_TIPS[mainCat] || CARE_TIPS.default
-  const konnectHref = s.konnect_utm_tracking
-    ? `${s.konnect_url}?ref=${voucher.ref}&utm_source=receipt&utm_medium=pdf`
-    : s.konnect_url
-
-  const vat = voucher.vat_amount || Math.round((voucher.total_amount || 0) * 18 / 118)
-  const net = (voucher.total_amount || 0) - vat
-
+  const net = voucher.subtotal || 0
+  const vat = voucher.vat_amount || 0
+  const total = voucher.total_amount || 0
+  const prevBalance = cust?.balance || 0
+  const totalNowOwed = prevBalance + total
   const mono = "'DM Mono', 'Courier New', monospace"
   const display = "'Syne', 'Georgia', serif"
   const body = "'Instrument Sans', 'Helvetica Neue', sans-serif"
+  const headerBg = p   // teal header
+  const headerText = '#ffffff'
 
   return (
-    <div style={{ width: 400, background: '#fdfcfb', fontFamily: body, color: '#1a1a1a', borderRadius: 16, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.14)' }}>
+    <div style={{ width: 794, background: '#ffffff', fontFamily: body, boxShadow: '0 4px 32px rgba(0,0,0,.12)', borderRadius: 2 }}>
 
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
-      <div style={{ background: `linear-gradient(135deg, ${p} 0%, ${p}cc 60%, ${a}88 100%)`, padding: '22px 22px 18px', position: 'relative', overflow: 'hidden' }}>
-        {/* Decorative circles */}
-        <div style={{ position: 'absolute', top: -24, right: -24, width: 110, height: 110, borderRadius: '50%', background: `${a}25`, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: -28, left: 50, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,.08)', pointerEvents: 'none' }} />
+      <div style={{ background: headerBg, padding: '24px 40px', position: 'relative', overflow: 'hidden' }}>
+
+        {/* Subtle pattern overlay */}
+        <div style={{ position: 'absolute', inset: 0, opacity: 0.08, backgroundImage: 'repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)', backgroundSize: '12px 12px', pointerEvents: 'none' }} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' }}>
-          {/* Logo + Company */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+          {/* Left: Logo + Company */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
             {s.show_logo && s.logo_url && (
-              <img src={s.logo_url} alt="Logo"
-                style={{ width: s.logo_width, height: 'auto', objectFit: 'contain',
-                  marginLeft: s.logo_x, marginTop: s.logo_y, flexShrink: 0 }} />
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <img src={s.logo_url} alt="Logo"
+                  style={{ width: s.logo_width, height: 'auto', objectFit: 'contain', display: 'block',
+                    marginLeft: s.logo_x, marginTop: s.logo_y }} />
+              </div>
             )}
             <div>
-              <div style={{ fontFamily: display, fontSize: 20, fontWeight: 800, color: '#fff', letterSpacing: '-0.3px', lineHeight: 1.1 }}>{s.company_name}</div>
-              <div style={{ fontSize: 10, color: a, fontStyle: 'italic', marginTop: 3, fontWeight: 600 }}>{s.tagline}</div>
+              <div style={{ fontFamily: display, fontSize: 22, fontWeight: 800, color: headerText, letterSpacing: '-0.3px', lineHeight: 1.1 }}>
+                {s.company_name}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', marginTop: 3, fontFamily: mono, letterSpacing: 1.5 }}>
+                {s.tagline.toUpperCase()}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', marginTop: 8, lineHeight: 1.8 }}>
+                {s.address} · {s.phone}<br />
+                {s.email} · {s.website}<br />
+                <span style={{ color: 'rgba(255,255,255,0.5)' }}>TIN: {s.tin} · VRN: {s.vrn}</span>
+              </div>
             </div>
           </div>
-          {/* Receipt label */}
+
+          {/* Right: Invoice number + meta */}
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontFamily: mono, fontSize: 8, color: 'rgba(255,255,255,.6)', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 2 }}>{s.label_receipt}</div>
-            <div style={{ fontFamily: display, fontSize: 16, fontWeight: 800, color: '#fff' }}>{voucher.ref}</div>
-          </div>
-        </div>
-
-        {/* Date + payment strip */}
-        <div style={{ marginTop: 14, background: 'rgba(255,255,255,.14)', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontFamily: mono, fontSize: 11, color: 'rgba(255,255,255,.85)' }}>{voucher.posting_date}</div>
-          <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 600, color: '#fff', background: 'rgba(255,255,255,.15)', padding: '2px 10px', borderRadius: 20 }}>
-            {voucher.payment_method}
+            <div style={{ fontFamily: mono, fontSize: 9, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 4 }}>
+              {s.label_invoice}
+            </div>
+            <div style={{ fontFamily: display, fontSize: 28, fontWeight: 800, color: headerText, letterSpacing: '-0.5px', lineHeight: 1 }}>
+              {voucher.ref}
+            </div>
+            <div style={{ fontFamily: mono, fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 8, lineHeight: 1.9 }}>
+              <div>Date: <span style={{ color: headerText }}>{voucher.posting_date}</span></div>
+              {s.show_payment_terms && voucher.due_date && (
+                <div>Due: <span style={{ color: headerText, fontWeight: 700 }}>{voucher.due_date}</span></div>
+              )}
+              {s.show_payment_terms && voucher.payment_terms && (
+                <div>Terms: <span style={{ color: headerText }}>{voucher.payment_terms}</span></div>
+              )}
+              {s.show_salesperson && voucher.posted_by && (
+                <div>{s.label_salesperson}: <span style={{ color: headerText }}>{voucher.posted_by}</span></div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── STAGE MESSAGE ───────────────────────────────────────────────────── */}
-      {s.show_stage_message && (
-        <div style={{ background: `${a}15`, borderLeft: `3px solid ${a}`, padding: '10px 18px' }}>
-          <div style={{ fontSize: 12, color: '#5a3838', fontStyle: 'italic', lineHeight: 1.6 }}>{stageMsg}</div>
+      {/* ── BILL TO + ACCOUNT SUMMARY ───────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: cust && s.show_outstanding_balance && prevBalance > 0 ? '1fr 1fr' : '1fr', borderBottom: '1px solid #f0f0f0' }}>
+        <div style={{ padding: '22px 40px' }}>
+          <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_bill_to}</div>
+          <div style={{ fontFamily: display, fontSize: 16, fontWeight: 800, color: '#1a1a1a', marginBottom: 3 }}>{cust?.company || cust?.name || '—'}</div>
+          {cust?.contact_person && <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Attn: {cust.contact_person}</div>}
+          {cust?.address && <div style={{ fontSize: 11, color: '#888', lineHeight: 1.6 }}>{cust.address}</div>}
+          {cust?.whatsapp && <div style={{ fontSize: 10, color: '#aaa', fontFamily: mono, marginTop: 6 }}>{cust.whatsapp}</div>}
         </div>
-      )}
 
-      {/* ── CUSTOMER ────────────────────────────────────────────────────────── */}
-      {cust && (
-        <div style={{ padding: '12px 20px', borderBottom: '1px dashed #ede8e8' }}>
-          <div style={{ fontSize: 9, color: '#bbb', fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>{s.label_billed_to}</div>
-          <div style={{ fontFamily: display, fontSize: 14, fontWeight: 700, color: '#1a1a1a' }}>{cust.name}</div>
-          <div style={{ fontSize: 11, color: '#999', fontFamily: mono, marginTop: 2 }}>{cust.whatsapp}{cust.pregnancy_stage ? ` · ${cust.pregnancy_stage}` : ''}</div>
-        </div>
-      )}
-
-      {/* ── LINE ITEMS ───────────────────────────────────────────────────────── */}
-      <div style={{ padding: '12px 20px' }}>
-        <div style={{ fontSize: 9, color: '#bbb', fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{s.label_items}</div>
-        {(voucher.voucher_lines || []).map((line, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid #f5f0f0' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{line.products?.name || '—'}</div>
-              <div style={{ fontSize: 10, color: '#bbb', fontFamily: mono, marginTop: 2 }}>
-                {line.products?.sku ? `${line.products.sku} · ` : ''}{line.qty} × {(line.unit_price || 0).toLocaleString()}
-              </div>
+        {cust && s.show_outstanding_balance && prevBalance > 0 && (
+          <div style={{ padding: '22px 40px', background: '#fff8f4', borderLeft: '1px solid #f0f0f0' }}>
+            <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_account_statement}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
+              <span>Previous Outstanding</span>
+              <span style={{ fontFamily: mono }}>{prevBalance.toLocaleString()}</span>
             </div>
-            <div style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, paddingLeft: 12 }}>{(line.total || 0).toLocaleString()}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── TOTALS ───────────────────────────────────────────────────────────── */}
-      <div style={{ padding: '0 20px 14px' }}>
-        {s.show_vat_breakdown && (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0', color: '#bbb' }}>
-              <span>Net (excl. VAT)</span><span style={{ fontFamily: mono }}>{net.toLocaleString()}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
+              <span>+ This Invoice</span>
+              <span style={{ fontFamily: mono }}>{total.toLocaleString()}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0', color: '#bbb' }}>
-              <span>VAT 18% (inclusive)</span><span style={{ fontFamily: mono }}>{vat.toLocaleString()}</span>
+            <div style={{ height: 1, background: '#f0d0c0', margin: '8px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#c0392b' }}>Total Now Owed</span>
+              <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 800, color: '#c0392b' }}>TZS {totalNowOwed.toLocaleString()}</span>
             </div>
-          </>
-        )}
-        {/* Total — the hero number */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, padding: '12px 14px', background: `${p}14`, borderRadius: 10, border: `1.5px solid ${p}35` }}>
-          <div>
-            <div style={{ fontSize: 10, color: '#888' }}>{s.label_total_paid}</div>
-            <div style={{ fontSize: 10, color: '#bbb', fontFamily: mono }}>{voucher.payment_method}</div>
+            <div style={{ fontSize: 9, color: '#aaa', marginTop: 5, fontStyle: 'italic' }}>Includes this invoice + unpaid prior balance</div>
           </div>
-          <div style={{ fontFamily: display, fontSize: 24, fontWeight: 800, color: '#1a1a1a' }}>
-            TZS {(voucher.total_amount || 0).toLocaleString()}
-          </div>
-        </div>
-        {s.show_cashier && voucher.posted_by && (
-          <div style={{ fontSize: 10, color: '#ccc', fontFamily: mono, marginTop: 6, textAlign: 'right' }}>{s.label_cashier}: {voucher.posted_by}</div>
         )}
       </div>
 
-      {/* ── CROWN POINTS ─────────────────────────────────────────────────────── */}
-      {s.show_crown_points && (
-        <div style={{ margin: '0 20px 14px', background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)', borderRadius: 10, padding: '12px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 9, color: '#666', fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{s.label_crown_points}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontFamily: display, fontSize: 22, fontWeight: 800, color: a }}>+{crownEarned}</span>
-                <span style={{ fontSize: 10, color: '#777' }}>earned this purchase</span>
+      {/* ── LINE ITEMS ──────────────────────────────────────────────────────── */}
+      <div style={{ padding: '0 40px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 20 }}>
+          <thead>
+            <tr style={{ background: '#1a1a1a' }}>
+              {['#', 'Item / Description', 'Qty', 'Unit Price', 'Disc', 'Amount (TZS)'].map((h, i) => (
+                <th key={h} style={{ padding: '9px 12px', textAlign: i >= 2 ? 'right' : i === 0 ? 'center' : 'left', fontFamily: mono, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, color: '#ccc', fontWeight: 500, width: i === 0 ? 36 : i === 2 ? 50 : i === 3 ? 110 : i === 4 ? 60 : i === 5 ? 130 : 'auto' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {voucher.voucher_lines.map((line, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f5f5f5', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                <td style={{ padding: '10px 12px', textAlign: 'center', fontFamily: mono, color: p, fontSize: 11, fontWeight: 600 }}>{String(i+1).padStart(2,'0')}</td>
+                <td style={{ padding: '10px 12px' }}>
+                  <div style={{ fontWeight: 600, color: '#1a1a1a', fontSize: 12 }}>{line.products?.name || line.description || '—'}</div>
+                  {line.products?.sku && <div style={{ fontSize: 9, color: '#bbb', fontFamily: mono, marginTop: 2 }}>SKU: {line.products.sku}</div>}
+                </td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: mono, fontSize: 12 }}>{line.qty}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: mono, fontSize: 12 }}>{(line.unit_price||0).toLocaleString()}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: mono, fontSize: 11, color: '#aaa' }}>{line.discount_pct ? `${line.discount_pct}%` : '—'}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: mono, fontSize: 13, fontWeight: 700, color: '#1a1a1a' }}>{(line.total||0).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── TOTALS + BANK ───────────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, padding: '24px 40px 0' }}>
+        {s.show_bank_details && (
+          <div style={{ paddingRight: 24 }}>
+            <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_payment_details}</div>
+            <div style={{ background: `${p}12`, border: `1px solid ${p}30`, borderRadius: 8, padding: '14px 16px' }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: '#1a1a1a', marginBottom: 8 }}>{s.bank_name}</div>
+              <div style={{ fontSize: 11, color: '#555', lineHeight: 2, fontFamily: mono }}>
+                <div>A/C Name: <span style={{ color: '#1a1a1a', fontWeight: 600 }}>{s.bank_account_name}</span></div>
+                <div>A/C No: <span style={{ color: '#1a1a1a', fontWeight: 800, fontSize: 13 }}>{s.bank_account_number}</span></div>
+                <div>Branch: {s.bank_branch}</div>
               </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 9, color: '#666', fontFamily: mono, marginBottom: 4 }}>Total Balance</div>
-              <div style={{ fontFamily: mono, fontSize: 18, fontWeight: 700, color: '#fff' }}>{crownTotal.toLocaleString()}</div>
-              <div style={{ fontSize: 9, color: '#555', fontFamily: mono }}>pts</div>
+              {s.payment_note && <div style={{ fontSize: 10, color: p, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${p}30`, fontStyle: 'italic' }}>{s.payment_note}</div>}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── CARE TIP ─────────────────────────────────────────────────────────── */}
-      {s.show_care_tip && (
-        <div style={{ margin: '0 20px 14px', background: `${p}10`, border: `1px solid ${p}28`, borderRadius: 8, padding: '10px 14px' }}>
-          <div style={{ fontSize: 9, color: p, fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5, fontWeight: 700 }}>{s.label_midwife_tip}</div>
-          <div style={{ fontSize: 11, color: '#5a6a6a', lineHeight: 1.6 }}>{careTip}</div>
-        </div>
-      )}
-
-      {/* Divider */}
-      <div style={{ margin: '0 20px', borderTop: '1px dashed #ede8e8' }} />
-
-      {/* ── KONNECT CTA ──────────────────────────────────────────────────────── */}
-      {s.konnect_enabled && (
-        <div style={{ padding: '16px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 9, color: '#ccc', fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Your Personal Midwife, On Demand</div>
-          <div style={{ fontFamily: display, fontSize: 15, fontWeight: 800, color: '#1a1a1a', marginBottom: 4 }}>{s.label_konnect}</div>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 14, lineHeight: 1.6 }}>{s.konnect_sub_text}</div>
-          <a href={konnectHref} style={{ display: 'inline-block', background: a, color: '#fff', padding: '10px 28px', borderRadius: 50, fontSize: 12, fontWeight: 700, textDecoration: 'none', letterSpacing: 0.3 }}>
-            {s.konnect_cta_text}
-          </a>
-          <div style={{ fontSize: 9, color: '#ddd', fontFamily: mono, marginTop: 8 }}>{s.konnect_url}</div>
-        </div>
-      )}
-
-      {/* ── COMMUNITY ────────────────────────────────────────────────────────── */}
-      {s.community_enabled && s.community_url && (
-        <div style={{ padding: '0 20px 16px' }}>
-          <div style={{ background: `${p}10`, border: `1px solid ${p}25`, borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 9, color: p, fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, fontWeight: 700 }}>{s.community_name}</div>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Join the Community</div>
-            <div style={{ fontSize: 10, color: '#888', lineHeight: 1.4, marginBottom: 6 }}>Connect with mothers at every stage of the journey</div>
-            <a href={s.community_url} style={{ fontSize: 10, color: p, fontFamily: mono }}>{s.community_url}</a>
+        <div style={{ borderLeft: s.show_bank_details ? '1px solid #f0f0f0' : 'none', paddingLeft: s.show_bank_details ? 24 : 0 }}>
+          <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_this_invoice}</div>
+          {s.show_vat_breakdown && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '5px 0', color: '#888', borderBottom: '1px solid #f5f5f5' }}>
+                <span>Net Amount (excl. VAT)</span>
+                <span style={{ fontFamily: mono }}>{net.toLocaleString()}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '5px 0', color: '#888', borderBottom: '1px solid #f5f5f5' }}>
+                <span>VAT @ 18% (inclusive)</span>
+                <span style={{ fontFamily: mono }}>{vat.toLocaleString()}</span>
+              </div>
+            </>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: `${p}18`, borderRadius: 8, marginTop: 10, border: `1.5px solid ${p}40` }}>
+            <span style={{ fontFamily: display, fontSize: 13, fontWeight: 800, color: '#1a1a1a' }}>Invoice Total</span>
+            <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800, color: '#1a1a1a' }}>TZS {total.toLocaleString()}</span>
           </div>
-        </div>
-      )}
-
-      {/* ── FOOTER ───────────────────────────────────────────────────────────── */}
-      <div style={{ background: '#1a1a1a', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 10, color: '#555', fontFamily: mono }}>{s.instagram} · {s.website}</div>
-          <div style={{ fontSize: 10, color: '#444', fontStyle: 'italic', marginTop: 2 }}>{s.footer_message}</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 9, color: '#444', fontFamily: mono }}>TIN: {s.tin}</div>
-          <div style={{ fontSize: 9, color: '#444', fontFamily: mono }}>VRN: {s.vrn}</div>
+          {cust && s.show_outstanding_balance && prevBalance > 0 && (
+            <div style={{ marginTop: 8, padding: '7px 12px', background: '#fff3f3', borderRadius: 6, border: '1px solid #f5c0c0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: '#c0392b' }}>+ Prior outstanding balance</span>
+              <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: '#c0392b' }}>TZS {prevBalance.toLocaleString()}</span>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* ── NOTES ───────────────────────────────────────────────────────────── */}
+      {s.show_notes && voucher.notes && (
+        <div style={{ margin: '20px 40px 0', padding: '12px 16px', background: '#f9f9f9', borderLeft: `3px solid ${p}`, borderRadius: '0 6px 6px 0' }}>
+          <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 5, fontWeight: 600 }}>{s.label_notes}</div>
+          <div style={{ fontSize: 11, color: '#555', lineHeight: 1.6 }}>{voucher.notes}</div>
+        </div>
+      )}
+
+      {/* ── FOOTER ──────────────────────────────────────────────────────────── */}
+      <div style={{ margin: '20px 40px 0', padding: '14px 0', borderTop: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: 10, color: '#aaa', fontStyle: 'italic', maxWidth: 400 }}>{s.footer_note}</div>
+        <div style={{ fontFamily: mono, fontSize: 9, color: '#ccc', textAlign: 'right' }}>
+          <div style={{ fontWeight: 700, color: p }}>{s.company_name}</div>
+          <div>Computer-generated invoice · No signature required</div>
+        </div>
+      </div>
+
+      {/* Bottom band */}
+      <div style={{ height: 6, background: `linear-gradient(90deg, #1a1a1a 0%, ${p} 50%, #1a1a1a 100%)`, marginTop: 16 }} />
     </div>
   )
 }
 
-// ── Settings Components ───────────────────────────────────────────────────────
-const Fld = ({ label, k, s, set, placeholder, textarea }: {
-  label: string; k: keyof ReceiptSettings; s: ReceiptSettings
-  set: (k: keyof ReceiptSettings, v: string) => void; placeholder?: string; textarea?: boolean
-}) => (
-  <div style={{ marginBottom: 12 }}>
-    <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
-    {textarea
-      ? <textarea className="form-input" value={String(s[k] || '')} rows={2} style={{ resize: 'none', fontSize: 12 }} placeholder={placeholder} onChange={e => set(k, e.target.value)} />
-      : <input className="form-input" value={String(s[k] || '')} placeholder={placeholder} onChange={e => set(k, e.target.value)} />
-    }
-  </div>
-)
-
-const Tog = ({ label, desc, k, s, set }: {
-  label: string; desc: string; k: keyof ReceiptSettings
-  s: ReceiptSettings; set: (k: keyof ReceiptSettings, v: boolean) => void
-}) => (
+// ── Settings Panel ────────────────────────────────────────────────────────────
+const Tog = ({ label, desc, k, settings, onToggle }: { label: string; desc: string; k: keyof InvoiceSettings; settings: InvoiceSettings; onToggle: (k: keyof InvoiceSettings, v: boolean) => void }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
     <div>
       <div style={{ fontSize: 13, fontWeight: 500 }}>{label}</div>
       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{desc}</div>
     </div>
-    <button onClick={() => set(k, !s[k])} style={{
-      width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', flexShrink: 0, marginLeft: 12,
-      background: s[k] ? 'var(--accent)' : 'var(--surface3)', transition: 'background .2s', position: 'relative',
+    <button onClick={() => onToggle(k, !settings[k])} style={{
+      width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+      background: settings[k] ? 'var(--accent)' : 'var(--surface3)', transition: 'background .2s', position: 'relative', flexShrink: 0,
     }}>
-      <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: s[k] ? 21 : 3, transition: 'left .2s' }} />
+      <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: settings[k] ? 21 : 3, transition: 'left .2s' }} />
     </button>
   </div>
 )
 
-// ── Receipt Template Settings Panel ──────────────────────────────────────────
-export function ReceiptTemplateSettings({ settings, onChange }: { settings: ReceiptSettings; onChange: (s: ReceiptSettings) => void }) {
-  const setS = (k: keyof ReceiptSettings, v: string | boolean | number) => onChange({ ...settings, [k]: v })
-  const setStr = (k: keyof ReceiptSettings, v: string) => setS(k, v)
-  const setBool = (k: keyof ReceiptSettings, v: boolean) => setS(k, v)
-  const [tab, setTab] = useState<'identity'|'labels'|'messages'|'display'|'logo'|'konnect'>('identity')
+const Fld = ({ label, k, settings, onChange, placeholder, textarea }: { label: string; k: keyof InvoiceSettings; settings: InvoiceSettings; onChange: (k: keyof InvoiceSettings, v: string) => void; placeholder?: string; textarea?: boolean }) => (
+  <div style={{ marginBottom: 12 }}>
+    <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+    {textarea
+      ? <textarea className="form-input" value={String(settings[k] || '')} placeholder={placeholder} rows={2} style={{ resize: 'none', fontSize: 12 }} onChange={e => onChange(k, e.target.value)} />
+      : <input className="form-input" value={String(settings[k] || '')} placeholder={placeholder} onChange={e => onChange(k, e.target.value)} />
+    }
+  </div>
+)
+
+export function InvoiceTemplateSettings({ settings, onChange }: { settings: InvoiceSettings; onChange: (s: InvoiceSettings) => void }) {
+  const set = (k: keyof InvoiceSettings, v: string | boolean | number) => onChange({ ...settings, [k]: v })
+  const [tab, setTab] = useState<'company'|'bank'|'labels'|'display'|'logo'>('company')
+  const logoRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 })
+
+  // Logo upload handler
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const url = ev.target?.result as string
+      onChange({ ...settings, logo_url: url, show_logo: true })
+    }
+    reader.readAsDataURL(file)
+  }
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -317,122 +317,115 @@ export function ReceiptTemplateSettings({ settings, onChange }: { settings: Rece
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
   }, [settings, onChange])
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => onChange({ ...settings, logo_url: ev.target?.result as string, show_logo: true })
-    reader.readAsDataURL(file)
-  }
-
   const tabs = [
-    { id: 'identity', label: 'Identity' }, { id: 'labels', label: 'Labels' },
-    { id: 'messages', label: 'Messages' }, { id: 'display', label: 'Display' },
-    { id: 'logo', label: 'Logo' }, { id: 'konnect', label: 'Konnect' },
+    { id: 'company', label: 'Company' },
+    { id: 'bank', label: 'Bank' },
+    { id: 'labels', label: 'Labels' },
+    { id: 'display', label: 'Display' },
+    { id: 'logo', label: 'Logo' },
   ] as const
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 3, marginBottom: 14, background: 'var(--surface2)', padding: 3, borderRadius: 8, flexWrap: 'wrap' }}>
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 3, marginBottom: 16, background: 'var(--surface2)', padding: 4, borderRadius: 8, flexWrap: 'wrap' }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: '5px 11px', fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer',
+            padding: '6px 14px', fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer',
             borderRadius: 6, background: tab === t.id ? 'var(--accent)' : 'transparent',
             color: tab === t.id ? '#fff' : 'var(--text3)',
           }}>{t.label}</button>
         ))}
       </div>
 
-      {tab === 'identity' && (
+      {/* Company tab */}
+      {tab === 'company' && (
         <div>
-          <Fld label="Company Name" k="company_name" s={settings} set={setStr} />
-          <Fld label="Tagline" k="tagline" s={settings} set={setStr} />
-          <Fld label="Address" k="address" s={settings} set={setStr} />
-          <Fld label="Phone" k="phone" s={settings} set={setStr} />
-          <Fld label="Email" k="email" s={settings} set={setStr} />
-          <Fld label="Website" k="website" s={settings} set={setStr} />
-          <Fld label="Instagram" k="instagram" s={settings} set={setStr} placeholder="@handle" />
-          <Fld label="TIN" k="tin" s={settings} set={setStr} />
-          <Fld label="VRN" k="vrn" s={settings} set={setStr} />
+          <Fld label="Company Name" k="company_name" settings={settings} onChange={set} />
+          <Fld label="Tagline" k="tagline" settings={settings} onChange={set} />
+          <Fld label="Address" k="address" settings={settings} onChange={set} />
+          <Fld label="Phone" k="phone" settings={settings} onChange={set} />
+          <Fld label="Email" k="email" settings={settings} onChange={set} />
+          <Fld label="Website" k="website" settings={settings} onChange={set} />
+          <Fld label="TIN (Tax ID)" k="tin" settings={settings} onChange={set} placeholder="e.g. 123-456-789" />
+          <Fld label="VRN (VAT Registration)" k="vrn" settings={settings} onChange={set} placeholder="e.g. 40-123456-E" />
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Colours</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>Primary (Teal)</div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input type="color" value={settings.primary_color} onChange={e => setS('primary_color', e.target.value)} style={{ width: 36, height: 32, border: 'none', cursor: 'pointer', padding: 2, borderRadius: 4 }} />
-                  <input className="form-input" value={settings.primary_color} onChange={e => setS('primary_color', e.target.value)} style={{ fontFamily: 'var(--mono)', fontSize: 11 }} />
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>Accent (Blush)</div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input type="color" value={settings.accent_color} onChange={e => setS('accent_color', e.target.value)} style={{ width: 36, height: 32, border: 'none', cursor: 'pointer', padding: 2, borderRadius: 4 }} />
-                  <input className="form-input" value={settings.accent_color} onChange={e => setS('accent_color', e.target.value)} style={{ fontFamily: 'var(--mono)', fontSize: 11 }} />
-                </div>
-              </div>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Brand Colour</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="color" value={settings.primary_color} onChange={e => set('primary_color', e.target.value)} style={{ width: 40, height: 36, border: 'none', cursor: 'pointer', padding: 2, borderRadius: 4 }} />
+              <input className="form-input" value={settings.primary_color} onChange={e => set('primary_color', e.target.value)} style={{ fontFamily: 'var(--mono)', width: 110 }} />
+              <span style={{ fontSize: 11, color: 'var(--text3)' }}>Used for header, accents</span>
             </div>
           </div>
-          <Fld label="Footer Message" k="footer_message" s={settings} set={setStr} textarea />
         </div>
       )}
 
+      {/* Bank tab */}
+      {tab === 'bank' && (
+        <div>
+          <Fld label="Bank Name" k="bank_name" settings={settings} onChange={set} />
+          <Fld label="Account Name" k="bank_account_name" settings={settings} onChange={set} />
+          <Fld label="Account Number" k="bank_account_number" settings={settings} onChange={set} />
+          <Fld label="Branch" k="bank_branch" settings={settings} onChange={set} />
+          <Fld label="Payment Note (inside bank box)" k="payment_note" settings={settings} onChange={set} placeholder="Please quote invoice number as reference" textarea />
+          <Fld label="Footer Note (bottom of invoice)" k="footer_note" settings={settings} onChange={set} placeholder="Thank you for your business…" textarea />
+        </div>
+      )}
+
+      {/* Labels tab — editable text for every label on the invoice */}
       {tab === 'labels' && (
         <div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12, lineHeight: 1.6 }}>Edit every label that appears on the receipt. Translate to Swahili or customise freely.</div>
-          <Fld label='"Receipt" heading' k="label_receipt" s={settings} set={setStr} placeholder="Receipt" />
-          <Fld label='"Billed To" header' k="label_billed_to" s={settings} set={setStr} placeholder="Billed To" />
-          <Fld label='"Items Purchased" header' k="label_items" s={settings} set={setStr} placeholder="Items Purchased" />
-          <Fld label='"Total Paid" label' k="label_total_paid" s={settings} set={setStr} placeholder="Total Paid" />
-          <Fld label='"Crown Points" header' k="label_crown_points" s={settings} set={setStr} placeholder="Crown Points" />
-          <Fld label='"Midwife Tip" header' k="label_midwife_tip" s={settings} set={setStr} placeholder="Midwife Tip" />
-          <Fld label='"Join Konnect" heading' k="label_konnect" s={settings} set={setStr} placeholder="Join Malkia Konnect" />
-          <Fld label='"Served by" prefix' k="label_cashier" s={settings} set={setStr} placeholder="Served by" />
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12, lineHeight: 1.6 }}>
+            Edit the text labels that appear on every invoice. These are section headers and field names — translate or customise freely.
+          </div>
+          <Fld label='"Tax Invoice" heading (top right)' k="label_invoice" settings={settings} onChange={set} placeholder="Tax Invoice" />
+          <Fld label='"Bill To" section header' k="label_bill_to" settings={settings} onChange={set} placeholder="Bill To" />
+          <Fld label='"Account Statement" section header' k="label_account_statement" settings={settings} onChange={set} placeholder="Account Statement" />
+          <Fld label='"This Invoice" section header' k="label_this_invoice" settings={settings} onChange={set} placeholder="This Invoice" />
+          <Fld label='"Payment Details" section header' k="label_payment_details" settings={settings} onChange={set} placeholder="Payment Details" />
+          <Fld label='"Notes" section header' k="label_notes" settings={settings} onChange={set} placeholder="Notes" />
+          <Fld label='"Invoiced by" prefix' k="label_salesperson" settings={settings} onChange={set} placeholder="Invoiced by" />
         </div>
       )}
 
-      {tab === 'messages' && (
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12, lineHeight: 1.6 }}>These emotional messages appear below the header, personalised by the customer's pregnancy stage.</div>
-          <Fld label="Pregnant Customers" k="msg_pregnant" s={settings} set={setStr} textarea placeholder="Message for pregnant mamas..." />
-          <Fld label="Postpartum Customers" k="msg_postpartum" s={settings} set={setStr} textarea placeholder="Message for postpartum mamas..." />
-          <Fld label="General / Other" k="msg_general" s={settings} set={setStr} textarea placeholder="General message..." />
-        </div>
-      )}
-
+      {/* Display tab — toggles WITH editable descriptions */}
       {tab === 'display' && (
         <div>
-          <Tog label="Show Logo" desc="Display logo in receipt header" k="show_logo" s={settings} set={setBool} />
-          <Tog label="Stage Message" desc="Emotional message personalised by pregnancy stage" k="show_stage_message" s={settings} set={setBool} />
-          <Tog label="Crown Points" desc="Show loyalty points earned and balance" k="show_crown_points" s={settings} set={setBool} />
-          <Tog label="Midwife Tip" desc="Product care tip relevant to purchase category" k="show_care_tip" s={settings} set={setBool} />
-          <Tog label="VAT Breakdown" desc="Show net amount and VAT separately" k="show_vat_breakdown" s={settings} set={setBool} />
-          <Tog label="Cashier Name" desc="Show name of who served the customer" k="show_cashier" s={settings} set={setBool} />
-          <Tog label="Konnect CTA" desc="Show Join Malkia Konnect section" k="konnect_enabled" s={settings} set={setBool} />
-          <Tog label="Community Section" desc="Show Mama Community link" k="community_enabled" s={settings} set={setBool} />
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12 }}>Toggle sections on/off. Each toggle has an editable label above it.</div>
+          <Tog label="Show Logo" desc="Display company logo in header" k="show_logo" settings={settings} onToggle={set} />
+          <Tog label="Bank Details" desc="Show bank/payment info section" k="show_bank_details" settings={settings} onToggle={set} />
+          <Tog label="VAT Breakdown" desc="Show net amount and VAT line" k="show_vat_breakdown" settings={settings} onToggle={set} />
+          <Tog label="Outstanding Balance" desc="Show prior balance in account statement" k="show_outstanding_balance" settings={settings} onToggle={set} />
+          <Tog label="Payment Terms" desc="Show due date and terms in header" k="show_payment_terms" settings={settings} onToggle={set} />
+          <Tog label="Salesperson" desc="Show who issued the invoice" k="show_salesperson" settings={settings} onToggle={set} />
+          <Tog label="Notes" desc="Show notes / payment instructions at bottom" k="show_notes" settings={settings} onToggle={set} />
         </div>
       )}
 
+      {/* Logo tab */}
       {tab === 'logo' && (
         <div>
+          {/* Upload */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Upload Logo</div>
             <label style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              gap: 8, padding: '20px 16px', border: '2px dashed var(--border)', borderRadius: 10,
-              cursor: 'pointer', background: 'var(--surface2)',
-            }}>
+              gap: 8, padding: '24px 16px', border: '2px dashed var(--border)', borderRadius: 10,
+              cursor: 'pointer', background: 'var(--surface2)', transition: 'border-color .15s'
+            }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'}
+               onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
               {settings.logo_url ? (
                 <>
-                  <img src={settings.logo_url} alt="Logo preview" style={{ maxHeight: 60, maxWidth: 180, objectFit: 'contain' }} />
+                  <img src={settings.logo_url} alt="Logo preview" style={{ maxHeight: 60, maxWidth: 200, objectFit: 'contain' }} />
                   <div style={{ fontSize: 11, color: 'var(--text3)' }}>Click to replace</div>
                 </>
               ) : (
                 <>
-                  <svg width="28" height="28" fill="none" stroke="var(--text3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <svg width="32" height="32" fill="none" stroke="var(--text3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
                   <div style={{ fontSize: 12, color: 'var(--text3)' }}>Click to upload logo</div>
-                  <div style={{ fontSize: 10, color: 'var(--text3)' }}>PNG, JPG, SVG · transparent bg recommended</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)' }}>PNG, JPG, SVG — transparent background recommended</div>
                 </>
               )}
               <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoUpload} />
@@ -444,68 +437,67 @@ export function ReceiptTemplateSettings({ settings, onChange }: { settings: Rece
               </button>
             )}
           </div>
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-              Size: <span style={{ color: 'var(--accent)' }}>{settings.logo_width}px</span>
-            </div>
-            <input type="range" min={30} max={150} value={settings.logo_width} onChange={e => setS('logo_width', Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
-          </div>
-          <div style={{ marginBottom: 14 }}>
+
+          {/* Size */}
+          <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
-              Offset · X: <span style={{ color: 'var(--accent)' }}>{settings.logo_x}px</span> · Y: <span style={{ color: 'var(--accent)' }}>{settings.logo_y}px</span>
+              Logo Size: <span style={{ color: 'var(--accent)' }}>{settings.logo_width}px</span>
+            </div>
+            <input type="range" min={40} max={200} value={settings.logo_width} onChange={e => set('logo_width', Number(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--accent)' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
+              <span>40px (small)</span><span>200px (large)</span>
+            </div>
+          </div>
+
+          {/* Position */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+              Position Offset · X: <span style={{ color: 'var(--accent)' }}>{settings.logo_x}px</span> · Y: <span style={{ color: 'var(--accent)' }}>{settings.logo_y}px</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>Horizontal (X)</div>
-                <input type="range" min={-50} max={50} value={settings.logo_x} onChange={e => setS('logo_x', Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
+                <input type="range" min={-60} max={60} value={settings.logo_x} onChange={e => set('logo_x', Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
               </div>
               <div>
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>Vertical (Y)</div>
-                <input type="range" min={-20} max={40} value={settings.logo_y} onChange={e => setS('logo_y', Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
+                <input type="range" min={-30} max={60} value={settings.logo_y} onChange={e => set('logo_y', Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
               </div>
             </div>
           </div>
+
+          {/* Live drag tip */}
           {settings.logo_url && (
-            <div style={{ padding: '10px 14px', background: 'var(--accent-dim)', border: '1px solid var(--accent)', borderRadius: 8, fontSize: 11, color: 'var(--accent)', marginBottom: 10 }}>
-              You can also drag the logo directly on the live preview.
+            <div ref={logoRef} style={{ padding: '10px 14px', background: 'var(--accent-dim)', border: '1px solid var(--accent)', borderRadius: 8, fontSize: 11, color: 'var(--accent)' }}>
+              You can also drag the logo directly in the live preview on the right.
             </div>
           )}
-          <button onClick={() => onChange({ ...settings, logo_x: 0, logo_y: 0, logo_width: 60 })}
-            style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>
-            Reset position & size
-          </button>
-        </div>
-      )}
 
-      {tab === 'konnect' && (
-        <div>
-          <Tog label="Enable Konnect CTA" desc="Show Join Malkia Konnect on receipts" k="konnect_enabled" s={settings} set={setBool} />
-          <Tog label="UTM Tracking" desc="Add campaign tracking to Konnect link" k="konnect_utm_tracking" s={settings} set={setBool} />
-          <Tog label="Community Section" desc="Show Mama Community link when ready" k="community_enabled" s={settings} set={setBool} />
-          <div style={{ marginTop: 12 }}>
-            <Fld label="Konnect URL" k="konnect_url" s={settings} set={setStr} placeholder="https://www.malkia.co.tz/join" />
-            <Fld label="Konnect CTA Button Text" k="konnect_cta_text" s={settings} set={setStr} placeholder="Join Konnect →" />
-            <Fld label="Konnect Sub-text" k="konnect_sub_text" s={settings} set={setStr} textarea placeholder="Weekly guidance · Expert Q&A · Birth prep..." />
-            <Fld label="Community Name" k="community_name" s={settings} set={setStr} placeholder="Mama Community" />
-            <Fld label="Community URL" k="community_url" s={settings} set={setStr} placeholder="https://community.malkia.co.tz" />
-          </div>
+          {/* Reset position */}
+          <button onClick={() => onChange({ ...settings, logo_x: 0, logo_y: 0, logo_width: 80 })}
+            style={{ marginTop: 12, fontSize: 11, color: 'var(--text3)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>
+            Reset to default position & size
+          </button>
         </div>
       )}
     </div>
   )
 }
 
-// ── Default Export: Receipt Template Page ─────────────────────────────────────
-export default function ReceiptTemplatePage() {
-  const [settings, setSettings] = useState<ReceiptSettings>(DEFAULT)
+// ── Default Export: Settings Page ─────────────────────────────────────────────
+export default function InvoiceTemplatePage() {
+  const [settings, setSettings] = useState<InvoiceSettings>(DEFAULT)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
+
+  // Logo drag on preview
   const isDragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0, scale: 1 })
 
   useEffect(() => {
-    supabase.from('system_settings').select('value').eq('key', 'receipt_template').single()
+    supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
       .then(({ data }) => { if (data?.value) try { setSettings({ ...DEFAULT, ...JSON.parse(data.value) }) } catch {} })
   }, [])
 
@@ -526,7 +518,7 @@ export default function ReceiptTemplatePage() {
 
   const startLogoDrag = (e: React.MouseEvent) => {
     const rect = previewRef.current?.getBoundingClientRect()
-    const scale = rect ? rect.width / 400 : 0.85
+    const scale = rect ? rect.width / 794 : 0.63
     isDragging.current = true
     dragStart.current = { x: e.clientX, y: e.clientY, ox: settings.logo_x, oy: settings.logo_y, scale }
     e.preventDefault(); e.stopPropagation()
@@ -534,31 +526,18 @@ export default function ReceiptTemplatePage() {
 
   const save = async () => {
     setSaving(true)
-    await supabase.from('system_settings').upsert({ key: 'receipt_template', value: JSON.stringify(settings) }, { onConflict: 'key' })
+    await supabase.from('system_settings').upsert({ key: 'invoice_template', value: JSON.stringify(settings) }, { onConflict: 'key' })
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000)
   }
 
-  const printPreview = () => {
-    const el = document.getElementById('malkia-receipt-preview')
-    if (!el) return
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt Preview</title>
-      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-      <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:40px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
-    </head><body>${el.outerHTML}</body></html>`)
-    win.document.close()
-    setTimeout(() => win.print(), 600)
-  }
-
-  const SAMPLE: ReceiptVoucher = {
-    ref: 'CS-10-0042', posting_date: new Date().toISOString().split('T')[0],
-    description: 'Cash Sale — Fatuma Said', total_amount: 185000, vat_amount: 26695, subtotal: 158305,
-    payment_method: 'M-Pesa', notes: '', posted_by: 'Barbra Kabendera',
-    customers: { name: 'Fatuma Said', whatsapp: '+255 743 100 212', pregnancy_stage: '28 weeks Pregnant', crown_points: 1240 },
+  const SAMPLE: Voucher = {
+    ref: 'SI-10-0001', posting_date: '2026-03-27', due_date: '2026-04-26',
+    payment_terms: 'NET30', notes: 'Please transfer to the account above and quote invoice number.',
+    total_amount: 520000, vat_amount: 79322, subtotal: 440678, posted_by: 'Joe Gembe',
+    customers: { name: 'Dr. Sarah Kimani', company: 'Aga Khan Health Services Tanzania', contact_person: 'Dr. Sarah Kimani', whatsapp: '+255 22 211 5151', address: 'Ocean Road, Dar es Salaam', balance: 185000 },
     voucher_lines: [
-      { qty: 1, unit_price: 120000, total: 120000, products: { name: 'U-Shape Pregnancy Pillow', sku: 'MK-003', category: 'Comfort' } },
-      { qty: 2, unit_price: 32500, total: 65000, products: { name: 'Nipple Cream — 60ml', sku: 'MK-007', category: 'Feeding' } },
+      { qty: 10, unit_price: 32000, total: 320000, discount_pct: 0, description: 'Nipple Cream', products: { name: 'Nipple Cream — 60ml', sku: 'MK-003' } },
+      { qty: 4, unit_price: 50000, total: 200000, discount_pct: 0, description: 'Prenatal Bundle', products: { name: 'Prenatal Bundle', sku: 'MK-008' } },
     ],
   }
 
@@ -566,47 +545,47 @@ export default function ReceiptTemplatePage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">Receipt Template</div>
-          <div className="page-sub">Branded cash sale receipt · Warm, consumer-facing · Mama identity</div>
+          <div className="page-title">Invoice Template</div>
+          <div className="page-sub">Customise your sales invoice appearance · Changes save to system settings</div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-ghost btn-sm" onClick={printPreview}>Print Preview</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Settings'}
-          </button>
-        </div>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Settings'}
+        </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 24, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 24, alignItems: 'start' }}>
         {/* Settings panel */}
         <div className="card" style={{ position: 'sticky', top: 0 }}>
-          <ReceiptTemplateSettings settings={settings} onChange={setSettings} />
+          <InvoiceTemplateSettings settings={settings} onChange={setSettings} />
         </div>
 
         {/* Live preview */}
         <div>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5, display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Live Preview</span>
             {settings.logo_url && <span style={{ color: 'var(--accent)' }}>Drag logo to reposition</span>}
           </div>
-          <div ref={previewRef} style={{ display: 'inline-block', userSelect: 'none' }}>
+          <div ref={previewRef} style={{ transform: 'scale(0.63)', transformOrigin: 'top left', width: '159%', userSelect: 'none' }}>
+            {/* Wrap MalkiaInvoice and intercept logo mousedown for dragging */}
             <div style={{ position: 'relative' }}>
-              <div id="malkia-receipt-preview">
-                <MalkiaReceipt voucher={SAMPLE} settings={settings} />
-              </div>
-              {/* Logo drag overlay */}
+              <MalkiaInvoice voucher={SAMPLE} settings={settings} />
+              {/* Drag overlay for logo */}
               {settings.show_logo && settings.logo_url && (
-                <div onMouseDown={startLogoDrag} style={{
-                  position: 'absolute',
-                  top: 22 + settings.logo_y,
-                  left: 22 + settings.logo_x,
-                  width: settings.logo_width,
-                  height: 60,
-                  cursor: 'grab', zIndex: 10,
-                  border: '2px dashed rgba(133,194,190,.7)',
-                  borderRadius: 4,
-                  background: 'rgba(133,194,190,.05)',
-                }} />
+                <div
+                  onMouseDown={startLogoDrag}
+                  style={{
+                    position: 'absolute',
+                    top: 24 + settings.logo_y,
+                    left: 40 + settings.logo_x,
+                    width: settings.logo_width,
+                    height: 80,
+                    cursor: 'grab',
+                    zIndex: 10,
+                    border: '2px dashed rgba(133,194,190,0.6)',
+                    borderRadius: 4,
+                    background: 'rgba(133,194,190,0.05)',
+                  }}
+                />
               )}
             </div>
           </div>
