@@ -265,11 +265,9 @@ export default function CashSale() {
       const { data: custData } = await supabase.from('customers').upsert({
         code: custCode, name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
         crown_points: (selectedCust?.crown_points || 0) + crownPoints,
-          last_purchase_date: postingDate,
-          last_purchase_amount: subtotal,
-          balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
-        last_purchase_date: postingDate, last_purchase_amount: subtotal,
-        balance: (selectedCust?.balance || 0) + subtotal,
+        last_purchase_date: postingDate,
+        last_purchase_amount: subtotal,
+        balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
       }, { onConflict: 'whatsapp' }).select('id').single()
       if (custData) customerId = custData.id
 
