@@ -261,9 +261,9 @@ export default function CashSale() {
       // Upsert customer
       const cleaned = waInput.replace(/[\s+\-()]/g, '')
       let customerId = selectedCust?.id || null
-      const custCode = 'CUST-' + (cleaned.slice(-6) || Date.now().toString().slice(-6))
       const { data: custData } = await supabase.from('customers').upsert({
-        code: custCode, name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
+        name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
+        segment: 'retail',
         crown_points: (selectedCust?.crown_points || 0) + crownPoints,
         last_purchase_date: postingDate,
         last_purchase_amount: subtotal,
