@@ -30,6 +30,7 @@ import InventorySettings from './pages/InventorySettings'
 import StockTransferRegister from './pages/StockTransferRegister'
 import Customers from './pages/Customers'
 import Settings from './pages/Settings'
+import DataImport from './pages/DataImport'
 import Banks from './pages/Banks'
 
 import VouchersHub from './pages/vouchers/VouchersHub'
@@ -117,6 +118,7 @@ export default function App() {
       case 'stock-transfer-register': return <StockTransferRegister />
       case 'customers': return <Customers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
+      case 'data-import':       return <DataImport />
       default:                  return <ComingSoon module={BREADCRUMBS[page] || page} />
     }
   }
