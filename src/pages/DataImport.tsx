@@ -7,7 +7,7 @@ import Toast from '../components/Toast'
 type ImportSource = 'tally_xml' | 'excel_csv' | 'quickbooks' | 'manual_csv'
 type ImportEntity = 'customers' | 'products' | 'accounts' | 'opening_balances'
 type Step = 'source' | 'entity' | 'upload' | 'map' | 'preview' | 'done'
-type Toast_ = { msg: string; type: 'success' | 'error' | 'info' } | null
+type Toast_ = { msg: string; type: 'success' | 'error' } | null
 
 interface FieldDef {
   key: string
@@ -247,7 +247,7 @@ async function writeCustomers(rows: MappedRow[]): Promise<{ ok: number; failed: 
 async function writeProducts(rows: MappedRow[]): Promise<{ ok: number; failed: number; errors: string[] }> {
   let ok = 0; let failed = 0; const errors: string[] = []
   for (const row of rows) {
-    const payload = { ...coerceRow(row, 'products'), is_active: true }
+    const payload: Record<string, unknown> = { ...coerceRow(row, 'products'), is_active: true }
     if (!payload['category']) payload['category'] = 'General'
     if (!payload['unit']) payload['unit'] = 'Piece'
     const { error } = await supabase.from('products').upsert(payload, { onConflict: 'sku' })
@@ -393,7 +393,7 @@ export default function DataImport() {
   const [toast, setToast]         = useState<Toast_>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 3500)
   }
 
