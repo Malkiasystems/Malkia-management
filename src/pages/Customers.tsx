@@ -115,13 +115,19 @@ export default function Customers() {
   }
 
   const save = async () => {
-    if (!form.name.trim()) { showToast('Customer name required', 'error'); return }
+    const isDebtor = form.customer_type === 'debtor'
+    const displayName = isDebtor ? form.company.trim() : form.name.trim()
+    if (!displayName) { showToast(isDebtor ? 'Company name required' : 'Customer name required', 'error'); return }
+    if (isDebtor && !(form as any).contact_person?.trim()) { showToast('Contact person required', 'error'); return }
     if (form.customer_type === 'cash' && !form.whatsapp.trim()) { showToast('WhatsApp number required for cash contacts', 'error'); return }
     setSaving(true)
     try {
       const customerNumber = selected?.customer_number || await generateNumber(form.customer_type)
       const payload: any = {
-        name: form.name.trim(), company: form.company.trim() || null, contact_person: (form as any).contact_person?.trim() || null,
+        // For debtors: name = company name for searching; for cash: name = person name
+        name: isDebtor ? form.company.trim() : form.name.trim(),
+        company: form.company.trim() || null,
+        contact_person: (form as any).contact_person?.trim() || null,
         customer_type: form.customer_type, segment: form.segment.toLowerCase(),
         whatsapp: form.whatsapp.trim() || null, email: form.email.trim() || null,
         credit_limit: parseFloat(form.credit_limit) || 0,
@@ -132,11 +138,11 @@ export default function Customers() {
       if (selected) {
         const { error } = await supabase.from('customers').update(payload).eq('id', selected.id)
         if (error) throw new Error(error.message)
-        showToast(`${form.name} updated`)
+        showToast(`${displayName} updated`)
       } else {
         const { error } = await supabase.from('customers').insert(payload)
         if (error) throw new Error(error.message)
-        showToast(`${form.name} added — ${customerNumber}`)
+        showToast(`${displayName} added — ${customerNumber}`)
       }
       setView('list'); load()
     } catch (err: any) { showToast(err.message || 'Save failed', 'error') }
