@@ -18,3 +18,13 @@ export const greeting = () => {
   const h = new Date().getHours()
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
+
+// Current user — replace with auth.currentUser.name when login is added
+export const getPostedBy = (): string => {
+  try {
+    const user = (window as any).__malkiaUser
+    return user?.name || 'Joe Gembe'
+  } catch {
+    return 'Joe Gembe'
+  }
+}
