@@ -52,7 +52,8 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (val.trim().length < 2) { setResults([]); setShowDrop(false); return }
 
-    debounceRef.current = setTimeout(async () => {
+    debounceRef.current = setTimeout(() => {
+      void (async () => {
       setSearching(true)
       const q = val.trim()
       const all: SearchResult[] = []
@@ -107,6 +108,7 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
       setResults(all)
       setShowDrop(all.length > 0)
       setSearching(false)
+      })()
     }, 280)
   }
 
