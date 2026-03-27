@@ -89,7 +89,7 @@ const AUTO_MAP_HINTS: Record<string, string> = {
   'account code': 'code', 'ledger code': 'code', 'gl code': 'code', 'account no': 'code',
   'account name': 'name', 'ledger': 'name',
   'account type': 'type', 'type': 'type', 'nature': 'type',
-  'group': 'category', 'account group': 'category',
+  'account group': 'category',
   'closing balance': 'balance',
   // Opening balances
   'debit': 'debit', 'dr': 'debit', 'debit amount': 'debit',
@@ -169,7 +169,7 @@ function parseTallyXML(xmlText: string): { entity: string; rows: ParsedRow[] } {
       'Debit':       v.querySelector('ALLLEDGERENTRIES\\.LIST > AMOUNT')?.textContent?.startsWith('-') ? '' :
                      v.querySelector('ALLLEDGERENTRIES\\.LIST > AMOUNT')?.textContent || '',
       'Credit':      v.querySelector('ALLLEDGERENTRIES\\.LIST > AMOUNT')?.textContent?.startsWith('-') ?
-                     v.querySelector('ALLLEDGERENTRIES\\.LIST > AMOUNT')?.textContent?.replace('-','') : '',
+                     (v.querySelector('ALLLEDGERENTRIES\\.LIST > AMOUNT')?.textContent?.replace('-','') || '') : '',
     }))
     return { entity: 'opening_balances', rows }
   }
