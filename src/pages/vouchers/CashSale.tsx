@@ -4,8 +4,8 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
 import { today, tzs, getPostedBy } from '../../lib/utils'
-import { MalkiaReceipt } from '../ReceiptTemplate'
-import type { ReceiptSettings } from '../ReceiptTemplate'
+import { MalkiaCashSaleReceipt } from '../CashSaleTemplate'
+import type { CashSaleReceiptSettings } from '../CashSaleTemplate'
 import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
 
@@ -82,7 +82,7 @@ export default function CashSale() {
   const [sending, setSending] = useState(false)
   const [waSent, setWaSent] = useState(false)
   const [lastVoucher, setLastVoucher] = useState<any>(null)
-  const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null)
+  const [receiptSettings, setReceiptSettings] = useState<CashSaleReceiptSettings | null>(null)
 
   useEffect(() => {
     loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings(); loadWAConfig().then(setWaConfig)
