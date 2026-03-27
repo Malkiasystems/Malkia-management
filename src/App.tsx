@@ -28,6 +28,7 @@ import LocationSettings from './pages/LocationSettings'
 import InventorySettings from './pages/InventorySettings'
 // import PricelistTemplate from './pages/PricelistTemplate'
 import StockTransferRegister from './pages/StockTransferRegister'
+import Customers from './pages/Customers'
 import Settings from './pages/Settings'
 import Banks from './pages/Banks'
 
@@ -101,6 +102,7 @@ export default function App() {
       case 'stock-adjustment':  return <StockAdjustment onNav={setPage} />
       case 'stock-transfer':    return <StockTransfer onNav={setPage} />
       case 'stock-transfer-register': return <StockTransferRegister />
+      case 'customers': return <Customers />
       case 'journal-entry':     return <JournalEntry onNav={setPage} />
       default:                  return <ComingSoon module={BREADCRUMBS[page] || page} />
     }
