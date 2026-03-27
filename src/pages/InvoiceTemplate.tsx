@@ -43,6 +43,8 @@ interface InvoiceVoucher {
   posted_by: string
   customers: {
     name: string
+    company?: string
+    contact_person?: string
     whatsapp: string
     address: string
     balance: number
