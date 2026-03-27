@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
@@ -32,6 +32,15 @@ export default function SalesInvoice({ onNav }: Props) {
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
   const [showDrop, setShowDrop] = useState(false)
+  const custRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (custRef.current && !custRef.current.contains(e.target as Node)) setShowDrop(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
   const [lines, setLines] = useState<InvLine[]>([{ productId: '', name: '', qty: 1, price: 0, amount: 0 }])
   const [form, setForm] = useState({
     date: today(), dueDate: '', ref: '', customer: '', wa: '',
@@ -60,10 +69,34 @@ export default function SalesInvoice({ onNav }: Props) {
 
   const searchCustomer = async (val: string) => {
     set('customer', val)
-    if (val.length < 2) { setCustResults([]); setShowDrop(false); return }
-    const { data } = await supabase.from('customers').select('*').eq('customer_type', 'debtor').eq('is_active', true).or(`name.ilike.%${val}%,company.ilike.%${val}%`).limit(6)
-    if (data && data.length > 0) { setCustResults(data); setShowDrop(true) }
+    if (val.length < 1) {
+      // Show all debtors when field is cleared or empty
+      loadAllDebtors()
+      return
+    }
+    const { data } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('customer_type', 'debtor')
+      .neq('is_active', false)
+      .or(`name.ilike.%${val}%,company.ilike.%${val}%,contact_person.ilike.%${val}%,customer_number.ilike.%${val}%`)
+      .order('name')
+      .limit(8)
+    setCustResults(data || [])
+    setShowDrop((data || []).length > 0)
     setSelectedCust(null)
+  }
+
+  const loadAllDebtors = async () => {
+    const { data } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('customer_type', 'debtor')
+      .neq('is_active', false)
+      .order('name')
+      .limit(20)
+    setCustResults(data || [])
+    setShowDrop((data || []).length > 0)
   }
 
   const selectCust = (c: DBCustomer) => {
@@ -275,15 +308,19 @@ export default function SalesInvoice({ onNav }: Props) {
           </div>
           <div style={{ flex: 1 }}>
             <div className="card-title" style={{ marginBottom: 14 }}>Bill To</div>
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative' }} ref={custRef}>
               <FG label="Customer / Company" req>
-                <input className="form-input" placeholder="Type to search existing customer…"
+                <input className="form-input" placeholder="Click to browse or type to search debtors…"
                   value={form.customer} onChange={e => searchCustomer(e.target.value)}
-                  onFocus={() => custResults.length > 0 && setShowDrop(true)} />
+                  onFocus={() => { if (custResults.length > 0) setShowDrop(true); else loadAllDebtors() }} />
               </FG>
-              {showDrop && custResults.length > 0 && (
+              {showDrop && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: 'var(--r)', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,.4)', overflow: 'hidden' }}>
-                  {custResults.map((c, i) => (
+                  {custResults.length === 0 ? (
+                    <div style={{ padding: '14px', fontSize: 12, color: 'var(--text3)', textAlign: 'center' }}>
+                      No debtors found. Add one in the Customers section first.
+                    </div>
+                  ) : custResults.map((c, i) => (
                     <div key={i} onClick={() => selectCust(c)} style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
