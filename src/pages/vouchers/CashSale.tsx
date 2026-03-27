@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import { MalkiaReceipt } from '../ReceiptTemplate'
 import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
@@ -263,8 +263,11 @@ export default function CashSale() {
       let customerId = selectedCust?.id || null
       const custCode = 'CUST-' + (cleaned.slice(-6) || Date.now().toString().slice(-6))
       const { data: custData } = await supabase.from('customers').upsert({
-        code: custCode, name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'B2C',
+        code: custCode, name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
         crown_points: (selectedCust?.crown_points || 0) + crownPoints,
+          last_purchase_date: postingDate,
+          last_purchase_amount: subtotal,
+          balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
         last_purchase_date: postingDate, last_purchase_amount: subtotal,
         balance: (selectedCust?.balance || 0) + subtotal,
       }, { onConflict: 'whatsapp' }).select('id').single()
@@ -289,7 +292,7 @@ export default function CashSale() {
         ref: 'JV-' + ref, posting_date: postingDate,
         description: `Cash Sale — ${newCustName} — ${ref}`,
         journal_type: 'cash_sale', source_type: 'cash_sale', source_ref: ref,
-        posted_by: 'Joe Gembe', status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       }).select('id').single()
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
@@ -360,7 +363,7 @@ export default function CashSale() {
           currentMethod.id === 'pos' ? 'POS Card payment' : '',
           paymentRef ? `Ref: ${paymentRef}` : ''
         ].filter(Boolean).join(' · ') || null,
-        posted_by: 'Joe Gembe',
+        posted_by: getPostedBy(),
       }).select('id').single()
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
@@ -393,7 +396,7 @@ export default function CashSale() {
           ref, posting_date: postingDate,
           description: `Cash Sale — ${newCustName}`,
           total_amount: total, vat_amount: vat, subtotal: netRevenue,
-          payment_method: currentMethod.label, notes: '', posted_by: 'Joe Gembe',
+          payment_method: currentMethod.label, notes: '', posted_by: getPostedBy(),
           customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp, pregnancy_stage: selectedCust.pregnancy_stage, crown_points: (selectedCust.crown_points || 0) + crownPoints } : { name: newCustName, whatsapp: waInput, pregnancy_stage: '', crown_points: crownPoints },
           voucher_lines: lines.filter(l => l.productId).map(l => {
             const prod = dbProducts.find(p => p.id === l.productId)
