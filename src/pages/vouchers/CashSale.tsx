@@ -5,6 +5,7 @@ import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
 import { today, tzs, getPostedBy } from '../../lib/utils'
 import { MalkiaReceipt } from '../ReceiptTemplate'
+import type { ReceiptSettings } from '../ReceiptTemplate'
 import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
 
@@ -81,7 +82,7 @@ export default function CashSale() {
   const [sending, setSending] = useState(false)
   const [waSent, setWaSent] = useState(false)
   const [lastVoucher, setLastVoucher] = useState<any>(null)
-  const [receiptSettings, setReceiptSettings] = useState<any>(null)
+  const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null)
 
   useEffect(() => {
     loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings(); loadWAConfig().then(setWaConfig)
@@ -902,10 +903,18 @@ export default function CashSale() {
                 address: 'Dar es Salaam, Tanzania', phone: '+255 700 000 000',
                 email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
                 tin: '—', vrn: '—', primary_color: '#85c2be', accent_color: '#f7a6ad',
+                logo_url: '', logo_width: 60, logo_x: 0, logo_y: 0, show_logo: true,
+                label_receipt: 'Receipt', label_billed_to: 'Billed To',
+                label_items: 'Items Purchased', label_total_paid: 'Total Paid',
+                label_crown_points: 'Crown Points', label_midwife_tip: 'Midwife Tip',
+                label_konnect: 'Join Malkia Konnect', label_cashier: 'Served by',
                 konnect_url: 'https://www.malkia.co.tz/join', konnect_enabled: true,
+                konnect_cta_text: 'Join Konnect →',
+                konnect_sub_text: 'Weekly guidance · Expert Q&A · Birth prep · Postpartum support',
+                konnect_utm_tracking: true,
                 community_url: '', community_enabled: false, community_name: 'Mama Community', community_qr_enabled: false,
                 show_crown_points: true, show_vat_breakdown: true, show_cashier: true,
-                show_care_tip: true, show_stage_message: true, konnect_utm_tracking: true,
+                show_care_tip: true, show_stage_message: true,
                 footer_message: 'Share your Malkia moment — tag us on Instagram',
                 msg_pregnant: 'You are doing something extraordinary. Every choice you make matters, Mama.',
                 msg_postpartum: 'The hardest work is invisible. We see you, and we are with you.',
