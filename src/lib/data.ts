@@ -81,5 +81,5 @@ export const BREADCRUMBS: Record<string, string> = {
   'ar-aging':'AR Aging', 'ap-aging':'AP Aging', 'vat-report':'VAT Report',
   'stock-valuation':'Stock Valuation', 'purchase-register':'Purchase Register',
   'payment-register':'Payment Register', 'stock-transfer-register':'Stock Transfer Register', 'customers':'Customers', 'receipt-template':'Receipt Template', 'invoice-template':'Invoice Template', 'whatsapp-settings':'WhatsApp', 'location-settings':'Location Management', 'inventory-settings':'Inventory Settings', 'pricelist-template':'Price List',
-  'settings':'Settings', 'coming-soon':'Coming Soon',
+  'settings':'Settings', 'data-import':'Data Import Studio', 'coming-soon':'Coming Soon',
 }
