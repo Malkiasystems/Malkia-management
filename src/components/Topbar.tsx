@@ -27,7 +27,7 @@ const TYPE_LABEL: Record<string, string> = {
   voucher: 'TXN', product: 'ITEM', customer: 'CUST', account: 'ACCT'
 }
 
-export default function Topbar({ breadcrumb, onNav, currentPage }: TopbarProps) {
+export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBack }: TopbarProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
