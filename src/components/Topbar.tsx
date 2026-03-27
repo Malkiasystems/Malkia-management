@@ -30,7 +30,7 @@ const LABELS: Record<string, string> = {
   voucher: 'TXN', product: 'ITEM', customer: 'CUST', account: 'ACCT', report: 'PAGE',
 }
 
-const PAGES: { name: string; page: Page; desc: string }[] = [
+const PAGES: { name: string; page: string; desc: string }[] = [
   { name: 'Sales Day Book', page: 'sales-day-book', desc: 'Daily sales summary' },
   { name: 'Sales Register', page: 'sales-register', desc: 'All sales transactions' },
   { name: 'Purchase Register', page: 'purchase-register', desc: 'All purchase transactions' },
@@ -90,7 +90,7 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
     // Static pages
     PAGES.forEach(p => {
       if (p.name.toLowerCase().includes(ql) || p.desc.toLowerCase().includes(ql))
-        all.push({ type: 'report', label: p.name, sub: p.desc, page: p.page })
+        all.push({ type: 'report', label: p.name, sub: p.desc, page: p.page as Page })
     })
 
     supabase.from('vouchers')
@@ -104,7 +104,7 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
           page: 'vouchers' as Page, amount: v.total_amount || undefined,
         }))
         fin()
-      }).catch(() => fin())
+      }, () => fin())
 
     supabase.from('products')
       .select('name, sku, qty_on_hand, selling_price')
@@ -117,7 +117,7 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
           page: 'inventory' as Page,
         }))
         fin()
-      }).catch(() => fin())
+      }, () => fin())
 
     supabase.from('customers')
       .select('name, company, contact_person, customer_number, customer_type, whatsapp, balance')
@@ -133,7 +133,7 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
           })
         })
         fin()
-      }).catch(() => fin())
+      }, () => fin())
 
     supabase.from('accounts')
       .select('code, name, type, balance')
@@ -149,7 +149,7 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
           })
         })
         fin()
-      }).catch(() => fin())
+      }, () => fin())
   }
 
   const pick = (r: Result) => { onNav(r.page); setOpen(false); setQuery('') }
