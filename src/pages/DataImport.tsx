@@ -87,7 +87,7 @@ const AUTO_MAP_HINTS: Record<string, string> = {
   'sales rate': 'selling_price', 'selling price': 'selling_price', 'price': 'selling_price', 'rate': 'selling_price',
   'mrp': 'selling_price', 'list price': 'selling_price', 'standard selling price': 'selling_price',
   'quantity': 'qty_on_hand', 'qty': 'qty_on_hand', 'stock': 'qty_on_hand', 'closing stock': 'qty_on_hand',
-  'opening qty': 'qty_on_hand', 'opening quantity': 'qty_on_hand', 'opening balance': 'qty_on_hand',
+  'opening qty': 'qty_on_hand', 'opening quantity': 'qty_on_hand', 'opening stock': 'qty_on_hand',
   'stock in hand': 'qty_on_hand', 'current stock': 'qty_on_hand', 'balance qty': 'qty_on_hand',
   'group': 'category', 'category': 'category', 'item group': 'category', 'parent': 'category',
   'stock group': 'category', 'product group': 'category', 'classification': 'category',
@@ -100,7 +100,7 @@ const AUTO_MAP_HINTS: Record<string, string> = {
   // Opening balances
   'debit': 'debit', 'dr': 'debit', 'debit amount': 'debit',
   'credit': 'credit', 'cr': 'credit', 'credit amount': 'credit',
-  'narration': 'description', 'particulars': 'description', 'remarks': 'description',
+  'narration': 'description', 'remarks': 'description',
   'date': 'date', 'as at': 'date',
 }
 
