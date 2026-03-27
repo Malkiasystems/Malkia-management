@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
-import { tzs, today } from '../lib/utils'
+import { tzs } from '../lib/utils'
 
 interface Customer {
   id: string; customer_number: string; name: string; company: string
@@ -146,7 +146,6 @@ export default function Customers() {
   // Stats
   const totalBalance = customers.reduce((s, c) => s + (c.balance || 0), 0)
   const totalCredit = customers.reduce((s, c) => s + (c.credit_limit || 0), 0)
-  const overdue = customers.filter(c => (c.balance || 0) > 0 && c.credit_period > 0).length
 
   const filtered = customers.filter(c => {
     if (segFilter !== 'all' && c.segment !== segFilter.toLowerCase()) return false
