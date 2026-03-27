@@ -111,10 +111,10 @@ export default function SalesInvoice({ onNav }: Props) {
       if (!customerId && form.customer.trim()) {
         const cleaned = form.wa.replace(/[\s+\-()]/g, '')
         const custPayload = {
-          code: 'CUST-' + Date.now().toString().slice(-6),
           name: form.customer.trim(),
           whatsapp: cleaned || null,
           customer_type: 'debtor',
+          segment: 'corporate',
           balance: (selectedCust?.balance || 0) + subtotal,
           last_purchase_date: form.date,
           last_purchase_amount: subtotal,
