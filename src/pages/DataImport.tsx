@@ -38,12 +38,11 @@ const ENTITY_FIELDS: Record<ImportEntity, FieldDef[]> = {
     { key: 'address',        label: 'Address',              required: false, type: 'string', example: 'Dar es Salaam' },
   ],
   products: [
-    { key: 'sku',            label: 'SKU / Item Code',      required: true,  type: 'string', example: 'BPM-001' },
-    { key: 'name',           label: 'Product Name',         required: true,  type: 'string', example: 'Spectra S1 Breast Pump' },
-    { key: 'category',       label: 'Category',             required: false, type: 'string', hint: 'Feeding / Maternity / Postpartum / Newborn', example: 'Feeding' },
+    { key: 'sku',            label: 'SKU / Item Code',      required: false, type: 'string', example: 'BPM-001', hint: 'Auto-generated from name if blank' },
+    { key: 'name',           label: 'Product Name',         required: true,  type: 'string', example: 'Spectra S1 Breast Pump' },    { key: 'category',       label: 'Category',             required: false, type: 'string', hint: 'Feeding / Maternity / Postpartum / Newborn', example: 'Feeding' },
     { key: 'unit',           label: 'Unit of Measure',      required: false, type: 'string', hint: 'Piece / Box / Set', example: 'Piece' },
-    { key: 'cost_price',     label: 'Cost Price (TZS)',     required: true,  type: 'number', example: '180000' },
-    { key: 'selling_price',  label: 'Selling Price (TZS)',  required: true,  type: 'number', example: '250000' },
+    { key: 'cost_price',     label: 'Cost Price (TZS)',     required: false, type: 'number', example: '180000', hint: 'Defaults to 0 if blank' },
+    { key: 'selling_price',  label: 'Selling Price (TZS)',  required: false, type: 'number', example: '250000', hint: 'Defaults to 0 if blank' },
     { key: 'qty_on_hand',    label: 'Qty in Stock',         required: false, type: 'number', example: '24' },
     { key: 'reorder_point',  label: 'Reorder Point',        required: false, type: 'number', example: '5' },
   ],
@@ -79,12 +78,19 @@ const AUTO_MAP_HINTS: Record<string, string> = {
   'address': 'address', 'city': 'address',
   // Products
   'item name': 'name', 'stock item': 'name', 'product name': 'name', 'description': 'name',
+  'name of item': 'name', 'particulars': 'name',
   'item code': 'sku', 'sku': 'sku', 'code': 'sku', 'part no': 'sku', 'part number': 'sku',
-  'unit': 'unit', 'uom': 'unit', 'unit of measure': 'unit',
+  'alias': 'sku', 'short name': 'sku',
+  'unit': 'unit', 'uom': 'unit', 'unit of measure': 'unit', 'base unit': 'unit', 'baseunits': 'unit',
   'purchase rate': 'cost_price', 'cost': 'cost_price', 'cost price': 'cost_price', 'buying price': 'cost_price',
+  'purchase price': 'cost_price', 'standard cost': 'cost_price', 'last purchase cost': 'cost_price',
   'sales rate': 'selling_price', 'selling price': 'selling_price', 'price': 'selling_price', 'rate': 'selling_price',
+  'mrp': 'selling_price', 'list price': 'selling_price', 'standard selling price': 'selling_price',
   'quantity': 'qty_on_hand', 'qty': 'qty_on_hand', 'stock': 'qty_on_hand', 'closing stock': 'qty_on_hand',
-  'group': 'category', 'category': 'category', 'item group': 'category',
+  'opening qty': 'qty_on_hand', 'opening quantity': 'qty_on_hand', 'opening balance': 'qty_on_hand',
+  'stock in hand': 'qty_on_hand', 'current stock': 'qty_on_hand', 'balance qty': 'qty_on_hand',
+  'group': 'category', 'category': 'category', 'item group': 'category', 'parent': 'category',
+  'stock group': 'category', 'product group': 'category', 'classification': 'category',
   // Accounts
   'account code': 'code', 'ledger code': 'code', 'gl code': 'code', 'account no': 'code',
   'account name': 'name', 'ledger': 'name',
@@ -248,8 +254,20 @@ async function writeProducts(rows: MappedRow[]): Promise<{ ok: number; failed: n
   let ok = 0; let failed = 0; const errors: string[] = []
   for (const row of rows) {
     const payload: Record<string, unknown> = { ...coerceRow(row, 'products'), is_active: true }
+    // Auto-generate SKU from name if not provided (common with Tally exports)
+    if (!payload['sku'] && payload['name']) {
+      const base = (payload['name'] as string)
+        .toUpperCase().replace(/[^A-Z0-9\s]/g, '').trim().split(/\s+/)
+        .map((w: string) => w.slice(0, 3)).join('-').slice(0, 15)
+      const rand = Math.floor(Math.random() * 900 + 100)
+      payload['sku'] = `${base}-${rand}`
+    }
+    if (!payload['sku']) { failed++; errors.push(`Skipped: no name or SKU for row`); continue }
     if (!payload['category']) payload['category'] = 'General'
     if (!payload['unit']) payload['unit'] = 'Piece'
+    if (!payload['cost_price']) payload['cost_price'] = 0
+    if (!payload['selling_price']) payload['selling_price'] = 0
+    if (!payload['qty_on_hand']) payload['qty_on_hand'] = 0
     const { error } = await supabase.from('products').upsert(payload, { onConflict: 'sku' })
     if (error) { failed++; errors.push(error.message) } else ok++
   }
