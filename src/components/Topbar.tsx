@@ -8,7 +8,6 @@ interface TopbarProps {
   currentPage?: Page
   onBack?: () => void
   canGoBack?: boolean
-  onSearch?: () => void
 }
 
 interface SearchResult {
