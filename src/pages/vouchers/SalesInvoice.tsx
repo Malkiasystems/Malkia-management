@@ -12,7 +12,7 @@ import type { WAConfig } from '../../lib/whatsapp'
 
 interface Props { onNav: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
-interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; balance: number }
+interface DBCustomer { id: string; name: string; company: string; contact_person: string; whatsapp: string; crown_points: number; balance: number; credit_limit: number; credit_period: number; payment_terms: string; customer_number: string }
 interface InvLine { productId: string; name: string; qty: number; price: number; amount: number }
 
 export default function SalesInvoice({ onNav }: Props) {
@@ -67,7 +67,17 @@ export default function SalesInvoice({ onNav }: Props) {
   }
 
   const selectCust = (c: DBCustomer) => {
-    setSelectedCust(c); set('customer', c.name); set('wa', c.whatsapp || '')
+    setSelectedCust(c)
+    // Show company name as primary in the field
+    set('customer', c.company || c.name)
+    set('wa', c.whatsapp || '')
+    // Auto-fill payment terms from customer record
+    if (c.payment_terms) set('paymentTerms', c.payment_terms)
+    // Auto-set due date based on credit period
+    if (c.credit_period && c.credit_period > 0) {
+      const due = new Date(); due.setDate(due.getDate() + c.credit_period)
+      set('dueDate', due.toISOString().split('T')[0])
+    }
     setShowDrop(false); setCustResults([])
   }
 
@@ -201,8 +211,8 @@ export default function SalesInvoice({ onNav }: Props) {
         total_amount: subtotal, vat_amount: vat, subtotal: netRevenue,
         posted_by: form.salesperson,
         customers: selectedCust
-          ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp || '', address: '', balance: selectedCust.balance || 0 }
-          : { name: form.customer, whatsapp: form.wa || '', address: '', balance: 0 },
+          ? { name: selectedCust.name, company: selectedCust.company || '', contact_person: selectedCust.contact_person || '', whatsapp: selectedCust.whatsapp || '', address: '', balance: selectedCust.balance || 0 }
+          : { name: form.customer, company: '', contact_person: '', whatsapp: form.wa || '', address: '', balance: 0 },
         voucher_lines: lines.filter(l => l.productId).map(l => ({
           qty: l.qty, unit_price: l.price, total: l.amount,
           description: l.name, products: { name: l.name, sku: '' }
@@ -278,11 +288,12 @@ export default function SalesInvoice({ onNav }: Props) {
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{c.whatsapp}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{c.company || c.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)' }}>{c.contact_person || c.name}{c.customer_number ? ` · ${c.customer_number}` : ''}</div>
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        Balance: {(c.balance || 0).toLocaleString()}
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: (c.balance||0) > 0 ? 'var(--red)' : 'var(--text3)' }}>AR: {(c.balance || 0).toLocaleString()}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text3)' }}>{c.payment_terms || 'COD'} · {c.credit_period ? c.credit_period + 'd' : 'COD'}</div>
                       </div>
                     </div>
                   ))}
@@ -291,11 +302,22 @@ export default function SalesInvoice({ onNav }: Props) {
             </div>
             <FG label="WhatsApp"><input className="form-input" placeholder="+255 7XX XXX XXX" value={form.wa} onChange={e => set('wa', e.target.value)} /></FG>
             {selectedCust && (
-              <div style={{ background: 'var(--surface2)', border: '1px solid var(--green)', borderRadius: 'var(--r)', padding: 10, fontSize: 12 }}>
-                <div style={{ color: 'var(--green)', fontSize: 10, fontFamily: 'var(--mono)', marginBottom: 4 }}>EXISTING CUSTOMER</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text3)' }}>Outstanding AR</span>
-                  <span style={{ fontFamily: 'var(--mono)', color: selectedCust.balance > 0 ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>TZS {(selectedCust.balance || 0).toLocaleString()}</span>
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--accent)', borderRadius: 'var(--r)', padding: '10px 12px', fontSize: 12 }}>
+                <div style={{ color: 'var(--accent)', fontSize: 9, fontFamily: 'var(--mono)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>{selectedCust.customer_number} · Debtor Account</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+                  {[
+                    { label: 'Contact Person', val: selectedCust.contact_person || selectedCust.name },
+                    { label: 'Payment Terms', val: selectedCust.payment_terms || 'COD' },
+                    { label: 'Outstanding AR', val: `TZS ${(selectedCust.balance || 0).toLocaleString()}`, color: (selectedCust.balance||0) > 0 ? 'var(--red)' : 'var(--green)' },
+                    { label: 'Credit Limit', val: selectedCust.credit_limit > 0 ? `TZS ${selectedCust.credit_limit.toLocaleString()}` : 'Unlimited' },
+                    { label: 'Credit Period', val: selectedCust.credit_period > 0 ? `${selectedCust.credit_period} days` : 'COD' },
+                    { label: 'Available Credit', val: selectedCust.credit_limit > 0 ? `TZS ${Math.max(0, selectedCust.credit_limit - (selectedCust.balance||0)).toLocaleString()}` : 'Unlimited', color: 'var(--green)' },
+                  ].map(item => (
+                    <div key={item.label} style={{ padding: '3px 0', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>{item.label}</div>
+                      <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: item.color || 'var(--text)', fontSize: 11 }}>{item.val}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
