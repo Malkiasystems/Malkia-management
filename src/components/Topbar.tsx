@@ -95,12 +95,12 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
 
     supabase.from('vouchers')
       .select('ref, type, description, total_amount, posting_date')
-      .or(\`ref.ilike.%\${q}%,description.ilike.%\${q}%,type.ilike.%\${q}%\`)
+      .or(`ref.ilike.%${q}%,description.ilike.%${q}%,type.ilike.%${q}%`)
       .order('posting_date', { ascending: false }).limit(6)
       .then(({ data }) => {
         if (data) data.forEach(v => all.push({
           type: 'voucher', label: v.ref,
-          sub: \`\${v.description || v.type} · \${v.posting_date}\`,
+          sub: `${v.description || v.type} · ${v.posting_date}`,
           page: 'vouchers' as Page, amount: v.total_amount || undefined,
         }))
         fin()
@@ -108,12 +108,12 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
 
     supabase.from('products')
       .select('name, sku, qty_on_hand, selling_price')
-      .or(\`name.ilike.%\${q}%,sku.ilike.%\${q}%\`)
+      .or(`name.ilike.%${q}%,sku.ilike.%${q}%`)
       .eq('is_active', true).limit(5)
       .then(({ data }) => {
         if (data) data.forEach(p => all.push({
           type: 'product', label: p.name,
-          sub: \`\${p.sku || ''} · Stock: \${p.qty_on_hand} · TZS \${(p.selling_price || 0).toLocaleString()}\`,
+          sub: `${p.sku || ''} · Stock: ${p.qty_on_hand} · TZS ${(p.selling_price || 0).toLocaleString()}`,
           page: 'inventory' as Page,
         }))
         fin()
@@ -121,14 +121,14 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
 
     supabase.from('customers')
       .select('name, company, contact_person, customer_number, customer_type, whatsapp, balance')
-      .or(\`name.ilike.%\${q}%,company.ilike.%\${q}%,whatsapp.ilike.%\${q}%,customer_number.ilike.%\${q}%,contact_person.ilike.%\${q}%\`)
+      .or(`name.ilike.%${q}%,company.ilike.%${q}%,whatsapp.ilike.%${q}%,customer_number.ilike.%${q}%,contact_person.ilike.%${q}%`)
       .eq('is_active', true).limit(5)
       .then(({ data }) => {
         if (data) data.forEach(c => {
           const bal: number = c.balance || 0
           all.push({
             type: 'customer', label: c.company || c.name,
-            sub: \`\${c.customer_number || ''} · \${c.customer_type === 'debtor' ? 'Debtor' : 'Cash'}  \${c.whatsapp ? '· ' + c.whatsapp : ''}  \${c.contact_person ? '· ' + c.contact_person : ''}\`.trim(),
+            sub: `${c.customer_number || ''} · ${c.customer_type === 'debtor' ? 'Debtor' : 'Cash'}  ${c.whatsapp ? '· ' + c.whatsapp : ''}  ${c.contact_person ? '· ' + c.contact_person : ''}`.trim(),
             page: 'customers' as Page, amount: bal > 0 ? bal : undefined,
           })
         })
@@ -137,13 +137,13 @@ export default function Topbar({ breadcrumb, onNav, currentPage, onBack, canGoBa
 
     supabase.from('accounts')
       .select('code, name, type, balance')
-      .or(\`name.ilike.%\${q}%,code.ilike.%\${q}%\`)
+      .or(`name.ilike.%${q}%,code.ilike.%${q}%`)
       .eq('is_active', true).limit(5)
       .then(({ data }) => {
         if (data) data.forEach(a => {
           const bal: number = a.balance || 0
           all.push({
-            type: 'account', label: \`\${a.code} — \${a.name}\`,
+            type: 'account', label: `${a.code} — ${a.name}`,
             sub: a.type, page: 'chart-of-accounts' as Page,
             amount: bal > 0 ? bal : undefined,
           })
