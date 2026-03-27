@@ -304,13 +304,6 @@ export function InvoiceTemplateSettings({ settings, onChange }: { settings: Invo
     reader.readAsDataURL(file)
   }
 
-  // Logo drag handlers on preview
-  const startDrag = (e: React.MouseEvent) => {
-    isDragging.current = true
-    dragStart.current = { x: e.clientX, y: e.clientY, ox: settings.logo_x, oy: settings.logo_y }
-    e.preventDefault()
-  }
-
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!isDragging.current) return
