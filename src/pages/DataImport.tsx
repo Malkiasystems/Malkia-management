@@ -229,13 +229,32 @@ function autoMap(columns: string[], entity: ImportEntity, locations: StockLocati
     : ENTITY_FIELDS_STATIC[entity].map(f => f.key)
 
   const result: Record<string, string> = {}
+
+  // Generate multiple normalized variants of a column name to try
+  const variants = (col: string): string[] => {
+    const base = col.toLowerCase().trim()
+    const stripped = base
+      .replace(/\*/g, '')          // remove asterisks
+      .replace(/\(tzs\)/g, '')     // remove (TZS)
+      .replace(/\(%\)/g, '')       // remove (%)
+      .replace(/\(days\)/g, '')    // remove (days)
+      .replace(/\(qty\)/g, '')     // remove (qty)
+      .replace(/\s+/g, ' ')        // collapse spaces
+      .trim()
+    const noParens = base.replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
+    return [...new Set([base, stripped, noParens])]
+  }
+
   columns.forEach(col => {
-    const norm = col.toLowerCase().trim()
-    const mapped = AUTO_MAP_HINTS[norm]
-    if (mapped && fields.includes(mapped) && !Object.values(result).includes(mapped)) {
-      result[col] = mapped; return
+    // Try each variant against hints
+    for (const v of variants(col)) {
+      const mapped = AUTO_MAP_HINTS[v]
+      if (mapped && fields.includes(mapped) && !Object.values(result).includes(mapped)) {
+        result[col] = mapped; return
+      }
     }
     // Dynamic location qty matching
+    const norm = col.toLowerCase().trim()
     const locMatch = norm.match(/qty\s*[-—]\s*(.+?)\s*\((\w+)\)/)
     if (locMatch) {
       const locCode = locMatch[2].toUpperCase()
@@ -244,7 +263,6 @@ function autoMap(columns: string[], entity: ImportEntity, locations: StockLocati
         result[col] = locKey; return
       }
     }
-    // Match by location name in column
     const locByName = locations.find(l => norm.includes(l.name.toLowerCase()))
     if (locByName && norm.includes('qty')) {
       const key = `loc_${locByName.code}`
@@ -1010,4 +1028,3 @@ export default function DataImport() {
     </div>
   )
 }
-
