@@ -687,7 +687,7 @@ export default function CashSale() {
                   {/* Category filter strip */}
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
                     <button onClick={() => setFilterCat('all')} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === 'all' ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === 'all' ? 'var(--accent)' : 'transparent', color: filterCat === 'all' ? '#fff' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>All</button>
-                    {groups.map(g => (
+                    {groups.map((g: string) => (
                       <button key={g} onClick={() => setFilterCat(`group:${g}`)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === `group:${g}` ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === `group:${g}` ? 'var(--accent-dim)' : 'transparent', color: filterCat === `group:${g}` ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>{g}</button>
                     ))}
                   </div>
@@ -695,7 +695,7 @@ export default function CashSale() {
                     const visibleProducts = filterCat === 'all' ? dbProducts
                       : filterCat.startsWith('group:') ? dbProducts.filter(p => {
                           const grp = filterCat.slice(6)
-                          return (catsByGroup[grp] || []).some(c => c.name === p.category)
+                          return (catsByGroup[grp] || []).some((c: {name:string}) => c.name === p.category)
                         })
                       : dbProducts.filter(p => p.category === filterCat)
                     return (
