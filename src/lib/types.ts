@@ -11,7 +11,7 @@ export type Page =
   | 'ar-aging' | 'ap-aging' | 'vat-report' | 'stock-valuation'
   | 'purchase-register' | 'payment-register' | 'stock-transfer-register' | 'customers'
   | 'receipt-template' | 'invoice-template'
-  | 'whatsapp-settings' | 'location-settings'
+  | 'whatsapp-settings' | 'location-settings' | 'accounting-settings'
   | 'inventory-settings' | 'pricelist-template'
   | 'banks' | 'settings' | 'data-import' | 'coming-soon'
   | 'stock-levels' | 'suppliers' | 'stock-movements' | 'stock-transfer-register' | 'customers'
