@@ -10,7 +10,7 @@ import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 
-interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
+interface DBProduct { id: string; sku: string; name: string; category: string; cost_price: number; selling_price: number; qty_on_hand: number }
 interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
 interface SaleLine { productId: string; name: string; qty: number; price: number; amount: number }
 
@@ -56,7 +56,7 @@ export default function CashSale() {
   const [dbProducts, setDbProducts] = useState<DBProduct[]>([])
   const [filterCat, setFilterCat] = useState('all')
   const [lines, setLines] = useState<SaleLine[]>([{ productId: '', name: '', qty: 1, price: 0, amount: 0 }])
-  const { categories, groups, catsByGroup } = useCategories()
+  const { groups, catsByGroup } = useCategories()
 
   // Delivery
   const [showDelivery, setShowDelivery] = useState(false)
@@ -111,7 +111,7 @@ export default function CashSale() {
   }
 
   const loadProducts = async () => {
-    const { data } = await supabase.from('products').select('id, sku, name, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name')
+    const { data } = await supabase.from('products').select('id, sku, name, category, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name')
     if (data) setDbProducts(data)
   }
 
