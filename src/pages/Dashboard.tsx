@@ -36,7 +36,7 @@ export default function Dashboard({ onNav }: Props) {
   const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
   const [catBreakdown, setCatBreakdown] = useState<{name:string;count:number;value:number}[]>([])
   const [loading, setLoading] = useState(true)
-  const { categories, catsByGroup } = useCategories()
+  const { categories } = useCategories()
 
   useEffect(() => { loadDashboard() }, [])
 
