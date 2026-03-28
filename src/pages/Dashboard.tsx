@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { greeting, getStatus } from '../lib/utils'
 import type { Page } from '../lib/types'
+import { useCategories } from '../lib/useCategories'
 
 interface Props { onNav: (p: Page) => void }
 
@@ -33,13 +34,15 @@ export default function Dashboard({ onNav }: Props) {
   const [stats, setStats] = useState<Stats>({ totalRevenue: 0, totalCogs: 0, netProfit: 0, productCount: 0, lowStockCount: 0, pendingVouchers: 0 })
   const [recentVouchers, setRecentVouchers] = useState<RecentVoucher[]>([])
   const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
+  const [catBreakdown, setCatBreakdown] = useState<{name:string;count:number;value:number}[]>([])
   const [loading, setLoading] = useState(true)
+  const { categories, catsByGroup } = useCategories()
 
   useEffect(() => { loadDashboard() }, [])
 
   const loadDashboard = async () => {
     setLoading(true)
-    await Promise.all([loadStats(), loadRecentVouchers(), loadLowStock()])
+    await Promise.all([loadStats(), loadRecentVouchers(), loadLowStock(), loadCategoryBreakdown()])
     setLoading(false)
   }
 
@@ -82,6 +85,25 @@ export default function Dashboard({ onNav }: Props) {
       .order('qty_on_hand')
       .limit(5)
     if (data) setLowStock(data.filter(p => getStatus(p.qty_on_hand, p.reorder_point) !== 'ok'))
+  }
+
+  const loadCategoryBreakdown = async () => {
+    const { data } = await supabase
+      .from('products')
+      .select('category, qty_on_hand, cost_price')
+      .eq('is_active', true)
+    if (!data) return
+    const map: Record<string, {count:number;value:number}> = {}
+    data.forEach(p => {
+      const cat = p.category || 'Uncategorised'
+      if (!map[cat]) map[cat] = { count: 0, value: 0 }
+      map[cat].count++
+      map[cat].value += (p.qty_on_hand || 0) * (p.cost_price || 0)
+    })
+    const sorted = Object.entries(map)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.value - a.value)
+    setCatBreakdown(sorted)
   }
 
   const fmt = (n: number) => n >= 1000000 ? (n / 1000000).toFixed(2) + 'M' : n >= 1000 ? (n / 1000).toFixed(0) + 'K' : n.toLocaleString()
@@ -189,6 +211,41 @@ export default function Dashboard({ onNav }: Props) {
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: `var(--${s === 'critical' ? 'red' : 'yellow'}-dim)`, border: `1px solid rgba(${s === 'critical' ? '255,71,87' : '255,211,42'},.2)`, borderRadius: 8, marginBottom: 6 }}>
                     <span style={{ flex: 1, fontSize: 12, color: 'var(--text2)' }}>{p.name}</span>
                     <span className={`pill pill-${s === 'critical' ? 'red' : 'yellow'}`} style={{ fontSize: 10 }}>{p.qty_on_hand} left · {s.toUpperCase()}</span>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          {/* Category Breakdown */}
+          <div className="card card-sm">
+            <div className="card-header" style={{ marginBottom: 10 }}>
+              <div className="card-title">Stock by Category</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => onNav('stock-valuation')}>Full report</button>
+            </div>
+            {loading ? (
+              <div style={{ color: 'var(--text3)', fontSize: 12 }}>Loading…</div>
+            ) : catBreakdown.length === 0 ? (
+              <div style={{ color: 'var(--text3)', fontSize: 12 }}>No products yet</div>
+            ) : (
+              catBreakdown.slice(0, 6).map((cat, i) => {
+                const catMeta = categories.find(c => c.name === cat.name)
+                const color = catMeta?.color || '#85c2be'
+                const maxVal = catBreakdown[0]?.value || 1
+                return (
+                  <div key={i} style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                      <span style={{ color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                        {cat.name}
+                      </span>
+                      <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', fontSize: 10 }}>
+                        {cat.count} SKU · {(cat.value / 1000).toFixed(0)}K
+                      </span>
+                    </div>
+                    <div style={{ height: 4, background: 'var(--surface2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.round((cat.value / maxVal) * 100)}%`, background: color, borderRadius: 2, transition: 'width .4s' }} />
+                    </div>
                   </div>
                 )
               })
