@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { useCategories } from '../lib/useCategories'
+import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
 interface Sale {
   id: string
@@ -40,9 +42,10 @@ export default function SalesDayBook() {
   const [searchRef, setSearchRef] = useState('')
   const [searchCustomer, setSearchCustomer] = useState('')
   const [searchProduct, setSearchProduct] = useState('')
-  const [searchCategory, setSearchCategory] = useState('')
+  const [filterCat, setFilterCat] = useState('all')
   const [searchPayment, setSearchPayment] = useState('')
   const [searchSalesperson, setSearchSalesperson] = useState('')
+  const { categories } = useCategories()
   const [showFilters, setShowFilters] = useState(false)
 
   useEffect(() => { loadSales() }, [])
@@ -88,7 +91,8 @@ export default function SalesDayBook() {
     if (searchRef && !s.ref.toLowerCase().includes(searchRef.toLowerCase())) return false
     if (searchCustomer && !custName.includes(searchCustomer.toLowerCase()) && !custWa.includes(searchCustomer)) return false
     if (searchProduct && !products.includes(searchProduct.toLowerCase())) return false
-    if (searchCategory && !categories.includes(searchCategory.toLowerCase())) return false
+    const catPredicate = makeCategoryPredicate(filterCat, categories)
+    if (filterCat !== 'all' && !(s.voucher_lines || []).some((l: any) => l.products && catPredicate(l.products.category))) return false
     if (searchPayment && !payment.includes(searchPayment.toLowerCase())) return false
     if (searchSalesperson && !salesperson.includes(searchSalesperson.toLowerCase())) return false
     return true
@@ -113,11 +117,12 @@ export default function SalesDayBook() {
 
   const clearFilters = () => {
     setSearchRef(''); setSearchCustomer(''); setSearchProduct('')
-    setSearchCategory(''); setSearchPayment(''); setSearchSalesperson('')
+    setFilterCat('all'); setSearchPayment(''); setSearchSalesperson('')
     setVoucherType('all'); setStatusFilter('all')
   }
 
-  const activeFilters = [searchRef, searchCustomer, searchProduct, searchCategory, searchPayment, searchSalesperson].filter(Boolean).length +
+  const activeFilters = [searchRef, searchCustomer, searchProduct, searchPayment, searchSalesperson].filter(Boolean).length +
+    (filterCat !== 'all' ? 1 : 0) +
     (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
 
   return (
@@ -190,7 +195,7 @@ export default function SalesDayBook() {
             </div>
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Category / Group</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. Feeding, Postpartum" value={searchCategory} onChange={e => setSearchCategory(e.target.value)} />
+              <CategoryFilter value={filterCat} onChange={setFilterCat} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Payment Method</div>
