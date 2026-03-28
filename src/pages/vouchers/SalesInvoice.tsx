@@ -19,7 +19,7 @@ interface DBCustomer {
 }
 
 interface DBProduct {
-  id: string; sku: string; name: string
+  id: string; sku: string; name: string; category: string
   cost_price: number; selling_price: number; qty_on_hand: number
 }
 
