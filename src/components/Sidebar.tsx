@@ -29,7 +29,7 @@ const NAV = [
   { sep: true },
   { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
   { icon: 'konnect',   label: 'Konnect',   page: 'coming-soon' as Page, coming: true },
-  { icon: 'crm',       label: 'CRM',       page: 'coming-soon' as Page, coming: true },
+  { icon: 'crm',       label: 'CRM',       page: 'crm' as Page },
   { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
   { sep: true },
   { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
