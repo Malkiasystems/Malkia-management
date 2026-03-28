@@ -3,6 +3,9 @@ import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { getStatus, tzs } from '../lib/utils'
+import { useCategories } from '../lib/useCategories'
+import CategoryFilter from '../components/CategoryFilter'
+import { makeCategoryPredicate } from '../components/CategoryFilter'
 
 interface DBProduct {
   id: string; sku: string; name: string; category: string
@@ -19,9 +22,8 @@ interface ItemLedgerEntry {
   debit_account?: string; credit_account?: string
 }
 
-const CATEGORIES = ['Feeding', 'Postpartum', 'Comfort', 'Supplements', 'Skincare', 'Other']
 const UNITS = ['Piece', 'Pack', 'Bottle', 'Tube', 'Box', 'Set']
-const EMPTY_FORM = { sku: '', name: '', category: 'Feeding', unit: 'Piece', cost_price: '', selling_price: '', qty_on_hand: '0', reorder_point: '10' }
+const EMPTY_FORM = { sku: '', name: '', category: '', unit: 'Piece', cost_price: '', selling_price: '', qty_on_hand: '0', reorder_point: '10' }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -58,6 +60,7 @@ export default function Inventory() {
   const [filterLoc, setFilterLoc] = useState('all')
   const [sortBy, setSortBy] = useState<'name'|'qty'|'value'|'margin'>('name')
   const [loading, setLoading] = useState(true)
+  const { categories, catNames } = useCategories()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
 
@@ -174,7 +177,7 @@ export default function Inventory() {
   const filtered = products
     .filter(p => {
       const s = getStatus(p.qty_on_hand, p.reorder_point)
-      if (filterCat !== 'all' && p.category !== filterCat) return false
+      if (filterCat !== 'all' && !makeCategoryPredicate(filterCat, categories)(p.category)) return false
       if (filterStatus === 'out' && p.qty_on_hand > 0) return false
       if (filterStatus === 'low' && (p.qty_on_hand === 0 || s === 'ok')) return false
       if (filterStatus === 'ok' && s !== 'ok') return false
@@ -234,7 +237,8 @@ export default function Inventory() {
             <FG label="Product Name" req><input className="form-input" placeholder="e.g. Maternity Support Belt" value={form.name} onChange={e => setF('name', e.target.value)} /></FG>
             <FG label="Category" req>
               <select className="form-input" value={form.category} onChange={e => setF('category', e.target.value)}>
-                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                <option value="">-- Select category --</option>
+                {catNames.map(c => <option key={c}>{c}</option>)}
               </select>
             </FG>
             <div className="form-row">
@@ -434,10 +438,7 @@ export default function Inventory() {
           <input className="form-input" style={{ width: '100%', padding: '7px 10px 7px 30px', fontSize: 12 }} placeholder="Search SKU or name…" value={search} onChange={e => setSearch(e.target.value)} />
           <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)' }}><Ic n="filter" s={12} c="var(--text3)" /></span>
         </div>
-        <select className="form-input" style={{ fontSize: 12, padding: '7px 10px', width: 140 }} value={filterCat} onChange={e => setFilterCat(e.target.value)}>
-          <option value="all">All Categories</option>
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ width: 180 }} />
         <select className="form-input" style={{ fontSize: 12, padding: '7px 10px', width: 140 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           <option value="all">All Status</option>
           <option value="ok">In Stock</option>
