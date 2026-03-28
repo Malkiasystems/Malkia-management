@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { useCategories } from '../lib/useCategories'
+import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
 interface StockItem { id: string; sku: string; name: string; category: string; unit: string; qty_on_hand: number; cost_price: number; selling_price: number; value: number; potential_revenue: number; margin: number }
 
@@ -18,6 +20,7 @@ export default function StockValuationReport() {
   const [showExport, setShowExport] = useState(false)
   const [filterCat, setFilterCat] = useState('all')
   const [asAt] = useState(new Date().toISOString().split('T')[0])
+  const { categories } = useCategories()
 
   useEffect(() => { load() }, [])
 
@@ -35,8 +38,8 @@ export default function StockValuationReport() {
     setLoading(false)
   }
 
-  const categories = ['all', ...new Set(items.map(i => i.category))]
-  const filtered = filterCat === 'all' ? items : items.filter(i => i.category === filterCat)
+  const catPredicate = makeCategoryPredicate(filterCat, categories)
+  const filtered = filterCat === 'all' ? items : items.filter(i => catPredicate(i.category))
   const totalValue = filtered.reduce((s, i) => s + i.value, 0)
   const totalRevPotential = filtered.reduce((s, i) => s + i.potential_revenue, 0)
   const totalPotentialGP = totalRevPotential - totalValue
@@ -60,9 +63,7 @@ export default function StockValuationReport() {
           <div className="page-sub">Current inventory at cost · {filtered.length} products · <span className="sync-dot"></span> Live</div>
         </div>
         <div className="page-actions">
-          <select className="form-input" style={{ fontSize:12,padding:'6px 10px' }} value={filterCat} onChange={e => setFilterCat(e.target.value)}>
-            {categories.map(c => <option key={c} value={c}>{c === 'all' ? 'All Categories' : c}</option>)}
-          </select>
+          <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ fontSize: 12, padding: '6px 10px' }} />
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
           <div style={{ position:'relative' }}>
             <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => setShowExport(!showExport)}><Ic n="pdf" /> Export</button>
