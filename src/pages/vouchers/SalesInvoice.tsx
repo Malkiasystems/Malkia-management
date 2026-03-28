@@ -8,6 +8,7 @@ import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
 import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
+import { useCategories } from '../../lib/useCategories'
 
 interface Props { onNav: (p: Page) => void }
 
@@ -40,6 +41,8 @@ export default function SalesInvoice({ onNav }: Props) {
   const [sending, setSending] = useState(false)
   const [waSent, setWaSent] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
+  const [filterCat, setFilterCat] = useState('all')
+  const { groups, catsByGroup } = useCategories()
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
   const [showDrop, setShowDrop] = useState(false)
@@ -399,7 +402,16 @@ export default function SalesInvoice({ onNav }: Props) {
 
       {/* ── LINE ITEMS ───────────────────────────────────────────────────── */}
       <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-title" style={{ marginBottom: 12 }}>Invoice Lines</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div className="card-title" style={{ margin: 0 }}>Invoice Lines</div>
+          {/* Category filter strip */}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <button onClick={() => setFilterCat('all')} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === 'all' ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === 'all' ? 'var(--accent)' : 'transparent', color: filterCat === 'all' ? '#fff' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>All</button>
+            {groups.map(g => (
+              <button key={g} onClick={() => setFilterCat(`group:${g}`)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === `group:${g}` ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === `group:${g}` ? 'var(--accent-dim)' : 'transparent', color: filterCat === `group:${g}` ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>{g}</button>
+            ))}
+          </div>
+        </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -410,13 +422,20 @@ export default function SalesInvoice({ onNav }: Props) {
               </tr>
             </thead>
             <tbody>
-              {lines.map((line, i) => (
+              {lines.map((line, i) => {
+                const visibleProducts = filterCat === 'all' ? products
+                  : filterCat.startsWith('group:') ? products.filter(p => {
+                      const grp = filterCat.slice(6)
+                      return (catsByGroup[grp] || []).some(c => c.name === p.category)
+                    })
+                  : products.filter(p => p.category === filterCat)
+                return (
                 <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '6px 4px', minWidth: 200 }}>
                     <select className="form-input" style={{ fontSize: 12 }} value={line.productId}
                       onChange={e => updateLine(i, 'productId', e.target.value)}>
                       <option value="">— Select product —</option>
-                      {products.map(p => <option key={p.id} value={p.id}>{p.name} · {p.sku} · Stock: {p.qty_on_hand}</option>)}
+                      {visibleProducts.map(p => <option key={p.id} value={p.id}>{p.name} · {p.sku} · Stock: {p.qty_on_hand}</option>)}
                     </select>
                   </td>
                   <td style={{ padding: '6px 4px', width: 70 }}>
@@ -441,7 +460,8 @@ export default function SalesInvoice({ onNav }: Props) {
                     )}
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
