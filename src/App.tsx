@@ -27,6 +27,7 @@ import WhatsAppSettings from './pages/WhatsAppSettings'
 import LocationSettings from './pages/LocationSettings'
 import InventorySettings from './pages/InventorySettings'
 import AccountingSettings from './pages/AccountingSettings'
+import Migration2026 from './pages/Migration2026'
 // import PricelistTemplate from './pages/PricelistTemplate'
 import StockTransferRegister from './pages/StockTransferRegister'
 import Customers from './pages/Customers'
@@ -94,6 +95,7 @@ export default function App() {
       case 'location-settings':  return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
+      case 'migration-2026':    return <Migration2026 />
       case 'pricelist-template':  return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon — upload PricelistTemplate.tsx to GitHub</div></div>
       case 'banks':            return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
