@@ -48,7 +48,17 @@ export interface Supplier {
   balance: number
 }
 
+// Simple customer type for WhatsApp lookup (used in data.ts)
 export interface Customer {
+  name: string
+  stage: string
+  last: string
+  ai: string
+  points: number
+}
+
+// Full customer type for database (used in Customers.tsx, CRM)
+export interface CustomerRecord {
   id: string
   customer_number: string
   name: string
