@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { useCategories } from '../lib/useCategories'
+import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
 interface TransferRecord {
   ref: string; posting_date: string; description: string
   total_amount: number; status: string; notes: string
   from_location: string; to_location: string
+  categories: string[]
 }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
@@ -32,7 +35,9 @@ export default function StockTransferRegister() {
   const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
   const [locFilter, setLocFilter] = useState('all')
+  const [filterCat, setFilterCat] = useState('all')
   const [locations, setLocations] = useState<{code:string;name:string}[]>([])
+  const { categories } = useCategories()
 
   useEffect(() => {
     load()
@@ -45,7 +50,7 @@ export default function StockTransferRegister() {
     const t = to || toDate
     setLoading(true)
     const { data } = await supabase.from('vouchers')
-      .select('ref, posting_date, description, total_amount, status, notes')
+      .select('ref, posted_by, posting_date, description, total_amount, status, notes, voucher_lines(products(category))')
       .eq('type', 'stock_transfer')
       .gte('posting_date', f)
       .lte('posting_date', t)
@@ -53,15 +58,22 @@ export default function StockTransferRegister() {
     if (data) {
       setRecords(data.map((v: any) => {
         const locs = parseLocations(v.notes || '')
-        return { ...v, from_location: locs.from, to_location: locs.to }
+        return {
+          ...v,
+          from_location: locs.from,
+          to_location: locs.to,
+          categories: [...new Set((v.voucher_lines || []).map((l: any) => l.products?.category).filter(Boolean))],
+        }
       }))
     }
     setLoading(false)
   }
 
-  const filtered = locFilter === 'all'
+  const catPredicate = makeCategoryPredicate(filterCat, categories)
+  const byLoc = locFilter === 'all'
     ? records
     : records.filter(r => r.from_location.includes(locFilter) || r.to_location.includes(locFilter))
+  const filtered = filterCat === 'all' ? byLoc : byLoc.filter(r => r.categories.some(c => catPredicate(c)))
 
   const totalValue = filtered.reduce((s, r) => s + (r.total_amount || 0), 0)
   const uniqueFroms = [...new Set(records.map(r => r.from_location))]
@@ -108,6 +120,7 @@ export default function StockTransferRegister() {
             <option value="all">All Locations</option>
             {locations.map(l => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
           </select>
+          <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ fontSize:12, padding:'6px 10px' }} />
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => load()}><Ic n="refresh" /> Refresh</button>
           <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={exportCSV}><Ic n="csv" /> CSV</button>
         </div>
@@ -180,7 +193,8 @@ export default function StockTransferRegister() {
                       </td>
                       <td style={{ fontSize:11,color:'var(--text3)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{r.description}</td>
                       <td className="td-right td-mono" style={{ fontSize:12,fontWeight:600,color:'var(--accent)' }}>{(r.total_amount||0).toLocaleString()}</td>
-                      <td><span className={`pill ${r.status==='posted'?'pill-green':'pill-gray'}`} style={{ fontSize:9 }}>{r.status}</span></td>
+                      <td style={{ fontSize:11,color:'var(--text3)' }}>{r.posted_by||'—'}</td>
+                    <td><span className={`pill ${r.status==='posted'?'pill-green':'pill-gray'}`} style={{ fontSize:9 }}>{r.status}</span></td>
                     </tr>
                   ))}
                 </tbody>
