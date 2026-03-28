@@ -74,7 +74,7 @@ export default function SalesInvoice({ onNav }: Props) {
   }
 
   const loadProducts = () => {
-    supabase.from('products').select('id, sku, name, cost_price, selling_price, qty_on_hand')
+    supabase.from('products').select('id, sku, name, category, cost_price, selling_price, qty_on_hand')
       .eq('is_active', true).order('name').then(({ data }) => { if (data) setProducts(data) })
   }
 
@@ -407,7 +407,7 @@ export default function SalesInvoice({ onNav }: Props) {
           {/* Category filter strip */}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             <button onClick={() => setFilterCat('all')} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === 'all' ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === 'all' ? 'var(--accent)' : 'transparent', color: filterCat === 'all' ? '#fff' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>All</button>
-            {groups.map(g => (
+            {groups.map((g: string) => (
               <button key={g} onClick={() => setFilterCat(`group:${g}`)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === `group:${g}` ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === `group:${g}` ? 'var(--accent-dim)' : 'transparent', color: filterCat === `group:${g}` ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>{g}</button>
             ))}
           </div>
@@ -426,7 +426,7 @@ export default function SalesInvoice({ onNav }: Props) {
                 const visibleProducts = filterCat === 'all' ? products
                   : filterCat.startsWith('group:') ? products.filter(p => {
                       const grp = filterCat.slice(6)
-                      return (catsByGroup[grp] || []).some(c => c.name === p.category)
+                      return (catsByGroup[grp] || []).some((c: {name:string}) => c.name === p.category)
                     })
                   : products.filter(p => p.category === filterCat)
                 return (
