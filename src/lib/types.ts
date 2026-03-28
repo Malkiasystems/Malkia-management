@@ -17,9 +17,9 @@ export type Page =
   | 'stock-levels' | 'suppliers' | 'stock-movements'
   | 'migration-2026'
   // CRM Pages
-  | 'crm' | 'crm-leads' | 'crm-preorders' | 'crm-feedback'
+  | 'crm' | 'crm-inbox' | 'crm-leads' | 'crm-preorders' | 'crm-feedback'
   | 'crm-loyalty' | 'crm-referrals' | 'crm-segments' | 'crm-messages'
-  | 'crm-settings'
+  | 'crm-upsell' | 'crm-automations' | 'crm-settings'
 
 export interface Product {
   id: string
