@@ -2,10 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
-import type { Page } from '../lib/types'
 import { getPostedBy } from '../lib/utils'
-
-interface Props { onNav: (p: Page) => void }
 
 interface FiscalYear {
   id: string
@@ -89,7 +86,6 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   if (n === 'plus')     return <svg {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
   if (n === 'check')    return <svg {...p}><polyline points="20 6 9 17 4 12"/></svg>
   if (n === 'x')        return <svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-  if (n === 'alert')    return <svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
   return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
 }
 
@@ -130,7 +126,6 @@ const Pill = ({ status }: { status: string }) => {
   )
 }
 
-// Generate 12 monthly periods for a fiscal year
 function generateMonthlyPeriods(fiscalYearId: string, startMonth: number, year: number) {
   const periods: any[] = []
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -155,21 +150,19 @@ function generateMonthlyPeriods(fiscalYearId: string, startMonth: number, year: 
   return periods
 }
 
-export default function AccountingSettings({ onNav }: Props) {
+export default function AccountingSettings() {
   const [activeTab, setActiveTab] = useState<'fiscal' | 'golive' | 'rules' | 'log'>('fiscal')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
 
-  // Data
   const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([])
   const [selectedFY, setSelectedFY] = useState<FiscalYear | null>(null)
   const [periods, setPeriods] = useState<AccountingPeriod[]>([])
   const [settings, setSettings] = useState<AcctSettings>(DEFAULT_SETTINGS)
   const [lockLog, setLockLog] = useState<PeriodLockLogEntry[]>([])
 
-  // New FY form
   const [showNewFY, setShowNewFY] = useState(false)
   const [newFYYear, setNewFYYear] = useState(new Date().getFullYear())
 
@@ -181,7 +174,6 @@ export default function AccountingSettings({ onNav }: Props) {
   async function loadData() {
     setLoading(true)
     try {
-      // Load fiscal years
       const { data: fyData } = await supabase
         .from('fiscal_years')
         .select('*')
@@ -193,7 +185,6 @@ export default function AccountingSettings({ onNav }: Props) {
         setSelectedFY(current || null)
       }
 
-      // Load system settings
       const { data: sysData } = await supabase
         .from('system_settings')
         .select('fiscal_year_start_month, go_live_date, opening_balance_status, allow_posting_to_locked, max_backdate_days, require_narration, eod_lock_enabled')
@@ -203,7 +194,6 @@ export default function AccountingSettings({ onNav }: Props) {
         setSettings({ ...DEFAULT_SETTINGS, ...sysData })
       }
 
-      // Load lock log
       await loadLockLog()
     } catch (err) {
       console.error('Error loading accounting settings:', err)
@@ -245,14 +235,12 @@ export default function AccountingSettings({ onNav }: Props) {
 
       const fyName = startMonth === 1 ? `FY ${newFYYear}` : `FY ${newFYYear}/${String(newFYYear + 1).slice(-2)}`
 
-      // Check if exists
       if (fiscalYears.find(fy => fy.name === fyName)) {
         showToast(`Fiscal year ${fyName} already exists`, 'error')
         setSaving(false)
         return
       }
 
-      // Create fiscal year
       const { data: newFY, error: fyError } = await supabase
         .from('fiscal_years')
         .insert({
@@ -268,7 +256,6 @@ export default function AccountingSettings({ onNav }: Props) {
 
       if (fyError) throw fyError
 
-      // Generate 12 periods
       const periodsToInsert = generateMonthlyPeriods(newFY.id, startMonth, newFYYear)
       const { error: periodsError } = await supabase.from('accounting_periods').insert(periodsToInsert)
       if (periodsError) throw periodsError
@@ -313,7 +300,6 @@ export default function AccountingSettings({ onNav }: Props) {
         await supabase.from('accounting_periods').update({ status: 'closed', closed_by: user, closed_at: now }).eq('id', period.id)
       }
 
-      // Log action
       await supabase.from('period_lock_log').insert({
         period_id: period.id,
         action: action === 'lock' ? 'locked' : action === 'unlock' ? 'unlocked' : 'closed',
@@ -386,7 +372,6 @@ export default function AccountingSettings({ onNav }: Props) {
         </div>
       </div>
 
-      {/* Tab Bar */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
         {tabs.map(tab => (
           <button
@@ -406,10 +391,8 @@ export default function AccountingSettings({ onNav }: Props) {
         ))}
       </div>
 
-      {/* Tab: Fiscal Year & Periods */}
       {activeTab === 'fiscal' && (
         <div>
-          {/* FY Selector + Create */}
           <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <FG label="Select Fiscal Year">
               <select
@@ -439,7 +422,6 @@ export default function AccountingSettings({ onNav }: Props) {
             </button>
           </div>
 
-          {/* New FY Form */}
           {showNewFY && (
             <Section icon="calendar" title="Create New Fiscal Year">
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -460,7 +442,6 @@ export default function AccountingSettings({ onNav }: Props) {
             </Section>
           )}
 
-          {/* Periods Table */}
           {selectedFY && (
             <Section icon="calendar" title={`Accounting Periods - ${selectedFY.name}`}>
               <div className="table-wrap">
@@ -523,7 +504,6 @@ export default function AccountingSettings({ onNav }: Props) {
         </div>
       )}
 
-      {/* Tab: Go-Live / Migration */}
       {activeTab === 'golive' && (
         <div className="grid g2" style={{ gap: 16 }}>
           <Section icon="file" title="Go-Live Date">
@@ -561,7 +541,6 @@ export default function AccountingSettings({ onNav }: Props) {
         </div>
       )}
 
-      {/* Tab: Posting Rules */}
       {activeTab === 'rules' && (
         <div style={{ maxWidth: 600 }}>
           <Section icon="settings" title="Posting Rules">
@@ -606,7 +585,6 @@ export default function AccountingSettings({ onNav }: Props) {
         </div>
       )}
 
-      {/* Tab: Lock Log */}
       {activeTab === 'log' && (
         <Section icon="history" title="Period Lock Log">
           <div className="table-wrap">
