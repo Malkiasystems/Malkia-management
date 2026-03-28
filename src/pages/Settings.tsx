@@ -129,7 +129,6 @@ export default function Settings({ onNav }: Props) {
         </button>
       </div>
 
-
       {/* Invoice Template */}
       <div style={{ background: 'linear-gradient(135deg, rgba(26,26,26,.06) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(133,194,190,.2)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -146,7 +145,6 @@ export default function Settings({ onNav }: Props) {
           Edit Template →
         </button>
       </div>
-
 
       {/* WhatsApp Integration */}
       <div style={{ background: 'linear-gradient(135deg, rgba(37,211,102,.08) 0%, rgba(37,211,102,.04) 100%)', border: '1px solid rgba(37,211,102,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -165,8 +163,7 @@ export default function Settings({ onNav }: Props) {
         </button>
       </div>
 
-
-      {/* Accounting Settings - NEW */}
+      {/* Accounting Settings */}
       <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,.08) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(99,102,241,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(99,102,241,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -182,7 +179,6 @@ export default function Settings({ onNav }: Props) {
           Configure →
         </button>
       </div>
-
 
       {/* Inventory Settings */}
       <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
