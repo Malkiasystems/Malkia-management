@@ -8,6 +8,7 @@ import { MalkiaReceipt } from '../ReceiptTemplate'
 import type { ReceiptSettings } from '../ReceiptTemplate'
 import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
+import { useCategories } from '../../lib/useCategories'
 
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; selling_price: number; qty_on_hand: number }
 interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
@@ -53,7 +54,9 @@ export default function CashSale() {
 
   // Products
   const [dbProducts, setDbProducts] = useState<DBProduct[]>([])
+  const [filterCat, setFilterCat] = useState('all')
   const [lines, setLines] = useState<SaleLine[]>([{ productId: '', name: '', qty: 1, price: 0, amount: 0 }])
+  const { categories, groups, catsByGroup } = useCategories()
 
   // Delivery
   const [showDelivery, setShowDelivery] = useState(false)
@@ -680,18 +683,33 @@ export default function CashSale() {
 
                 {/* STEP 3 (was 2) — PRODUCTS */}
                 <div>
-                  <div className="step-header" style={{ marginBottom: 12 }}><div className="step-num">{locations.length > 1 ? '3' : '2'}</div><div className="step-title">PRODUCTS SOLD</div></div>
-                  {lines.map((line, i) => (
+                  <div className="step-header" style={{ marginBottom: 8 }}><div className="step-num">{locations.length > 1 ? '3' : '2'}</div><div className="step-title">PRODUCTS SOLD</div></div>
+                  {/* Category filter strip */}
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <button onClick={() => setFilterCat('all')} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === 'all' ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === 'all' ? 'var(--accent)' : 'transparent', color: filterCat === 'all' ? '#fff' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>All</button>
+                    {groups.map(g => (
+                      <button key={g} onClick={() => setFilterCat(`group:${g}`)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === `group:${g}` ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === `group:${g}` ? 'var(--accent-dim)' : 'transparent', color: filterCat === `group:${g}` ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>{g}</button>
+                    ))}
+                  </div>
+                  {lines.map((line, i) => {
+                    const visibleProducts = filterCat === 'all' ? dbProducts
+                      : filterCat.startsWith('group:') ? dbProducts.filter(p => {
+                          const grp = filterCat.slice(6)
+                          return (catsByGroup[grp] || []).some(c => c.name === p.category)
+                        })
+                      : dbProducts.filter(p => p.category === filterCat)
+                    return (
                     <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 48px 90px auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
                       <select className="form-input" style={{ fontSize: 12 }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
                         <option value="">— Select product —</option>
-                        {dbProducts.map(p => <option key={p.id} value={p.id}>{p.name} · {tzs(p.selling_price)} · Stk:{p.qty_on_hand}</option>)}
+                        {visibleProducts.map(p => <option key={p.id} value={p.id}>{p.name} · {tzs(p.selling_price)} · Stk:{p.qty_on_hand}</option>)}
                       </select>
                       <input type="number" className="form-input" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700 }} min={1} value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
                       <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'right' }} value={line.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)} />
                       {lines.length > 1 ? <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button> : <div />}
                     </div>
-                  ))}
+                    )
+                  })}
                   <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>PRODUCT · QTY · PRICE (editable for custom amounts)</div>
                   <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, amount: 0 }])}>+ Add item</button>
                 </div>
