@@ -371,7 +371,7 @@ export default function CRMHub({ onNav }: Props) {
                 <div style={{ marginTop: 8 }}>No active conversations</div>
               </div>
             ) : (
-              conversations.slice(0, 5).map((convo, i) => (
+              conversations.slice(0, 5).map((convo) => (
                 <div 
                   key={convo.id} 
                   style={{ ...s.convoItem, background: selectedConvo === convo.id ? 'var(--surface2)' : 'transparent' }}
@@ -500,7 +500,7 @@ export default function CRMHub({ onNav }: Props) {
                 No feedback yet
               </div>
             ) : (
-              recentFeedback.slice(0, 4).map((fb, i) => (
+              recentFeedback.slice(0, 4).map((fb) => (
                 <div key={fb.id} style={s.feedbackItem}>
                   <div style={{ ...s.feedbackIcon, background: fb.type === 'review' ? 'rgba(251, 191, 36, 0.1)' : fb.type === 'complaint' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)' }}>
                     <Icon 
