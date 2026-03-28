@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import type { Page } from '../lib/types'
+import { DEFAULT_CATEGORIES, DEFAULT_GROUPS, invalidateCategoryCache } from '../lib/useCategories'
+import type { ProductCategory } from '../lib/useCategories'
 
 interface Props { onNav: (p: Page) => void }
 
@@ -93,9 +95,13 @@ const Section = ({ icon, title, children }: { icon: string; title: string; child
 
 export default function InventorySettings({ onNav }: Props) {
   const [settings, setSettings] = useState<InvSettings>(DEFAULT)
-  const [categories, setCategories] = useState<string[]>(['Feeding', 'Postpartum', 'Comfort', 'Supplements', 'Skincare', 'Other'])
+  const [categories, setCategories] = useState<ProductCategory[]>(DEFAULT_CATEGORIES)
+  const [groups, setGroups] = useState<string[]>(DEFAULT_GROUPS)
   const [units, setUnits] = useState<string[]>(['Piece', 'Pack', 'Bottle', 'Tube', 'Box', 'Set'])
   const [newCat, setNewCat] = useState('')
+  const [newCatGroup, setNewCatGroup] = useState('Other')
+  const [newCatColor, setNewCatColor] = useState('#85c2be')
+  const [newGroup, setNewGroup] = useState('')
   const [newUnit, setNewUnit] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -108,9 +114,29 @@ export default function InventorySettings({ onNav }: Props) {
   const load = async () => {
     const { data } = await supabase.from('system_settings').select('value').eq('key', 'inventory_settings').single()
     if (data?.value) { try { setSettings({ ...DEFAULT, ...JSON.parse(data.value) }) } catch {} }
-    // Load categories and units from system_settings
-    const { data: catData } = await supabase.from('system_settings').select('value').eq('key', 'product_categories').single()
-    if (catData?.value) { try { setCategories(JSON.parse(catData.value)) } catch {} }
+
+    // Load structured categories (v2 format)
+    const { data: catV2 } = await supabase.from('system_settings').select('value').eq('key', 'product_categories_v2').single()
+    if (catV2?.value) {
+      try {
+        const parsed = JSON.parse(catV2.value)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCategories(parsed)
+          setGroups([...new Set(parsed.map((c: ProductCategory) => c.group))] as string[])
+        }
+      } catch {}
+    } else {
+      // Migrate from legacy flat list
+      const { data: catLegacy } = await supabase.from('system_settings').select('value').eq('key', 'product_categories').single()
+      if (catLegacy?.value) {
+        try {
+          const flat: string[] = JSON.parse(catLegacy.value)
+          // Keep default categories but this signals we have legacy data
+          setCategories(DEFAULT_CATEGORIES)
+        } catch {}
+      }
+    }
+
     const { data: unitData } = await supabase.from('system_settings').select('value').eq('key', 'product_units').single()
     if (unitData?.value) { try { setUnits(JSON.parse(unitData.value)) } catch {} }
   }
@@ -121,16 +147,39 @@ export default function InventorySettings({ onNav }: Props) {
     setSaving(true)
     await Promise.all([
       supabase.from('system_settings').upsert({ key: 'inventory_settings', value: JSON.stringify(settings) }, { onConflict: 'key' }),
-      supabase.from('system_settings').upsert({ key: 'product_categories', value: JSON.stringify(categories) }, { onConflict: 'key' }),
+      supabase.from('system_settings').upsert({ key: 'product_categories_v2', value: JSON.stringify(categories) }, { onConflict: 'key' }),
+      // Keep legacy key in sync for backward compat
+      supabase.from('system_settings').upsert({ key: 'product_categories', value: JSON.stringify(categories.map(c => c.name)) }, { onConflict: 'key' }),
       supabase.from('system_settings').upsert({ key: 'product_units', value: JSON.stringify(units) }, { onConflict: 'key' }),
     ])
+    invalidateCategoryCache()
     setSaved(true); setTimeout(() => setSaved(false), 2000); setSaving(false)
     setToast('Inventory settings saved'); setToastType('success')
   }
 
   const addCategory = () => {
-    if (!newCat.trim() || categories.includes(newCat.trim())) return
-    setCategories([...categories, newCat.trim()]); setNewCat('')
+    if (!newCat.trim() || categories.find(c => c.name === newCat.trim())) return
+    const newEntry: ProductCategory = {
+      name: newCat.trim(),
+      group: newCatGroup,
+      color: newCatColor,
+      sort_order: categories.length + 1,
+    }
+    setCategories([...categories, newEntry])
+    setNewCat('')
+  }
+
+  const addGroup = () => {
+    if (!newGroup.trim() || groups.includes(newGroup.trim())) return
+    setGroups([...groups, newGroup.trim()])
+    setNewGroup('')
+  }
+
+  const removeCategory = (name: string) => setCategories(categories.filter(c => c.name !== name))
+  const removeGroup = (group: string) => {
+    setGroups(groups.filter(g => g !== group))
+    // Move orphaned categories to 'Other'
+    setCategories(categories.map(c => c.group === group ? { ...c, group: 'Other' } : c))
   }
 
   const addUnit = () => {
@@ -375,20 +424,70 @@ export default function InventorySettings({ onNav }: Props) {
       {activeTab === 'products' && (
         <div className="grid g2" style={{ gap: 20 }}>
           <div>
-            <Section icon="tag" title="Product Categories">
+            {/* Groups */}
+            <Section icon="tag" title="Inventory Groups">
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 10, lineHeight: 1.6 }}>
+                Groups are the top level. Each category belongs to a group. Filter any report by group to see all its categories at once.
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-                {categories.map(cat => (
-                  <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 20, padding: '4px 10px 4px 12px', fontSize: 12 }}>
-                    {cat}
-                    <button onClick={() => setCategories(categories.filter(c => c !== cat))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14, lineHeight: 1, padding: '0 2px' }}>×</button>
+                {groups.map(g => (
+                  <div key={g} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 20, padding: '4px 10px 4px 12px', fontSize: 12, fontWeight: 600 }}>
+                    {g}
+                    {g !== 'Other' && (
+                      <button onClick={() => removeGroup(g)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14, lineHeight: 1, padding: '0 2px' }}>×</button>
+                    )}
                   </div>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <input className="form-input" style={{ flex: 1, fontSize: 12 }} placeholder="New category name" value={newCat} onChange={e => setNewCat(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCategory()} />
-                <button className="btn btn-primary btn-sm" onClick={addCategory}>Add</button>
+                <input className="form-input" style={{ flex: 1, fontSize: 12 }} placeholder="New group name (e.g. Maternity)" value={newGroup} onChange={e => setNewGroup(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} />
+                <button className="btn btn-primary btn-sm" onClick={addGroup}>Add Group</button>
               </div>
             </Section>
+
+            {/* Categories */}
+            <Section icon="tag" title="Product Categories">
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 10, lineHeight: 1.6 }}>
+                Categories are assigned to each product. Use them to filter reports, sales, stock summaries, and more.
+              </div>
+
+              {/* Categories grouped */}
+              {groups.map(group => {
+                const groupCats = categories.filter(c => c.group === group)
+                if (groupCats.length === 0) return null
+                return (
+                  <div key={group} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>{group}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {groupCats.map(cat => (
+                        <div key={cat.name} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--surface2)', border: `1.5px solid ${cat.color}22`, borderRadius: 20, padding: '4px 10px 4px 10px', fontSize: 12 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color, flexShrink: 0 }} />
+                          {cat.name}
+                          <button onClick={() => removeCategory(cat.name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 14, lineHeight: 1, padding: '0 2px' }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Add new category */}
+              <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 10 }}>Add New Category</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input className="form-input" style={{ flex: 2, minWidth: 120, fontSize: 12 }} placeholder="Category name" value={newCat} onChange={e => setNewCat(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCategory()} />
+                  <select className="form-input" style={{ flex: 1, minWidth: 100, fontSize: 12 }} value={newCatGroup} onChange={e => setNewCatGroup(e.target.value)}>
+                    {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <input type="color" value={newCatColor} onChange={e => setNewCatColor(e.target.value)} style={{ width: 36, height: 36, padding: 2, border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', background: 'var(--card)' }} title="Category color" />
+                  <button className="btn btn-primary btn-sm" onClick={addCategory}>Add</button>
+                </div>
+              </div>
+            </Section>
+          </div>
+
+          <div>
+            {/* Units of measure */}
             <Section icon="box" title="Units of Measure">
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
                 {units.map(u => (
@@ -399,29 +498,34 @@ export default function InventorySettings({ onNav }: Props) {
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <input className="form-input" style={{ flex: 1, fontSize: 12 }} placeholder="New unit name" value={newUnit} onChange={e => setNewUnit(e.target.value)} onKeyDown={e => e.key === 'Enter' && addUnit()} />
+                <input className="form-input" style={{ flex: 1, fontSize: 12 }} placeholder="New unit" value={newUnit} onChange={e => setNewUnit(e.target.value)} onKeyDown={e => e.key === 'Enter' && addUnit()} />
                 <button className="btn btn-primary btn-sm" onClick={addUnit}>Add</button>
               </div>
             </Section>
-          </div>
-          <Section icon="tag" title="SKU & Product Defaults">
-            <FG label="Auto SKU Prefix">
-              <input className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} value={settings.auto_sku_prefix} onChange={e => set('auto_sku_prefix', e.target.value)} placeholder="MK-" />
-            </FG>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 16 }}>New products get SKU: {settings.auto_sku_prefix}001, {settings.auto_sku_prefix}002 etc.</div>
-            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Per-Product Settings</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.8 }}>
-                The following are set per product in the Edit Product screen:<br/>
-                • Barcode (for future scanning)<br/>
-                • Product image (shown in Cash Sale modal)<br/>
-                • Preferred supplier<br/>
-                • Lead time days<br/>
-                • Product-specific minimum margin override<br/>
-                • Allow/block selling below cost per product
+
+            {/* SKU defaults */}
+            <Section icon="tag" title="SKU & Product Defaults">
+              <FG label="Auto SKU Prefix">
+                <input className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} value={settings.auto_sku_prefix} onChange={e => set('auto_sku_prefix', e.target.value)} placeholder="MK-" />
+              </FG>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 16 }}>New products get SKU: {settings.auto_sku_prefix}001, {settings.auto_sku_prefix}002 etc.</div>
+
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginTop: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Category filter appears in:</div>
+                {[
+                  'Inventory page', 'Cash Sale product search',
+                  'Sales Invoice product search', 'Sales Day Book report',
+                  'Sales Register', 'Stock Valuation Report',
+                  'Purchase Register', 'Stock Transfer Register', 'Dashboard breakdown',
+                ].map((item, i) => (
+                  <div key={i} style={{ fontSize: 11, color: 'var(--text3)', padding: '4px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+                    {item}
+                  </div>
+                ))}
               </div>
-            </div>
-          </Section>
+            </Section>
+          </div>
         </div>
       )}
 
