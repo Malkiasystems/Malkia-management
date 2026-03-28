@@ -14,7 +14,8 @@ export type Page =
   | 'whatsapp-settings' | 'location-settings' | 'accounting-settings'
   | 'inventory-settings' | 'pricelist-template'
   | 'banks' | 'settings' | 'data-import' | 'coming-soon'
-  | 'stock-levels' | 'suppliers' | 'stock-movements' | 'stock-transfer-register' | 'customers'
+  | 'stock-levels' | 'suppliers' | 'stock-movements'
+  | 'migration-2026'
 
 export interface Product {
   id: string
