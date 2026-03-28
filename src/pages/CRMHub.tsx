@@ -56,7 +56,7 @@ interface FeedbackItem {
 const Icon = ({ name, size = 20, color = 'currentColor' }: { name: string; size?: number; color?: string }) => {
   const props = { width: size, height: size, fill: 'none', stroke: color, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
   
-  const paths: Record<string, JSX.Element> = {
+  const paths: Record<string, React.ReactNode> = {
     users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
     messageCircle: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></>,
     ticket: <><path d="M2 9a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v0z"/><path d="M2 15a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3v0z"/></>,
@@ -334,9 +334,9 @@ export default function CRMHub({ onNav }: Props) {
           { value: stats.activeAutomations, label: 'Automations', color: '#06b6d4', icon: 'zap', page: 'crm-automations' },
           { value: stats.avgCSAT > 0 ? `${stats.avgCSAT}★` : '—', label: 'CSAT', color: '#fbbf24', icon: 'star', page: 'crm-feedback' },
           { value: stats.activePreorders, label: 'Pre-Orders', color: '#f472b6', icon: 'package', page: 'crm-preorders' },
-        ].map((kpi, i) => (
+        ].map((kpi) => (
           <div 
-            key={i} 
+            key={kpi.label} 
             style={s.kpiCard}
             onClick={() => onNav(kpi.page as Page)}
             onMouseEnter={e => { e.currentTarget.style.borderColor = kpi.color; e.currentTarget.style.transform = 'translateY(-2px)' }}
@@ -434,8 +434,8 @@ export default function CRMHub({ onNav }: Props) {
               { value: stats.goldCount, label: 'Gold', color: '#fbbf24' },
               { value: stats.crownCount, label: 'Crown', color: '#f472b6' },
               { value: stats.inactiveCount, label: 'Inactive', color: '#6b7280' },
-            ].map((tier, i) => (
-              <div key={i} style={s.tierCard}>
+            ].map((tier) => (
+              <div key={tier.label} style={s.tierCard}>
                 <div style={{ ...s.tierValue, color: tier.color }}>{tier.value}</div>
                 <div style={s.tierLabel}>
                   <div style={s.tierDot(tier.color)} />

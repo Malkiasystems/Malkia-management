@@ -64,7 +64,7 @@ interface InternalNote {
 const Icon = ({ name, size = 20, color = 'currentColor' }: { name: string; size?: number; color?: string }) => {
   const props = { width: size, height: size, fill: 'none', stroke: color, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
   
-  const paths: Record<string, JSX.Element> = {
+  const paths: Record<string, React.ReactNode> = {
     arrowLeft: <><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></>,
     search: <><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>,
     filter: <><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></>,
@@ -111,8 +111,6 @@ export default function CRMInbox({ onNav }: Props) {
   const [notes, setNotes] = useState<InternalNote[]>([])
   const [loading, setLoading] = useState(true)
   const [messageInput, setMessageInput] = useState('')
-  const [noteInput, setNoteInput] = useState('')
-  const [showNoteForm, setShowNoteForm] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'open' | 'urgent'>('all')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -237,19 +235,6 @@ export default function CRMInbox({ onNav }: Props) {
     setMessageInput('')
   }
 
-  const addNote = () => {
-    if (!noteInput.trim()) return
-    const newNote: InternalNote = {
-      id: `n${Date.now()}`,
-      content: noteInput,
-      created_by: 'You',
-      created_at: new Date().toISOString()
-    }
-    setNotes(prev => [...prev, newNote])
-    setNoteInput('')
-    setShowNoteForm(false)
-  }
-
   const filteredConversations = conversations.filter(c => {
     if (filterStatus === 'urgent' && c.priority !== 'urgent') return false
     if (filterStatus === 'open' && c.is_resolved) return false
@@ -272,7 +257,7 @@ export default function CRMInbox({ onNav }: Props) {
     filterTabs: { display: 'flex', gap: 4, padding: '8px 20px', borderBottom: '1px solid var(--border)' } as React.CSSProperties,
     filterTab: (active: boolean) => ({ padding: '6px 12px', fontSize: 11, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer', background: active ? 'var(--accent)' : 'var(--surface2)', color: active ? '#fff' : 'var(--text3)' }) as React.CSSProperties,
     convoList: { flex: 1, overflowY: 'auto' as const } as React.CSSProperties,
-    convoItem: (active: boolean, unread: boolean) => ({ display: 'flex', gap: 12, padding: '14px 20px', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: active ? 'var(--accent-dim)' : 'transparent', borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent' }) as React.CSSProperties,
+    convoItem: (active: boolean) => ({ display: 'flex', gap: 12, padding: '14px 20px', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: active ? 'var(--accent-dim)' : 'transparent', borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent' }) as React.CSSProperties,
     convoAvatar: { width: 44, height: 44, borderRadius: '50%', background: 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, flexShrink: 0 } as React.CSSProperties,
     convoContent: { flex: 1, minWidth: 0 } as React.CSSProperties,
     convoName: { fontSize: 13, fontWeight: 600, marginBottom: 2 } as React.CSSProperties,
@@ -397,7 +382,7 @@ export default function CRMInbox({ onNav }: Props) {
           {filteredConversations.map(convo => (
             <div 
               key={convo.id} 
-              style={s.convoItem(selectedId === convo.id, convo.unread_count > 0)}
+              style={s.convoItem(selectedId === convo.id)}
               onClick={() => setSelectedId(convo.id)}
             >
               <div style={{ ...s.convoAvatar, background: convo.priority === 'urgent' ? '#ef444420' : 'var(--surface2)', color: convo.priority === 'urgent' ? '#ef4444' : 'var(--text)' }}>

@@ -33,7 +33,7 @@ interface ReferralActivity {
 const Icon = ({ name, size = 20, color = 'currentColor' }: { name: string; size?: number; color?: string }) => {
   const props = { width: size, height: size, fill: 'none', stroke: color, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
   
-  const paths: Record<string, JSX.Element> = {
+  const paths: Record<string, React.ReactNode> = {
     arrowLeft: <><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></>,
     share2: <><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></>,
     link: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
@@ -187,14 +187,6 @@ export default function CRMReferrals({ onNav }: Props) {
       case 'pending': return '#f59e0b'
       case 'expired': return '#6b7280'
       default: return '#6b7280'
-    }
-  }
-
-  const getTierColor = (tier: string) => {
-    switch (tier) {
-      case 'crown': return '#f472b6'
-      case 'gold': return '#fbbf24'
-      default: return '#10b981'
     }
   }
 
