@@ -45,7 +45,8 @@ export default function SalesDayBook() {
   const [filterCat, setFilterCat] = useState('all')
   const [searchPayment, setSearchPayment] = useState('')
   const [searchSalesperson, setSearchSalesperson] = useState('')
-  const { categories } = useCategories()
+  const { categories: _cats } = useCategories()
+  const catPredicate = makeCategoryPredicate(filterCat, _cats)
   const [showFilters, setShowFilters] = useState(false)
 
   useEffect(() => { loadSales() }, [])
@@ -84,14 +85,12 @@ export default function SalesDayBook() {
     const custName = (s.customers as any)?.name?.toLowerCase() || ''
     const custWa = (s.customers as any)?.whatsapp || ''
     const products = (s.voucher_lines || []).map((l: any) => l.products?.name?.toLowerCase() || '').join(' ')
-    const categories = (s.voucher_lines || []).map((l: any) => l.products?.category?.toLowerCase() || '').join(' ')
     const payment = s.payment_method?.toLowerCase() || ''
     const salesperson = s.posted_by?.toLowerCase() || ''
 
     if (searchRef && !s.ref.toLowerCase().includes(searchRef.toLowerCase())) return false
     if (searchCustomer && !custName.includes(searchCustomer.toLowerCase()) && !custWa.includes(searchCustomer)) return false
     if (searchProduct && !products.includes(searchProduct.toLowerCase())) return false
-    const catPredicate = makeCategoryPredicate(filterCat, categories)
     if (filterCat !== 'all' && !(s.voucher_lines || []).some((l: any) => l.products && catPredicate(l.products.category))) return false
     if (searchPayment && !payment.includes(searchPayment.toLowerCase())) return false
     if (searchSalesperson && !salesperson.includes(searchSalesperson.toLowerCase())) return false

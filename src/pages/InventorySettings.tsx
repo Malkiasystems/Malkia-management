@@ -130,8 +130,7 @@ export default function InventorySettings({ onNav }: Props) {
       const { data: catLegacy } = await supabase.from('system_settings').select('value').eq('key', 'product_categories').single()
       if (catLegacy?.value) {
         try {
-          const flat: string[] = JSON.parse(catLegacy.value)
-          // Keep default categories but this signals we have legacy data
+          // legacy flat list exists -- migrate to structured defaults
           setCategories(DEFAULT_CATEGORIES)
         } catch {}
       }

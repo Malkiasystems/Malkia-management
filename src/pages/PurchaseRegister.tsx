@@ -4,7 +4,7 @@ import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
-interface PurchaseRecord { ref: string; type: string; posting_date: string; description: string; total_amount: number; status: string; supplier_name: string; notes: string; categories: string[] }
+interface PurchaseRecord { ref: string; type: string; posting_date: string; description: string; total_amount: number; status: string; supplier_name: string; notes: string; categories: string[]; posted_by?: string }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -37,6 +37,7 @@ export default function PurchaseRegister() {
       setRecords(data.map((v: any) => ({
         ...v,
         supplier_name: v.suppliers?.name || '—',
+        posted_by: v.posted_by || '—',
         categories: [...new Set((v.voucher_lines || []).map((l: any) => l.products?.category).filter(Boolean))],
       })))
     }

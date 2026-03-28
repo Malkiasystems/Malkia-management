@@ -8,7 +8,7 @@ interface TransferRecord {
   ref: string; posting_date: string; description: string
   total_amount: number; status: string; notes: string
   from_location: string; to_location: string
-  categories: string[]
+  categories: string[]; posted_by?: string
 }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
