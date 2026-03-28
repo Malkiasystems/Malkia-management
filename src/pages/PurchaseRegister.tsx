@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { useCategories } from '../lib/useCategories'
+import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
-interface PurchaseRecord { ref: string; type: string; posting_date: string; description: string; total_amount: number; status: string; supplier_name: string; notes: string }
+interface PurchaseRecord { ref: string; type: string; posting_date: string; description: string; total_amount: number; status: string; supplier_name: string; notes: string; categories: string[] }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -17,6 +19,8 @@ export default function PurchaseRegister() {
   const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
   const [typeFilter, setTypeFilter] = useState('all')
+  const [filterCat, setFilterCat] = useState('all')
+  const { categories } = useCategories()
 
   useEffect(() => { load() }, [])
 
@@ -25,17 +29,23 @@ export default function PurchaseRegister() {
     const t = to || toDate
     setLoading(true)
     const { data } = await supabase.from('vouchers')
-      .select('ref, type, posting_date, description, total_amount, status, notes, suppliers(name)')
+      .select('ref, type, posting_date, posted_by, description, total_amount, status, notes, suppliers(name), voucher_lines(products(category))')
       .in('type', ['purchase_order', 'grn', 'purchase_invoice', 'purchase_return'])
       .gte('posting_date', f).lte('posting_date', t)
       .order('posting_date', { ascending: false })
     if (data) {
-      setRecords(data.map((v: any) => ({ ...v, supplier_name: v.suppliers?.name || '—' })))
+      setRecords(data.map((v: any) => ({
+        ...v,
+        supplier_name: v.suppliers?.name || '—',
+        categories: [...new Set((v.voucher_lines || []).map((l: any) => l.products?.category).filter(Boolean))],
+      })))
     }
     setLoading(false)
   }
 
-  const filtered = typeFilter === 'all' ? records : records.filter(r => r.type === typeFilter)
+  const catPredicate = makeCategoryPredicate(filterCat, categories)
+  const byType = typeFilter === 'all' ? records : records.filter(r => r.type === typeFilter)
+  const filtered = filterCat === 'all' ? byType : byType.filter(r => r.categories.some(c => catPredicate(c)))
   const total = filtered.reduce((s, r) => s + (r.total_amount || 0), 0)
 
   const exportCSV = () => {
@@ -67,6 +77,7 @@ export default function PurchaseRegister() {
             <option value="purchase_invoice">Purchase Invoices</option>
             <option value="purchase_return">Purchase Returns</option>
           </select>
+          <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ fontSize:12, padding:'6px 10px' }} />
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => load()}><Ic n="refresh" /> Refresh</button>
           <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={exportCSV}><Ic n="csv" /> Export CSV</button>
         </div>
@@ -83,7 +94,7 @@ export default function PurchaseRegister() {
         <div className="card">
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Ref</th><th>Type</th><th>Supplier</th><th>Description</th><th className="td-right">Amount (TZS)</th><th>Status</th></tr></thead>
+              <thead><tr><th>Date</th><th>Ref</th><th>Type</th><th>Supplier</th><th>Description</th><th className="td-right">Amount (TZS)</th><th>Posted By</th><th>Status</th></tr></thead>
               <tbody>
                 {filtered.map((r, i) => (
                   <tr key={i}>
@@ -93,6 +104,7 @@ export default function PurchaseRegister() {
                     <td style={{ fontSize:12 }}>{r.supplier_name}</td>
                     <td style={{ fontSize:11,color:'var(--text3)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{r.description}</td>
                     <td className="td-right td-mono" style={{ fontSize:12,fontWeight:600,color:'var(--accent)' }}>{(r.total_amount||0).toLocaleString()}</td>
+                    <td style={{ fontSize:11,color:'var(--text3)' }}>{r.posted_by||'—'}</td>
                     <td><span className={`pill ${r.status==='posted'?'pill-green':'pill-gray'}`} style={{ fontSize:9 }}>{r.status}</span></td>
                   </tr>
                 ))}
