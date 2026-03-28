@@ -26,6 +26,7 @@ import InvoiceTemplatePage from './pages/InvoiceTemplate'
 import WhatsAppSettings from './pages/WhatsAppSettings'
 import LocationSettings from './pages/LocationSettings'
 import InventorySettings from './pages/InventorySettings'
+import AccountingSettings from './pages/AccountingSettings'
 // import PricelistTemplate from './pages/PricelistTemplate'
 import StockTransferRegister from './pages/StockTransferRegister'
 import Customers from './pages/Customers'
@@ -92,6 +93,7 @@ export default function App() {
       case 'whatsapp-settings':  return <WhatsAppSettings />
       case 'location-settings':  return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
+      case 'accounting-settings': return <AccountingSettings />
       case 'pricelist-template':  return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon — upload PricelistTemplate.tsx to GitHub</div></div>
       case 'banks':            return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
