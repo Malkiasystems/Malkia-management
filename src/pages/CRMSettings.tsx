@@ -28,7 +28,7 @@ const TABS = [
 
 export default function CRMSettings() {
   const [activeTab, setActiveTab] = useState('crown')
-  const [settings, setSettings] = useState<CRMSetting[]>([])
+  const [_settings, setSettings] = useState<CRMSetting[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -530,7 +530,7 @@ export default function CRMSettings() {
   const renderAutomationTab = () => {
     const birthday = getSetting('automation', 'birthday_message', { enabled: true, days_before: 1, send_time: '09:00', template: 'birthday_wish' })
     const postPurchase = getSetting('automation', 'post_purchase_followup', { enabled: true, days_after: 3, template: 'feedback_request' })
-    const leadReminder = getSetting('automation', 'lead_reminder', { enabled: true, days: 2 })
+    const _leadReminder = getSetting('automation', 'lead_reminder', { enabled: true, days: 2 })
     const preorderArrival = getSetting('automation', 'preorder_arrival', { enabled: true, template: 'preorder_ready' })
     const reengagement = getSetting('automation', 'reengagement', { enabled: false, inactive_days: 60, template: 'we_miss_you' })
 
