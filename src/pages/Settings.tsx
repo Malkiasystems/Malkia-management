@@ -104,20 +104,19 @@ export default function Settings({ onNav }: Props) {
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{a.name}</div>
-                  <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{a.code}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{a.code}</div>
                 </div>
               </div>
             ))}
           </div>
-          <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => showToast('Cash sale settings saved')}>Save Cash Sale Settings</button>
         </div>
       </div>
 
       {/* Receipt Template */}
-      <div style={{ background: 'linear-gradient(135deg, rgba(133,194,190,.12) 0%, rgba(247,166,173,.08) 100%)', border: '1px solid rgba(133,194,190,.3)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ background: 'linear-gradient(135deg, rgba(247,166,173,.08) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(247,166,173,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(133,194,190,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="22" height="22" fill="none" stroke="#85c2be" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2"/><line x1="16" y1="8" x2="8" y2="8"/><line x1="16" y1="12" x2="8" y2="12"/><line x1="16" y1="16" x2="12" y2="16"/></svg>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(247,166,173,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#f7a6ad" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           </div>
           <div>
             <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Receipt Template</div>
@@ -166,6 +165,23 @@ export default function Settings({ onNav }: Props) {
         </button>
       </div>
 
+
+      {/* Accounting Settings - NEW */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,.08) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(99,102,241,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(99,102,241,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#6366f1" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Accounting Settings</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Fiscal years · Accounting periods · Period locking · Posting rules</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Go-live date · Migration status · Backdate limits · EOD lock</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('accounting-settings')} className="btn btn-primary" style={{ background: '#6366f1', border: 'none', flexShrink: 0 }}>
+          Configure →
+        </button>
+      </div>
 
 
       {/* Inventory Settings */}
