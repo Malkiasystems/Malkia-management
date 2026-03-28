@@ -28,6 +28,8 @@ import LocationSettings from './pages/LocationSettings'
 import InventorySettings from './pages/InventorySettings'
 import AccountingSettings from './pages/AccountingSettings'
 import Migration2026 from './pages/Migration2026'
+import CRMDashboard from './pages/CRMDashboard'
+import CRMSettings from './pages/CRMSettings'
 // import PricelistTemplate from './pages/PricelistTemplate'
 import StockTransferRegister from './pages/StockTransferRegister'
 import Customers from './pages/Customers'
@@ -96,7 +98,7 @@ export default function App() {
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'migration-2026':    return <Migration2026 />
-      case 'pricelist-template':  return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon — upload PricelistTemplate.tsx to GitHub</div></div>
+      case 'pricelist-template':  return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon</div></div>
       case 'banks':            return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
@@ -123,6 +125,16 @@ export default function App() {
       case 'customers': return <Customers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'data-import':       return <DataImport />
+      // CRM Pages
+      case 'crm':               return <CRMDashboard onNav={navigate} />
+      case 'crm-settings':      return <CRMSettings />
+      case 'crm-leads':         return <ComingSoon module="Leads Management" />
+      case 'crm-preorders':     return <ComingSoon module="Pre-Orders" />
+      case 'crm-feedback':      return <ComingSoon module="Feedback & Reviews" />
+      case 'crm-loyalty':       return <ComingSoon module="Crown Loyalty" />
+      case 'crm-referrals':     return <ComingSoon module="Referrals" />
+      case 'crm-segments':      return <ComingSoon module="Customer Segments" />
+      case 'crm-messages':      return <ComingSoon module="Message Queue" />
       default:                  return <ComingSoon module={BREADCRUMBS[page] || page} />
     }
   }
