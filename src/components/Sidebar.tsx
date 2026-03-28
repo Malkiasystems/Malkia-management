@@ -16,6 +16,14 @@ const SALES_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Register',      page: 'sales-register',  icon: 'M18 20V10M12 20V4M6 20v-6' },
 ]
 
+const CRM_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'Hub',        page: 'crm',            icon: 'M12 3v1m0 16v1m-8-9H3m18 0h-1M5.6 5.6l.7.7m12.4 12.4l.7.7M5.6 18.4l.7-.7M18.7 5.6l-.7.7' },
+  { label: 'Inbox',      page: 'crm-inbox',      icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
+  { label: 'Pre-Orders', page: 'crm-preorders',  icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },
+  { label: 'Referrals',  page: 'crm-referrals',  icon: 'M18 5a3 3 0 1 0 0 0M6 12a3 3 0 1 0 0 0M18 19a3 3 0 1 0 0 0M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98' },
+  { label: 'Crown',      page: 'crm-loyalty',    icon: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z M3 20h18' },
+]
+
 const NAV = [
   { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
   { sep: true },
@@ -29,7 +37,7 @@ const NAV = [
   { sep: true },
   { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
   { icon: 'konnect',   label: 'Konnect',   page: 'coming-soon' as Page, coming: true },
-  { icon: 'crm',       label: 'CRM',       page: 'crm' as Page },
+  { icon: 'crm',       label: 'CRM',       page: 'crm' as Page, hasSub: true },
   { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
   { sep: true },
   { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
@@ -52,7 +60,7 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
     reports:   <svg {...p}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
     services:  <svg {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.1 1.24h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.64a16 16 0 0 0 6.29 6.29l1.46-1.46a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
     konnect:   <svg {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
-    crm:       <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+    crm:       <svg {...p}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>,
     hrm:       <svg {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
     import:    <svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
     settings:  <svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
@@ -62,11 +70,14 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
 }
 
 const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note']
+const CRM_PAGES: Page[] = ['crm', 'crm-inbox', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-automations', 'crm-settings']
 
 export default function Sidebar({ current, onNav }: SidebarProps) {
   const [salesOpen, setSalesOpen] = useState(false)
+  const [crmOpen, setCrmOpen] = useState(false)
 
   const isSalesActive = SALES_PAGES.includes(current)
+  const isCrmActive = CRM_PAGES.includes(current)
 
   return (
     <div style={{
@@ -84,10 +95,12 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
         const isVoucherActive = VOUCHER_PAGES.includes(current)
         const active =
           current === item.page ||
-          (item.page === 'vouchers' && isVoucherActive && !isSalesActive) ||
-          (item.page === 'sales' && isSalesActive)
+          (item.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive) ||
+          (item.page === 'sales' && isSalesActive) ||
+          (item.page === 'crm' && isCrmActive)
 
         const isSales = item.page === 'sales'
+        const isCrm = item.page === 'crm'
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -96,9 +109,15 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 if (item.coming || !item.page) return
                 if (isSales) {
                   setSalesOpen(o => !o)
+                  setCrmOpen(false)
                   onNav('sales')
+                } else if (isCrm) {
+                  setCrmOpen(o => !o)
+                  setSalesOpen(false)
+                  onNav('crm')
                 } else {
                   setSalesOpen(false)
+                  setCrmOpen(false)
                   onNav(item.page)
                 }
               }}
@@ -119,8 +138,8 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{item.label}</span>
 
-              {Boolean(isSales) && (
-                <span style={{ position:'absolute', right:4, top:'50%', transform:`translateY(-50%) rotate(${salesOpen?90:0}deg)`, transition:'transform .2s', color:'var(--text3)', fontSize:8 }}>›</span>
+              {Boolean(isSales || isCrm) && (
+                <span style={{ position:'absolute', right:4, top:'50%', transform:`translateY(-50%) rotate(${(isSales && salesOpen) || (isCrm && crmOpen)?90:0}deg)`, transition:'transform .2s', color:'var(--text3)', fontSize:8 }}>›</span>
               )}
 
               {'badge' in item && (item as any).badge && (
@@ -145,6 +164,27 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             {Boolean(isSales) && (salesOpen || isSalesActive) && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {SALES_SUB.map(sub => {
+                  const subActive = current === sub.page
+                  return (
+                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                        background: subActive ? 'var(--accent-dim)' : 'transparent',
+                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
+                      }}>
+                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <path d={sub.icon}/>
+                      </svg>
+                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* CRM sub-menu */}
+            {Boolean(isCrm) && (crmOpen || isCrmActive) && (
+              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+                {CRM_SUB.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
