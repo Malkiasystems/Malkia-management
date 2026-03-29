@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { greeting, getStatus } from '../lib/utils'
 import type { Page } from '../lib/types'
 import { useCategories } from '../lib/useCategories'
+import { useAuth } from '../lib/useAuth'
 
 interface Props { onNav: (p: Page) => void }
 
@@ -31,12 +32,16 @@ interface LowStockProduct {
 }
 
 export default function Dashboard({ onNav }: Props) {
+  const { user } = useAuth()
   const [stats, setStats] = useState<Stats>({ totalRevenue: 0, totalCogs: 0, netProfit: 0, productCount: 0, lowStockCount: 0, pendingVouchers: 0 })
   const [recentVouchers, setRecentVouchers] = useState<RecentVoucher[]>([])
   const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
   const [catBreakdown, setCatBreakdown] = useState<{name:string;count:number;value:number}[]>([])
   const [loading, setLoading] = useState(true)
   const { categories } = useCategories()
+
+  // Get first name from full name
+  const firstName = user?.full_name?.split(' ')[0] || 'there'
 
   useEffect(() => { loadDashboard() }, [])
 
@@ -121,7 +126,7 @@ export default function Dashboard({ onNav }: Props) {
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">{greeting()}, Joe</div>
+          <div className="page-title">{greeting()}, {firstName}</div>
           <div className="page-sub">
             {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             {' '}· DSM HQ · <span className="sync-dot"></span> Live
