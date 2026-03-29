@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+// supabase import ready for real data
+// import { supabase } from '../lib/supabase'
+// import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props {
@@ -76,6 +77,7 @@ interface DeliveryLog {
 }
 
 export default function CRMAutomations({ onNav }: Props) {
+  void onNav // available for future navigation
   const [automations, setAutomations] = useState<Automation[]>([])
   const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLog[]>([])
   const [loading, setLoading] = useState(true)

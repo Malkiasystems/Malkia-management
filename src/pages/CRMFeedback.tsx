@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+// supabase import ready for real data
+// import { supabase } from '../lib/supabase'
+// import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props {
@@ -67,6 +68,7 @@ interface FeedbackItem {
 }
 
 export default function CRMFeedback({ onNav }: Props) {
+  void onNav // available for future navigation
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedItem, setSelectedItem] = useState<FeedbackItem | null>(null)
