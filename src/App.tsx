@@ -235,7 +235,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 function AppContent() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
-  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
+  const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
