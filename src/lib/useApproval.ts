@@ -16,26 +16,34 @@ export async function checkApprovalRequired(
   originalValue?: number
 ): Promise<ApprovalCheck> {
   
-  // Get approval setting for this type
-  const { data: settings } = await supabase
-    .from('approval_settings')
-    .select(`
-      id,
-      approval_type_id,
-      threshold_type,
-      threshold_value,
-      approval_types!inner (code, name)
-    `)
-    .eq('approval_types.code', type)
+  // First get the approval type id
+  const { data: typeData } = await supabase
+    .from('approval_types')
+    .select('id')
+    .eq('code', type)
     .single()
 
-  if (!settings) {
+  if (!typeData) {
+    console.log('No approval type found for:', type)
     return { requiresApproval: false, approvalType: null, reason: null, threshold: null }
   }
 
-  const setting = settings as any
-  const thresholdType = setting.threshold_type
-  const thresholdValue = setting.threshold_value
+  // Then get the setting for this type
+  const { data: settings } = await supabase
+    .from('approval_settings')
+    .select('threshold_type, threshold_value')
+    .eq('approval_type_id', typeData.id)
+    .single()
+
+  if (!settings) {
+    console.log('No approval setting found for type:', type)
+    return { requiresApproval: false, approvalType: null, reason: null, threshold: null }
+  }
+
+  const thresholdType = settings.threshold_type
+  const thresholdValue = settings.threshold_value
+
+  console.log('Approval check:', { type, value, thresholdType, thresholdValue })
 
   let requiresApproval = false
   let reason = ''
@@ -43,18 +51,20 @@ export async function checkApprovalRequired(
   if (thresholdType === 'any') {
     requiresApproval = true
     reason = `All ${type.replace(/_/g, ' ')}s require approval`
-  } else if (thresholdType === 'amount' && thresholdValue) {
+  } else if (thresholdType === 'amount' && thresholdValue !== null) {
     if (value > thresholdValue) {
       requiresApproval = true
       reason = `Amount TZS ${value.toLocaleString()} exceeds threshold of TZS ${thresholdValue.toLocaleString()}`
     }
-  } else if (thresholdType === 'percentage' && thresholdValue && originalValue) {
+  } else if (thresholdType === 'percentage' && thresholdValue !== null && originalValue) {
     const percentage = ((originalValue - value) / originalValue) * 100
     if (percentage > thresholdValue) {
       requiresApproval = true
       reason = `Discount of ${percentage.toFixed(1)}% exceeds threshold of ${thresholdValue}%`
     }
   }
+
+  console.log('Approval result:', { requiresApproval, reason })
 
   return {
     requiresApproval,
@@ -78,6 +88,7 @@ export async function createApprovalRequest(params: {
   requestedBy: string
 }): Promise<{ success: boolean; requestId?: string; error?: string }> {
   
+  // Get the approval type id
   const { data: typeData } = await supabase
     .from('approval_types')
     .select('id')
@@ -88,6 +99,7 @@ export async function createApprovalRequest(params: {
     return { success: false, error: 'Approval type not found' }
   }
 
+  // Find an approver (get the first user with is_approver = true)
   const { data: approvers } = await supabase
     .from('users')
     .select('id')
@@ -97,6 +109,7 @@ export async function createApprovalRequest(params: {
 
   const assignedTo = approvers?.[0]?.id || null
 
+  // Create the request
   const { data, error } = await supabase
     .from('approval_requests')
     .insert({
@@ -116,55 +129,9 @@ export async function createApprovalRequest(params: {
     .single()
 
   if (error) {
+    console.error('Approval request error:', error)
     return { success: false, error: error.message }
   }
 
   return { success: true, requestId: data.id }
-}
-
-/**
- * Helper to check approval and create request if needed
- * Returns true if voucher can proceed, false if blocked for approval
- */
-export async function checkAndRequestApproval(params: {
-  type: 'large_sale' | 'discount' | 'refund' | 'stock_adjustment' | 'void_transaction' | 'large_purchase' | 'credit_limit' | 'overdue_invoice'
-  value: number
-  originalValue?: number
-  userId: string
-  isApprover: boolean
-  referenceType: string
-  referenceNumber: string
-  summary: string
-  onApprovalNeeded: (reason: string) => void
-}): Promise<boolean> {
-  
-  const check = await checkApprovalRequired(params.type, params.value, params.originalValue)
-  
-  if (!check.requiresApproval) {
-    return true // Can proceed
-  }
-  
-  if (params.isApprover) {
-    return true // Approvers auto-approve
-  }
-  
-  // Create approval request
-  const result = await createApprovalRequest({
-    typeCode: params.type,
-    referenceType: params.referenceType,
-    referenceId: crypto.randomUUID(),
-    referenceNumber: params.referenceNumber,
-    summary: params.summary,
-    originalValue: params.originalValue,
-    requestedValue: params.value,
-    requestedBy: params.userId,
-  })
-  
-  if (result.success) {
-    params.onApprovalNeeded(`${check.reason}. Sent to approver.`)
-  } else {
-    params.onApprovalNeeded(`Failed to create approval: ${result.error}`)
-  }
-  
-  return false // Cannot proceed
 }
