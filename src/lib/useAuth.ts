@@ -1,10 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { supabase } from './supabase'
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
 export interface User {
   id: string
   email: string
@@ -27,28 +23,18 @@ export interface Permission {
 
 export interface AuthContextType {
   user: User | null
-  permissions: string[]  // Array of "module.action" strings
+  permissions: string[]
   loading: boolean
   error: string | null
-  
-  // Permission checks
   can: (permission: string) => boolean
   canAny: (permissions: string[]) => boolean
   canAll: (permissions: string[]) => boolean
-  
-  // Role checks
   hasRole: (roleName: string) => boolean
   hasAnyRole: (roleNames: string[]) => boolean
   isSuperAdmin: () => boolean
-  
-  // Actions
   signOut: () => Promise<void>
   refreshUser: () => Promise<void>
 }
-
-// ============================================================================
-// CONTEXT
-// ============================================================================
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
@@ -58,14 +44,12 @@ export function useAuth() {
   return ctx
 }
 
-// Convenience hook for single permission check
 export function usePermission(permission: string): boolean {
   const { can, loading } = useAuth()
   if (loading) return false
   return can(permission)
 }
 
-// Convenience hook for multiple permission checks
 export function usePermissions(permissions: string[]): Record<string, boolean> {
   const { can, loading } = useAuth()
   if (loading) {
@@ -73,10 +57,6 @@ export function usePermissions(permissions: string[]): Record<string, boolean> {
   }
   return permissions.reduce((acc, p) => ({ ...acc, [p]: can(p) }), {})
 }
-
-// ============================================================================
-// PROVIDER
-// ============================================================================
 
 interface AuthProviderProps {
   children: ReactNode
@@ -88,34 +68,70 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Load current user and their permissions
+  const loadDemoUser = async () => {
+    setUser({
+      id: 'demo-super-admin',
+      email: 'joe@malkia.co.tz',
+      full_name: 'Joe Gembe',
+      initials: 'JG',
+      role_id: 'demo-role',
+      role_name: 'super_admin',
+      is_active: true,
+      is_approver: true,
+      is_away: false,
+    })
+
+    setPermissions([
+      'dashboard.view',
+      'sales.view', 'sales.create', 'sales.edit', 'sales.delete', 'sales.approve', 'sales.export',
+      'inventory.view', 'inventory.create', 'inventory.edit', 'inventory.delete',
+      'inventory.adjust', 'inventory.transfer', 'inventory.approve', 'inventory.export',
+      'crm.view', 'crm.create', 'crm.edit', 'crm.delete',
+      'crm.inbox', 'crm.konnect', 'crm.automations', 'crm.export',
+      'customers.view', 'customers.create', 'customers.edit', 'customers.delete',
+      'customers.credit', 'customers.export',
+      'accounting.view', 'accounting.create', 'accounting.edit', 'accounting.delete',
+      'accounting.post', 'accounting.approve', 'accounting.coa', 'accounting.export',
+      'reports.view', 'reports.export',
+      'hrm.view_own', 'hrm.view_team', 'hrm.view_all', 'hrm.manage',
+      'settings.view', 'settings.edit', 'settings.users', 'settings.roles', 'settings.approvals',
+    ])
+    setLoading(false)
+  }
+
+  const loadPermissions = async (roleId: string) => {
+    const { data: permData } = await supabase
+      .from('role_permissions')
+      .select('permissions:permission_id (module, action)')
+      .eq('role_id', roleId)
+
+    if (permData) {
+      const perms = permData
+        .map((rp: any) => rp.permissions?.module + '.' + rp.permissions?.action)
+        .filter(Boolean)
+      setPermissions(perms)
+    }
+  }
+
   const loadUser = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
 
-      // Get current auth session
       const { data: { session } } = await supabase.auth.getSession()
-      
+
       if (!session?.user) {
-        // No logged in user - for development, load demo user
-        // In production, this would redirect to login
         await loadDemoUser()
         return
       }
 
-      // Load user profile with role
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select(`
-          *,
-          roles:role_id (name)
-        `)
+        .select('*, roles:role_id (name)')
         .eq('id', session.user.id)
         .single()
 
       if (userError || !userData) {
-        console.error('Error loading user:', userError)
         await loadDemoUser()
         return
       }
@@ -136,102 +152,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       setUser(currentUser)
-
-      // Load permissions for this role
       await loadPermissions(userData.role_id)
+      setLoading(false)
 
     } catch (err) {
       console.error('Auth error:', err)
       setError('Failed to load user')
       await loadDemoUser()
-    } finally {
-      setLoading(false)
     }
   }, [])
 
-  // Load permissions for a role
-  const loadPermissions = async (roleId: string) => {
-    const { data: permData, error: permError } = await supabase
-      .from('role_permissions')
-      .select(`
-        permissions:permission_id (module, action)
-      `)
-      .eq('role_id', roleId)
-
-    if (permError) {
-      console.error('Error loading permissions:', permError)
-      return
-    }
-
-    const perms = (permData || [])
-      .map((rp: any) => `${rp.permissions?.module}.${rp.permissions?.action}`)
-      .filter(Boolean)
-
-    setPermissions(perms)
-  }
-
-  // Demo user for development (Super Admin by default)
-  const loadDemoUser = async () => {
-    // Demo super admin with all permissions
-    setUser({
-      id: 'demo-super-admin',
-      email: 'joe@malkia.co.tz',
-      full_name: 'Joe Gembe',
-      initials: 'JG',
-      role_id: 'demo-role',
-      role_name: 'super_admin',
-      is_active: true,
-      is_approver: true,
-      is_away: false,
-    })
-
-    // Super admin gets all permissions
-    setPermissions([
-      // Dashboard
-      'dashboard.view',
-      // Sales
-      'sales.view', 'sales.create', 'sales.edit', 'sales.delete', 'sales.approve', 'sales.export',
-      // Inventory
-      'inventory.view', 'inventory.create', 'inventory.edit', 'inventory.delete', 
-      'inventory.adjust', 'inventory.transfer', 'inventory.approve', 'inventory.export',
-      // CRM
-      'crm.view', 'crm.create', 'crm.edit', 'crm.delete', 
-      'crm.inbox', 'crm.konnect', 'crm.automations', 'crm.export',
-      // Customers
-      'customers.view', 'customers.create', 'customers.edit', 'customers.delete', 
-      'customers.credit', 'customers.export',
-      // Accounting
-      'accounting.view', 'accounting.create', 'accounting.edit', 'accounting.delete', 
-      'accounting.post', 'accounting.approve', 'accounting.coa', 'accounting.export',
-      // Reports
-      'reports.view', 'reports.export',
-      // HRM
-      'hrm.view_own', 'hrm.view_team', 'hrm.view_all', 'hrm.manage',
-      // Settings
-      'settings.view', 'settings.edit', 'settings.users', 'settings.roles', 'settings.approvals',
-    ])
-  }
-
-  // Check single permission
   const can = useCallback((permission: string): boolean => {
-    // Super admin can do everything
     if (user?.role_name === 'super_admin') return true
     return permissions.includes(permission)
   }, [user, permissions])
 
-  // Check if user has ANY of the permissions
   const canAny = useCallback((perms: string[]): boolean => {
     if (user?.role_name === 'super_admin') return true
     return perms.some(p => permissions.includes(p))
   }, [user, permissions])
 
-  // Check if user has ALL permissions
   const canAll = useCallback((perms: string[]): boolean => {
     if (user?.role_name === 'super_admin') return true
     return perms.every(p => permissions.includes(p))
   }, [user, permissions])
 
-  // Role checks
   const hasRole = useCallback((roleName: string): boolean => {
     return user?.role_name === roleName
   }, [user])
@@ -244,23 +189,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return user?.role_name === 'super_admin'
   }, [user])
 
-  // Sign out
   const signOut = async () => {
     await supabase.auth.signOut()
     setUser(null)
     setPermissions([])
   }
 
-  // Refresh user data
   const refreshUser = async () => {
     await loadUser()
   }
 
-  // Initial load
   useEffect(() => {
     loadUser()
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         loadUser()
@@ -294,23 +235,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   )
 }
 
-// ============================================================================
-// PERMISSION CONSTANTS (for easy reference)
-// ============================================================================
-
 export const PERMISSIONS = {
-  // Dashboard
   DASHBOARD_VIEW: 'dashboard.view',
-  
-  // Sales
   SALES_VIEW: 'sales.view',
   SALES_CREATE: 'sales.create',
   SALES_EDIT: 'sales.edit',
   SALES_DELETE: 'sales.delete',
   SALES_APPROVE: 'sales.approve',
   SALES_EXPORT: 'sales.export',
-  
-  // Inventory
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_CREATE: 'inventory.create',
   INVENTORY_EDIT: 'inventory.edit',
@@ -319,8 +251,6 @@ export const PERMISSIONS = {
   INVENTORY_TRANSFER: 'inventory.transfer',
   INVENTORY_APPROVE: 'inventory.approve',
   INVENTORY_EXPORT: 'inventory.export',
-  
-  // CRM
   CRM_VIEW: 'crm.view',
   CRM_CREATE: 'crm.create',
   CRM_EDIT: 'crm.edit',
@@ -329,16 +259,12 @@ export const PERMISSIONS = {
   CRM_KONNECT: 'crm.konnect',
   CRM_AUTOMATIONS: 'crm.automations',
   CRM_EXPORT: 'crm.export',
-  
-  // Customers
   CUSTOMERS_VIEW: 'customers.view',
   CUSTOMERS_CREATE: 'customers.create',
   CUSTOMERS_EDIT: 'customers.edit',
   CUSTOMERS_DELETE: 'customers.delete',
   CUSTOMERS_CREDIT: 'customers.credit',
   CUSTOMERS_EXPORT: 'customers.export',
-  
-  // Accounting
   ACCOUNTING_VIEW: 'accounting.view',
   ACCOUNTING_CREATE: 'accounting.create',
   ACCOUNTING_EDIT: 'accounting.edit',
@@ -347,18 +273,12 @@ export const PERMISSIONS = {
   ACCOUNTING_APPROVE: 'accounting.approve',
   ACCOUNTING_COA: 'accounting.coa',
   ACCOUNTING_EXPORT: 'accounting.export',
-  
-  // Reports
   REPORTS_VIEW: 'reports.view',
   REPORTS_EXPORT: 'reports.export',
-  
-  // HRM
   HRM_VIEW_OWN: 'hrm.view_own',
   HRM_VIEW_TEAM: 'hrm.view_team',
   HRM_VIEW_ALL: 'hrm.view_all',
   HRM_MANAGE: 'hrm.manage',
-  
-  // Settings
   SETTINGS_VIEW: 'settings.view',
   SETTINGS_EDIT: 'settings.edit',
   SETTINGS_USERS: 'settings.users',
@@ -366,12 +286,7 @@ export const PERMISSIONS = {
   SETTINGS_APPROVALS: 'settings.approvals',
 } as const
 
-// ============================================================================
-// ROLE-BASED PAGE ACCESS MAP
-// ============================================================================
-
 export const PAGE_PERMISSIONS: Record<string, string[]> = {
-  // Core pages
   'dashboard': ['dashboard.view'],
   'vouchers': ['accounting.view'],
   'chart-of-accounts': ['accounting.coa'],
@@ -380,16 +295,12 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'customers': ['customers.view'],
   'reports': ['reports.view'],
   'settings': ['settings.view'],
-  
-  // Sales pages
   'sales': ['sales.view'],
   'cash-sale': ['sales.create'],
   'sales-invoice': ['sales.create'],
   'sales-day-book': ['sales.view'],
   'sales-register': ['sales.view'],
   'sales-return': ['sales.create'],
-  
-  // Voucher pages
   'cash-payment': ['accounting.create'],
   'cash-receipt': ['accounting.create'],
   'bank-payment': ['accounting.create'],
@@ -407,8 +318,6 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'stock-adjustment': ['inventory.adjust'],
   'stock-transfer': ['inventory.transfer'],
   'journal-entry': ['accounting.create'],
-  
-  // CRM pages
   'crm': ['crm.view'],
   'crm-hub': ['crm.view'],
   'crm-inbox': ['crm.inbox'],
@@ -418,15 +327,11 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'crm-loyalty': ['crm.view'],
   'crm-feedback': ['crm.view'],
   'crm-upsell': ['crm.view'],
-  
-  // Settings pages
   'users': ['settings.users'],
   'approvals': ['settings.approvals'],
   'whatsapp-settings': ['settings.edit'],
   'location-settings': ['settings.edit'],
   'inventory-settings': ['settings.edit'],
-  
-  // Reports
   'pnl': ['reports.view'],
   'trial-balance': ['reports.view'],
   'balance-sheet': ['reports.view'],
@@ -437,18 +342,12 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'purchase-register': ['reports.view'],
   'payment-register': ['reports.view'],
   'stock-transfer-register': ['reports.view'],
-  
-  // Data
   'data-import': ['settings.edit'],
 }
 
-// Check if user can access a specific page
 export function canAccessPage(page: string, permissions: string[], roleName: string): boolean {
-  // Super admin can access everything
   if (roleName === 'super_admin') return true
-  
   const requiredPerms = PAGE_PERMISSIONS[page]
-  if (!requiredPerms) return true // Pages without defined permissions are accessible
-  
+  if (!requiredPerms) return true
   return requiredPerms.some(p => permissions.includes(p))
 }
