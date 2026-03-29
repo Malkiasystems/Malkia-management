@@ -46,7 +46,6 @@ export default function CashSale() {
   const [posting, setPosting] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [autoReceipt] = useState(true)
-  const [pendingApproval, setPendingApproval] = useState(false)
 
   // Customer
   const [waInput, setWaInput] = useState('')
@@ -286,7 +285,6 @@ export default function CashSale() {
 
         if (result.success) {
           showToast(`Sale requires approval: ${approvalCheck.reason}. Sent to approver.`, 'error')
-          setPendingApproval(true)
         } else {
           showToast(`Failed to create approval request: ${result.error}`, 'error')
         }
