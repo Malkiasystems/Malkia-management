@@ -45,6 +45,10 @@ const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
 const LocationSettings = lazy(() => import('./pages/LocationSettings'))
 const InventorySettings = lazy(() => import('./pages/InventorySettings'))
 
+// User Management & Approvals
+const UserManagement = lazy(() => import('./pages/UserManagement'))
+const ApprovalWorkflows = lazy(() => import('./pages/ApprovalWorkflows'))
+
 // Vouchers
 const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
 const CashPayment = lazy(() => import('./pages/vouchers/CashPayment'))
@@ -87,6 +91,8 @@ interface CacheData {
   ledger?: any[]
   banks?: any[]
   suppliers?: any[]
+  users?: any[]
+  roles?: any[]
   [key: string]: any[] | undefined
 }
 
@@ -175,8 +181,8 @@ const PageLoader = () => (
   </div>
 )
 
-// Extended breadcrumbs for CRM
-const CRM_BREADCRUMBS: Record<string, string> = {
+// Extended breadcrumbs for CRM and Settings
+const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-hub': 'CRM Hub',
   'crm-inbox': 'CRM / Inbox',
   'crm-automations': 'CRM / Automations',
@@ -185,6 +191,8 @@ const CRM_BREADCRUMBS: Record<string, string> = {
   'crm-loyalty': 'CRM / Crown Rewards',
   'crm-feedback': 'CRM / Feedback',
   'crm-upsell': 'CRM / Upsell Engine',
+  'users': 'Settings / User Management',
+  'approvals': 'Settings / Approval Workflows',
 }
 
 // ============================================================================
@@ -260,6 +268,10 @@ export default function App() {
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'data-import':       return <DataImport />
       
+      // User Management & Approvals
+      case 'users':             return <UserManagement onNav={navigate} />
+      case 'approvals':         return <ApprovalWorkflows onNav={navigate} />
+      
       // CRM Module Routes
       case 'crm':
       case 'crm-hub':           return <CRMHub onNav={navigate} />
@@ -272,11 +284,11 @@ export default function App() {
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
       case 'crm-customers':     return <Customers />
       
-      default:                  return <ComingSoon module={BREADCRUMBS[page] || CRM_BREADCRUMBS[page] || page} />
+      default:                  return <ComingSoon module={BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || page} />
     }
   }
 
-  const breadcrumb = BREADCRUMBS[page] || CRM_BREADCRUMBS[page] || 'Dashboard'
+  const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
 
   return (
     <CacheProvider>
