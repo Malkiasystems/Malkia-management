@@ -9,6 +9,8 @@ import type { ReceiptSettings } from '../ReceiptTemplate'
 import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
+import { useAuth } from '../../lib/useAuth'
+import { checkApprovalRequired, createApprovalRequest } from '../../lib/useApproval'
 
 interface DBProduct { id: string; sku: string; name: string; category: string; cost_price: number; selling_price: number; qty_on_hand: number }
 interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
@@ -37,12 +39,14 @@ const PAYMENT_METHODS: PaymentMethod[] = [
 interface SplitLine { methodId: string; accountId: string; amount: number; ref: string }
 
 export default function CashSale() {
+  const { user } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [autoRef, setAutoRef] = useState('CS-10-????')
   const [posting, setPosting] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [autoReceipt] = useState(true)
+  const [pendingApproval, setPendingApproval] = useState(false)
 
   // Customer
   const [waInput, setWaInput] = useState('')
@@ -262,6 +266,35 @@ export default function CashSale() {
     const postingDate = today()
 
     try {
+      // ═══════════════════════════════════════════════════════════════════
+      // APPROVAL CHECK: Check if this sale requires approval
+      // ═══════════════════════════════════════════════════════════════════
+      const approvalCheck = await checkApprovalRequired('large_sale', total)
+      
+      if (approvalCheck.requiresApproval && !user?.is_approver) {
+        // Create approval request instead of posting
+        const result = await createApprovalRequest({
+          typeCode: 'large_sale',
+          referenceType: 'cash_sale',
+          referenceId: crypto.randomUUID(),
+          referenceNumber: ref,
+          summary: `Cash Sale TZS ${total.toLocaleString()} to ${newCustName}`,
+          originalValue: subtotal,
+          requestedValue: total,
+          requestedBy: user?.id || 'unknown',
+        })
+
+        if (result.success) {
+          showToast(`Sale requires approval: ${approvalCheck.reason}. Sent to approver.`, 'error')
+          setPendingApproval(true)
+        } else {
+          showToast(`Failed to create approval request: ${result.error}`, 'error')
+        }
+        setPosting(false)
+        return
+      }
+      // ═══════════════════════════════════════════════════════════════════
+
       // Upsert customer
       const cleaned = waInput.replace(/[\s+\-()]/g, '')
       let customerId = selectedCust?.id || null
