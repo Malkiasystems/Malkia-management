@@ -85,19 +85,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setLoading(false)
   }
 
-  const loadPermissions = async (roleId: string) => {
-    const { data: permData } = await supabase
-      .from('role_permissions')
-      .select('permissions:permission_id (module, action)')
-      .eq('role_id', roleId)
-    if (permData) {
-      const perms = permData
-        .map((rp: any) => rp.permissions?.module + '.' + rp.permissions?.action)
-        .filter(Boolean)
-      setPermissions(perms)
-    }
-  }
-
   const loadUser = useCallback(async () => {
     try {
       setLoading(true)
@@ -109,7 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('*, roles:role_id (name)')
+        .select('*')
         .eq('id', session.user.id)
         .single()
       if (userError || !userData) {
@@ -122,8 +109,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         full_name: userData.full_name,
         initials: userData.initials,
         phone: userData.phone,
-        role_id: userData.role_id,
-        role_name: userData.roles?.name || 'unknown',
+        role_id: userData.role_id || '',
+        role_name: userData.role_name || 'user',
         reports_to: userData.reports_to,
         is_active: userData.is_active,
         is_approver: userData.is_approver,
@@ -131,7 +118,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         avatar_url: userData.avatar_url,
       }
       setUser(currentUser)
-      await loadPermissions(userData.role_id)
+      // Permissions are now stored directly in users.permissions array
+      setPermissions(userData.permissions || [])
       setLoading(false)
     } catch (err) {
       console.error('Auth error:', err)
@@ -141,19 +129,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [])
 
   const can = useCallback((permission: string): boolean => {
-    if (user?.role_name === 'super_admin') return true
+    // Check if user has all permissions (super admin equivalent)
+    if (permissions.includes('*') || permissions.length >= 40) return true
     return permissions.includes(permission)
-  }, [user, permissions])
+  }, [permissions])
 
   const canAny = useCallback((perms: string[]): boolean => {
-    if (user?.role_name === 'super_admin') return true
+    if (permissions.includes('*') || permissions.length >= 40) return true
     return perms.some(p => permissions.includes(p))
-  }, [user, permissions])
+  }, [permissions])
 
   const canAll = useCallback((perms: string[]): boolean => {
-    if (user?.role_name === 'super_admin') return true
+    if (permissions.includes('*') || permissions.length >= 40) return true
     return perms.every(p => permissions.includes(p))
-  }, [user, permissions])
+  }, [permissions])
 
   const hasRole = useCallback((roleName: string): boolean => {
     return user?.role_name === roleName
@@ -256,8 +245,9 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'data-import': ['settings.edit'],
 }
 
-export function canAccessPage(page: string, permissions: string[], roleName: string): boolean {
-  if (roleName === 'super_admin') return true
+export function canAccessPage(page: string, permissions: string[], _roleName: string): boolean {
+  // If user has 40+ permissions, they have full access (super admin equivalent)
+  if (permissions.includes('*') || permissions.length >= 40) return true
   const requiredPerms = PAGE_PERMISSIONS[page]
   if (!requiredPerms) return true
   return requiredPerms.some(p => permissions.includes(p))
