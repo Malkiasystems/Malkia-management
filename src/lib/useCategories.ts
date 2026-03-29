@@ -78,22 +78,8 @@ async function fetchCategories(): Promise<ProductCategory[]> {
     }))
   }
 
-  // Fallback: try system_settings (legacy)
-  const { data: legacyData } = await supabase
-    .from('system_settings')
-    .select('value')
-    .eq('key', 'product_categories_v2')
-    .single()
-
-  if (legacyData?.value) {
-    try {
-      const parsed = JSON.parse(legacyData.value)
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed
-    } catch {}
-  }
-
-  // Return defaults if nothing found
-  return DEFAULT_CATEGORIES
+  // Return empty array if nothing in database
+  return []
 }
 
 export function useCategories(): UseCategoriesResult {
