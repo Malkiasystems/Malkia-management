@@ -21,6 +21,8 @@ export type Page =
   | 'crm-customers'
   // Settings Pages
   | 'accounting-settings'
+  // User Management & Approvals
+  | 'users' | 'approvals'
 
 export interface Product {
   id: string
