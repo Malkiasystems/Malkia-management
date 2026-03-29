@@ -19,6 +19,8 @@ export type Page =
   | 'crm' | 'crm-hub' | 'crm-inbox' | 'crm-automations' | 'crm-preorders'
   | 'crm-referrals' | 'crm-loyalty' | 'crm-feedback' | 'crm-upsell'
   | 'crm-customers'
+  // Settings Pages
+  | 'accounting-settings'
 
 export interface Product {
   id: string
