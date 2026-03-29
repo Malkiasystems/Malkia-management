@@ -346,7 +346,7 @@ export default function UserManagement({ onNav }: Props) {
 
       if (error) {
         console.error('Error updating user:', error)
-        alert('Failed to update user')
+        alert('Failed to update user: ' + error.message)
         return
       }
     } else {
