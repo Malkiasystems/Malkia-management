@@ -73,6 +73,7 @@ interface Conversation {
   customer_phone: string
   tier: 'mama' | 'gold' | 'crown'
   pregnancy_week?: number
+  postpartum_weeks?: number
   last_message: string
   last_message_at: string
   unread_count: number
@@ -138,7 +139,6 @@ export default function CRMInbox({ onNav }: Props) {
   const [isNoteMode, setIsNoteMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterTab, setFilterTab] = useState<'all' | 'open' | 'urgent'>('all')
-  const [showQuickReplies, setShowQuickReplies] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { loadData() }, [])
@@ -222,12 +222,10 @@ export default function CRMInbox({ onNav }: Props) {
     setMessages([...messages, newMessage])
     setReplyText('')
     setIsNoteMode(false)
-    setShowQuickReplies(false)
   }
 
   const loadQuickReply = (template: string) => {
     setReplyText(template)
-    setShowQuickReplies(false)
   }
 
   const sendUpsellSuggestion = (suggestion: UpsellSuggestion) => {

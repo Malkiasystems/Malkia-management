@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+// supabase import ready for real data
+// import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props {
-  onNav: (p: Page) => void
+  onNav: (p: Page) => void // used for navigation actions
 }
 
 // Lucide Icon component
@@ -66,6 +67,7 @@ interface ReferralActivity {
 }
 
 export default function CRMReferrals({ onNav }: Props) {
+  void onNav // available for future navigation
   const [referrers, setReferrers] = useState<Referrer[]>([])
   const [activities, setActivities] = useState<ReferralActivity[]>([])
   const [loading, setLoading] = useState(true)

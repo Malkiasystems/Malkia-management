@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+// supabase import ready for real data
+// import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props {
-  onNav: (p: Page) => void
+  onNav: (p: Page) => void // used for navigation actions
 }
 
 // Lucide Icon component
@@ -80,7 +81,7 @@ export default function CRMPreorders({ onNav }: Props) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  void onNav // available for future navigation
 
   useEffect(() => { loadData() }, [])
 

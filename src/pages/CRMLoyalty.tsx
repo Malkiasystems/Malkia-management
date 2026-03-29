@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+// supabase import ready for real data
+// import { supabase } from '../lib/supabase'
 import type { Page } from '../lib/types'
 
 interface Props {
-  onNav: (p: Page) => void
+  onNav: (p: Page) => void // used for navigation actions
 }
 
 // Lucide Icon component
@@ -83,6 +83,9 @@ interface PointsActivity {
 }
 
 export default function CRMLoyalty({ onNav }: Props) {
+  // Format TZS currency
+  const tzs = (n: number) => `TZS ${n.toLocaleString()}`
+  void onNav // available for future navigation
   const [tiers, setTiers] = useState<TierData[]>([])
   const [members, setMembers] = useState<LoyaltyMember[]>([])
   const [rewards, setRewards] = useState<Reward[]>([])

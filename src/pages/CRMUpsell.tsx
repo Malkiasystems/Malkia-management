@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+// supabase import ready for real data
+// import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props {
-  onNav: (p: Page) => void
+  onNav: (p: Page) => void // used for navigation actions
 }
 
 // Lucide Icon component
@@ -79,6 +80,7 @@ interface UpsellActivity {
 }
 
 export default function CRMUpsell({ onNav }: Props) {
+  void onNav // available for future navigation
   const [rules, setRules] = useState<UpsellRule[]>([])
   const [activities, setActivities] = useState<UpsellActivity[]>([])
   const [loading, setLoading] = useState(true)
@@ -206,14 +208,6 @@ export default function CRMUpsell({ onNav }: Props) {
     setRules(rules.map(r => 
       r.id === id ? { ...r, isActive: !r.isActive } : r
     ))
-  }
-
-  const getTierColor = (tier: string) => {
-    switch (tier) {
-      case 'crown': return '#f472b6'
-      case 'gold': return '#fbbf24'
-      default: return '#10b981'
-    }
   }
 
   const getTriggerIcon = (type: string) => {
