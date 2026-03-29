@@ -1,212 +1,369 @@
-import { useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
+import { BREADCRUMBS } from './lib/data'
+import type { Page } from './lib/types'
+import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
 
-interface Props {
-  onLogin: () => void
+import Topbar from './components/Topbar'
+import Sidebar from './components/Sidebar'
+import Login from './pages/Login'
+
+// ============================================================================
+// PERFORMANCE: Eager load core pages (used immediately)
+// ============================================================================
+import Dashboard from './pages/Dashboard'
+import ComingSoon from './pages/ComingSoon'
+
+// ============================================================================
+// PERFORMANCE: Lazy load everything else (loaded on demand)
+// ============================================================================
+
+// Accounting & Core
+const ChartOfAccounts = lazy(() => import('./pages/ChartOfAccounts'))
+const Inventory = lazy(() => import('./pages/Inventory'))
+const ReportsHub = lazy(() => import('./pages/ReportsHub'))
+const Banks = lazy(() => import('./pages/Banks'))
+const Customers = lazy(() => import('./pages/Customers'))
+const Settings = lazy(() => import('./pages/Settings'))
+const DataImport = lazy(() => import('./pages/DataImport'))
+
+// Reports
+const PnL = lazy(() => import('./pages/PnL'))
+const SalesRegister = lazy(() => import('./pages/SalesRegister'))
+const SalesDayBook = lazy(() => import('./pages/SalesDayBook'))
+const TrialBalance = lazy(() => import('./pages/TrialBalance'))
+const BalanceSheet = lazy(() => import('./pages/BalanceSheet'))
+const ARAgingReport = lazy(() => import('./pages/ARAgingReport'))
+const APAgingReport = lazy(() => import('./pages/APAgingReport'))
+const VATReport = lazy(() => import('./pages/VATReport'))
+const StockValuationReport = lazy(() => import('./pages/StockValuationReport'))
+const PurchaseRegister = lazy(() => import('./pages/PurchaseRegister'))
+const PaymentRegister = lazy(() => import('./pages/PaymentRegister'))
+const StockTransferRegister = lazy(() => import('./pages/StockTransferRegister'))
+
+// Settings Pages
+const ReceiptTemplatePage = lazy(() => import('./pages/ReceiptTemplate'))
+const InvoiceTemplatePage = lazy(() => import('./pages/InvoiceTemplate'))
+const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
+const LocationSettings = lazy(() => import('./pages/LocationSettings'))
+const InventorySettings = lazy(() => import('./pages/InventorySettings'))
+
+// User Management & Approvals
+const UserManagement = lazy(() => import('./pages/UserManagement'))
+const ApprovalWorkflows = lazy(() => import('./pages/ApprovalWorkflows'))
+
+// Vouchers
+const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
+const CashPayment = lazy(() => import('./pages/vouchers/CashPayment'))
+const CashReceipt = lazy(() => import('./pages/vouchers/CashReceipt'))
+const BankTransfer = lazy(() => import('./pages/vouchers/BankTransfer'))
+const ContraEntry = lazy(() => import('./pages/vouchers/ContraEntry'))
+const PettyCash = lazy(() => import('./pages/vouchers/PettyCash'))
+const CashSale = lazy(() => import('./pages/vouchers/CashSale'))
+const SalesInvoice = lazy(() => import('./pages/vouchers/SalesInvoice'))
+const SalesReturn = lazy(() => import('./pages/vouchers/SalesReturn'))
+const DebitNote = lazy(() => import('./pages/vouchers/DebitNote'))
+const CreditNote = lazy(() => import('./pages/vouchers/CreditNote'))
+const PurchaseOrder = lazy(() => import('./pages/vouchers/PurchaseOrder'))
+const GRN = lazy(() => import('./pages/vouchers/GRN'))
+const PurchaseInvoice = lazy(() => import('./pages/vouchers/PurchaseInvoice'))
+const PurchaseReturn = lazy(() => import('./pages/vouchers/PurchaseReturn'))
+const OpeningStock = lazy(() => import('./pages/vouchers/OpeningStock'))
+const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
+const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
+const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
+
+// CRM Module (lazy - entire module loads on first CRM page visit)
+const CRMHub = lazy(() => import('./pages/CRMHub'))
+const CRMInbox = lazy(() => import('./pages/CRMInbox'))
+const CRMAutomations = lazy(() => import('./pages/CRMAutomations'))
+const CRMPreorders = lazy(() => import('./pages/CRMPreorders'))
+const CRMReferrals = lazy(() => import('./pages/CRMReferrals'))
+const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
+const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
+const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
+
+// ============================================================================
+// PERFORMANCE: Global Data Cache Context
+// ============================================================================
+interface CacheData {
+  products?: any[]
+  accounts?: any[]
+  customers?: any[]
+  vouchers?: any[]
+  ledger?: any[]
+  banks?: any[]
+  suppliers?: any[]
+  users?: any[]
+  roles?: any[]
+  [key: string]: any[] | undefined
 }
 
-export default function Login({ onLogin }: Props) {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+interface CacheContextType {
+  cache: CacheData
+  setCache: (key: string, data: any[]) => void
+  getCache: (key: string) => any[] | undefined
+  invalidate: (key: string) => void
+  invalidateAll: () => void
+  lastFetch: Record<string, number>
+  isStale: (key: string, maxAgeMs?: number) => boolean
+}
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
+const CacheContext = createContext<CacheContextType | null>(null)
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+export function useDataCache() {
+  const ctx = useContext(CacheContext)
+  if (!ctx) throw new Error('useDataCache must be used within CacheProvider')
+  return ctx
+}
+
+function CacheProvider({ children }: { children: ReactNode }) {
+  const [cache, setCacheState] = useState<CacheData>({})
+  const [lastFetch, setLastFetch] = useState<Record<string, number>>({})
+
+  const setCache = useCallback((key: string, data: any[]) => {
+    setCacheState(prev => ({ ...prev, [key]: data }))
+    setLastFetch(prev => ({ ...prev, [key]: Date.now() }))
+  }, [])
+
+  const getCache = useCallback((key: string) => cache[key], [cache])
+
+  const invalidate = useCallback((key: string) => {
+    setCacheState(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
     })
+    setLastFetch(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }, [])
 
-    if (authError) {
-      setError(authError.message)
-      setLoading(false)
-      return
-    }
+  const invalidateAll = useCallback(() => {
+    setCacheState({})
+    setLastFetch({})
+  }, [])
 
-    // Check if user exists in our users table
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('id, is_active')
-      .eq('email', email.toLowerCase())
-      .single()
-
-    if (userError || !userData) {
-      setError('Account not found. Contact your administrator.')
-      await supabase.auth.signOut()
-      setLoading(false)
-      return
-    }
-
-    if (!userData.is_active) {
-      setError('Your account has been deactivated. Contact your administrator.')
-      await supabase.auth.signOut()
-      setLoading(false)
-      return
-    }
-
-    setLoading(false)
-    onLogin()
-  }
+  const isStale = useCallback((key: string, maxAgeMs = 60000) => {
+    const last = lastFetch[key]
+    if (!last) return true
+    return Date.now() - last > maxAgeMs
+  }, [lastFetch])
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.logo}>
-          <svg width="48" height="48" viewBox="0 0 100 100" fill="none">
-            <circle cx="50" cy="50" r="45" fill="#85c2be"/>
-            <path d="M30 65 L50 35 L70 65" stroke="#fff" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-            <circle cx="50" cy="28" r="6" fill="#f7a6ad"/>
-          </svg>
-        </div>
-        
-        <h1 style={styles.title}>MalkiaOS</h1>
-        <p style={styles.subtitle}>Sign in to your account</p>
-
-        <form onSubmit={handleLogin} style={styles.form}>
-          {error && (
-            <div style={styles.error}>
-              {error}
-            </div>
-          )}
-
-          <div style={styles.field}>
-            <label style={styles.label}>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@malkia.co.tz"
-              style={styles.input}
-              required
-              autoFocus
-            />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              style={styles.input}
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              ...styles.button,
-              opacity: loading ? 0.7 : 1,
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-
-        <p style={styles.footer}>
-          Malkia Wellness Group Ltd
-        </p>
-      </div>
-    </div>
+    <CacheContext.Provider value={{ cache, setCache, getCache, invalidate, invalidateAll, lastFetch, isStale }}>
+      {children}
+    </CacheContext.Provider>
   )
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    minHeight: '100vh',
+// ============================================================================
+// PERFORMANCE: Loading Fallback Component
+// ============================================================================
+const PageLoader = () => (
+  <div style={{
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%)',
-    padding: 20,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 400,
-    background: '#1e1e1e',
-    borderRadius: 16,
-    padding: 40,
-    border: '1px solid #2a2a2a',
-    textAlign: 'center' as const,
-  },
-  logo: {
-    marginBottom: 24,
-  },
-  title: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 28,
-    fontWeight: 700,
-    color: '#ffffff',
-    margin: 0,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#888',
-    margin: 0,
-    marginBottom: 32,
-  },
-  form: {
+    height: '100%',
+    color: 'var(--text3)',
+    gap: 12
+  }}>
+    <div style={{
+      width: 20,
+      height: 20,
+      border: '2px solid var(--border)',
+      borderTopColor: 'var(--accent)',
+      borderRadius: '50%',
+      animation: 'spin 0.8s linear infinite'
+    }} />
+    <span style={{ fontSize: 13 }}>Loading...</span>
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+)
+
+// Access Denied Component
+const AccessDenied = ({ page }: { page: string }) => (
+  <div style={{
     display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 20,
-  },
-  field: {
-    textAlign: 'left' as const,
-  },
-  label: {
-    display: 'block',
-    fontSize: 12,
-    fontWeight: 500,
-    color: '#aaa',
-    marginBottom: 8,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
-  },
-  input: {
-    width: '100%',
-    padding: '14px 16px',
-    fontSize: 15,
-    borderRadius: 10,
-    border: '1px solid #333',
-    background: '#0d0d0d',
-    color: '#fff',
-    outline: 'none',
-    transition: 'border-color 0.2s',
-    boxSizing: 'border-box' as const,
-  },
-  button: {
-    width: '100%',
-    padding: '14px 24px',
-    fontSize: 15,
-    fontWeight: 600,
-    borderRadius: 10,
-    border: 'none',
-    background: '#85c2be',
-    color: '#000',
-    marginTop: 8,
-    transition: 'all 0.2s',
-  },
-  error: {
-    padding: '12px 16px',
-    borderRadius: 10,
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    color: '#ef4444',
-    fontSize: 13,
-    textAlign: 'left' as const,
-  },
-  footer: {
-    marginTop: 32,
-    fontSize: 12,
-    color: '#555',
-  },
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    color: 'var(--text3)',
+    gap: 16,
+    padding: 40,
+    textAlign: 'center'
+  }}>
+    <svg width="48" height="48" fill="none" stroke="var(--text3)" strokeWidth="1.5" viewBox="0 0 24 24">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+    <div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+        Access Denied
+      </div>
+      <div style={{ fontSize: 13 }}>
+        You don't have permission to access this page.
+      </div>
+      <div style={{ fontSize: 11, marginTop: 8, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+        {page}
+      </div>
+    </div>
+  </div>
+)
+
+// Extended breadcrumbs for CRM and Settings
+const EXTENDED_BREADCRUMBS: Record<string, string> = {
+  'crm-hub': 'CRM Hub',
+  'crm-inbox': 'CRM / Inbox',
+  'crm-automations': 'CRM / Automations',
+  'crm-preorders': 'CRM / Pre-Orders',
+  'crm-referrals': 'CRM / Referrals',
+  'crm-loyalty': 'CRM / Crown Rewards',
+  'crm-feedback': 'CRM / Feedback',
+  'crm-upsell': 'CRM / Upsell Engine',
+  'users': 'Settings / User Management',
+  'approvals': 'Settings / Approval Workflows',
+}
+
+// ============================================================================
+// MAIN APP COMPONENT
+// ============================================================================
+
+function AppContent() {
+  const [page, setPage] = useState<Page>('dashboard')
+  const [history, setHistory] = useState<Page[]>([])
+  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
+
+  const navigate = (p: Page) => {
+    setHistory(h => [...h.slice(-19), page])
+    setPage(p)
+  }
+
+  const goBack = () => {
+    if (history.length === 0) return
+    const prev = history[history.length - 1]
+    setHistory(h => h.slice(0, -1))
+    setPage(prev)
+  }
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return <PageLoader />
+  }
+
+  // Show login if not authenticated
+  if (!isAuthenticated) {
+    return <Login onLogin={refreshUser} />
+  }
+
+  // Check if current user can access the page
+  const hasAccess = canAccessPage(page, permissions)
+
+  const renderPage = () => {
+    // Show access denied if user doesn't have permission
+    if (!hasAccess && !authLoading) {
+      return <AccessDenied page={page} />
+    }
+
+    switch (page) {
+      // Eager loaded (no Suspense needed)
+      case 'dashboard':         return <Dashboard onNav={navigate} />
+      
+      // Lazy loaded pages
+      case 'vouchers':          return <VouchersHub onNav={navigate} />
+      case 'chart-of-accounts': return <ChartOfAccounts />
+      case 'inventory':         return <Inventory />
+      case 'reports':           return <ReportsHub onNav={navigate} />
+      case 'pnl':               return <PnL />
+      case 'sales-register':    return <SalesRegister />
+      case 'sales-day-book':    return <SalesDayBook />
+      case 'trial-balance':     return <TrialBalance />
+      case 'balance-sheet':     return <BalanceSheet />
+      case 'ar-aging':          return <ARAgingReport />
+      case 'ap-aging':          return <APAgingReport />
+      case 'vat-report':        return <VATReport />
+      case 'stock-valuation':   return <StockValuationReport />
+      case 'purchase-register': return <PurchaseRegister />
+      case 'payment-register':  return <PaymentRegister />
+      case 'receipt-template':  return <ReceiptTemplatePage />
+      case 'invoice-template':  return <InvoiceTemplatePage />
+      case 'whatsapp-settings': return <WhatsAppSettings />
+      case 'location-settings': return <LocationSettings />
+      case 'inventory-settings': return <InventorySettings onNav={navigate} />
+      case 'pricelist-template': return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon</div></div>
+      case 'banks':             return <Banks />
+      case 'settings':          return <Settings onNav={navigate} />
+      case 'cash-payment':      return <CashPayment onNav={navigate} />
+      case 'bank-payment':      return <CashPayment onNav={navigate} />
+      case 'cash-receipt':      return <CashReceipt onNav={navigate} />
+      case 'bank-receipt':      return <CashReceipt onNav={navigate} />
+      case 'bank-transfer':     return <BankTransfer onNav={navigate} />
+      case 'petty-cash':        return <PettyCash onNav={navigate} />
+      case 'contra':            return <ContraEntry onNav={navigate} />
+      case 'cash-sale':         return <CashSale />
+      case 'sales':             return <CashSale />
+      case 'sales-invoice':     return <SalesInvoice onNav={navigate} />
+      case 'sales-return':      return <SalesReturn onNav={navigate} />
+      case 'debit-note':        return <DebitNote onNav={navigate} />
+      case 'credit-note':       return <CreditNote onNav={navigate} />
+      case 'purchase-order':    return <PurchaseOrder onNav={navigate} />
+      case 'grn':               return <GRN onNav={navigate} />
+      case 'purchase-invoice':  return <PurchaseInvoice onNav={navigate} />
+      case 'purchase-return':   return <PurchaseReturn onNav={navigate} />
+      case 'opening-stock':     return <OpeningStock onNav={navigate} />
+      case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
+      case 'stock-transfer':    return <StockTransfer onNav={navigate} />
+      case 'stock-transfer-register': return <StockTransferRegister />
+      case 'customers':         return <Customers />
+      case 'journal-entry':     return <JournalEntry onNav={navigate} />
+      case 'data-import':       return <DataImport />
+      
+      // User Management & Approvals
+      case 'users':             return <UserManagement onNav={navigate} />
+      case 'approvals':         return <ApprovalWorkflows onNav={navigate} />
+      
+      // CRM Module Routes
+      case 'crm':
+      case 'crm-hub':           return <CRMHub onNav={navigate} />
+      case 'crm-inbox':         return <CRMInbox onNav={navigate} />
+      case 'crm-automations':   return <CRMAutomations onNav={navigate} />
+      case 'crm-preorders':     return <CRMPreorders onNav={navigate} />
+      case 'crm-referrals':     return <CRMReferrals onNav={navigate} />
+      case 'crm-loyalty':       return <CRMLoyalty onNav={navigate} />
+      case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
+      case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
+      case 'crm-customers':     return <Customers />
+      
+      default:                  return <ComingSoon module={BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || page} />
+    }
+  }
+
+  const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
+
+  return (
+    <CacheProvider>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <Sidebar current={page} onNav={navigate} />
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <Suspense fallback={<PageLoader />}>
+              {renderPage()}
+            </Suspense>
+          </div>
+        </div>
+      </div>
+    </CacheProvider>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  )
 }
