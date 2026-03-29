@@ -7,235 +7,157 @@ interface Props {
   onNav: (p: Page) => void
 }
 
-interface Campaign {
-  id: string
-  campaign_number: string
-  name: string
-  description: string
-  products: string[]
-  total_price: number
-  deposit_percentage: number
-  deposit_amount: number
-  target_orders: number
-  current_orders: number
-  status: 'draft' | 'active' | 'fulfilled' | 'cancelled'
-  close_date: string
-  expected_arrival: string
-  deposits_collected: number
-}
-
-interface PreOrder {
-  id: string
-  preorder_number: string
-  campaign_id: string
-  customer_name: string
-  customer_whatsapp: string
-  customer_tier: string
-  campaign_name: string
-  product_name: string
-  total_amount: number
-  deposit_paid: number
-  balance_due: number
-  status: 'pending_deposit' | 'deposit_paid' | 'ordered' | 'arrived' | 'fulfilled' | 'cancelled'
-  expected_arrival: string
-}
-
-// Icon component
-const Icon = ({ name, size = 20, color = 'currentColor' }: { name: string; size?: number; color?: string }) => {
-  const props = { width: size, height: size, fill: 'none', stroke: color, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
+// Lucide Icon component
+const Icon = ({ name, size = 20, color = 'currentColor', strokeWidth = 1.8, style }: { name: string; size?: number; color?: string; strokeWidth?: number; style?: React.CSSProperties }) => {
+  const props = { width: size, height: size, fill: 'none', stroke: color, strokeWidth, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24', style }
   
   const paths: Record<string, React.ReactNode> = {
     arrowLeft: <><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></>,
     arrowRight: <><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></>,
+    arrowUpRight: <><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></>,
     package: <><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></>,
     plus: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
-    messageCircle: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></>,
-    eye: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
-    download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
-    copy: <><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
-    clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+    edit: <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>,
+    trash2: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></>,
     checkCircle: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>,
+    xCircle: <><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></>,
     alertCircle: <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>,
-    send: <><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></>,
-    filter: <><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></>,
+    clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
     calendar: <><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>,
-    truck: <><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></>,
     dollarSign: <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>,
     users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
-    bell: <><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></>,
+    user: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
+    send: <><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></>,
+    bellRing: <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/><path d="M22 8c0-2.3-.8-4.3-2-6"/></>,
+    trendingUp: <><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>,
+    activity: <><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></>,
+    target: <><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>,
+    play: <><polygon points="5 3 19 12 5 21 5 3"/></>,
+    pause: <><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></>,
+    moreVertical: <><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></>,
+    filter: <><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></>,
+    search: <><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>,
+    download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
+    externalLink: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></>,
+    eye: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+    crown: <><path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z"/><path d="M3 20h18"/></>,
+    award: <><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></>,
+    heart: <><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></>,
+    truck: <><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></>,
+    shoppingBag: <><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></>,
   }
   
-  return <svg {...props}>{paths[name] || paths.package}</svg>
+  return <svg {...props}>{paths[name] || <circle cx="12" cy="12" r="10"/>}</svg>
+}
+
+interface Campaign {
+  id: string
+  name: string
+  product: string
+  image?: string
+  target: number
+  orders: number
+  depositPercent: number
+  minDeposit: number
+  totalDeposits: number
+  closeDate: string
+  eta: string
+  status: 'active' | 'paused' | 'completed' | 'cancelled'
+  customers: PreOrderCustomer[]
+}
+
+interface PreOrderCustomer {
+  id: string
+  name: string
+  phone: string
+  tier: 'mama' | 'gold' | 'crown'
+  deposit: number
+  paidAt: string
+  reminderSent: boolean
 }
 
 export default function CRMPreorders({ onNav }: Props) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [preorders, setPreorders] = useState<PreOrder[]>([])
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedCampaign, setSelectedCampaign] = useState<string>('all')
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
     setLoading(true)
 
-    // Load campaigns
-    const { data: campData } = await supabase
-      .from('preorder_campaigns')
-      .select('*')
-      .order('created_at', { ascending: false })
+    // Demo data
+    const demoCampaigns: Campaign[] = [
+      {
+        id: '1',
+        name: 'Frida Mom Postpartum Bundle',
+        product: 'Frida Mom Recovery Kit',
+        target: 50,
+        orders: 38,
+        depositPercent: 30,
+        minDeposit: 75000,
+        totalDeposits: 3800000,
+        closeDate: 'Mar 25, 2026',
+        eta: 'Apr 10, 2026',
+        status: 'active',
+        customers: [
+          { id: 'c1', name: 'Amina Hassan', phone: '+255 712 345 678', tier: 'crown', deposit: 100000, paidAt: 'Mar 10', reminderSent: false },
+          { id: 'c2', name: 'Grace Mwanza', phone: '+255 754 987 654', tier: 'crown', deposit: 100000, paidAt: 'Mar 12', reminderSent: false },
+          { id: 'c3', name: 'Zainab Ally', phone: '+255 698 111 222', tier: 'gold', deposit: 75000, paidAt: 'Mar 14', reminderSent: true },
+          { id: 'c4', name: 'Fatuma Iddi', phone: '+255 621 445 889', tier: 'mama', deposit: 75000, paidAt: 'Mar 15', reminderSent: false },
+        ]
+      },
+      {
+        id: '2',
+        name: 'U-Shape Pillow Restock',
+        product: 'U-Shape Pregnancy Pillow',
+        target: 40,
+        orders: 27,
+        depositPercent: 30,
+        minDeposit: 50000,
+        totalDeposits: 2160000,
+        closeDate: 'Mar 30, 2026',
+        eta: 'Apr 15, 2026',
+        status: 'active',
+        customers: [
+          { id: 'c5', name: 'Neema Omari', phone: '+255 765 432 100', tier: 'gold', deposit: 60000, paidAt: 'Mar 18', reminderSent: false },
+          { id: 'c6', name: 'Halima Juma', phone: '+255 788 222 333', tier: 'mama', deposit: 50000, paidAt: 'Mar 19', reminderSent: true },
+        ]
+      },
+      {
+        id: '3',
+        name: 'Spectra S1 Pump Limited',
+        product: 'Spectra S1 Plus Breast Pump',
+        target: 25,
+        orders: 25,
+        depositPercent: 40,
+        minDeposit: 120000,
+        totalDeposits: 3750000,
+        closeDate: 'Mar 20, 2026',
+        eta: 'Apr 5, 2026',
+        status: 'completed',
+        customers: []
+      },
+      {
+        id: '4',
+        name: 'Haakaa Gen 3 Bundle',
+        product: 'Haakaa Gen 3 Starter Kit',
+        target: 30,
+        orders: 8,
+        depositPercent: 30,
+        minDeposit: 45000,
+        totalDeposits: 480000,
+        closeDate: 'Apr 5, 2026',
+        eta: 'Apr 25, 2026',
+        status: 'active',
+        customers: []
+      }
+    ]
 
-    if (campData && campData.length > 0) {
-      setCampaigns(campData)
-    } else {
-      // Demo data
-      setCampaigns([
-        {
-          id: '1',
-          campaign_number: 'CAMP-001',
-          name: 'Frida Mom Postpartum Bundle',
-          description: 'PeaceTouch Binder + Nipple Cream + Scar Sheet - exclusive bundle, limited stock',
-          products: ['PeaceTouch Binder', 'Nipple Cream', 'Scar Sheet'],
-          total_price: 340000,
-          deposit_percentage: 30,
-          deposit_amount: 100000,
-          target_orders: 50,
-          current_orders: 38,
-          status: 'active',
-          close_date: '2025-03-25',
-          expected_arrival: '2025-04-10',
-          deposits_collected: 3800000
-        },
-        {
-          id: '2',
-          campaign_number: 'CAMP-002',
-          name: 'U-Shape Pillow - Restock Pre-Order',
-          description: 'New shipment incoming from Shanghai MedTech - reserve your pillow now',
-          products: ['U-Shape Pregnancy Pillow'],
-          total_price: 230000,
-          deposit_percentage: 35,
-          deposit_amount: 80000,
-          target_orders: 40,
-          current_orders: 27,
-          status: 'active',
-          close_date: '2025-03-30',
-          expected_arrival: '2025-04-18',
-          deposits_collected: 2160000
-        },
-        {
-          id: '3',
-          campaign_number: 'CAMP-003',
-          name: 'Breast Pump Bundle - Feb 2025',
-          description: 'Electric Breast Pump + Nipple Cream pre-order campaign - Fully delivered',
-          products: ['Breast Pump Electric', 'Nipple Cream'],
-          total_price: 370000,
-          deposit_percentage: 30,
-          deposit_amount: 111000,
-          target_orders: 22,
-          current_orders: 22,
-          status: 'fulfilled',
-          close_date: '2025-02-05',
-          expected_arrival: '2025-02-22',
-          deposits_collected: 8140000
-        },
-      ])
-    }
-
-    // Load preorders
-    const { data: preorderData } = await supabase
-      .from('preorders')
-      .select('*, preorder_campaigns(name)')
-      .order('created_at', { ascending: false })
-
-    if (preorderData && preorderData.length > 0) {
-      setPreorders(preorderData.map(p => ({
-        ...p,
-        campaign_name: p.preorder_campaigns?.name || ''
-      })))
-    } else {
-      // Demo data
-      setPreorders([
-        {
-          id: '1',
-          preorder_number: 'PRE-0041',
-          campaign_id: '1',
-          customer_name: 'Amina Hassan',
-          customer_whatsapp: '+255 712 345 678',
-          customer_tier: 'crown',
-          campaign_name: 'Frida Mom Bundle',
-          product_name: 'Frida Mom Bundle',
-          total_amount: 340000,
-          deposit_paid: 100000,
-          balance_due: 240000,
-          status: 'deposit_paid',
-          expected_arrival: '2025-04-10'
-        },
-        {
-          id: '2',
-          preorder_number: 'PRE-0042',
-          campaign_id: '1',
-          customer_name: 'Grace Mwanza',
-          customer_whatsapp: '+255 754 987 654',
-          customer_tier: 'gold',
-          campaign_name: 'Frida Mom Bundle',
-          product_name: 'Frida Mom Bundle',
-          total_amount: 340000,
-          deposit_paid: 0,
-          balance_due: 340000,
-          status: 'pending_deposit',
-          expected_arrival: '2025-04-10'
-        },
-        {
-          id: '3',
-          preorder_number: 'PRE-0043',
-          campaign_id: '2',
-          customer_name: 'Zainab Ally',
-          customer_whatsapp: '+255 698 111 222',
-          customer_tier: 'mama',
-          campaign_name: 'U-Shape Pillow',
-          product_name: 'U-Shape Pregnancy Pillow',
-          total_amount: 230000,
-          deposit_paid: 80000,
-          balance_due: 150000,
-          status: 'deposit_paid',
-          expected_arrival: '2025-04-18'
-        },
-      ])
-    }
-
+    setCampaigns(demoCampaigns)
+    setSelectedCampaign(demoCampaigns[0])
     setLoading(false)
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return '#10b981'
-      case 'fulfilled': return '#3b82f6'
-      case 'cancelled': return '#ef4444'
-      default: return '#6b7280'
-    }
-  }
-
-  const getOrderStatusColor = (status: string) => {
-    switch (status) {
-      case 'deposit_paid': return '#10b981'
-      case 'pending_deposit': return '#f59e0b'
-      case 'fulfilled': return '#3b82f6'
-      case 'arrived': return '#8b5cf6'
-      case 'cancelled': return '#ef4444'
-      default: return '#6b7280'
-    }
-  }
-
-  const getOrderStatusLabel = (status: string) => {
-    switch (status) {
-      case 'deposit_paid': return 'Deposit Paid'
-      case 'pending_deposit': return 'Pending Deposit'
-      case 'fulfilled': return 'Fulfilled'
-      case 'arrived': return 'Arrived'
-      case 'cancelled': return 'Cancelled'
-      default: return status
-    }
   }
 
   const getTierColor = (tier: string) => {
@@ -246,91 +168,97 @@ export default function CRMPreorders({ onNav }: Props) {
     }
   }
 
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return '—'
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return '#10b981'
+      case 'paused': return '#f59e0b'
+      case 'completed': return '#3b82f6'
+      case 'cancelled': return '#ef4444'
+      default: return '#6b7280'
+    }
   }
 
-  // Calculate stats
-  const activeCampaigns = campaigns.filter(c => c.status === 'active').length
-  const totalPreorders = preorders.length
-  const totalDeposits = campaigns.reduce((sum, c) => sum + c.deposits_collected, 0)
-  const awaitingFulfillment = preorders.filter(p => p.status === 'deposit_paid' || p.status === 'arrived').length
-  const cancelledRefunded = preorders.filter(p => p.status === 'cancelled').length
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'active': return 'activity'
+      case 'paused': return 'pause'
+      case 'completed': return 'checkCircle'
+      case 'cancelled': return 'xCircle'
+      default: return 'clock'
+    }
+  }
 
-  const filteredPreorders = preorders.filter(p => {
-    if (selectedCampaign !== 'all' && p.campaign_id !== selectedCampaign) return false
-    if (selectedStatus !== 'all' && p.status !== selectedStatus) return false
-    return true
-  })
+  const totalDeposits = campaigns.reduce((sum, c) => sum + c.totalDeposits, 0)
+  const totalOrders = campaigns.reduce((sum, c) => sum + c.orders, 0)
+  const activeCampaigns = campaigns.filter(c => c.status === 'active').length
 
   const s = {
-    page: { padding: 28, maxWidth: 1600, margin: '0 auto' } as React.CSSProperties,
-    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 } as React.CSSProperties,
-    headerLeft: { display: 'flex', alignItems: 'center', gap: 16 } as React.CSSProperties,
-    backBtn: { width: 40, height: 40, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' } as React.CSSProperties,
-    title: { fontFamily: 'var(--display)', fontSize: 26, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties,
-    sub: { fontSize: 13, color: 'var(--text3)', marginTop: 4 } as React.CSSProperties,
-    headerRight: { display: 'flex', gap: 12 } as React.CSSProperties,
-    btnSecondary: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--text)' } as React.CSSProperties,
-    btnPrimary: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' } as React.CSSProperties,
+    page: { padding: 24, maxWidth: 1600, margin: '0 auto' } as React.CSSProperties,
+    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 } as React.CSSProperties,
+    headerLeft: {} as React.CSSProperties,
+    title: { fontFamily: 'var(--display)', fontSize: 24, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 } as React.CSSProperties,
+    subtitle: { fontSize: 13, color: 'var(--text3)' } as React.CSSProperties,
+    headerRight: { display: 'flex', gap: 10 } as React.CSSProperties,
+    btnPrimary: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' } as React.CSSProperties,
+    btnGhost: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, cursor: 'pointer' } as React.CSSProperties,
 
-    // KPI Grid
-    kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 } as React.CSSProperties,
-    kpiCard: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 16px' } as React.CSSProperties,
-    kpiLabel: { fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 8 } as React.CSSProperties,
-    kpiValue: { fontFamily: 'var(--mono)', fontSize: 28, fontWeight: 700 } as React.CSSProperties,
-    kpiSub: { fontSize: 11, color: 'var(--text3)', marginTop: 4 } as React.CSSProperties,
+    // Stats
+    statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 } as React.CSSProperties,
+    statCard: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, textAlign: 'center' as const } as React.CSSProperties,
+    statValue: (color: string) => ({ fontSize: 26, fontWeight: 800, color, fontFamily: 'var(--mono)' }) as React.CSSProperties,
+    statLabel: { fontSize: 11, color: 'var(--text3)', marginTop: 4 } as React.CSSProperties,
 
-    // Campaign Cards
-    campaignGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 32 } as React.CSSProperties,
-    campaignCard: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' } as React.CSSProperties,
-    campaignHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border)' } as React.CSSProperties,
-    campaignNumber: { fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)' } as React.CSSProperties,
-    statusBadge: (color: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 12, fontSize: 10, fontWeight: 600, background: `${color}15`, color }) as React.CSSProperties,
-    campaignBody: { padding: 20 } as React.CSSProperties,
-    campaignName: { fontSize: 16, fontWeight: 700, marginBottom: 8 } as React.CSSProperties,
-    campaignDesc: { fontSize: 12, color: 'var(--text3)', marginBottom: 16, lineHeight: 1.5 } as React.CSSProperties,
-    priceRow: { display: 'flex', justifyContent: 'space-between', marginBottom: 8 } as React.CSSProperties,
-    priceLabel: { fontSize: 12, color: 'var(--text3)' } as React.CSSProperties,
-    priceValue: { fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--accent)' } as React.CSSProperties,
-    progressWrap: { marginTop: 16, marginBottom: 12 } as React.CSSProperties,
-    progressLabel: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text3)', marginBottom: 6 } as React.CSSProperties,
-    progressBar: { height: 8, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' } as React.CSSProperties,
-    progressFill: (pct: number, color: string) => ({ height: '100%', width: `${Math.min(pct, 100)}%`, background: color, borderRadius: 4, transition: 'width .3s' }) as React.CSSProperties,
-    campaignDates: { display: 'flex', gap: 12, fontSize: 11, color: 'var(--text3)', marginBottom: 16 } as React.CSSProperties,
-    campaignFooter: { display: 'flex', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--border)', background: 'var(--surface)' } as React.CSSProperties,
-    campaignBtn: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: 'var(--surface2)', color: 'var(--text)' } as React.CSSProperties,
+    // Main layout
+    mainGrid: { display: 'grid', gridTemplateColumns: '1fr 400px', gap: 16 } as React.CSSProperties,
 
-    // Table Section
-    tableSection: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' } as React.CSSProperties,
-    tableHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border)' } as React.CSSProperties,
-    tableTitle: { fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700 } as React.CSSProperties,
-    tableFilters: { display: 'flex', gap: 8 } as React.CSSProperties,
-    filterSelect: { padding: '8px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text)', minWidth: 140 } as React.CSSProperties,
-    sendRemindersBtn: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' } as React.CSSProperties,
-    table: { width: '100%', borderCollapse: 'collapse' as const } as React.CSSProperties,
-    th: { textAlign: 'left' as const, padding: '12px 16px', fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase' as const, letterSpacing: 0.5, borderBottom: '1px solid var(--border)', background: 'var(--surface)' } as React.CSSProperties,
-    td: { padding: '14px 16px', fontSize: 12, borderBottom: '1px solid var(--border)' } as React.CSSProperties,
-    orderNumber: { fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 } as React.CSSProperties,
-    customerCell: { display: 'flex', flexDirection: 'column' as const, gap: 2 } as React.CSSProperties,
-    customerName: { fontWeight: 600 } as React.CSSProperties,
-    customerSub: { fontSize: 11, color: 'var(--text3)' } as React.CSSProperties,
-    tierBadge: (color: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, fontSize: 9, fontWeight: 600, background: `${color}20`, color }) as React.CSSProperties,
-    amountCell: { fontFamily: 'var(--mono)', fontWeight: 600 } as React.CSSProperties,
-    depositCell: (paid: boolean) => ({ fontFamily: 'var(--mono)', fontWeight: 600, color: paid ? '#10b981' : '#f59e0b' }) as React.CSSProperties,
-    balanceCell: { fontFamily: 'var(--mono)', fontWeight: 600, color: 'var(--text3)' } as React.CSSProperties,
-    actionBtn: { padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface2)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text3)' } as React.CSSProperties,
+    // Campaign cards
+    campaignGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 } as React.CSSProperties,
+    campaignCard: (isSelected: boolean, status: string) => ({ 
+      background: 'var(--card)', 
+      border: isSelected ? '2px solid var(--accent)' : '1px solid var(--border)', 
+      borderRadius: 12, 
+      padding: 16, 
+      cursor: 'pointer',
+      opacity: status === 'cancelled' ? 0.5 : 1,
+      transition: 'all .15s'
+    }) as React.CSSProperties,
+    campaignHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 } as React.CSSProperties,
+    campaignName: { fontWeight: 700, fontSize: 14, marginBottom: 4 } as React.CSSProperties,
+    campaignProduct: { fontSize: 11, color: 'var(--text3)' } as React.CSSProperties,
+    statusBadge: (color: string) => ({ fontSize: 9, background: `${color}20`, color, padding: '4px 10px', borderRadius: 10, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }) as React.CSSProperties,
+    progressWrap: { marginBottom: 12 } as React.CSSProperties,
+    progressLabel: { display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6 } as React.CSSProperties,
+    progressBar: { height: 8, background: 'var(--surface3)', borderRadius: 4, overflow: 'hidden' } as React.CSSProperties,
+    progressFill: (percent: number, color: string) => ({ height: '100%', width: `${Math.min(percent, 100)}%`, background: color, borderRadius: 4, transition: 'width .3s' }) as React.CSSProperties,
+    campaignMeta: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 11 } as React.CSSProperties,
+    metaItem: { display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text3)' } as React.CSSProperties,
+
+    // Customer list
+    customerPanel: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' } as React.CSSProperties,
+    panelHeader: { padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } as React.CSSProperties,
+    panelTitle: { fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 } as React.CSSProperties,
+    customerList: { maxHeight: 400, overflowY: 'auto' as const } as React.CSSProperties,
+    customerItem: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--border)' } as React.CSSProperties,
+    customerAvatar: (color: string) => ({ width: 36, height: 36, borderRadius: '50%', background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }) as React.CSSProperties,
+    customerInfo: { flex: 1, minWidth: 0 } as React.CSSProperties,
+    customerName: { fontWeight: 600, fontSize: 12, marginBottom: 2 } as React.CSSProperties,
+    customerPhone: { fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' } as React.CSSProperties,
+    customerDeposit: { textAlign: 'right' as const } as React.CSSProperties,
+    depositAmount: { fontWeight: 700, fontSize: 13, color: 'var(--accent)', fontFamily: 'var(--mono)' } as React.CSSProperties,
+    depositDate: { fontSize: 10, color: 'var(--text3)' } as React.CSSProperties,
+    tierBadge: (color: string) => ({ fontSize: 9, background: `${color}20`, color, padding: '2px 8px', borderRadius: 10, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }) as React.CSSProperties,
+
+    // Actions
+    actionBar: { padding: 16, borderTop: '1px solid var(--border)', display: 'flex', gap: 8 } as React.CSSProperties,
+    actionBtn: { flex: 1, padding: '10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 11, color: 'var(--text)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 } as React.CSSProperties,
+    actionBtnPrimary: { flex: 1, padding: '10px', background: '#25d366', border: 'none', borderRadius: 8, fontSize: 11, color: '#000', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 } as React.CSSProperties,
   }
 
   if (loading) {
     return (
-      <div style={s.page}>
-        <div style={{ textAlign: 'center', padding: 80, color: 'var(--text3)' }}>
-          <Icon name="package" size={32} />
-          <div style={{ marginTop: 12 }}>Loading pre-orders...</div>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--text3)' }}>
+        <Icon name="package" size={40} />
+        <div style={{ marginLeft: 16, fontSize: 14 }}>Loading Pre-Orders...</div>
       </div>
     )
   }
@@ -340,20 +268,15 @@ export default function CRMPreorders({ onNav }: Props) {
       {/* Header */}
       <div style={s.header}>
         <div style={s.headerLeft}>
-          <div style={s.backBtn} onClick={() => onNav('crm')}>
-            <Icon name="arrowLeft" size={18} color="var(--text3)" />
-          </div>
-          <div>
-            <h1 style={s.title}>
-              <Icon name="package" size={28} color="var(--accent)" />
-              Pre-Order Campaigns
-            </h1>
-            <p style={s.sub}>Create campaigns · Collect deposits · Track fulfilment · Notify via WhatsApp</p>
-          </div>
+          <h1 style={s.title}>
+            <Icon name="package" size={28} color="#3b82f6" />
+            Pre-Order Campaigns
+          </h1>
+          <p style={s.subtitle}>Manage deposits, waitlists, and restock campaigns</p>
         </div>
         <div style={s.headerRight}>
-          <button style={s.btnSecondary} onClick={() => onNav('crm')}>
-            <Icon name="arrowLeft" size={16} /> CRM Hub
+          <button style={s.btnGhost}>
+            <Icon name="download" size={16} /> Export
           </button>
           <button style={s.btnPrimary}>
             <Icon name="plus" size={16} /> New Campaign
@@ -361,197 +284,170 @@ export default function CRMPreorders({ onNav }: Props) {
         </div>
       </div>
 
-      {/* KPI Grid */}
-      <div style={s.kpiGrid}>
-        <div style={s.kpiCard}>
-          <div style={s.kpiLabel}>Active Campaigns</div>
-          <div style={{ ...s.kpiValue, color: '#10b981' }}>{activeCampaigns}</div>
-          <div style={s.kpiSub}>{campaigns.filter(c => c.status === 'active' && new Date(c.close_date) < new Date(Date.now() + 7 * 86400000)).length} closing soon</div>
+      {/* Stats */}
+      <div style={s.statsGrid}>
+        <div style={s.statCard}>
+          <div style={s.statValue('#3b82f6')}>{activeCampaigns}</div>
+          <div style={s.statLabel}>Active Campaigns</div>
         </div>
-        <div style={s.kpiCard}>
-          <div style={s.kpiLabel}>Total Pre-Orders</div>
-          <div style={{ ...s.kpiValue, color: '#3b82f6' }}>{totalPreorders}</div>
-          <div style={s.kpiSub}>Across all campaigns</div>
+        <div style={s.statCard}>
+          <div style={s.statValue('var(--accent)')}>{totalOrders}</div>
+          <div style={s.statLabel}>Total Pre-Orders</div>
         </div>
-        <div style={s.kpiCard}>
-          <div style={s.kpiLabel}>Deposits Collected</div>
-          <div style={{ ...s.kpiValue, color: 'var(--accent)' }}>{tzs(totalDeposits)}</div>
-          <div style={s.kpiSub}>Avg: {tzs(totalPreorders > 0 ? totalDeposits / totalPreorders : 0)}/order</div>
+        <div style={s.statCard}>
+          <div style={s.statValue('#25d366')}>{tzs(totalDeposits)}</div>
+          <div style={s.statLabel}>Deposits Collected</div>
         </div>
-        <div style={s.kpiCard}>
-          <div style={s.kpiLabel}>Awaiting Fulfilment</div>
-          <div style={{ ...s.kpiValue, color: '#f59e0b' }}>{awaitingFulfillment}</div>
-          <div style={s.kpiSub}>Est. arrival: 18 Apr</div>
-        </div>
-        <div style={s.kpiCard}>
-          <div style={s.kpiLabel}>Cancelled / Refunded</div>
-          <div style={{ ...s.kpiValue, color: '#ef4444' }}>{cancelledRefunded}</div>
-          <div style={s.kpiSub}>{tzs(355000)} refunded</div>
+        <div style={s.statCard}>
+          <div style={s.statValue('#f59e0b')}>30%</div>
+          <div style={s.statLabel}>Default Deposit Rate</div>
         </div>
       </div>
 
-      {/* Campaign Cards */}
-      <div style={s.campaignGrid}>
-        {campaigns.map(camp => (
-          <div key={camp.id} style={s.campaignCard}>
-            <div style={s.campaignHeader}>
-              <span style={s.campaignNumber}>{camp.campaign_number}</span>
-              <span style={s.statusBadge(getStatusColor(camp.status))}>
-                {camp.status === 'active' && <><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} /> Active</>}
-                {camp.status === 'fulfilled' && <><Icon name="checkCircle" size={12} /> Fulfilled</>}
-                {camp.status === 'draft' && 'Draft'}
-                {camp.status === 'cancelled' && 'Cancelled'}
-              </span>
-            </div>
-            <div style={s.campaignBody}>
-              <div style={s.campaignName}>{camp.name}</div>
-              <div style={s.campaignDesc}>{camp.description}</div>
-              
-              <div style={s.priceRow}>
-                <span style={s.priceLabel}>{camp.status === 'fulfilled' ? 'Final price' : 'Pre-order price'}</span>
-                <span style={s.priceValue}>{tzs(camp.total_price)}</span>
-              </div>
-              <div style={s.priceRow}>
-                <span style={s.priceLabel}>{camp.status === 'fulfilled' ? 'Total collected' : 'Deposit required'}</span>
-                <span style={{ ...s.priceValue, color: camp.status === 'fulfilled' ? '#10b981' : 'var(--accent)' }}>
-                  {camp.status === 'fulfilled' ? tzs(camp.deposits_collected) : `${tzs(camp.deposit_amount)} (${camp.deposit_percentage}%)`}
-                </span>
-              </div>
+      {/* Main Grid */}
+      <div style={s.mainGrid}>
+        {/* Campaign Grid */}
+        <div style={s.campaignGrid}>
+          {campaigns.map(campaign => {
+            const progress = (campaign.orders / campaign.target) * 100
+            const isSelected = selectedCampaign?.id === campaign.id
+            
+            return (
+              <div 
+                key={campaign.id}
+                style={s.campaignCard(isSelected, campaign.status)}
+                onClick={() => setSelectedCampaign(campaign)}
+                onMouseEnter={e => { if (!isSelected) e.currentTarget.style.borderColor = 'var(--text3)' }}
+                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.borderColor = 'var(--border)' }}
+              >
+                <div style={s.campaignHeader}>
+                  <div>
+                    <div style={s.campaignName}>{campaign.name}</div>
+                    <div style={s.campaignProduct}>{campaign.product}</div>
+                  </div>
+                  <span style={s.statusBadge(getStatusColor(campaign.status))}>
+                    <Icon name={getStatusIcon(campaign.status)} size={10} />
+                    {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1)}
+                  </span>
+                </div>
 
-              {camp.status !== 'fulfilled' && (
                 <div style={s.progressWrap}>
                   <div style={s.progressLabel}>
                     <span>Orders / Target</span>
-                    <span style={{ fontFamily: 'var(--mono)', fontWeight: 700 }}>{camp.current_orders} / {camp.target_orders}</span>
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{campaign.orders} / {campaign.target}</span>
                   </div>
                   <div style={s.progressBar}>
-                    <div style={s.progressFill((camp.current_orders / camp.target_orders) * 100, camp.current_orders >= camp.target_orders ? '#10b981' : 'var(--accent)')} />
+                    <div style={s.progressFill(progress, progress >= 100 ? '#10b981' : '#3b82f6')} />
                   </div>
                 </div>
-              )}
 
-              {camp.status === 'fulfilled' && (
-                <div style={s.priceRow}>
-                  <span style={s.priceLabel}>Orders fulfilled</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: '#10b981' }}>
-                    {camp.current_orders} / {camp.target_orders} <Icon name="checkCircle" size={14} />
-                  </span>
+                <div style={s.campaignMeta}>
+                  <div style={s.metaItem}>
+                    <Icon name="dollarSign" size={12} />
+                    {tzs(campaign.totalDeposits)}
+                  </div>
+                  <div style={s.metaItem}>
+                    <Icon name="calendar" size={12} />
+                    Closes {campaign.closeDate}
+                  </div>
+                  <div style={s.metaItem}>
+                    <Icon name="truck" size={12} />
+                    ETA {campaign.eta}
+                  </div>
+                  <div style={s.metaItem}>
+                    <Icon name="target" size={12} />
+                    {campaign.depositPercent}% deposit
+                  </div>
                 </div>
-              )}
-
-              <div style={s.campaignDates}>
-                <span><Icon name="calendar" size={12} /> {camp.status === 'fulfilled' ? 'Closed' : 'Closes'}: {formatDate(camp.close_date)}</span>
-                <span><Icon name="truck" size={12} /> {camp.status === 'fulfilled' ? 'Delivered' : 'ETA'}: {formatDate(camp.expected_arrival)}</span>
               </div>
-            </div>
-            <div style={s.campaignFooter}>
-              {camp.status === 'active' ? (
-                <>
-                  <button style={{ ...s.campaignBtn, background: 'var(--accent)', color: '#fff', border: 'none' }}>
-                    <Icon name="messageCircle" size={14} /> Broadcast Update
-                  </button>
-                  <button style={s.campaignBtn}>
-                    <Icon name="eye" size={14} /> View Orders
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button style={s.campaignBtn}>
-                    <Icon name="download" size={14} /> Download Report
-                  </button>
-                  <button style={s.campaignBtn}>
-                    <Icon name="copy" size={14} /> Duplicate
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+            )
+          })}
 
-      {/* Orders Table */}
-      <div style={s.tableSection}>
-        <div style={s.tableHeader}>
-          <div style={s.tableTitle}>All Pre-Orders — CAMP-001 & CAMP-002</div>
-          <div style={s.tableFilters}>
-            <select style={s.filterSelect} value={selectedCampaign} onChange={e => setSelectedCampaign(e.target.value)}>
-              <option value="all">All Campaigns</option>
-              {campaigns.filter(c => c.status === 'active').map(c => (
-                <option key={c.id} value={c.id}>{c.campaign_number}</option>
-              ))}
-            </select>
-            <select style={s.filterSelect} value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}>
-              <option value="all">All Statuses</option>
-              <option value="pending_deposit">Pending Deposit</option>
-              <option value="deposit_paid">Deposit Paid</option>
-              <option value="arrived">Arrived</option>
-              <option value="fulfilled">Fulfilled</option>
-            </select>
-            <button style={s.btnSecondary}>
-              <Icon name="download" size={14} /> Excel
-            </button>
-            <button style={s.sendRemindersBtn}>
-              <Icon name="messageCircle" size={14} /> Send Reminders
-            </button>
+          {/* Add new campaign card */}
+          <div 
+            style={{ ...s.campaignCard(false, 'active'), border: '2px dashed var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}
+          >
+            <Icon name="plus" size={32} color="var(--text3)" style={{ marginBottom: 12 }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text3)', marginBottom: 4 }}>Create Campaign</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Set product, target, and deposit</div>
           </div>
         </div>
-        <table style={s.table}>
-          <thead>
-            <tr>
-              <th style={s.th}>Order #</th>
-              <th style={s.th}>Customer</th>
-              <th style={s.th}>WhatsApp</th>
-              <th style={s.th}>Campaign</th>
-              <th style={s.th}>Product</th>
-              <th style={s.th}>Total (TZS)</th>
-              <th style={s.th}>Deposit Paid</th>
-              <th style={s.th}>Balance Due</th>
-              <th style={s.th}>Status</th>
-              <th style={s.th}>ETA</th>
-              <th style={s.th}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredPreorders.map(order => (
-              <tr key={order.id}>
-                <td style={s.td}>
-                  <span style={s.orderNumber}>{order.preorder_number}</span>
-                </td>
-                <td style={s.td}>
-                  <div style={s.customerCell}>
-                    <span style={s.customerName}>{order.customer_name}</span>
-                    <span style={s.tierBadge(getTierColor(order.customer_tier))}>
-                      {order.customer_tier === 'crown' ? 'Crown Member' : order.customer_tier === 'gold' ? 'Gold' : 'Mama'}
-                    </span>
+
+        {/* Customer Panel */}
+        {selectedCampaign && (
+          <div style={s.customerPanel}>
+            <div style={s.panelHeader}>
+              <div style={s.panelTitle}>
+                <Icon name="users" size={18} color="var(--accent)" />
+                Pre-Order Customers ({selectedCampaign.customers.length})
+              </div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <Icon name="moreVertical" size={18} color="var(--text3)" />
+              </button>
+            </div>
+
+            {selectedCampaign.customers.length > 0 ? (
+              <div style={s.customerList}>
+                {selectedCampaign.customers.map(customer => (
+                  <div key={customer.id} style={s.customerItem}>
+                    <div style={s.customerAvatar(getTierColor(customer.tier))}>
+                      <Icon name="user" size={18} color={getTierColor(customer.tier)} />
+                    </div>
+                    <div style={s.customerInfo}>
+                      <div style={s.customerName}>{customer.name}</div>
+                      <div style={s.customerPhone}>{customer.phone}</div>
+                      <span style={s.tierBadge(getTierColor(customer.tier))}>
+                        <Icon name={customer.tier === 'crown' ? 'crown' : customer.tier === 'gold' ? 'award' : 'heart'} size={8} />
+                        {customer.tier.charAt(0).toUpperCase() + customer.tier.slice(1)}
+                      </span>
+                    </div>
+                    <div style={s.customerDeposit}>
+                      <div style={s.depositAmount}>{tzs(customer.deposit)}</div>
+                      <div style={s.depositDate}>Paid {customer.paidAt}</div>
+                      {customer.reminderSent && (
+                        <span style={{ fontSize: 9, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 4 }}>
+                          <Icon name="bellRing" size={10} /> Reminded
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </td>
-                <td style={s.td}>{order.customer_whatsapp}</td>
-                <td style={s.td}>{order.campaign_name}</td>
-                <td style={s.td}>{order.product_name}</td>
-                <td style={s.td}>
-                  <span style={s.amountCell}>{order.total_amount.toLocaleString()}</span>
-                </td>
-                <td style={s.td}>
-                  <span style={s.depositCell(order.deposit_paid > 0)}>{order.deposit_paid.toLocaleString()}</span>
-                </td>
-                <td style={s.td}>
-                  <span style={s.balanceCell}>{order.balance_due.toLocaleString()}</span>
-                </td>
-                <td style={s.td}>
-                  <span style={s.statusBadge(getOrderStatusColor(order.status))}>
-                    {getOrderStatusLabel(order.status)}
-                  </span>
-                </td>
-                <td style={s.td}>{formatDate(order.expected_arrival)}</td>
-                <td style={s.td}>
-                  <button style={s.actionBtn}>
-                    <Icon name="messageCircle" size={12} /> Remind
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)' }}>
+                <Icon name="users" size={32} style={{ marginBottom: 12 }} />
+                <div style={{ fontSize: 12 }}>No customers yet</div>
+              </div>
+            )}
+
+            {/* Summary */}
+            <div style={{ padding: 16, background: 'var(--surface2)', borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>Total Deposits</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{tzs(selectedCampaign.totalDeposits)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>Remaining Balance</span>
+                <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--mono)' }}>
+                  {tzs(selectedCampaign.orders * (selectedCampaign.minDeposit / (selectedCampaign.depositPercent / 100)) - selectedCampaign.totalDeposits)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>Close Date</span>
+                <span style={{ fontSize: 11, fontWeight: 600 }}>{selectedCampaign.closeDate}</span>
+              </div>
+            </div>
+
+            <div style={s.actionBar}>
+              <button style={s.actionBtn}>
+                <Icon name="edit" size={14} /> Edit
+              </button>
+              <button style={s.actionBtnPrimary}>
+                <Icon name="bellRing" size={14} /> Send Reminders
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
