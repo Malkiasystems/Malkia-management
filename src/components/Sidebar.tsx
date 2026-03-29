@@ -1,280 +1,221 @@
-import React, { useState } from 'react'
 import type { Page } from '../lib/types'
-import { useAuth, canAccessPage } from '../lib/useAuth'
+import { useAuth } from '../lib/useAuth'
 
-const VOUCHER_PAGES: Page[] = [
-  'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
-  'bank-receipt', 'bank-transfer', 'petty-cash', 'contra', 'sales-invoice',
-  'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
-  'grn', 'purchase-invoice', 'purchase-return', 'opening-stock',
-  'stock-adjustment', 'stock-transfer', 'journal-entry'
-]
-
-const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note']
-
-const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers']
-
-const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template']
-
-const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
-  { label: 'General',     page: 'settings',        icon: 'M12 3a9 9 0 0 0-9 9v1h6v-1a3 3 0 0 1 6 0v1h6v-1a9 9 0 0 0-9-9zM3 14v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4' },
-  { label: 'Users',       page: 'users',           icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
-  { label: 'Approvals',   page: 'approvals',       icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
-]
-
-const SALES_SUB: { label: string; page: Page; icon: string }[] = [
-  { label: 'Cash Sale',     page: 'cash-sale',      icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
-  { label: 'Sales Invoice', page: 'sales-invoice',   icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
-  { label: 'Day Book',      page: 'sales-day-book',  icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
-  { label: 'Register',      page: 'sales-register',  icon: 'M18 20V10M12 20V4M6 20v-6' },
-]
-
-const CRM_SUB: { label: string; page: Page; icon: string }[] = [
-  { label: 'Hub',         page: 'crm-hub',         icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
-  { label: 'Inbox',       page: 'crm-inbox',       icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
-  { label: 'Automations', page: 'crm-automations', icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' },
-  { label: 'Pre-Orders',  page: 'crm-preorders',   icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },
-  { label: 'Referrals',   page: 'crm-referrals',   icon: 'M18 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 12a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98' },
-  { label: 'Crown',       page: 'crm-loyalty',     icon: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zM3 20h18' },
-  { label: 'Feedback',    page: 'crm-feedback',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
-  { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
-]
-
-const NAV = [
-  { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
-  { sep: true },
-  { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page },
-  { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
-  { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
-  { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
-  { icon: 'customers', label: 'Customers', page: 'customers' as Page },
-  { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page },
-  { icon: 'reports',   label: 'Reports',   page: 'reports' as Page },
-  { sep: true },
-  { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
-  { icon: 'konnect',   label: 'Konnect',   page: 'coming-soon' as Page, coming: true },
-  { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
-  { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
-  { sep: true },
-  { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
-  { icon: 'settings',  label: 'Settings',  page: 'settings' as Page, hasSub: true },
-]
-
-interface SidebarProps { current: Page; onNav: (p: Page) => void }
-
-const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
-  const c = active ? 'var(--accent)' : 'var(--text3)'
-  const p = { width: 20, height: 20, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
-  const icons: Record<string, React.ReactNode> = {
-    home:      <svg {...p}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
-    vouchers:  <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
-    accounts:  <svg {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
-    bank:      <svg {...p}><path d="M3 10L12 3l9 7"/><rect x="5" y="10" width="3" height="8"/><rect x="10.5" y="10" width="3" height="8"/><rect x="16" y="10" width="3" height="8"/><path d="M2 18h20"/></svg>,
-    sales:     <svg {...p}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
-    customers: <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-    inventory: <svg {...p}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
-    reports:   <svg {...p}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
-    services:  <svg {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.1 1.24h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.64a16 16 0 0 0 6.29 6.29l1.46-1.46a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
-    konnect:   <svg {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
-    crm:       <svg {...p}><circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/></svg>,
-    hrm:       <svg {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
-    import:    <svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
-    settings:  <svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
-  }
-  const icon = icons[name] ?? icons['home']
-  return <>{icon}</>
+interface Props {
+  breadcrumb: string
+  onNav: (p: Page) => void
+  onBack: () => void
+  canGoBack: boolean
 }
 
-export default function Sidebar({ current, onNav }: SidebarProps) {
-  const [salesOpen, setSalesOpen] = useState(false)
-  const [crmOpen, setCrmOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  
-  const { user, permissions } = useAuth()
-  const roleName = user?.role_name || ''
+export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) {
+  const { user, signOut } = useAuth()
 
-  const isSalesActive = SALES_PAGES.includes(current)
-  const isCrmActive = CRM_PAGES.includes(current)
-  const isSettingsActive = SETTINGS_PAGES.includes(current)
-  
-  // Filter NAV items based on permissions
-  const canAccess = (page: Page) => canAccessPage(page, permissions, roleName)
-  
-  // Filter sub-menu items
-  const visibleSalesSub = SALES_SUB.filter(sub => canAccess(sub.page))
-  const visibleCrmSub = CRM_SUB.filter(sub => canAccess(sub.page))
-  const visibleSettingsSub = SETTINGS_SUB.filter(sub => canAccess(sub.page))
+  const handleLogout = async () => {
+    if (confirm('Are you sure you want to sign out?')) {
+      await signOut()
+    }
+  }
 
   return (
-    <div style={{
-      width: 'var(--sidebar)', background: 'var(--surface)',
-      borderRight: '1px solid var(--border)', display: 'flex',
-      flexDirection: 'column', alignItems: 'center',
-      padding: '10px 0', flexShrink: 0, overflowY: 'auto', scrollbarWidth: 'none',
-      position: 'relative'
-    }}>
-      {NAV.map((item, i) => {
-        if ('sep' in item && item.sep) return (
-          <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
-        )
+    <div style={styles.topbar}>
+      <div style={styles.left}>
+        <div style={styles.logo} onClick={() => onNav('dashboard')}>
+          <svg width="28" height="28" viewBox="0 0 100 100" fill="none">
+            <circle cx="50" cy="50" r="45" fill="#85c2be"/>
+            <path d="M30 65 L50 35 L70 65" stroke="#fff" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            <circle cx="50" cy="28" r="6" fill="#f7a6ad"/>
+          </svg>
+          <span style={styles.logoText}>MalkiaOS</span>
+        </div>
+
+        {canGoBack && (
+          <button style={styles.backBtn} onClick={onBack}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back
+          </button>
+        )}
+
+        <div style={styles.breadcrumb}>
+          <span style={styles.company}>Wellness Group</span>
+          <span style={styles.separator}>›</span>
+          <span style={styles.page}>{breadcrumb}</span>
+        </div>
+      </div>
+
+      <div style={styles.center}>
+        <div style={styles.search}>
+          <svg width="16" height="16" fill="none" stroke="var(--text3)" strokeWidth="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input 
+            type="text" 
+            placeholder="Search everything — vouchers, products, customers, pages..."
+            style={styles.searchInput}
+          />
+        </div>
+      </div>
+
+      <div style={styles.right}>
+        <div style={styles.fyBadge}>FY 2025-26</div>
         
-        // Skip items user can't access (except coming soon items)
-        if (!item.coming && item.page && !canAccess(item.page as Page)) {
-          // For parent items (Sales, CRM, Settings), check if any sub-items are accessible
-          if (item.page === 'sales' && visibleSalesSub.length === 0) return null
-          if (item.page === 'crm-hub' && visibleCrmSub.length === 0) return null
-          if (item.page === 'settings' && visibleSettingsSub.length === 0) return null
-          // For non-parent items, just skip
-          if (!['sales', 'crm-hub', 'settings'].includes(item.page as string)) return null
-        }
-
-        const isVoucherActive = VOUCHER_PAGES.includes(current)
-        const active =
-          current === item.page ||
-          (item.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive) ||
-          (item.page === 'sales' && isSalesActive) ||
-          (item.page === 'crm-hub' && isCrmActive) ||
-          (item.page === 'settings' && isSettingsActive)
-
-        const isSalesItem = item.page === 'sales'
-        const isCrmItem = item.page === 'crm-hub'
-        const isSettingsItem = item.page === 'settings'
-
-        return (
-          <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div
-              onClick={() => {
-                if (item.coming || !item.page) return
-                if (isSalesItem) {
-                  setSalesOpen(o => !o)
-                  setCrmOpen(false)
-                  setSettingsOpen(false)
-                  onNav('sales')
-                } else if (isCrmItem) {
-                  setCrmOpen(o => !o)
-                  setSalesOpen(false)
-                  setSettingsOpen(false)
-                  onNav('crm-hub')
-                } else if (isSettingsItem) {
-                  setSettingsOpen(o => !o)
-                  setSalesOpen(false)
-                  setCrmOpen(false)
-                  onNav('settings')
-                } else {
-                  setSalesOpen(false)
-                  setCrmOpen(false)
-                  setSettingsOpen(false)
-                  onNav(item.page)
-                }
-              }}
-              style={{
-                width: 52, height: 52, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: 3,
-                borderRadius: 10,
-                borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
-                background: active ? 'var(--accent-dim)' : 'transparent',
-                opacity: item.coming ? 0.4 : 1,
-                transition: 'all .15s', margin: '1px 0',
-                position: 'relative', cursor: item.coming ? 'default' : 'pointer'
-              }}>
-              <span style={{ fontSize: 18 }}><SideIcon name={item.icon || 'home'} active={active} /></span>
-              <span style={{
-                fontSize: 8, fontWeight: 600,
-                color: active ? 'var(--accent)' : 'var(--text3)',
-                textTransform: 'uppercase', letterSpacing: '.4px'
-              }}>{item.label}</span>
-
-              {Boolean(isSalesItem || isCrmItem || isSettingsItem) && (
-                <span style={{ 
-                  position:'absolute', right:4, top:'50%', 
-                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) ? 90 : 0}deg)`, 
-                  transition:'transform .2s', color:'var(--text3)', fontSize:8 
-                }}>›</span>
-              )}
-
-              {'badge' in item && (item as any).badge && (
-                <span style={{
-                  position: 'absolute', top: 5, right: 6, minWidth: 14, height: 14,
-                  background: 'var(--red)', borderRadius: 7, fontSize: 7, fontWeight: 800,
-                  color: '#fff', display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', padding: '0 3px'
-                }}>{(item as any).badge}</span>
-              )}
-
-              {item.coming && (
-                <span style={{
-                  position: 'absolute', top: 4, right: 2, background: 'var(--surface3)',
-                  border: '1px solid var(--border)', borderRadius: 3, fontSize: 6,
-                  fontFamily: 'var(--mono)', color: 'var(--text3)', padding: '1px 3px'
-                }}>SOON</span>
-              )}
-            </div>
-
-            {/* Sales sub-menu */}
-            {Boolean(isSalesItem) && (salesOpen || isSalesActive) && visibleSalesSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
-                {visibleSalesSub.map(sub => {
-                  const subActive = current === sub.page
-                  return (
-                    <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
-                        background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
-                      }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                        <path d={sub.icon}/>
-                      </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* CRM sub-menu */}
-            {Boolean(isCrmItem) && (crmOpen || isCrmActive) && visibleCrmSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
-                {visibleCrmSub.map(sub => {
-                  const subActive = current === sub.page
-                  return (
-                    <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
-                        background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
-                      }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                        <path d={sub.icon}/>
-                      </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Settings sub-menu */}
-            {Boolean(isSettingsItem) && (settingsOpen || isSettingsActive) && visibleSettingsSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
-                {visibleSettingsSub.map(sub => {
-                  const subActive = current === sub.page
-                  return (
-                    <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
-                        background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
-                      }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                        <path d={sub.icon}/>
-                      </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+        <div style={styles.userSection}>
+          <div style={styles.avatar}>
+            {user?.initials || 'U'}
           </div>
-        )
-      })}
+          <div style={styles.userInfo}>
+            <div style={styles.userName}>{user?.full_name || 'User'}</div>
+            <div style={styles.userRole}>
+              {user?.is_approver ? 'Approver' : 'Team Member'}
+            </div>
+          </div>
+          <button style={styles.logoutBtn} onClick={handleLogout} title="Sign out">
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
   )
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  topbar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 20px',
+    background: 'var(--surface)',
+    borderBottom: '1px solid var(--border)',
+    gap: 20,
+  },
+  left: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    minWidth: 0,
+  },
+  logo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    cursor: 'pointer',
+  },
+  logoText: {
+    fontFamily: 'Syne, sans-serif',
+    fontWeight: 700,
+    fontSize: 18,
+    color: 'var(--text)',
+  },
+  backBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 12px',
+    background: 'var(--surface2)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    color: 'var(--text2)',
+    fontSize: 12,
+    cursor: 'pointer',
+  },
+  breadcrumb: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 13,
+  },
+  company: {
+    color: 'var(--text3)',
+  },
+  separator: {
+    color: 'var(--text3)',
+  },
+  page: {
+    color: 'var(--text)',
+    fontWeight: 500,
+  },
+  center: {
+    flex: 1,
+    maxWidth: 500,
+  },
+  search: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '10px 14px',
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+  },
+  searchInput: {
+    flex: 1,
+    background: 'transparent',
+    border: 'none',
+    outline: 'none',
+    color: 'var(--text)',
+    fontSize: 13,
+  },
+  right: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+  },
+  fyBadge: {
+    padding: '6px 12px',
+    background: '#85c2be',
+    color: '#000',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: 'DM Mono, monospace',
+  },
+  userSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #85c2be, #f7a6ad)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#000',
+  },
+  userInfo: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+  },
+  userName: {
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--text)',
+  },
+  userRole: {
+    fontSize: 11,
+    color: 'var(--text3)',
+  },
+  logoutBtn: {
+    padding: 8,
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text3)',
+    cursor: 'pointer',
+    borderRadius: 6,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'color 0.2s',
+  },
 }
