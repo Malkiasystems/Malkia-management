@@ -83,8 +83,6 @@ interface PointsActivity {
 }
 
 export default function CRMLoyalty({ onNav }: Props) {
-  // Format TZS currency
-  const tzs = (n: number) => `TZS ${n.toLocaleString()}`
   void onNav // available for future navigation
   const [tiers, setTiers] = useState<TierData[]>([])
   const [members, setMembers] = useState<LoyaltyMember[]>([])
