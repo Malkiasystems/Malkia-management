@@ -7,9 +7,6 @@ export interface User {
   full_name: string
   initials: string
   phone?: string
-  role_id: string
-  role_name: string
-  reports_to?: string
   is_active: boolean
   is_approver: boolean
   is_away: boolean
@@ -21,12 +18,10 @@ export interface AuthContextType {
   permissions: string[]
   loading: boolean
   error: string | null
+  isAuthenticated: boolean
   can: (permission: string) => boolean
   canAny: (permissions: string[]) => boolean
   canAll: (permissions: string[]) => boolean
-  hasRole: (roleName: string) => boolean
-  hasAnyRole: (roleNames: string[]) => boolean
-  isSuperAdmin: () => boolean
   signOut: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -55,106 +50,83 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const loadDemoUser = async () => {
-    setUser({
-      id: 'demo-super-admin',
-      email: 'joe@malkia.co.tz',
-      full_name: 'Joe Gembe',
-      initials: 'JG',
-      role_id: 'demo-role',
-      role_name: 'super_admin',
-      is_active: true,
-      is_approver: true,
-      is_away: false,
-    })
-    setPermissions([
-      'dashboard.view',
-      'sales.view', 'sales.create', 'sales.edit', 'sales.delete', 'sales.approve', 'sales.export',
-      'inventory.view', 'inventory.create', 'inventory.edit', 'inventory.delete',
-      'inventory.adjust', 'inventory.transfer', 'inventory.approve', 'inventory.export',
-      'crm.view', 'crm.create', 'crm.edit', 'crm.delete',
-      'crm.inbox', 'crm.konnect', 'crm.automations', 'crm.export',
-      'customers.view', 'customers.create', 'customers.edit', 'customers.delete',
-      'customers.credit', 'customers.export',
-      'accounting.view', 'accounting.create', 'accounting.edit', 'accounting.delete',
-      'accounting.post', 'accounting.approve', 'accounting.coa', 'accounting.export',
-      'reports.view', 'reports.export',
-      'hrm.view_own', 'hrm.view_team', 'hrm.view_all', 'hrm.manage',
-      'settings.view', 'settings.edit', 'settings.users', 'settings.roles', 'settings.approvals',
-    ])
-    setLoading(false)
-  }
-
   const loadUser = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
+      
       const { data: { session } } = await supabase.auth.getSession()
+      
       if (!session?.user) {
-        await loadDemoUser()
+        setUser(null)
+        setPermissions([])
+        setLoading(false)
         return
       }
+
+      // Load user from our users table by email
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', session.user.id)
+        .eq('email', session.user.email?.toLowerCase())
         .single()
+
       if (userError || !userData) {
-        await loadDemoUser()
+        console.error('User not found in users table:', userError)
+        setUser(null)
+        setPermissions([])
+        setLoading(false)
         return
       }
+
+      if (!userData.is_active) {
+        console.error('User account is deactivated')
+        await supabase.auth.signOut()
+        setUser(null)
+        setPermissions([])
+        setLoading(false)
+        return
+      }
+
       const currentUser: User = {
         id: userData.id,
         email: userData.email,
         full_name: userData.full_name,
         initials: userData.initials,
         phone: userData.phone,
-        role_id: userData.role_id || '',
-        role_name: userData.role_name || 'user',
-        reports_to: userData.reports_to,
         is_active: userData.is_active,
         is_approver: userData.is_approver,
         is_away: userData.is_away,
         avatar_url: userData.avatar_url,
       }
+
       setUser(currentUser)
-      // Permissions are now stored directly in users.permissions array
       setPermissions(userData.permissions || [])
       setLoading(false)
+
     } catch (err) {
       console.error('Auth error:', err)
       setError('Failed to load user')
-      await loadDemoUser()
+      setUser(null)
+      setPermissions([])
+      setLoading(false)
     }
   }, [])
 
   const can = useCallback((permission: string): boolean => {
-    // Check if user has all permissions (super admin equivalent)
-    if (permissions.includes('*') || permissions.length >= 40) return true
+    if (permissions.length >= 40) return true // All permissions = super admin
     return permissions.includes(permission)
   }, [permissions])
 
   const canAny = useCallback((perms: string[]): boolean => {
-    if (permissions.includes('*') || permissions.length >= 40) return true
+    if (permissions.length >= 40) return true
     return perms.some(p => permissions.includes(p))
   }, [permissions])
 
   const canAll = useCallback((perms: string[]): boolean => {
-    if (permissions.includes('*') || permissions.length >= 40) return true
+    if (permissions.length >= 40) return true
     return perms.every(p => permissions.includes(p))
   }, [permissions])
-
-  const hasRole = useCallback((roleName: string): boolean => {
-    return user?.role_name === roleName
-  }, [user])
-
-  const hasAnyRole = useCallback((roleNames: string[]): boolean => {
-    return roleNames.includes(user?.role_name || '')
-  }, [user])
-
-  const isSuperAdmin = useCallback((): boolean => {
-    return user?.role_name === 'super_admin'
-  }, [user])
 
   const signOut = async () => {
     await supabase.auth.signOut()
@@ -168,19 +140,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     loadUser()
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         loadUser()
       } else {
-        loadDemoUser()
+        setUser(null)
+        setPermissions([])
+        setLoading(false)
       }
     })
+
     return () => subscription.unsubscribe()
   }, [loadUser])
 
   const value: AuthContextType = {
-    user, permissions, loading, error,
-    can, canAny, canAll, hasRole, hasAnyRole, isSuperAdmin, signOut, refreshUser,
+    user,
+    permissions,
+    loading,
+    error,
+    isAuthenticated: !!user,
+    can,
+    canAny,
+    canAll,
+    signOut,
+    refreshUser,
   }
 
   return createElement(AuthContext.Provider, { value }, children)
@@ -245,9 +229,8 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'data-import': ['settings.edit'],
 }
 
-export function canAccessPage(page: string, permissions: string[], _roleName: string): boolean {
-  // If user has 40+ permissions, they have full access (super admin equivalent)
-  if (permissions.includes('*') || permissions.length >= 40) return true
+export function canAccessPage(page: string, permissions: string[]): boolean {
+  if (permissions.length >= 40) return true
   const requiredPerms = PAGE_PERMISSIONS[page]
   if (!requiredPerms) return true
   return requiredPerms.some(p => permissions.includes(p))
