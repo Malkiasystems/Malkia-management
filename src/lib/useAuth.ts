@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode, createElement } from 'react'
 import { supabase } from './supabase'
 
 export interface User {
@@ -14,11 +14,6 @@ export interface User {
   is_approver: boolean
   is_away: boolean
   avatar_url?: string
-}
-
-export interface Permission {
-  module: string
-  action: string
 }
 
 export interface AuthContextType {
@@ -50,14 +45,6 @@ export function usePermission(permission: string): boolean {
   return can(permission)
 }
 
-export function usePermissions(permissions: string[]): Record<string, boolean> {
-  const { can, loading } = useAuth()
-  if (loading) {
-    return permissions.reduce((acc, p) => ({ ...acc, [p]: false }), {})
-  }
-  return permissions.reduce((acc, p) => ({ ...acc, [p]: can(p) }), {})
-}
-
 interface AuthProviderProps {
   children: ReactNode
 }
@@ -80,7 +67,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       is_approver: true,
       is_away: false,
     })
-
     setPermissions([
       'dashboard.view',
       'sales.view', 'sales.create', 'sales.edit', 'sales.delete', 'sales.approve', 'sales.export',
@@ -104,7 +90,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       .from('role_permissions')
       .select('permissions:permission_id (module, action)')
       .eq('role_id', roleId)
-
     if (permData) {
       const perms = permData
         .map((rp: any) => rp.permissions?.module + '.' + rp.permissions?.action)
@@ -117,25 +102,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       setLoading(true)
       setError(null)
-
       const { data: { session } } = await supabase.auth.getSession()
-
       if (!session?.user) {
         await loadDemoUser()
         return
       }
-
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*, roles:role_id (name)')
         .eq('id', session.user.id)
         .single()
-
       if (userError || !userData) {
         await loadDemoUser()
         return
       }
-
       const currentUser: User = {
         id: userData.id,
         email: userData.email,
@@ -150,11 +130,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         is_away: userData.is_away,
         avatar_url: userData.avatar_url,
       }
-
       setUser(currentUser)
       await loadPermissions(userData.role_id)
       setLoading(false)
-
     } catch (err) {
       console.error('Auth error:', err)
       setError('Failed to load user')
@@ -201,7 +179,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     loadUser()
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         loadUser()
@@ -209,82 +186,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         loadDemoUser()
       }
     })
-
     return () => subscription.unsubscribe()
   }, [loadUser])
 
   const value: AuthContextType = {
-    user,
-    permissions,
-    loading,
-    error,
-    can,
-    canAny,
-    canAll,
-    hasRole,
-    hasAnyRole,
-    isSuperAdmin,
-    signOut,
-    refreshUser,
+    user, permissions, loading, error,
+    can, canAny, canAll, hasRole, hasAnyRole, isSuperAdmin, signOut, refreshUser,
   }
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  )
+  return createElement(AuthContext.Provider, { value }, children)
 }
-
-export const PERMISSIONS = {
-  DASHBOARD_VIEW: 'dashboard.view',
-  SALES_VIEW: 'sales.view',
-  SALES_CREATE: 'sales.create',
-  SALES_EDIT: 'sales.edit',
-  SALES_DELETE: 'sales.delete',
-  SALES_APPROVE: 'sales.approve',
-  SALES_EXPORT: 'sales.export',
-  INVENTORY_VIEW: 'inventory.view',
-  INVENTORY_CREATE: 'inventory.create',
-  INVENTORY_EDIT: 'inventory.edit',
-  INVENTORY_DELETE: 'inventory.delete',
-  INVENTORY_ADJUST: 'inventory.adjust',
-  INVENTORY_TRANSFER: 'inventory.transfer',
-  INVENTORY_APPROVE: 'inventory.approve',
-  INVENTORY_EXPORT: 'inventory.export',
-  CRM_VIEW: 'crm.view',
-  CRM_CREATE: 'crm.create',
-  CRM_EDIT: 'crm.edit',
-  CRM_DELETE: 'crm.delete',
-  CRM_INBOX: 'crm.inbox',
-  CRM_KONNECT: 'crm.konnect',
-  CRM_AUTOMATIONS: 'crm.automations',
-  CRM_EXPORT: 'crm.export',
-  CUSTOMERS_VIEW: 'customers.view',
-  CUSTOMERS_CREATE: 'customers.create',
-  CUSTOMERS_EDIT: 'customers.edit',
-  CUSTOMERS_DELETE: 'customers.delete',
-  CUSTOMERS_CREDIT: 'customers.credit',
-  CUSTOMERS_EXPORT: 'customers.export',
-  ACCOUNTING_VIEW: 'accounting.view',
-  ACCOUNTING_CREATE: 'accounting.create',
-  ACCOUNTING_EDIT: 'accounting.edit',
-  ACCOUNTING_DELETE: 'accounting.delete',
-  ACCOUNTING_POST: 'accounting.post',
-  ACCOUNTING_APPROVE: 'accounting.approve',
-  ACCOUNTING_COA: 'accounting.coa',
-  ACCOUNTING_EXPORT: 'accounting.export',
-  REPORTS_VIEW: 'reports.view',
-  REPORTS_EXPORT: 'reports.export',
-  HRM_VIEW_OWN: 'hrm.view_own',
-  HRM_VIEW_TEAM: 'hrm.view_team',
-  HRM_VIEW_ALL: 'hrm.view_all',
-  HRM_MANAGE: 'hrm.manage',
-  SETTINGS_VIEW: 'settings.view',
-  SETTINGS_EDIT: 'settings.edit',
-  SETTINGS_USERS: 'settings.users',
-  SETTINGS_ROLES: 'settings.roles',
-  SETTINGS_APPROVALS: 'settings.approvals',
-} as const
 
 export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'dashboard': ['dashboard.view'],
