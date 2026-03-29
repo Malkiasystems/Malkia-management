@@ -46,6 +46,7 @@ const InvoiceTemplatePage = lazy(() => import('./pages/InvoiceTemplate'))
 const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
 const LocationSettings = lazy(() => import('./pages/LocationSettings'))
 const InventorySettings = lazy(() => import('./pages/InventorySettings'))
+const AccountingSettings = lazy(() => import('./pages/AccountingSettings'))
 
 // User Management & Approvals
 const UserManagement = lazy(() => import('./pages/UserManagement'))
@@ -226,6 +227,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-upsell': 'CRM / Upsell Engine',
   'users': 'Settings / User Management',
   'approvals': 'Settings / Approval Workflows',
+  'accounting-settings': 'Settings / Accounting',
 }
 
 // ============================================================================
@@ -324,6 +326,7 @@ function AppContent() {
       // User Management & Approvals
       case 'users':             return <UserManagement onNav={navigate} />
       case 'approvals':         return <ApprovalWorkflows onNav={navigate} />
+      case 'accounting-settings': return <AccountingSettings />
       
       // CRM Module Routes
       case 'crm':
