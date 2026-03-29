@@ -13,6 +13,14 @@ const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-day-book', 'sa
 
 const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers']
 
+const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template']
+
+const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'General',     page: 'settings',        icon: 'M12 3a9 9 0 0 0-9 9v1h6v-1a3 3 0 0 1 6 0v1h6v-1a9 9 0 0 0-9-9zM3 14v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4' },
+  { label: 'Users',       page: 'users',           icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
+  { label: 'Approvals',   page: 'approvals',       icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+]
+
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Cash Sale',     page: 'cash-sale',      icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
   { label: 'Sales Invoice', page: 'sales-invoice',   icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
@@ -48,7 +56,7 @@ const NAV = [
   { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
   { sep: true },
   { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
-  { icon: 'settings',  label: 'Settings',  page: 'settings' as Page },
+  { icon: 'settings',  label: 'Settings',  page: 'settings' as Page, hasSub: true },
 ]
 
 interface SidebarProps { current: Page; onNav: (p: Page) => void }
@@ -79,9 +87,11 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
 export default function Sidebar({ current, onNav }: SidebarProps) {
   const [salesOpen, setSalesOpen] = useState(false)
   const [crmOpen, setCrmOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const isSalesActive = SALES_PAGES.includes(current)
   const isCrmActive = CRM_PAGES.includes(current)
+  const isSettingsActive = SETTINGS_PAGES.includes(current)
 
   return (
     <div style={{
@@ -99,12 +109,14 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
         const isVoucherActive = VOUCHER_PAGES.includes(current)
         const active =
           current === item.page ||
-          (item.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive) ||
+          (item.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive) ||
           (item.page === 'sales' && isSalesActive) ||
-          (item.page === 'crm-hub' && isCrmActive)
+          (item.page === 'crm-hub' && isCrmActive) ||
+          (item.page === 'settings' && isSettingsActive)
 
         const isSalesItem = item.page === 'sales'
         const isCrmItem = item.page === 'crm-hub'
+        const isSettingsItem = item.page === 'settings'
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -114,14 +126,22 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 if (isSalesItem) {
                   setSalesOpen(o => !o)
                   setCrmOpen(false)
+                  setSettingsOpen(false)
                   onNav('sales')
                 } else if (isCrmItem) {
                   setCrmOpen(o => !o)
                   setSalesOpen(false)
+                  setSettingsOpen(false)
                   onNav('crm-hub')
+                } else if (isSettingsItem) {
+                  setSettingsOpen(o => !o)
+                  setSalesOpen(false)
+                  setCrmOpen(false)
+                  onNav('settings')
                 } else {
                   setSalesOpen(false)
                   setCrmOpen(false)
+                  setSettingsOpen(false)
                   onNav(item.page)
                 }
               }}
@@ -142,10 +162,10 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{item.label}</span>
 
-              {Boolean(isSalesItem || isCrmItem) && (
+              {Boolean(isSalesItem || isCrmItem || isSettingsItem) && (
                 <span style={{ 
                   position:'absolute', right:4, top:'50%', 
-                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isCrmItem && crmOpen) ? 90 : 0}deg)`, 
+                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) ? 90 : 0}deg)`, 
                   transition:'transform .2s', color:'var(--text3)', fontSize:8 
                 }}>›</span>
               )}
@@ -193,6 +213,27 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             {Boolean(isCrmItem) && (crmOpen || isCrmActive) && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {CRM_SUB.map(sub => {
+                  const subActive = current === sub.page
+                  return (
+                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                        background: subActive ? 'var(--accent-dim)' : 'transparent',
+                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
+                      }}>
+                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <path d={sub.icon}/>
+                      </svg>
+                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Settings sub-menu */}
+            {Boolean(isSettingsItem) && (settingsOpen || isSettingsActive) && (
+              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+                {SETTINGS_SUB.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
