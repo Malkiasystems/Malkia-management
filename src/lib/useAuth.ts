@@ -233,6 +233,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'crm-upsell': ['crm.view'],
   'users': ['settings.users'],
   'approvals': ['settings.approvals'],
+  'accounting-settings': ['settings.edit'],
   'whatsapp-settings': ['settings.edit'],
   'location-settings': ['settings.edit'],
   'inventory-settings': ['settings.edit'],
