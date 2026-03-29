@@ -60,9 +60,10 @@ export default function Inventory() {
   const [filterLoc, setFilterLoc] = useState('all')
   const [sortBy, setSortBy] = useState<'name'|'qty'|'value'|'margin'>('name')
   const [loading, setLoading] = useState(true)
-  const { categories, catNames } = useCategories()
+  const { categories, catNames, addCategory } = useCategories()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
+  const [newCategory, setNewCategory] = useState('')
 
   // Views: list | ledger | edit
   const [view, setView] = useState<'list'|'ledger'|'edit'>('list')
@@ -141,10 +142,21 @@ export default function Inventory() {
     if (!form.sku.trim()) { showToast('SKU is required', 'error'); return }
     if (!form.name.trim()) { showToast('Product name is required', 'error'); return }
     if (!form.cost_price || !form.selling_price) { showToast('Cost and selling price required', 'error'); return }
+    
+    // Get category - use newCategory if entered, otherwise form.category
+    let categoryName = form.category === '__new__' ? newCategory.trim() : form.category
+    if (!categoryName) { showToast('Category is required', 'error'); return }
+    
     setSaving(true)
+    
+    // Auto-add new category if it doesn't exist
+    if (form.category === '__new__' && newCategory.trim() && !catNames.includes(newCategory.trim())) {
+      await addCategory(newCategory.trim())
+    }
+    
     const payload = {
       sku: form.sku.trim().toUpperCase(), name: form.name.trim(),
-      category: form.category, unit: form.unit,
+      category: categoryName, unit: form.unit,
       cost_price: parseFloat(form.cost_price), selling_price: parseFloat(form.selling_price),
       qty_on_hand: parseFloat(form.qty_on_hand) || 0,
       reorder_point: parseFloat(form.reorder_point) || 10,
@@ -160,6 +172,7 @@ export default function Inventory() {
         if (error) throw new Error(error.message)
         showToast(`${form.name} added to inventory`)
       }
+      setNewCategory('')
       setView('list'); loadProducts()
     } catch (err: any) {
       showToast(err.message || 'Save failed', 'error')
@@ -236,10 +249,21 @@ export default function Inventory() {
             </div>
             <FG label="Product Name" req><input className="form-input" placeholder="e.g. Maternity Support Belt" value={form.name} onChange={e => setF('name', e.target.value)} /></FG>
             <FG label="Category" req>
-              <select className="form-input" value={form.category} onChange={e => setF('category', e.target.value)}>
+              <select className="form-input" value={form.category} onChange={e => { setF('category', e.target.value); if (e.target.value !== '__new__') setNewCategory('') }}>
                 <option value="">-- Select category --</option>
                 {catNames.map(c => <option key={c}>{c}</option>)}
+                <option value="__new__">+ Add new category...</option>
               </select>
+              {(form.category === '__new__' || newCategory) && (
+                <input 
+                  className="form-input" 
+                  style={{ marginTop: 8 }} 
+                  placeholder="Enter new category name" 
+                  value={newCategory} 
+                  onChange={e => setNewCategory(e.target.value)} 
+                  autoFocus 
+                />
+              )}
             </FG>
             <div className="form-row">
               <FG label="Cost Price (TZS)" req><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={form.cost_price} onChange={e => setF('cost_price', e.target.value)} /></FG>
