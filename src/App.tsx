@@ -53,14 +53,14 @@ import StockTransfer from './pages/vouchers/StockTransfer'
 import JournalEntry from './pages/vouchers/JournalEntry'
 
 // CRM Module Pages
-import CRMHub from './pages/crm/CRMHub'
-import CRMInbox from './pages/crm/CRMInbox'
-import CRMAutomations from './pages/crm/CRMAutomations'
-import CRMPreorders from './pages/crm/CRMPreorders'
-import CRMReferrals from './pages/crm/CRMReferrals'
-import CRMLoyalty from './pages/crm/CRMLoyalty'
-import CRMFeedback from './pages/crm/CRMFeedback'
-import CRMUpsell from './pages/crm/CRMUpsell'
+import CRMHub from './pages/CRMHub'
+import CRMInbox from './pages/CRMInbox'
+import CRMAutomations from './pages/CRMAutomations'
+import CRMPreorders from './pages/CRMPreorders'
+import CRMReferrals from './pages/CRMReferrals'
+import CRMLoyalty from './pages/CRMLoyalty'
+import CRMFeedback from './pages/CRMFeedback'
+import CRMUpsell from './pages/CRMUpsell'
 
 // Extended breadcrumbs for CRM
 const CRM_BREADCRUMBS: Record<string, string> = {
