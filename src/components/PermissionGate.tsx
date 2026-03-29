@@ -37,7 +37,7 @@ export function PermissionGate({
   disabled = false,
   debug = false,
 }: PermissionGateProps) {
-  const { can, canAny, canAll, hasRole, hasAnyRole, loading, user } = useAuth()
+  const { can, canAny, canAll, hasRole, hasAnyRole, loading } = useAuth()
 
   // While loading, show nothing or fallback
   if (loading) {
