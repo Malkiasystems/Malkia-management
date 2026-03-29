@@ -26,15 +26,6 @@ import InvoiceTemplatePage from './pages/InvoiceTemplate'
 import WhatsAppSettings from './pages/WhatsAppSettings'
 import LocationSettings from './pages/LocationSettings'
 import InventorySettings from './pages/InventorySettings'
-import AccountingSettings from './pages/AccountingSettings'
-import Migration2026 from './pages/Migration2026'
-import CRMHub from './pages/CRMHub'
-import CRMInbox from './pages/CRMInbox'
-import CRMPreorders from './pages/CRMPreorders'
-import CRMReferrals from './pages/CRMReferrals'
-import CRMLoyalty from './pages/CRMLoyalty'
-import CRMSettings from './pages/CRMSettings'
-// import PricelistTemplate from './pages/PricelistTemplate'
 import StockTransferRegister from './pages/StockTransferRegister'
 import Customers from './pages/Customers'
 import Settings from './pages/Settings'
@@ -60,6 +51,28 @@ import OpeningStock from './pages/vouchers/OpeningStock'
 import StockAdjustment from './pages/vouchers/StockAdjustment'
 import StockTransfer from './pages/vouchers/StockTransfer'
 import JournalEntry from './pages/vouchers/JournalEntry'
+
+// CRM Module Pages
+import CRMHub from './pages/crm/CRMHub'
+import CRMInbox from './pages/crm/CRMInbox'
+import CRMAutomations from './pages/crm/CRMAutomations'
+import CRMPreorders from './pages/crm/CRMPreorders'
+import CRMReferrals from './pages/crm/CRMReferrals'
+import CRMLoyalty from './pages/crm/CRMLoyalty'
+import CRMFeedback from './pages/crm/CRMFeedback'
+import CRMUpsell from './pages/crm/CRMUpsell'
+
+// Extended breadcrumbs for CRM
+const CRM_BREADCRUMBS: Record<string, string> = {
+  'crm-hub': 'CRM Hub',
+  'crm-inbox': 'CRM / Inbox',
+  'crm-automations': 'CRM / Automations',
+  'crm-preorders': 'CRM / Pre-Orders',
+  'crm-referrals': 'CRM / Referrals',
+  'crm-loyalty': 'CRM / Crown Rewards',
+  'crm-feedback': 'CRM / Feedback',
+  'crm-upsell': 'CRM / Upsell Engine',
+}
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
@@ -100,8 +113,6 @@ export default function App() {
       case 'whatsapp-settings':  return <WhatsAppSettings />
       case 'location-settings':  return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
-      case 'accounting-settings': return <AccountingSettings />
-      case 'migration-2026':    return <Migration2026 />
       case 'pricelist-template':  return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon</div></div>
       case 'banks':            return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
@@ -129,26 +140,28 @@ export default function App() {
       case 'customers': return <Customers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'data-import':       return <DataImport />
-      // CRM Pages
-      case 'crm':               return <CRMHub onNav={navigate} />
+      
+      // CRM Module Routes
+      case 'crm':
+      case 'crm-hub':           return <CRMHub onNav={navigate} />
       case 'crm-inbox':         return <CRMInbox onNav={navigate} />
+      case 'crm-automations':   return <CRMAutomations onNav={navigate} />
       case 'crm-preorders':     return <CRMPreorders onNav={navigate} />
       case 'crm-referrals':     return <CRMReferrals onNav={navigate} />
       case 'crm-loyalty':       return <CRMLoyalty onNav={navigate} />
-      case 'crm-settings':      return <CRMSettings />
-      case 'crm-leads':         return <ComingSoon module="Leads Management" />
-      case 'crm-feedback':      return <ComingSoon module="Feedback & Reviews" />
-      case 'crm-upsell':        return <ComingSoon module="Smart Upsell Engine" />
-      case 'crm-automations':   return <ComingSoon module="Automations" />
-      case 'crm-segments':      return <ComingSoon module="Customer Segments" />
-      case 'crm-messages':      return <ComingSoon module="Message Queue" />
-      default:                  return <ComingSoon module={BREADCRUMBS[page] || page} />
+      case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
+      case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
+      case 'crm-customers':     return <Customers />
+      
+      default:                  return <ComingSoon module={BREADCRUMBS[page] || CRM_BREADCRUMBS[page] || page} />
     }
   }
 
+  const breadcrumb = BREADCRUMBS[page] || CRM_BREADCRUMBS[page] || 'Dashboard'
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <Topbar breadcrumb={BREADCRUMBS[page] || 'Dashboard'} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
+      <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar current={page} onNav={navigate} />
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
