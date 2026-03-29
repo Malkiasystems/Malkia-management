@@ -1,6 +1,7 @@
 import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
+import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
@@ -181,6 +182,37 @@ const PageLoader = () => (
   </div>
 )
 
+// Access Denied Component
+const AccessDenied = ({ page }: { page: string }) => (
+  <div style={{
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    color: 'var(--text3)',
+    gap: 16,
+    padding: 40,
+    textAlign: 'center'
+  }}>
+    <svg width="48" height="48" fill="none" stroke="var(--text3)" strokeWidth="1.5" viewBox="0 0 24 24">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+    <div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+        Access Denied
+      </div>
+      <div style={{ fontSize: 13 }}>
+        You don't have permission to access this page.
+      </div>
+      <div style={{ fontSize: 11, marginTop: 8, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+        {page}
+      </div>
+    </div>
+  </div>
+)
+
 // Extended breadcrumbs for CRM and Settings
 const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-hub': 'CRM Hub',
@@ -198,9 +230,11 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 // ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
-export default function App() {
+
+function AppContent() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
+  const { user, permissions, loading: authLoading } = useAuth()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
@@ -214,7 +248,15 @@ export default function App() {
     setPage(prev)
   }
 
+  // Check if current user can access the page
+  const hasAccess = canAccessPage(page, permissions, user?.role_name || '')
+
   const renderPage = () => {
+    // Show access denied if user doesn't have permission
+    if (!hasAccess && !authLoading) {
+      return <AccessDenied page={page} />
+    }
+
     switch (page) {
       // Eager loaded (no Suspense needed)
       case 'dashboard':         return <Dashboard onNav={navigate} />
@@ -304,5 +346,13 @@ export default function App() {
         </div>
       </div>
     </CacheProvider>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }
