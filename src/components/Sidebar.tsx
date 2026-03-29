@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import type { Page } from '../lib/types'
+import { useAuth, canAccessPage } from '../lib/useAuth'
 
 const VOUCHER_PAGES: Page[] = [
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
@@ -88,10 +89,21 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const [salesOpen, setSalesOpen] = useState(false)
   const [crmOpen, setCrmOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  
+  const { user, permissions, loading } = useAuth()
+  const roleName = user?.role_name || ''
 
   const isSalesActive = SALES_PAGES.includes(current)
   const isCrmActive = CRM_PAGES.includes(current)
   const isSettingsActive = SETTINGS_PAGES.includes(current)
+  
+  // Filter NAV items based on permissions
+  const canAccess = (page: Page) => canAccessPage(page, permissions, roleName)
+  
+  // Filter sub-menu items
+  const visibleSalesSub = SALES_SUB.filter(sub => canAccess(sub.page))
+  const visibleCrmSub = CRM_SUB.filter(sub => canAccess(sub.page))
+  const visibleSettingsSub = SETTINGS_SUB.filter(sub => canAccess(sub.page))
 
   return (
     <div style={{
@@ -105,6 +117,16 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
         if ('sep' in item && item.sep) return (
           <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
         )
+        
+        // Skip items user can't access (except coming soon items)
+        if (!item.coming && item.page && !canAccess(item.page as Page)) {
+          // For parent items (Sales, CRM, Settings), check if any sub-items are accessible
+          if (item.page === 'sales' && visibleSalesSub.length === 0) return null
+          if (item.page === 'crm-hub' && visibleCrmSub.length === 0) return null
+          if (item.page === 'settings' && visibleSettingsSub.length === 0) return null
+          // For non-parent items, just skip
+          if (!['sales', 'crm-hub', 'settings'].includes(item.page as string)) return null
+        }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
         const active =
@@ -189,9 +211,9 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             </div>
 
             {/* Sales sub-menu */}
-            {Boolean(isSalesItem) && (salesOpen || isSalesActive) && (
+            {Boolean(isSalesItem) && (salesOpen || isSalesActive) && visibleSalesSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
-                {SALES_SUB.map(sub => {
+                {visibleSalesSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
@@ -210,9 +232,9 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             )}
 
             {/* CRM sub-menu */}
-            {Boolean(isCrmItem) && (crmOpen || isCrmActive) && (
+            {Boolean(isCrmItem) && (crmOpen || isCrmActive) && visibleCrmSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
-                {CRM_SUB.map(sub => {
+                {visibleCrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
@@ -231,9 +253,9 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             )}
 
             {/* Settings sub-menu */}
-            {Boolean(isSettingsItem) && (settingsOpen || isSettingsActive) && (
+            {Boolean(isSettingsItem) && (settingsOpen || isSettingsActive) && visibleSettingsSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
-                {SETTINGS_SUB.map(sub => {
+                {visibleSettingsSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
