@@ -90,7 +90,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const [crmOpen, setCrmOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   
-  const { user, permissions, loading } = useAuth()
+  const { user, permissions } = useAuth()
   const roleName = user?.role_name || ''
 
   const isSalesActive = SALES_PAGES.includes(current)
