@@ -22,6 +22,9 @@ export interface AuthContextType {
   can: (permission: string) => boolean
   canAny: (permissions: string[]) => boolean
   canAll: (permissions: string[]) => boolean
+  hasRole: (roleName: string) => boolean
+  hasAnyRole: (roleNames: string[]) => boolean
+  isSuperAdmin: () => boolean
   signOut: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -128,6 +131,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return perms.every(p => permissions.includes(p))
   }, [permissions])
 
+  const hasRole = useCallback((_roleName: string): boolean => {
+    // With direct permissions, we don't use roles
+    // This is kept for backward compatibility
+    return permissions.length >= 40
+  }, [permissions])
+
+  const hasAnyRole = useCallback((_roleNames: string[]): boolean => {
+    return permissions.length >= 40
+  }, [permissions])
+
+  const isSuperAdmin = useCallback((): boolean => {
+    return permissions.length >= 40
+  }, [permissions])
+
   const signOut = async () => {
     await supabase.auth.signOut()
     setUser(null)
@@ -163,6 +180,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     can,
     canAny,
     canAll,
+    hasRole,
+    hasAnyRole,
+    isSuperAdmin,
     signOut,
     refreshUser,
   }
