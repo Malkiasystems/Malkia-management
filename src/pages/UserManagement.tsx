@@ -205,32 +205,24 @@ export default function UserManagement({ onNav }: Props) {
   const loadData = async () => {
     setLoading(true)
 
-    const { data: usersData } = await supabase
+    const { data: usersData, error } = await supabase
       .from('users')
       .select('*')
       .order('full_name')
 
-    if (usersData && usersData.length > 0) {
-      // Permissions are now stored directly in users.permissions array
+    if (error) {
+      console.error('Error loading users:', error)
+      alert('Failed to load users: ' + error.message)
+      setLoading(false)
+      return
+    }
+
+    if (usersData) {
       const usersWithPerms = usersData.map((u: any) => ({
         ...u,
         permissions: u.permissions || []
       }))
       setUsers(usersWithPerms)
-    } else {
-      // Demo data
-      setUsers([
-        { id: '1', email: 'joe@malkia.co.tz', full_name: 'Joe Gembe', initials: 'JG', is_active: true, is_approver: true, is_away: false, permissions: ALL_PERMISSIONS, created_at: '2024-01-01' },
-        { id: '2', email: 'jane@malkia.co.tz', full_name: 'Jane Patrick Mwatonoka', initials: 'JPM', is_active: true, is_approver: true, is_away: false, permissions: ['dashboard.view', 'sales.view', 'sales.create', 'sales.approve', 'crm.view', 'crm.inbox', 'customers.view', 'reports.view'], created_at: '2024-01-01' },
-        { id: '3', email: 'barbra@malkia.co.tz', full_name: 'Barbra Kabendera', initials: 'BK', is_active: true, is_approver: false, is_away: false, permissions: ['dashboard.view', 'sales.view', 'sales.create', 'inventory.view', 'crm.view', 'customers.view'], created_at: '2024-01-15' },
-        { id: '4', email: 'rahim@malkia.co.tz', full_name: 'Rahim Athuman', initials: 'RA', is_active: true, is_approver: false, is_away: false, permissions: ['dashboard.view', 'sales.view', 'sales.create', 'crm.view', 'crm.inbox', 'customers.view', 'customers.create'], created_at: '2024-02-01' },
-        { id: '5', email: 'sophia@malkia.co.tz', full_name: 'Sophia Kipanta', initials: 'SK', is_active: true, is_approver: false, is_away: false, permissions: ['dashboard.view', 'crm.view', 'crm.konnect', 'crm.inbox', 'customers.view'], created_at: '2024-02-01' },
-        { id: '6', email: 'elizabeth@malkia.co.tz', full_name: 'Elizabeth Mnyampanda', initials: 'EM', is_active: true, is_approver: false, is_away: false, permissions: ['dashboard.view', 'crm.view', 'reports.view'], created_at: '2024-03-01' },
-        { id: '7', email: 'brenda@malkia.co.tz', full_name: 'Brenda Jerome', initials: 'BJ', is_active: true, is_approver: false, is_away: false, permissions: ['dashboard.view', 'sales.view', 'sales.create', 'crm.view', 'crm.konnect'], created_at: '2024-03-01' },
-        { id: '8', email: 'epifania@malkia.co.tz', full_name: 'Epifania Shirima', initials: 'ES', is_active: true, is_approver: false, is_away: false, permissions: ['dashboard.view', 'sales.view', 'sales.create', 'crm.view', 'crm.konnect'], created_at: '2024-03-01' },
-        { id: '9', email: 'sam@malkia.co.tz', full_name: 'Sam Alphonce', initials: 'SA', is_active: true, is_approver: false, is_away: false, permissions: ['hrm.view_own'], created_at: '2024-04-01' },
-        { id: '10', email: 'david@malkia.co.tz', full_name: 'David Lucian', initials: 'DL', is_active: true, is_approver: false, is_away: false, permissions: ['hrm.view_own'], created_at: '2024-04-01' },
-      ])
     }
 
     setLoading(false)
