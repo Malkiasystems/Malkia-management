@@ -1,66 +1,179 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
 
+// ============================================================================
+// PERFORMANCE: Eager load core pages (used immediately)
+// ============================================================================
 import Dashboard from './pages/Dashboard'
 import ComingSoon from './pages/ComingSoon'
-import ChartOfAccounts from './pages/ChartOfAccounts'
-import Inventory from './pages/Inventory'
-import ReportsHub from './pages/ReportsHub'
-import PnL from './pages/PnL'
-import SalesRegister from './pages/SalesRegister'
-import SalesDayBook from './pages/SalesDayBook'
-import TrialBalance from './pages/TrialBalance'
-import BalanceSheet from './pages/BalanceSheet'
-import ARAgingReport from './pages/ARAgingReport'
-import APAgingReport from './pages/APAgingReport'
-import VATReport from './pages/VATReport'
-import StockValuationReport from './pages/StockValuationReport'
-import PurchaseRegister from './pages/PurchaseRegister'
-import PaymentRegister from './pages/PaymentRegister'
-import ReceiptTemplatePage from './pages/ReceiptTemplate'
-import InvoiceTemplatePage from './pages/InvoiceTemplate'
-import WhatsAppSettings from './pages/WhatsAppSettings'
-import LocationSettings from './pages/LocationSettings'
-import InventorySettings from './pages/InventorySettings'
-import StockTransferRegister from './pages/StockTransferRegister'
-import Customers from './pages/Customers'
-import Settings from './pages/Settings'
-import DataImport from './pages/DataImport'
-import Banks from './pages/Banks'
 
-import VouchersHub from './pages/vouchers/VouchersHub'
-import CashPayment from './pages/vouchers/CashPayment'
-import CashReceipt from './pages/vouchers/CashReceipt'
-import BankTransfer from './pages/vouchers/BankTransfer'
-import ContraEntry from './pages/vouchers/ContraEntry'
-import PettyCash from './pages/vouchers/PettyCash'
-import CashSale from './pages/vouchers/CashSale'
-import SalesInvoice from './pages/vouchers/SalesInvoice'
-import SalesReturn from './pages/vouchers/SalesReturn'
-import DebitNote from './pages/vouchers/DebitNote'
-import CreditNote from './pages/vouchers/CreditNote'
-import PurchaseOrder from './pages/vouchers/PurchaseOrder'
-import GRN from './pages/vouchers/GRN'
-import PurchaseInvoice from './pages/vouchers/PurchaseInvoice'
-import PurchaseReturn from './pages/vouchers/PurchaseReturn'
-import OpeningStock from './pages/vouchers/OpeningStock'
-import StockAdjustment from './pages/vouchers/StockAdjustment'
-import StockTransfer from './pages/vouchers/StockTransfer'
-import JournalEntry from './pages/vouchers/JournalEntry'
+// ============================================================================
+// PERFORMANCE: Lazy load everything else (loaded on demand)
+// ============================================================================
 
-// CRM Module Pages
-import CRMHub from './pages/CRMHub'
-import CRMInbox from './pages/CRMInbox'
-import CRMAutomations from './pages/CRMAutomations'
-import CRMPreorders from './pages/CRMPreorders'
-import CRMReferrals from './pages/CRMReferrals'
-import CRMLoyalty from './pages/CRMLoyalty'
-import CRMFeedback from './pages/CRMFeedback'
-import CRMUpsell from './pages/CRMUpsell'
+// Accounting & Core
+const ChartOfAccounts = lazy(() => import('./pages/ChartOfAccounts'))
+const Inventory = lazy(() => import('./pages/Inventory'))
+const ReportsHub = lazy(() => import('./pages/ReportsHub'))
+const Banks = lazy(() => import('./pages/Banks'))
+const Customers = lazy(() => import('./pages/Customers'))
+const Settings = lazy(() => import('./pages/Settings'))
+const DataImport = lazy(() => import('./pages/DataImport'))
+
+// Reports
+const PnL = lazy(() => import('./pages/PnL'))
+const SalesRegister = lazy(() => import('./pages/SalesRegister'))
+const SalesDayBook = lazy(() => import('./pages/SalesDayBook'))
+const TrialBalance = lazy(() => import('./pages/TrialBalance'))
+const BalanceSheet = lazy(() => import('./pages/BalanceSheet'))
+const ARAgingReport = lazy(() => import('./pages/ARAgingReport'))
+const APAgingReport = lazy(() => import('./pages/APAgingReport'))
+const VATReport = lazy(() => import('./pages/VATReport'))
+const StockValuationReport = lazy(() => import('./pages/StockValuationReport'))
+const PurchaseRegister = lazy(() => import('./pages/PurchaseRegister'))
+const PaymentRegister = lazy(() => import('./pages/PaymentRegister'))
+const StockTransferRegister = lazy(() => import('./pages/StockTransferRegister'))
+
+// Settings Pages
+const ReceiptTemplatePage = lazy(() => import('./pages/ReceiptTemplate'))
+const InvoiceTemplatePage = lazy(() => import('./pages/InvoiceTemplate'))
+const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
+const LocationSettings = lazy(() => import('./pages/LocationSettings'))
+const InventorySettings = lazy(() => import('./pages/InventorySettings'))
+
+// Vouchers
+const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
+const CashPayment = lazy(() => import('./pages/vouchers/CashPayment'))
+const CashReceipt = lazy(() => import('./pages/vouchers/CashReceipt'))
+const BankTransfer = lazy(() => import('./pages/vouchers/BankTransfer'))
+const ContraEntry = lazy(() => import('./pages/vouchers/ContraEntry'))
+const PettyCash = lazy(() => import('./pages/vouchers/PettyCash'))
+const CashSale = lazy(() => import('./pages/vouchers/CashSale'))
+const SalesInvoice = lazy(() => import('./pages/vouchers/SalesInvoice'))
+const SalesReturn = lazy(() => import('./pages/vouchers/SalesReturn'))
+const DebitNote = lazy(() => import('./pages/vouchers/DebitNote'))
+const CreditNote = lazy(() => import('./pages/vouchers/CreditNote'))
+const PurchaseOrder = lazy(() => import('./pages/vouchers/PurchaseOrder'))
+const GRN = lazy(() => import('./pages/vouchers/GRN'))
+const PurchaseInvoice = lazy(() => import('./pages/vouchers/PurchaseInvoice'))
+const PurchaseReturn = lazy(() => import('./pages/vouchers/PurchaseReturn'))
+const OpeningStock = lazy(() => import('./pages/vouchers/OpeningStock'))
+const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
+const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
+const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
+
+// CRM Module (lazy - entire module loads on first CRM page visit)
+const CRMHub = lazy(() => import('./pages/CRMHub'))
+const CRMInbox = lazy(() => import('./pages/CRMInbox'))
+const CRMAutomations = lazy(() => import('./pages/CRMAutomations'))
+const CRMPreorders = lazy(() => import('./pages/CRMPreorders'))
+const CRMReferrals = lazy(() => import('./pages/CRMReferrals'))
+const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
+const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
+const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
+
+// ============================================================================
+// PERFORMANCE: Global Data Cache Context
+// ============================================================================
+interface CacheData {
+  products?: any[]
+  accounts?: any[]
+  customers?: any[]
+  vouchers?: any[]
+  ledger?: any[]
+  banks?: any[]
+  suppliers?: any[]
+  [key: string]: any[] | undefined
+}
+
+interface CacheContextType {
+  cache: CacheData
+  setCache: (key: string, data: any[]) => void
+  getCache: (key: string) => any[] | undefined
+  invalidate: (key: string) => void
+  invalidateAll: () => void
+  lastFetch: Record<string, number>
+  isStale: (key: string, maxAgeMs?: number) => boolean
+}
+
+const CacheContext = createContext<CacheContextType | null>(null)
+
+export function useDataCache() {
+  const ctx = useContext(CacheContext)
+  if (!ctx) throw new Error('useDataCache must be used within CacheProvider')
+  return ctx
+}
+
+function CacheProvider({ children }: { children: ReactNode }) {
+  const [cache, setCacheState] = useState<CacheData>({})
+  const [lastFetch, setLastFetch] = useState<Record<string, number>>({})
+
+  const setCache = useCallback((key: string, data: any[]) => {
+    setCacheState(prev => ({ ...prev, [key]: data }))
+    setLastFetch(prev => ({ ...prev, [key]: Date.now() }))
+  }, [])
+
+  const getCache = useCallback((key: string) => cache[key], [cache])
+
+  const invalidate = useCallback((key: string) => {
+    setCacheState(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setLastFetch(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }, [])
+
+  const invalidateAll = useCallback(() => {
+    setCacheState({})
+    setLastFetch({})
+  }, [])
+
+  const isStale = useCallback((key: string, maxAgeMs = 60000) => {
+    const last = lastFetch[key]
+    if (!last) return true
+    return Date.now() - last > maxAgeMs
+  }, [lastFetch])
+
+  return (
+    <CacheContext.Provider value={{ cache, setCache, getCache, invalidate, invalidateAll, lastFetch, isStale }}>
+      {children}
+    </CacheContext.Provider>
+  )
+}
+
+// ============================================================================
+// PERFORMANCE: Loading Fallback Component
+// ============================================================================
+const PageLoader = () => (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    color: 'var(--text3)',
+    gap: 12
+  }}>
+    <div style={{
+      width: 20,
+      height: 20,
+      border: '2px solid var(--border)',
+      borderTopColor: 'var(--accent)',
+      borderRadius: '50%',
+      animation: 'spin 0.8s linear infinite'
+    }} />
+    <span style={{ fontSize: 13 }}>Loading...</span>
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+)
 
 // Extended breadcrumbs for CRM
 const CRM_BREADCRUMBS: Record<string, string> = {
@@ -74,12 +187,15 @@ const CRM_BREADCRUMBS: Record<string, string> = {
   'crm-upsell': 'CRM / Upsell Engine',
 }
 
+// ============================================================================
+// MAIN APP COMPONENT
+// ============================================================================
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
 
   const navigate = (p: Page) => {
-    setHistory(h => [...h.slice(-19), page]) // keep last 20
+    setHistory(h => [...h.slice(-19), page])
     setPage(p)
   }
 
@@ -92,7 +208,10 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
+      // Eager loaded (no Suspense needed)
       case 'dashboard':         return <Dashboard onNav={navigate} />
+      
+      // Lazy loaded pages
       case 'vouchers':          return <VouchersHub onNav={navigate} />
       case 'chart-of-accounts': return <ChartOfAccounts />
       case 'inventory':         return <Inventory />
@@ -100,21 +219,21 @@ export default function App() {
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
       case 'sales-day-book':    return <SalesDayBook />
-      case 'trial-balance':    return <TrialBalance />
-      case 'balance-sheet':    return <BalanceSheet />
-      case 'ar-aging':         return <ARAgingReport />
-      case 'ap-aging':         return <APAgingReport />
-      case 'vat-report':       return <VATReport />
-      case 'stock-valuation':  return <StockValuationReport />
+      case 'trial-balance':     return <TrialBalance />
+      case 'balance-sheet':     return <BalanceSheet />
+      case 'ar-aging':          return <ARAgingReport />
+      case 'ap-aging':          return <APAgingReport />
+      case 'vat-report':        return <VATReport />
+      case 'stock-valuation':   return <StockValuationReport />
       case 'purchase-register': return <PurchaseRegister />
-      case 'payment-register': return <PaymentRegister />
+      case 'payment-register':  return <PaymentRegister />
       case 'receipt-template':  return <ReceiptTemplatePage />
       case 'invoice-template':  return <InvoiceTemplatePage />
-      case 'whatsapp-settings':  return <WhatsAppSettings />
-      case 'location-settings':  return <LocationSettings />
+      case 'whatsapp-settings': return <WhatsAppSettings />
+      case 'location-settings': return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
-      case 'pricelist-template':  return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon</div></div>
-      case 'banks':            return <Banks />
+      case 'pricelist-template': return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon</div></div>
+      case 'banks':             return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'bank-payment':      return <CashPayment onNav={navigate} />
@@ -137,7 +256,7 @@ export default function App() {
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-register': return <StockTransferRegister />
-      case 'customers': return <Customers />
+      case 'customers':         return <Customers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'data-import':       return <DataImport />
       
@@ -160,14 +279,18 @@ export default function App() {
   const breadcrumb = BREADCRUMBS[page] || CRM_BREADCRUMBS[page] || 'Dashboard'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <Sidebar current={page} onNav={navigate} />
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {renderPage()}
+    <CacheProvider>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <Sidebar current={page} onNav={navigate} />
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <Suspense fallback={<PageLoader />}>
+              {renderPage()}
+            </Suspense>
+          </div>
         </div>
       </div>
-    </div>
+    </CacheProvider>
   )
 }
