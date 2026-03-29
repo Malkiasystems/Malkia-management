@@ -9,6 +9,10 @@ const VOUCHER_PAGES: Page[] = [
   'stock-adjustment', 'stock-transfer', 'journal-entry'
 ]
 
+const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note']
+
+const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers']
+
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Cash Sale',     page: 'cash-sale',      icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
   { label: 'Sales Invoice', page: 'sales-invoice',   icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
@@ -17,11 +21,14 @@ const SALES_SUB: { label: string; page: Page; icon: string }[] = [
 ]
 
 const CRM_SUB: { label: string; page: Page; icon: string }[] = [
-  { label: 'Hub',        page: 'crm',            icon: 'M12 3v1m0 16v1m-8-9H3m18 0h-1M5.6 5.6l.7.7m12.4 12.4l.7.7M5.6 18.4l.7-.7M18.7 5.6l-.7.7' },
-  { label: 'Inbox',      page: 'crm-inbox',      icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
-  { label: 'Pre-Orders', page: 'crm-preorders',  icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },
-  { label: 'Referrals',  page: 'crm-referrals',  icon: 'M18 5a3 3 0 1 0 0 0M6 12a3 3 0 1 0 0 0M18 19a3 3 0 1 0 0 0M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98' },
-  { label: 'Crown',      page: 'crm-loyalty',    icon: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z M3 20h18' },
+  { label: 'Hub',         page: 'crm-hub',         icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
+  { label: 'Inbox',       page: 'crm-inbox',       icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
+  { label: 'Automations', page: 'crm-automations', icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' },
+  { label: 'Pre-Orders',  page: 'crm-preorders',   icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },
+  { label: 'Referrals',   page: 'crm-referrals',   icon: 'M18 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 12a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98' },
+  { label: 'Crown',       page: 'crm-loyalty',     icon: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zM3 20h18' },
+  { label: 'Feedback',    page: 'crm-feedback',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+  { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
 ]
 
 const NAV = [
@@ -37,7 +44,7 @@ const NAV = [
   { sep: true },
   { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
   { icon: 'konnect',   label: 'Konnect',   page: 'coming-soon' as Page, coming: true },
-  { icon: 'crm',       label: 'CRM',       page: 'crm' as Page, hasSub: true },
+  { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
   { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
   { sep: true },
   { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
@@ -60,7 +67,7 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
     reports:   <svg {...p}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
     services:  <svg {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.1 1.24h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.64a16 16 0 0 0 6.29 6.29l1.46-1.46a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
     konnect:   <svg {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
-    crm:       <svg {...p}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>,
+    crm:       <svg {...p}><circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/></svg>,
     hrm:       <svg {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
     import:    <svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
     settings:  <svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
@@ -68,9 +75,6 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
   const icon = icons[name] ?? icons['home']
   return <>{icon}</>
 }
-
-const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note']
-const CRM_PAGES: Page[] = ['crm', 'crm-inbox', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-automations', 'crm-settings']
 
 export default function Sidebar({ current, onNav }: SidebarProps) {
   const [salesOpen, setSalesOpen] = useState(false)
@@ -97,24 +101,24 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
           current === item.page ||
           (item.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive) ||
           (item.page === 'sales' && isSalesActive) ||
-          (item.page === 'crm' && isCrmActive)
+          (item.page === 'crm-hub' && isCrmActive)
 
-        const isSales = item.page === 'sales'
-        const isCrm = item.page === 'crm'
+        const isSalesItem = item.page === 'sales'
+        const isCrmItem = item.page === 'crm-hub'
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div
               onClick={() => {
                 if (item.coming || !item.page) return
-                if (isSales) {
+                if (isSalesItem) {
                   setSalesOpen(o => !o)
                   setCrmOpen(false)
                   onNav('sales')
-                } else if (isCrm) {
+                } else if (isCrmItem) {
                   setCrmOpen(o => !o)
                   setSalesOpen(false)
-                  onNav('crm')
+                  onNav('crm-hub')
                 } else {
                   setSalesOpen(false)
                   setCrmOpen(false)
@@ -138,8 +142,12 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{item.label}</span>
 
-              {Boolean(isSales || isCrm) && (
-                <span style={{ position:'absolute', right:4, top:'50%', transform:`translateY(-50%) rotate(${(isSales && salesOpen) || (isCrm && crmOpen)?90:0}deg)`, transition:'transform .2s', color:'var(--text3)', fontSize:8 }}>›</span>
+              {Boolean(isSalesItem || isCrmItem) && (
+                <span style={{ 
+                  position:'absolute', right:4, top:'50%', 
+                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isCrmItem && crmOpen) ? 90 : 0}deg)`, 
+                  transition:'transform .2s', color:'var(--text3)', fontSize:8 
+                }}>›</span>
               )}
 
               {'badge' in item && (item as any).badge && (
@@ -161,7 +169,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             </div>
 
             {/* Sales sub-menu */}
-            {Boolean(isSales) && (salesOpen || isSalesActive) && (
+            {Boolean(isSalesItem) && (salesOpen || isSalesActive) && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {SALES_SUB.map(sub => {
                   const subActive = current === sub.page
@@ -182,7 +190,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             )}
 
             {/* CRM sub-menu */}
-            {Boolean(isCrm) && (crmOpen || isCrmActive) && (
+            {Boolean(isCrmItem) && (crmOpen || isCrmActive) && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {CRM_SUB.map(sub => {
                   const subActive = current === sub.page
