@@ -253,33 +253,26 @@ export default function CRMHub({ onNav }: Props) {
           referrals: 0
         })))
     } else {
-      // Demo data
+      // No customers yet - show zeros
       setStats({
-        totalCustomers: 1247,
-        unreadMessages: 12,
-        openTickets: 4,
-        upsellRate: 25.5,
-        totalReferrals: 412,
-        crownMembers: 247,
-        activeAutomations: 18,
-        csatScore: 4.7,
-        preOrders: 3,
-        mamaCount: 842,
-        goldCount: 158,
-        crownCount: 247,
-        inactiveCount: 23,
-        referralRevenue: 2870000,
-        pointsIssued: 4200000,
-        pointsRedeemed: 1100000
+        totalCustomers: 0,
+        unreadMessages: 0,
+        openTickets: 0,
+        upsellRate: 0,
+        totalReferrals: 0,
+        crownMembers: 0,
+        activeAutomations: 0,
+        csatScore: 0,
+        preOrders: 0,
+        mamaCount: 0,
+        goldCount: 0,
+        crownCount: 0,
+        inactiveCount: 0,
+        referralRevenue: 0,
+        pointsIssued: 0,
+        pointsRedeemed: 0
       })
-
-      setTopCustomers([
-        { id: '1', name: 'Amina Hassan', ltv: 4200000, orders: 12, tier: 'crown', referrals: 5 },
-        { id: '2', name: 'Grace Mwanza', ltv: 2850000, orders: 8, tier: 'crown', referrals: 3 },
-        { id: '3', name: 'Zainab Ally', ltv: 1920000, orders: 6, tier: 'gold', referrals: 1 },
-        { id: '4', name: 'Fatuma Iddi', ltv: 1450000, orders: 5, tier: 'gold', referrals: 2 },
-        { id: '5', name: 'Neema Omari', ltv: 980000, orders: 4, tier: 'mama', referrals: 0 },
-      ])
+      setTopCustomers([])
     }
 
     // Conversations
@@ -295,12 +288,7 @@ export default function CRMHub({ onNav }: Props) {
         avatar_color: '#10b981'
       })))
     } else {
-      setConversations([
-        { id: '1', customer_name: 'Amina Hassan', last_message: 'Je, nina swali kuhusu breast pump...', timestamp: '2m', unread_count: 3, is_urgent: true, tier: 'crown', avatar_color: '#f472b6' },
-        { id: '2', customer_name: 'Grace Mwanza', last_message: 'Asante sana kwa binder, imenisaidia...', timestamp: '14m', unread_count: 1, is_urgent: false, tier: 'crown', avatar_color: '#3b82f6' },
-        { id: '3', customer_name: 'Zainab Ally', last_message: 'Naomba delivery kesho asubuhi...', timestamp: '28m', unread_count: 0, is_urgent: false, tier: 'gold', avatar_color: '#a855f7' },
-        { id: '4', customer_name: 'Fatuma Iddi', last_message: 'Pre-order yangu iko wapi?', timestamp: '1h', unread_count: 2, is_urgent: false, tier: 'mama', avatar_color: '#10b981' },
-      ])
+      setConversations([])
     }
 
     // Feedback
@@ -315,35 +303,38 @@ export default function CRMHub({ onNav }: Props) {
         timestamp: f.created_at
       })))
     } else {
-      setRecentFeedback([
-        { id: '1', customer_name: 'Amina Hassan', type: 'review', rating: 5, message: 'Breast pump ni nzuri sana!', status: 'new', timestamp: '2h ago' },
-        { id: '2', customer_name: 'Grace Mwanza', type: 'testimonial', rating: 5, message: 'Binder imenisaidia kupona haraka', status: 'approved', timestamp: '1d ago' },
-        { id: '3', customer_name: 'Mwajuma Said', type: 'complaint', message: 'Delivery ilichelewa siku 2', status: 'in_progress', timestamp: '2d ago' },
-        { id: '4', customer_name: 'Fatuma Iddi', type: 'suggestion', message: 'Mnaweza kuongeza M-Pesa?', status: 'new', timestamp: '3d ago' },
-      ])
+      setRecentFeedback([])
     }
 
-    // Upsell rules
-    setUpsellRules([
-      { id: '1', name: 'C-Section → Binder', trigger: 'Delivery type = C-Section', triggered: 184, converted: 70, revenue: 4230000 },
-      { id: '2', name: 'Week 36 → Delivery Kit', trigger: 'Pregnancy week >= 36', triggered: 156, converted: 48, revenue: 3840000 },
-      { id: '3', name: 'BF Question → Pump', trigger: 'Message contains breastfeeding', triggered: 98, converted: 21, revenue: 2100000 },
-    ])
+    // Load from DB or empty
+    const { data: upsellData } = await supabase.from('crm_upsell_rules').select('*').eq('is_active', true).limit(5)
+    if (upsellData && upsellData.length > 0) {
+      setUpsellRules(upsellData.map(r => ({
+        id: r.id, name: r.name, trigger: r.trigger_category || '', triggered: 0, converted: r.conversion_count || 0, revenue: 0
+      })))
+    } else {
+      setUpsellRules([])
+    }
 
     // Automations
-    setAutomations([
-      { id: '1', name: 'Post-Purchase Instructions', trigger: 'Order confirmed', sent: 342, deliveryRate: 94.2, isActive: true },
-      { id: '2', name: 'Week 30 Pregnancy Tips', trigger: 'Profile week = 30', sent: 89, deliveryRate: 96.1, isActive: true },
-      { id: '3', name: '30-Day Re-engagement', trigger: 'Inactive 30 days', sent: 23, deliveryRate: 88.4, isActive: true },
-    ])
+    const { data: autoData } = await supabase.from('crm_automations').select('*').eq('is_active', true).limit(5)
+    if (autoData && autoData.length > 0) {
+      setAutomations(autoData.map(a => ({
+        id: a.id, name: a.name, trigger: a.trigger_type, sent: a.run_count || 0, deliveryRate: 0, isActive: a.is_active
+      })))
+    } else {
+      setAutomations([])
+    }
 
     // Points activity
-    setPointsActivity([
-      { id: '1', customer_name: 'Amina Hassan', action: 'Purchase (Belly Binder)', points: 850, timestamp: 'Today 14:23' },
-      { id: '2', customer_name: 'Amina Hassan', action: 'Referral converted', points: 500, timestamp: 'Today 11:45' },
-      { id: '3', customer_name: 'Grace Mwanza', action: 'Testimonial approved', points: 200, timestamp: 'Yesterday' },
-      { id: '4', customer_name: 'Amina Hassan', action: 'Redeemed Free Delivery', points: -1000, timestamp: 'Yesterday' },
-    ])
+    const { data: pointsData } = await supabase.from('crown_points_log').select('*, customers(name)').order('created_at', { ascending: false }).limit(5)
+    if (pointsData && pointsData.length > 0) {
+      setPointsActivity(pointsData.map(p => ({
+        id: p.id, customer_name: (p.customers as any)?.name || 'Customer', action: p.description || p.source, points: p.points, timestamp: p.created_at
+      })))
+    } else {
+      setPointsActivity([])
+    }
 
     setLoading(false)
   }
@@ -784,31 +775,28 @@ export default function CRMHub({ onNav }: Props) {
               <Icon name="trophy" size={12} color="var(--text3)" style={{ marginRight: 6 }} />
               Top Referrers
             </div>
-            {[
-              { rank: 1, name: 'Amina Hassan', code: 'MAL-AMINA22', refs: 5, earned: 25000 },
-              { rank: 2, name: 'Grace Mwanza', code: 'MAL-GRACE14', refs: 3, earned: 15000 },
-              { rank: 3, name: 'Zainab Ally', code: 'MAL-ZAINAB07', refs: 1, earned: 5000 },
-            ].map((leader) => (
-              <div key={leader.rank} style={s.leaderItem(leader.rank)} onClick={() => onNav('crm-referrals')}>
-                <div style={s.leaderRank(leader.rank)}>
+            {topCustomers.filter(c => c.referrals > 0).slice(0, 3).length > 0 ? topCustomers.filter(c => c.referrals > 0).slice(0, 3).map((leader, i) => (
+              <div key={leader.id} style={s.leaderItem(i + 1)} onClick={() => onNav('crm-referrals')}>
+                <div style={s.leaderRank(i + 1)}>
                   <Icon name="medal" size={18} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 12 }}>{leader.name}</div>
-                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{leader.code}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>MAL-{leader.name.split(' ')[0].toUpperCase().slice(0,6)}</div>
                 </div>
                 <div style={{ textAlign: 'right' as const }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: leader.rank === 1 ? '#fbbf24' : leader.rank === 2 ? '#9ca3af' : '#cd7f32' }}>{leader.refs} refs</div>
-                  <div style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{tzs(leader.earned)}</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: i === 0 ? '#fbbf24' : i === 1 ? '#9ca3af' : '#cd7f32' }}>{leader.referrals} refs</div>
+                  <div style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{tzs(leader.referrals * 5000)}</div>
                 </div>
               </div>
-            ))}
+            )) : (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No referrals yet</div>
+            )}
           </div>
           <div style={s.footerActions}>
             <select style={{ flex: 1, ...s.footerBtn, appearance: 'none' as const }}>
-              <option>Amina Hassan</option>
-              <option>Grace Mwanza</option>
-              <option>Zainab Ally</option>
+              <option value="">Select customer...</option>
+              {topCustomers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <button style={{ ...s.footerBtn, background: '#25d366', color: '#000', border: 'none', fontWeight: 700 }}>
               <Icon name="send" size={14} /> Send Link
