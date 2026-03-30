@@ -3,6 +3,12 @@ import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
+import type { Page } from '../lib/types'
+
+interface Props {
+  onNav: (p: Page) => void
+  onEdit: (p: Page, voucherId: string) => void
+}
 
 interface Sale {
   id: string
@@ -29,7 +35,7 @@ interface Sale {
 }
 
 
-export default function SalesDayBook() {
+export default function SalesDayBook({ onNav, onEdit }: Props) {
   const [sales, setSales] = useState<Sale[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
@@ -304,11 +310,12 @@ export default function SalesDayBook() {
                     <th>Salesperson</th>
                     <th>Status</th>
                     <th className="td-right">Amount (TZS)</th>
+                    <th style={{ width: 30 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((s, i) => (
-                    <tr key={i}>
+                    <tr key={i} onClick={() => onEdit('cash-sale', s.id)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
                       <td className="td-mono" style={{ color: 'var(--text3)', fontSize: 11 }}>{s.posting_date}</td>
                       <td className="td-mono td-amber">{s.ref}</td>
                       <td className="td-bold">{(s.customers as any)?.name || '—'}</td>
@@ -321,14 +328,17 @@ export default function SalesDayBook() {
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.posted_by || '—'}</td>
                       <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted ✓'}</span></td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
+                      <td style={{ width: 30 }}>
+                        <svg width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                    <td colSpan={6} className="td-bold" style={{ padding: '12px 14px' }}>TOTALS — {filtered.length} transactions</td>
-                    <td></td>
+                    <td colSpan={7} className="td-bold" style={{ padding: '12px 14px' }}>TOTALS — {filtered.length} transactions</td>
                     <td className="td-right td-mono td-green" style={{ fontSize: 15, fontWeight: 800, padding: '12px 14px' }}>{totalRevenue.toLocaleString()}</td>
+                    <td></td>
                   </tr>
                   <tr style={{ background: 'var(--surface2)' }}>
                     <td colSpan={6} style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>VAT (18% incl.)</td>
