@@ -11,7 +11,7 @@ export const supabase = createClient(URL, KEY, {
     }
   },
   auth: {
-    persistSession: false,
-    autoRefreshToken: false,
+    persistSession: true,
+    autoRefreshToken: true,
   }
 })
