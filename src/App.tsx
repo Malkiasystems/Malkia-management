@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
+import { useState, useEffect, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
@@ -237,11 +237,17 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 function AppContent() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
+  const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
   const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
     setPage(p)
+  }
+
+  const navigateToEdit = (p: Page, voucherId: string) => {
+    setEditVoucherId(voucherId)
+    navigate(p)
   }
 
   const goBack = () => {
@@ -281,7 +287,7 @@ function AppContent() {
       case 'reports':           return <ReportsHub onNav={navigate} />
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
-      case 'sales-day-book':    return <SalesDayBook />
+      case 'sales-day-book':    return <SalesDayBook onNav={navigate} onEdit={navigateToEdit} />
       case 'trial-balance':     return <TrialBalance />
       case 'balance-sheet':     return <BalanceSheet />
       case 'ar-aging':          return <ARAgingReport />
@@ -305,8 +311,8 @@ function AppContent() {
       case 'bank-transfer':     return <BankTransfer onNav={navigate} />
       case 'petty-cash':        return <PettyCash onNav={navigate} />
       case 'contra':            return <ContraEntry onNav={navigate} />
-      case 'cash-sale':         return <CashSale />
-      case 'sales':             return <CashSale />
+      case 'cash-sale':         return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} />
+      case 'sales':             return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} />
       case 'sales-invoice':     return <SalesInvoice onNav={navigate} />
       case 'sales-return':      return <SalesReturn onNav={navigate} />
       case 'debit-note':        return <DebitNote onNav={navigate} />
