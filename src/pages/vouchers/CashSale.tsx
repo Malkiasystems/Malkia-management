@@ -295,9 +295,24 @@ export default function CashSale() {
 
       // Upsert customer
       const cleaned = waInput.replace(/[\s+\-()]/g, '')
+      // Format phone with Tanzania country code
+      const formatPhone = (phone: string): string => {
+        if (!phone) return ''
+        let p = phone.replace(/[\s+\-()]/g, '')
+        // If starts with 0, replace with 255
+        if (p.startsWith('0') && p.length === 10) {
+          p = '255' + p.slice(1)
+        }
+        // If doesn't start with 255, add it
+        if (!p.startsWith('255') && p.length === 9) {
+          p = '255' + p
+        }
+        return p
+      }
+      const formattedPhone = formatPhone(cleaned)
       let customerId = selectedCust?.id || null
       const { data: custData } = await supabase.from('customers').upsert({
-        name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
+        name: newCustName.trim(), whatsapp: formattedPhone || null, customer_type: 'cash',
         segment: 'retail',
         crown_points: (selectedCust?.crown_points || 0) + crownPoints,
         last_purchase_date: postingDate,
