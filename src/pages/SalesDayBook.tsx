@@ -190,7 +190,7 @@ export default function SalesDayBook() {
     rows.push([])
     
     // Column headers
-    rows.push(['Date', 'Voucher No', 'Customer', 'WhatsApp', 'Payment/Bank', 'Salesperson', 'Status', 'Amount (TZS)'])
+    rows.push(['Date', 'Voucher No', 'Customer', 'WhatsApp', 'Payment/Bank', 'Posted By', 'Status', 'Amount (TZS)'])
     
     // Sales data rows
     filtered.forEach(s => {
@@ -354,7 +354,7 @@ export default function SalesDayBook() {
               <th>Customer</th>
               ${tpl.sdb_show_whatsapp ? '<th style="width: 100px;">WhatsApp</th>' : ''}
               <th style="width: 90px;">Payment</th>
-              ${tpl.sdb_show_salesperson ? '<th style="width: 90px;">Salesperson</th>' : ''}
+              ${tpl.sdb_show_salesperson ? '<th style="width: 90px;">Posted By</th>' : ''}
               ${tpl.sdb_show_status ? '<th style="width: 70px;">Status</th>' : ''}
               <th class="right" style="width: 100px;">Amount (TZS)</th>
             </tr>
@@ -480,7 +480,7 @@ export default function SalesDayBook() {
               <input className="form-input" style={{ fontSize: 12 }} placeholder="Cash, M-Pesa, Bank" value={searchPayment} onChange={e => setSearchPayment(e.target.value)} />
             </div>
             <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Salesperson</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Posted By</div>
               <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. Joe, Lilian" value={searchSalesperson} onChange={e => setSearchSalesperson(e.target.value)} />
             </div>
             <div>
@@ -580,7 +580,7 @@ export default function SalesDayBook() {
                     <th>Customer</th>
                     <th>WhatsApp</th>
                     <th>Payment / Bank</th>
-                    <th>Salesperson</th>
+                    <th>Posted By</th>
                     <th>Status</th>
                     <th className="td-right">Amount (TZS)</th>
                   </tr>
