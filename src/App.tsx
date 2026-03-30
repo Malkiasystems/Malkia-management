@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
+import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
