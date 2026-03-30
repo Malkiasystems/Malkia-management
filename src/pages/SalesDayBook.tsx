@@ -28,11 +28,54 @@ interface Sale {
   }[]
 }
 
+interface TemplateSettings {
+  logo_url: string | null
+  logo_position: 'left' | 'center' | 'right'
+  logo_width: number
+  company_name: string
+  company_tagline: string
+  primary_color: string
+  sdb_show_stats_bar: boolean
+  sdb_stat_1: string
+  sdb_stat_2: string
+  sdb_stat_3: string
+  sdb_stat_4: string
+  sdb_show_whatsapp: boolean
+  sdb_show_salesperson: boolean
+  sdb_show_status: boolean
+  sdb_show_payment_badges: boolean
+  sdb_show_credit_notes: boolean
+  sdb_show_footer: boolean
+  sdb_footer_text: string
+}
+
+const DEFAULT_TEMPLATE: TemplateSettings = {
+  logo_url: null,
+  logo_position: 'left',
+  logo_width: 120,
+  company_name: 'MALKIA WELLNESS GROUP',
+  company_tagline: 'Reimagining Motherhood',
+  primary_color: '#85c2be',
+  sdb_show_stats_bar: true,
+  sdb_stat_1: 'total_sales',
+  sdb_stat_2: 'transactions',
+  sdb_stat_3: 'total_cash',
+  sdb_stat_4: 'avg_sale',
+  sdb_show_whatsapp: true,
+  sdb_show_salesperson: true,
+  sdb_show_status: true,
+  sdb_show_payment_badges: true,
+  sdb_show_credit_notes: true,
+  sdb_show_footer: true,
+  sdb_footer_text: 'Malkia Wellness Group Ltd · Dar es Salaam, Tanzania',
+}
+
 
 export default function SalesDayBook() {
   const [sales, setSales] = useState<Sale[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
+  const [tpl, setTpl] = useState<TemplateSettings>(DEFAULT_TEMPLATE)
 
   // Filters
   const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
@@ -49,7 +92,14 @@ export default function SalesDayBook() {
   const catPredicate = makeCategoryPredicate(filterCat, _cats)
   const [showFilters, setShowFilters] = useState(false)
 
-  useEffect(() => { loadSales() }, [])
+  useEffect(() => { loadSales(); loadTemplateSettings() }, [])
+
+  const loadTemplateSettings = async () => {
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'report_templates').single()
+    if (data?.value) {
+      try { setTpl({ ...DEFAULT_TEMPLATE, ...JSON.parse(data.value) }) } catch {}
+    }
+  }
 
   const loadSales = async (from?: string, to?: string) => {
     setLoading(true)
@@ -192,209 +242,100 @@ export default function SalesDayBook() {
   }
 
   const exportPDF = () => {
-    // Create attractive printable HTML with Malkia teal theme
+    // Calculate payment totals for stats
+    const totalCash = filtered.filter(s => (s.payment_method || '').toLowerCase().includes('cash')).reduce((sum, s) => sum + (s.total_amount || 0), 0)
+    const totalMobile = filtered.filter(s => (s.payment_method || '').toLowerCase().includes('m-pesa') || (s.payment_method || '').toLowerCase().includes('mixx')).reduce((sum, s) => sum + (s.total_amount || 0), 0)
+    const totalBank = filtered.filter(s => (s.payment_method || '').toLowerCase().includes('nmb') || (s.payment_method || '').toLowerCase().includes('crdb')).reduce((sum, s) => sum + (s.total_amount || 0), 0)
+
+    // Helper to get stat value
+    const getStatValue = (stat: string): string => {
+      switch(stat) {
+        case 'total_sales': return `TZS ${totalRevenue.toLocaleString()}`
+        case 'total_cash': return `TZS ${totalCash.toLocaleString()}`
+        case 'total_mobile': return `TZS ${totalMobile.toLocaleString()}`
+        case 'total_bank': return `TZS ${totalBank.toLocaleString()}`
+        case 'transactions': return `${filtered.length}`
+        case 'avg_sale': return `TZS ${filtered.length > 0 ? Math.round(totalRevenue / filtered.length).toLocaleString() : 0}`
+        case 'margin': return `${marginPct}%`
+        default: return ''
+      }
+    }
+    const getStatLabel = (stat: string): string => {
+      switch(stat) {
+        case 'total_sales': return 'Total Sales'
+        case 'total_cash': return 'Cash Collected'
+        case 'total_mobile': return 'Mobile Money'
+        case 'total_bank': return 'Bank Transfers'
+        case 'transactions': return 'Transactions'
+        case 'avg_sale': return 'Avg Sale'
+        case 'margin': return 'Gross Margin'
+        default: return ''
+      }
+    }
+
+    // Build stats HTML
+    const stats = [tpl.sdb_stat_1, tpl.sdb_stat_2, tpl.sdb_stat_3, tpl.sdb_stat_4].filter(s => s !== 'none')
+    const statsHtml = stats.map((stat, i) => `
+      <div class="stat-box" style="background: linear-gradient(135deg, ${i === 0 ? tpl.primary_color : i === 1 ? '#f7a6ad' : '#2d3748'} 0%, ${i === 0 ? tpl.primary_color : i === 1 ? '#e8939a' : '#1a202c'} 100%);">
+        <div class="stat-label">${getStatLabel(stat)}</div>
+        <div class="stat-value">${getStatValue(stat)}</div>
+      </div>
+    `).join('')
+
+    // Build table columns
+    const colCount = 3 + (tpl.sdb_show_whatsapp ? 1 : 0) + 1 + (tpl.sdb_show_salesperson ? 1 : 0) + (tpl.sdb_show_status ? 1 : 0) + 1
+
     const printContent = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Sales Day Book - Malkia Wellness</title>
+        <title>Sales Day Book - ${tpl.company_name}</title>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-          
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { 
-            font-family: 'Inter', -apple-system, sans-serif; 
-            font-size: 11px; 
-            padding: 30px; 
-            color: #1a1a1a;
-            background: #fff;
-          }
-          
-          .header { 
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 3px solid #85c2be;
-          }
-          .logo-section h1 { 
-            font-size: 22px; 
-            font-weight: 800; 
-            color: #85c2be;
-            letter-spacing: -0.5px;
-          }
-          .logo-section p { 
-            font-size: 12px; 
-            color: #666; 
-            margin-top: 4px;
-          }
-          .report-info {
-            text-align: right;
-          }
-          .report-info h2 {
-            font-size: 14px;
-            font-weight: 700;
-            color: #333;
-            margin-bottom: 6px;
-          }
-          .report-info p {
-            font-size: 10px;
-            color: #888;
-          }
-          
-          .stats-bar {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 25px;
-          }
-          .stat-box {
-            flex: 1;
-            background: linear-gradient(135deg, #85c2be 0%, #6ab0ab 100%);
-            border-radius: 10px;
-            padding: 15px;
-            color: white;
-          }
-          .stat-box.secondary {
-            background: linear-gradient(135deg, #f7a6ad 0%, #e8939a 100%);
-          }
-          .stat-box.dark {
-            background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
-          }
-          .stat-label {
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            opacity: 0.9;
-          }
-          .stat-value {
-            font-size: 20px;
-            font-weight: 800;
-            margin-top: 4px;
-          }
-          
-          table { 
-            width: 100%; 
-            border-collapse: collapse; 
-            margin-top: 10px;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          }
-          thead tr {
-            background: #85c2be;
-          }
-          th { 
-            padding: 12px 10px; 
-            text-align: left; 
-            font-weight: 600;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: white;
-          }
-          td { 
-            padding: 10px; 
-            font-size: 10px;
-            border-bottom: 1px solid #eee;
-          }
-          tbody tr:nth-child(even) {
-            background: #f9fafb;
-          }
-          tbody tr:hover {
-            background: #e6f4f3;
-          }
+          body { font-family: 'Inter', -apple-system, sans-serif; font-size: 11px; padding: 30px; color: #1a1a1a; background: #fff; }
+          .header { display: flex; justify-content: ${tpl.logo_position === 'center' ? 'center' : 'space-between'}; flex-direction: ${tpl.logo_position === 'center' ? 'column' : 'row'}; align-items: ${tpl.logo_position === 'center' ? 'center' : 'flex-start'}; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 3px solid ${tpl.primary_color}; }
+          .logo-section { text-align: ${tpl.logo_position === 'center' ? 'center' : 'left'}; }
+          .logo-section img { width: ${tpl.logo_width}px; margin-bottom: 8px; }
+          .logo-section h1 { font-size: 22px; font-weight: 800; color: ${tpl.primary_color}; letter-spacing: -0.5px; }
+          .logo-section p { font-size: 12px; color: #666; margin-top: 4px; }
+          .report-info { text-align: right; }
+          .report-info h2 { font-size: 14px; font-weight: 700; color: #333; margin-bottom: 6px; }
+          .report-info p { font-size: 10px; color: #888; }
+          .stats-bar { display: flex; gap: 15px; margin-bottom: 25px; }
+          .stat-box { flex: 1; border-radius: 10px; padding: 15px; color: white; }
+          .stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; }
+          .stat-value { font-size: 20px; font-weight: 800; margin-top: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          thead tr { background: ${tpl.primary_color}; }
+          th { padding: 12px 10px; text-align: left; font-weight: 600; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: white; }
+          td { padding: 10px; font-size: 10px; border-bottom: 1px solid #eee; }
+          tbody tr:nth-child(even) { background: #f9fafb; }
           .right { text-align: right; }
           .mono { font-family: 'SF Mono', Monaco, monospace; font-size: 10px; }
-          .voucher-no { color: #85c2be; font-weight: 600; }
+          .voucher-no { color: ${tpl.primary_color}; font-weight: 600; }
           .customer { font-weight: 600; color: #333; }
           .whatsapp { color: #25D366; }
           .amount { font-weight: 700; color: #1a1a1a; }
-          
-          .status-posted {
-            display: inline-block;
-            background: #d4edda;
-            color: #155724;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 8px;
-            font-weight: 600;
-          }
-          .status-pod {
-            display: inline-block;
-            background: #fff3cd;
-            color: #856404;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 8px;
-            font-weight: 600;
-          }
-          
-          .payment-badge {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 8px;
-            font-weight: 600;
-          }
+          .status-posted { display: inline-block; background: #d4edda; color: #155724; padding: 3px 8px; border-radius: 12px; font-size: 8px; font-weight: 600; }
+          .status-pod { display: inline-block; background: #fff3cd; color: #856404; padding: 3px 8px; border-radius: 12px; font-size: 8px; font-weight: 600; }
+          .payment-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 8px; font-weight: 600; }
           .payment-cash { background: #d4edda; color: #155724; }
           .payment-mpesa { background: #cce5ff; color: #004085; }
           .payment-mixx { background: #fff3cd; color: #856404; }
           .payment-bank { background: #e2e3e5; color: #383d41; }
-          
-          .totals-row {
-            background: #85c2be !important;
-          }
-          .totals-row td {
-            color: white;
-            font-weight: 700;
-            font-size: 11px;
-            border: none;
-          }
-          
-          .section-title {
-            font-size: 12px;
-            font-weight: 700;
-            color: #f7a6ad;
-            margin: 25px 0 10px 0;
-            padding-bottom: 6px;
-            border-bottom: 2px solid #f7a6ad;
-          }
-          
-          .net-total-row {
-            background: #1a202c !important;
-          }
-          .net-total-row td {
-            color: white;
-            font-weight: 800;
-            font-size: 12px;
-            border: none;
-          }
-          
-          .footer {
-            margin-top: 30px;
-            padding-top: 15px;
-            border-top: 1px solid #eee;
-            display: flex;
-            justify-content: space-between;
-            font-size: 9px;
-            color: #888;
-          }
-          
-          @media print {
-            body { padding: 15px; }
-            .stat-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .totals-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .net-total-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
+          .totals-row { background: ${tpl.primary_color} !important; }
+          .totals-row td { color: white; font-weight: 700; font-size: 11px; border: none; }
+          .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; display: flex; justify-content: space-between; font-size: 9px; color: #888; }
+          @media print { body { padding: 15px; } .stat-box, thead tr, .totals-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
         </style>
       </head>
       <body>
         <div class="header">
           <div class="logo-section">
-            <h1>MALKIA WELLNESS GROUP</h1>
-            <p>Reimagining Motherhood</p>
+            ${tpl.logo_url ? `<img src="${tpl.logo_url}" alt="Logo" />` : ''}
+            <h1>${tpl.company_name}</h1>
+            <p>${tpl.company_tagline}</p>
           </div>
           <div class="report-info">
             <h2>Sales Day Book</h2>
@@ -403,24 +344,7 @@ export default function SalesDayBook() {
           </div>
         </div>
         
-        <div class="stats-bar">
-          <div class="stat-box">
-            <div class="stat-label">Total Sales</div>
-            <div class="stat-value">TZS ${totalRevenue.toLocaleString()}</div>
-          </div>
-          <div class="stat-box secondary">
-            <div class="stat-label">Transactions</div>
-            <div class="stat-value">${filtered.length}</div>
-          </div>
-          <div class="stat-box dark">
-            <div class="stat-label">Avg Sale</div>
-            <div class="stat-value">TZS ${filtered.length > 0 ? Math.round(totalRevenue / filtered.length).toLocaleString() : 0}</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-label">Avg Margin</div>
-            <div class="stat-value">${marginPct}%</div>
-          </div>
-        </div>
+        ${tpl.sdb_show_stats_bar ? `<div class="stats-bar">${statsHtml}</div>` : ''}
         
         <table>
           <thead>
@@ -428,10 +352,10 @@ export default function SalesDayBook() {
               <th style="width: 80px;">Date</th>
               <th style="width: 90px;">Voucher No</th>
               <th>Customer</th>
-              <th style="width: 100px;">WhatsApp</th>
+              ${tpl.sdb_show_whatsapp ? '<th style="width: 100px;">WhatsApp</th>' : ''}
               <th style="width: 90px;">Payment</th>
-              <th style="width: 90px;">Salesperson</th>
-              <th style="width: 70px;">Status</th>
+              ${tpl.sdb_show_salesperson ? '<th style="width: 90px;">Salesperson</th>' : ''}
+              ${tpl.sdb_show_status ? '<th style="width: 70px;">Status</th>' : ''}
               <th class="right" style="width: 100px;">Amount (TZS)</th>
             </tr>
           </thead>
@@ -445,57 +369,27 @@ export default function SalesDayBook() {
                   <td class="mono">${s.posting_date}</td>
                   <td class="mono voucher-no">${s.ref}</td>
                   <td class="customer">${(s.customers as any)?.name || 'Walk-in'}</td>
-                  <td class="mono whatsapp">${(s.customers as any)?.whatsapp || '-'}</td>
-                  <td><span class="payment-badge ${paymentClass}">${s.payment_method || 'Cash'}</span></td>
-                  <td>${s.posted_by || '-'}</td>
-                  <td><span class="${s.status === 'posted' ? 'status-posted' : 'status-pod'}">${s.status === 'posted' ? 'Posted ✓' : 'POD'}</span></td>
+                  ${tpl.sdb_show_whatsapp ? `<td class="mono whatsapp">${(s.customers as any)?.whatsapp || '-'}</td>` : ''}
+                  <td>${tpl.sdb_show_payment_badges ? `<span class="payment-badge ${paymentClass}">${s.payment_method || 'Cash'}</span>` : (s.payment_method || 'Cash')}</td>
+                  ${tpl.sdb_show_salesperson ? `<td>${s.posted_by || '-'}</td>` : ''}
+                  ${tpl.sdb_show_status ? `<td><span class="${s.status === 'posted' ? 'status-posted' : 'status-pod'}">${s.status === 'posted' ? 'Posted ✓' : 'POD'}</span></td>` : ''}
                   <td class="right mono amount">${(s.total_amount || 0).toLocaleString()}</td>
                 </tr>
               `
             }).join('')}
             <tr class="totals-row">
-              <td colspan="7" class="right">SALES TOTAL</td>
+              <td colspan="${colCount - 1}" class="right">SALES TOTAL</td>
               <td class="right mono">${totalRevenue.toLocaleString()}</td>
             </tr>
           </tbody>
         </table>
         
-        <!-- Credit Notes Section - will show when CN data available -->
-        <!--
-        <div class="section-title">Credit Notes</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>CN No</th>
-              <th>Customer</th>
-              <th>Original Invoice</th>
-              <th>Reason</th>
-              <th class="right">Amount (TZS)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr class="totals-row" style="background: #f7a6ad !important;">
-              <td colspan="5" class="right">CREDIT NOTES TOTAL</td>
-              <td class="right mono">0</td>
-            </tr>
-          </tbody>
-        </table>
-        
-        <table style="margin-top: 15px;">
-          <tbody>
-            <tr class="net-total-row">
-              <td colspan="7" class="right" style="font-size: 12px;">NET TOTAL (Sales - Credit Notes)</td>
-              <td class="right mono" style="font-size: 14px;">TZS ${totalRevenue.toLocaleString()}</td>
-            </tr>
-          </tbody>
-        </table>
-        -->
-        
+        ${tpl.sdb_show_footer ? `
         <div class="footer">
-          <div>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</div>
+          <div>${tpl.sdb_footer_text}</div>
           <div>Page 1 of 1</div>
         </div>
+        ` : ''}
         
         <script>window.onload = function() { window.print(); }</script>
       </body>
