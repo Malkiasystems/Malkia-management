@@ -117,6 +117,22 @@ export function useDataCache() {
   return ctx
 }
 
+// ============================================================================
+// EDIT CONTEXT: Pass voucher ID to edit between pages
+// ============================================================================
+interface EditContextType {
+  editVoucherId: string | null
+  setEditVoucherId: (id: string | null) => void
+}
+
+const EditContext = createContext<EditContextType | null>(null)
+
+export function useEditContext() {
+  const ctx = useContext(EditContext)
+  if (!ctx) throw new Error('useEditContext must be used within EditProvider')
+  return ctx
+}
+
 function CacheProvider({ children }: { children: ReactNode }) {
   const [cache, setCacheState] = useState<CacheData>({})
   const [lastFetch, setLastFetch] = useState<Record<string, number>>({})
@@ -317,7 +333,7 @@ function AppContent() {
       case 'reports':           return <ReportsHub onNav={navigate} />
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
-      case 'sales-day-book':    return <SalesDayBook />
+      case 'sales-day-book':    return <SalesDayBook onNav={navigate} />
       case 'trial-balance':     return <TrialBalance />
       case 'balance-sheet':     return <BalanceSheet />
       case 'ar-aging':          return <ARAgingReport />
@@ -382,19 +398,24 @@ function AppContent() {
 
   const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
 
+  // Edit context state
+  const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
+
   return (
     <CacheProvider>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar current={page} onNav={navigate} />
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <Suspense fallback={<PageLoader />}>
-              {renderPage()}
-            </Suspense>
+      <EditContext.Provider value={{ editVoucherId, setEditVoucherId }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+          <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            <Sidebar current={page} onNav={navigate} />
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <Suspense fallback={<PageLoader />}>
+                {renderPage()}
+              </Suspense>
+            </div>
           </div>
         </div>
-      </div>
+      </EditContext.Provider>
     </CacheProvider>
   )
 }
