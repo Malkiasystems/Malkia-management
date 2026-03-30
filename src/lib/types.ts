@@ -20,8 +20,7 @@ export type Page =
   | 'crm-referrals' | 'crm-loyalty' | 'crm-feedback' | 'crm-upsell'
   | 'crm-customers'
   // Settings Pages
-  | 'accounting-settings'
-  | 'report-templates'
+  | 'accounting-settings' | 'display-settings'
   // User Management & Approvals
   | 'users' | 'approvals'
 
