@@ -4,6 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
+import { nextRef } from '../../lib/refs'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -23,13 +24,14 @@ export default function PettyCash({ onNav }: Props) {
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: accts }, { data: petty }] = await Promise.all([
+    const [{ data: accts }, { data: petty }, newRef] = await Promise.all([
       supabase.from('accounts').select('id, code, name').eq('type', 'expense').eq('is_active', true).order('code'),
       supabase.from('accounts').select('id, balance').eq('code', '1040').single(),
+      nextRef('petty_cash'),
     ])
     if (accts) setExpAccounts(accts)
     if (petty) { setPettyCashId(petty.id); setPettyCashBal(petty.balance || 0) }
-
+    setForm(f => ({ ...f, ref: newRef }))
   }
 
   const updateLine = (i: number, k: keyof ExpLine, v: string | number) => {
@@ -43,11 +45,12 @@ export default function PettyCash({ onNav }: Props) {
     if (lines.every(l => !l.desc || !l.amount)) { showToast('Add at least one expense line', 'error'); return }
     if (lines.some(l => l.amount > 0 && !l.accountId)) { showToast('Select expense account for each line', 'error'); return }
     if (!pettyCashId) { showToast('Petty Cash account (1040) not found', 'error'); return }
+    if (!form.ref) { showToast('Reference number not generated', 'error'); return }
     setPosting(true)
     try {
       const { data: j, error: jErr } = await supabase.from('journals').insert({
-        ref: 'JV-' + form.ref, posting_date: form.date,
-        description: `Petty Cash — ${form.paidTo} — ${form.ref}`,
+        ref: form.ref, posting_date: form.date,
+        description: `Petty Cash — ${form.paidTo}`,
         journal_type: 'petty_cash', source_type: 'petty_cash', source_ref: form.ref,
         posted_by: form.approvedBy, status: 'posted',
       }).select('id').single()
