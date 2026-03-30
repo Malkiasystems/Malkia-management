@@ -21,6 +21,7 @@ export type Page =
   | 'crm-customers'
   // Settings Pages
   | 'accounting-settings'
+  | 'report-templates'
   // User Management & Approvals
   | 'users' | 'approvals'
 
