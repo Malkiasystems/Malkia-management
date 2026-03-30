@@ -4,8 +4,9 @@ import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 import { useEditContext } from '../App'
+import type { Page } from '../lib/types'
 
-interface Props { onNav: (p: string) => void }
+interface Props { onNav: (p: Page) => void }
 
 interface Sale {
   id: string
