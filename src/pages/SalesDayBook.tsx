@@ -134,35 +134,39 @@ export default function SalesDayBook() {
     
     // Header
     rows.push(['MALKIA WELLNESS GROUP'])
-    rows.push(['Sales Day Book'])
+    rows.push(['Sales Day Book - Summary'])
     rows.push([`Period: ${fromDate} to ${toDate}`])
     rows.push([`Generated: ${new Date().toLocaleString()}`])
     rows.push([])
     
     // Column headers
-    rows.push(['Date', 'Ref', 'Customer', 'WhatsApp', 'Products', 'Payment', 'Status', 'Subtotal', 'VAT', 'Total', 'Posted By'])
+    rows.push(['Date', 'Voucher No', 'Customer', 'WhatsApp', 'Payment/Bank', 'Salesperson', 'Status', 'Amount (TZS)'])
     
-    // Data rows
+    // Sales data rows
     filtered.forEach(s => {
-      const products = (s.voucher_lines || []).map((l: any) => `${l.qty}x ${l.products?.name || 'Unknown'}`).join(', ')
       rows.push([
         s.posting_date,
         s.ref,
         (s.customers as any)?.name || 'Walk-in',
         (s.customers as any)?.whatsapp || '',
-        products,
         s.payment_method || 'Cash',
+        s.posted_by || '',
         s.status === 'posted' ? 'Posted' : 'POD',
-        s.subtotal || 0,
-        s.vat_amount || 0,
-        s.total_amount || 0,
-        s.posted_by || ''
+        s.total_amount || 0
       ])
     })
     
-    // Totals row
+    // Sales totals row
     rows.push([])
-    rows.push(['', '', '', '', '', '', 'TOTALS:', totalNet, totalVat, totalRevenue, ''])
+    rows.push(['', '', '', '', '', '', 'SALES TOTAL:', totalRevenue])
+    
+    // TODO: Add Credit Notes section when CN data available
+    // rows.push([])
+    // rows.push(['CREDIT NOTES'])
+    // ... CN rows ...
+    // rows.push(['', '', '', '', '', '', 'CN TOTAL:', cnTotal])
+    // rows.push([])
+    // rows.push(['', '', '', '', '', '', 'NET TOTAL:', totalRevenue - cnTotal])
     
     // Convert to CSV then to Excel-compatible format
     const csvContent = rows.map(row => 
@@ -188,106 +192,309 @@ export default function SalesDayBook() {
   }
 
   const exportPDF = () => {
-    // Create printable HTML
+    // Create attractive printable HTML with Malkia teal theme
     const printContent = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Sales Day Book</title>
+        <title>Sales Day Book - Malkia Wellness</title>
         <style>
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+          
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; font-size: 10px; padding: 20px; }
-          .header { text-align: center; margin-bottom: 20px; }
-          .header h1 { font-size: 16px; margin-bottom: 4px; }
-          .header p { font-size: 11px; color: #666; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
-          th { background: #f5f5f5; font-weight: bold; font-size: 9px; }
-          td { font-size: 9px; }
+          body { 
+            font-family: 'Inter', -apple-system, sans-serif; 
+            font-size: 11px; 
+            padding: 30px; 
+            color: #1a1a1a;
+            background: #fff;
+          }
+          
+          .header { 
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #85c2be;
+          }
+          .logo-section h1 { 
+            font-size: 22px; 
+            font-weight: 800; 
+            color: #85c2be;
+            letter-spacing: -0.5px;
+          }
+          .logo-section p { 
+            font-size: 12px; 
+            color: #666; 
+            margin-top: 4px;
+          }
+          .report-info {
+            text-align: right;
+          }
+          .report-info h2 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 6px;
+          }
+          .report-info p {
+            font-size: 10px;
+            color: #888;
+          }
+          
+          .stats-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 25px;
+          }
+          .stat-box {
+            flex: 1;
+            background: linear-gradient(135deg, #85c2be 0%, #6ab0ab 100%);
+            border-radius: 10px;
+            padding: 15px;
+            color: white;
+          }
+          .stat-box.secondary {
+            background: linear-gradient(135deg, #f7a6ad 0%, #e8939a 100%);
+          }
+          .stat-box.dark {
+            background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+          }
+          .stat-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.9;
+          }
+          .stat-value {
+            font-size: 20px;
+            font-weight: 800;
+            margin-top: 4px;
+          }
+          
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          }
+          thead tr {
+            background: #85c2be;
+          }
+          th { 
+            padding: 12px 10px; 
+            text-align: left; 
+            font-weight: 600;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: white;
+          }
+          td { 
+            padding: 10px; 
+            font-size: 10px;
+            border-bottom: 1px solid #eee;
+          }
+          tbody tr:nth-child(even) {
+            background: #f9fafb;
+          }
+          tbody tr:hover {
+            background: #e6f4f3;
+          }
           .right { text-align: right; }
-          .mono { font-family: monospace; }
-          .totals { background: #f9f9f9; font-weight: bold; }
-          .posted { color: green; }
-          .pod { color: orange; }
-          .summary { margin-top: 20px; display: flex; gap: 20px; }
-          .summary-box { border: 1px solid #ddd; padding: 10px; flex: 1; }
-          .summary-box h3 { font-size: 10px; margin-bottom: 6px; }
-          .summary-box .value { font-size: 14px; font-weight: bold; }
+          .mono { font-family: 'SF Mono', Monaco, monospace; font-size: 10px; }
+          .voucher-no { color: #85c2be; font-weight: 600; }
+          .customer { font-weight: 600; color: #333; }
+          .whatsapp { color: #25D366; }
+          .amount { font-weight: 700; color: #1a1a1a; }
+          
+          .status-posted {
+            display: inline-block;
+            background: #d4edda;
+            color: #155724;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 8px;
+            font-weight: 600;
+          }
+          .status-pod {
+            display: inline-block;
+            background: #fff3cd;
+            color: #856404;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 8px;
+            font-weight: 600;
+          }
+          
+          .payment-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 8px;
+            font-weight: 600;
+          }
+          .payment-cash { background: #d4edda; color: #155724; }
+          .payment-mpesa { background: #cce5ff; color: #004085; }
+          .payment-mixx { background: #fff3cd; color: #856404; }
+          .payment-bank { background: #e2e3e5; color: #383d41; }
+          
+          .totals-row {
+            background: #85c2be !important;
+          }
+          .totals-row td {
+            color: white;
+            font-weight: 700;
+            font-size: 11px;
+            border: none;
+          }
+          
+          .section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #f7a6ad;
+            margin: 25px 0 10px 0;
+            padding-bottom: 6px;
+            border-bottom: 2px solid #f7a6ad;
+          }
+          
+          .net-total-row {
+            background: #1a202c !important;
+          }
+          .net-total-row td {
+            color: white;
+            font-weight: 800;
+            font-size: 12px;
+            border: none;
+          }
+          
+          .footer {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: #888;
+          }
+          
           @media print {
-            body { padding: 10px; }
-            .no-print { display: none; }
+            body { padding: 15px; }
+            .stat-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .totals-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .net-total-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           }
         </style>
       </head>
       <body>
         <div class="header">
-          <h1>MALKIA WELLNESS GROUP</h1>
-          <p>Sales Day Book</p>
-          <p>Period: ${fromDate} to ${toDate}</p>
-          <p>Generated: ${new Date().toLocaleString()}</p>
+          <div class="logo-section">
+            <h1>MALKIA WELLNESS GROUP</h1>
+            <p>Reimagining Motherhood</p>
+          </div>
+          <div class="report-info">
+            <h2>Sales Day Book</h2>
+            <p>${fromDate} to ${toDate}</p>
+            <p>Generated: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</p>
+          </div>
+        </div>
+        
+        <div class="stats-bar">
+          <div class="stat-box">
+            <div class="stat-label">Total Sales</div>
+            <div class="stat-value">TZS ${totalRevenue.toLocaleString()}</div>
+          </div>
+          <div class="stat-box secondary">
+            <div class="stat-label">Transactions</div>
+            <div class="stat-value">${filtered.length}</div>
+          </div>
+          <div class="stat-box dark">
+            <div class="stat-label">Avg Sale</div>
+            <div class="stat-value">TZS ${filtered.length > 0 ? Math.round(totalRevenue / filtered.length).toLocaleString() : 0}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Avg Margin</div>
+            <div class="stat-value">${marginPct}%</div>
+          </div>
         </div>
         
         <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Ref</th>
+              <th style="width: 80px;">Date</th>
+              <th style="width: 90px;">Voucher No</th>
               <th>Customer</th>
-              <th>Products</th>
-              <th>Payment</th>
-              <th>Status</th>
-              <th class="right">Subtotal</th>
-              <th class="right">VAT</th>
-              <th class="right">Total</th>
+              <th style="width: 100px;">WhatsApp</th>
+              <th style="width: 90px;">Payment</th>
+              <th style="width: 90px;">Salesperson</th>
+              <th style="width: 70px;">Status</th>
+              <th class="right" style="width: 100px;">Amount (TZS)</th>
             </tr>
           </thead>
           <tbody>
             ${filtered.map(s => {
-              const products = (s.voucher_lines || []).map((l: any) => `${l.qty}x ${l.products?.name || '?'}`).join(', ')
+              const paymentClass = (s.payment_method || '').toLowerCase().includes('cash') ? 'payment-cash' :
+                                   (s.payment_method || '').toLowerCase().includes('m-pesa') ? 'payment-mpesa' :
+                                   (s.payment_method || '').toLowerCase().includes('mixx') ? 'payment-mixx' : 'payment-bank'
               return `
                 <tr>
                   <td class="mono">${s.posting_date}</td>
-                  <td class="mono">${s.ref}</td>
-                  <td>${(s.customers as any)?.name || 'Walk-in'}</td>
-                  <td>${products}</td>
-                  <td>${s.payment_method || 'Cash'}</td>
-                  <td class="${s.status === 'posted' ? 'posted' : 'pod'}">${s.status === 'posted' ? '✓ Posted' : 'POD'}</td>
-                  <td class="right mono">${(s.subtotal || 0).toLocaleString()}</td>
-                  <td class="right mono">${(s.vat_amount || 0).toLocaleString()}</td>
-                  <td class="right mono">${(s.total_amount || 0).toLocaleString()}</td>
+                  <td class="mono voucher-no">${s.ref}</td>
+                  <td class="customer">${(s.customers as any)?.name || 'Walk-in'}</td>
+                  <td class="mono whatsapp">${(s.customers as any)?.whatsapp || '-'}</td>
+                  <td><span class="payment-badge ${paymentClass}">${s.payment_method || 'Cash'}</span></td>
+                  <td>${s.posted_by || '-'}</td>
+                  <td><span class="${s.status === 'posted' ? 'status-posted' : 'status-pod'}">${s.status === 'posted' ? 'Posted ✓' : 'POD'}</span></td>
+                  <td class="right mono amount">${(s.total_amount || 0).toLocaleString()}</td>
                 </tr>
               `
             }).join('')}
-            <tr class="totals">
-              <td colspan="6" class="right">TOTALS:</td>
-              <td class="right mono">${totalNet.toLocaleString()}</td>
-              <td class="right mono">${totalVat.toLocaleString()}</td>
+            <tr class="totals-row">
+              <td colspan="7" class="right">SALES TOTAL</td>
               <td class="right mono">${totalRevenue.toLocaleString()}</td>
             </tr>
           </tbody>
         </table>
         
-        <div class="summary">
-          <div class="summary-box">
-            <h3>Transactions</h3>
-            <div class="value">${filtered.length}</div>
-          </div>
-          <div class="summary-box">
-            <h3>Gross Revenue</h3>
-            <div class="value">TZS ${totalRevenue.toLocaleString()}</div>
-          </div>
-          <div class="summary-box">
-            <h3>VAT Collected</h3>
-            <div class="value">TZS ${totalVat.toLocaleString()}</div>
-          </div>
-          <div class="summary-box">
-            <h3>Net Revenue</h3>
-            <div class="value">TZS ${totalNet.toLocaleString()}</div>
-          </div>
-          <div class="summary-box">
-            <h3>Gross Margin</h3>
-            <div class="value">${marginPct}%</div>
-          </div>
+        <!-- Credit Notes Section - will show when CN data available -->
+        <!--
+        <div class="section-title">Credit Notes</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>CN No</th>
+              <th>Customer</th>
+              <th>Original Invoice</th>
+              <th>Reason</th>
+              <th class="right">Amount (TZS)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="totals-row" style="background: #f7a6ad !important;">
+              <td colspan="5" class="right">CREDIT NOTES TOTAL</td>
+              <td class="right mono">0</td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <table style="margin-top: 15px;">
+          <tbody>
+            <tr class="net-total-row">
+              <td colspan="7" class="right" style="font-size: 12px;">NET TOTAL (Sales - Credit Notes)</td>
+              <td class="right mono" style="font-size: 14px;">TZS ${totalRevenue.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+        -->
+        
+        <div class="footer">
+          <div>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</div>
+          <div>Page 1 of 1</div>
         </div>
         
         <script>window.onload = function() { window.print(); }</script>
