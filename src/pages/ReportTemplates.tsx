@@ -345,7 +345,7 @@ export default function ReportTemplates() {
             <Toggle 
               value={settings.sdb_show_salesperson} 
               onChange={v => updateSetting('sdb_show_salesperson', v)} 
-              label="Salesperson"
+              label="Posted By"
               sub="Who posted the voucher"
             />
             <Toggle 
@@ -456,7 +456,7 @@ export default function ReportTemplates() {
                 <th style={{ padding: 6, textAlign: 'left' }}>Customer</th>
                 {settings.sdb_show_whatsapp && <th style={{ padding: 6, textAlign: 'left' }}>WhatsApp</th>}
                 <th style={{ padding: 6, textAlign: 'left' }}>Payment</th>
-                {settings.sdb_show_salesperson && <th style={{ padding: 6, textAlign: 'left' }}>Salesperson</th>}
+                {settings.sdb_show_salesperson && <th style={{ padding: 6, textAlign: 'left' }}>Posted By</th>}
                 {settings.sdb_show_status && <th style={{ padding: 6, textAlign: 'left' }}>Status</th>}
                 <th style={{ padding: 6, textAlign: 'right' }}>Amount</th>
               </tr>
