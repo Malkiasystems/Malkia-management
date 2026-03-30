@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
-import { today, tzs, getPostedBy } from '../../lib/utils'
+import { today, tzs } from '../../lib/utils'
 import { MalkiaReceipt } from '../ReceiptTemplate'
 import type { ReceiptSettings } from '../ReceiptTemplate'
 import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
@@ -325,7 +325,7 @@ export default function CashSale() {
         ref: 'JV-' + ref, posting_date: postingDate,
         description: `Cash Sale — ${newCustName} — ${ref}`,
         journal_type: 'cash_sale', source_type: 'cash_sale', source_ref: ref,
-        posted_by: getPostedBy(), status: 'posted',
+        posted_by: user?.name || 'Unknown', status: 'posted',
       }).select('id').single()
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
@@ -396,7 +396,7 @@ export default function CashSale() {
           currentMethod.id === 'pos' ? 'POS Card payment' : '',
           paymentRef ? `Ref: ${paymentRef}` : ''
         ].filter(Boolean).join(' · ') || null,
-        posted_by: getPostedBy(),
+        posted_by: user?.name || 'Unknown',
       }).select('id').single()
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
@@ -429,7 +429,7 @@ export default function CashSale() {
           ref, posting_date: postingDate,
           description: `Cash Sale — ${newCustName}`,
           total_amount: total, vat_amount: vat, subtotal: netRevenue,
-          payment_method: currentMethod.label, notes: '', posted_by: getPostedBy(),
+          payment_method: currentMethod.label, notes: '', posted_by: user?.name || 'Unknown',
           customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp, pregnancy_stage: selectedCust.pregnancy_stage, crown_points: (selectedCust.crown_points || 0) + crownPoints } : { name: newCustName, whatsapp: waInput, pregnancy_stage: '', crown_points: crownPoints },
           voucher_lines: lines.filter(l => l.productId).map(l => {
             const prod = dbProducts.find(p => p.id === l.productId)
