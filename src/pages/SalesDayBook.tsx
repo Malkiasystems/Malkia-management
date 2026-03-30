@@ -124,6 +124,184 @@ export default function SalesDayBook() {
     (filterCat !== 'all' ? 1 : 0) +
     (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
 
+  // ═══════════════════════════════════════════════════════════════════
+  // EXPORT FUNCTIONS
+  // ═══════════════════════════════════════════════════════════════════
+  
+  const exportExcel = () => {
+    // Build data rows
+    const rows: any[][] = []
+    
+    // Header
+    rows.push(['MALKIA WELLNESS GROUP'])
+    rows.push(['Sales Day Book'])
+    rows.push([`Period: ${fromDate} to ${toDate}`])
+    rows.push([`Generated: ${new Date().toLocaleString()}`])
+    rows.push([])
+    
+    // Column headers
+    rows.push(['Date', 'Ref', 'Customer', 'WhatsApp', 'Products', 'Payment', 'Status', 'Subtotal', 'VAT', 'Total', 'Posted By'])
+    
+    // Data rows
+    filtered.forEach(s => {
+      const products = (s.voucher_lines || []).map((l: any) => `${l.qty}x ${l.products?.name || 'Unknown'}`).join(', ')
+      rows.push([
+        s.posting_date,
+        s.ref,
+        (s.customers as any)?.name || 'Walk-in',
+        (s.customers as any)?.whatsapp || '',
+        products,
+        s.payment_method || 'Cash',
+        s.status === 'posted' ? 'Posted' : 'POD',
+        s.subtotal || 0,
+        s.vat_amount || 0,
+        s.total_amount || 0,
+        s.posted_by || ''
+      ])
+    })
+    
+    // Totals row
+    rows.push([])
+    rows.push(['', '', '', '', '', '', 'TOTALS:', totalNet, totalVat, totalRevenue, ''])
+    
+    // Convert to CSV then to Excel-compatible format
+    const csvContent = rows.map(row => 
+      row.map(cell => {
+        if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
+          return `"${cell.replace(/"/g, '""')}"`
+        }
+        return cell
+      }).join(',')
+    ).join('\n')
+    
+    // Add BOM for Excel UTF-8 compatibility
+    const BOM = '\uFEFF'
+    const blob = new Blob([BOM + csvContent], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Sales_Day_Book_${fromDate}_to_${toDate}.xls`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const exportPDF = () => {
+    // Create printable HTML
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Sales Day Book</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; font-size: 10px; padding: 20px; }
+          .header { text-align: center; margin-bottom: 20px; }
+          .header h1 { font-size: 16px; margin-bottom: 4px; }
+          .header p { font-size: 11px; color: #666; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+          th { background: #f5f5f5; font-weight: bold; font-size: 9px; }
+          td { font-size: 9px; }
+          .right { text-align: right; }
+          .mono { font-family: monospace; }
+          .totals { background: #f9f9f9; font-weight: bold; }
+          .posted { color: green; }
+          .pod { color: orange; }
+          .summary { margin-top: 20px; display: flex; gap: 20px; }
+          .summary-box { border: 1px solid #ddd; padding: 10px; flex: 1; }
+          .summary-box h3 { font-size: 10px; margin-bottom: 6px; }
+          .summary-box .value { font-size: 14px; font-weight: bold; }
+          @media print {
+            body { padding: 10px; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>MALKIA WELLNESS GROUP</h1>
+          <p>Sales Day Book</p>
+          <p>Period: ${fromDate} to ${toDate}</p>
+          <p>Generated: ${new Date().toLocaleString()}</p>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Ref</th>
+              <th>Customer</th>
+              <th>Products</th>
+              <th>Payment</th>
+              <th>Status</th>
+              <th class="right">Subtotal</th>
+              <th class="right">VAT</th>
+              <th class="right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(s => {
+              const products = (s.voucher_lines || []).map((l: any) => `${l.qty}x ${l.products?.name || '?'}`).join(', ')
+              return `
+                <tr>
+                  <td class="mono">${s.posting_date}</td>
+                  <td class="mono">${s.ref}</td>
+                  <td>${(s.customers as any)?.name || 'Walk-in'}</td>
+                  <td>${products}</td>
+                  <td>${s.payment_method || 'Cash'}</td>
+                  <td class="${s.status === 'posted' ? 'posted' : 'pod'}">${s.status === 'posted' ? '✓ Posted' : 'POD'}</td>
+                  <td class="right mono">${(s.subtotal || 0).toLocaleString()}</td>
+                  <td class="right mono">${(s.vat_amount || 0).toLocaleString()}</td>
+                  <td class="right mono">${(s.total_amount || 0).toLocaleString()}</td>
+                </tr>
+              `
+            }).join('')}
+            <tr class="totals">
+              <td colspan="6" class="right">TOTALS:</td>
+              <td class="right mono">${totalNet.toLocaleString()}</td>
+              <td class="right mono">${totalVat.toLocaleString()}</td>
+              <td class="right mono">${totalRevenue.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <div class="summary">
+          <div class="summary-box">
+            <h3>Transactions</h3>
+            <div class="value">${filtered.length}</div>
+          </div>
+          <div class="summary-box">
+            <h3>Gross Revenue</h3>
+            <div class="value">TZS ${totalRevenue.toLocaleString()}</div>
+          </div>
+          <div class="summary-box">
+            <h3>VAT Collected</h3>
+            <div class="value">TZS ${totalVat.toLocaleString()}</div>
+          </div>
+          <div class="summary-box">
+            <h3>Net Revenue</h3>
+            <div class="value">TZS ${totalNet.toLocaleString()}</div>
+          </div>
+          <div class="summary-box">
+            <h3>Gross Margin</h3>
+            <div class="value">${marginPct}%</div>
+          </div>
+        </div>
+        
+        <script>window.onload = function() { window.print(); }</script>
+      </body>
+      </html>
+    `
+    
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(printContent)
+      printWindow.document.close()
+    }
+  }
+
   return (
     <div className="page">
       {/* HEADER */}
@@ -136,8 +314,8 @@ export default function SalesDayBook() {
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" onClick={() => loadSales()} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
-          <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print</button>
-          <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
+          <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Export PDF</button>
+          <button className="btn btn-ghost btn-sm" onClick={exportExcel} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Export Excel</button>
         </div>
       </div>
 
