@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
+import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
@@ -114,25 +114,6 @@ const CacheContext = createContext<CacheContextType | null>(null)
 export function useDataCache() {
   const ctx = useContext(CacheContext)
   if (!ctx) throw new Error('useDataCache must be used within CacheProvider')
-  return ctx
-}
-
-// ============================================================================
-// EDIT CONTEXT: Pass voucher ID to edit between pages
-// ============================================================================
-interface EditContextType {
-  editVoucherId: string | null
-  setEditVoucherId: (id: string | null) => void
-}
-
-const EditContext = createContext<EditContextType | null>(null)
-
-export function useEditContext() {
-  const ctx = useContext(EditContext)
-  // Return safe defaults if context not available (prevents crash)
-  if (!ctx) {
-    return { editVoucherId: null, setEditVoucherId: () => {} }
-  }
   return ctx
 }
 
@@ -253,49 +234,14 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 // MAIN APP COMPONENT
 // ============================================================================
 
-const INACTIVITY_TIMEOUT = 30 * 60 * 1000 // 30 minutes in milliseconds
-
 function AppContent() {
-  // Restore page from localStorage or default to dashboard
-  const [page, setPage] = useState<Page>(() => {
-    const saved = localStorage.getItem('malkia_current_page')
-    return (saved as Page) || 'dashboard'
-  })
+  const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
-  const { permissions, loading: authLoading, isAuthenticated, refreshUser, signOut } = useAuth()
-
-  // Auto-logout on inactivity
-  useEffect(() => {
-    if (!isAuthenticated) return
-
-    let timeoutId: NodeJS.Timeout
-
-    const resetTimer = () => {
-      clearTimeout(timeoutId)
-      timeoutId = setTimeout(() => {
-        signOut()
-        localStorage.removeItem('malkia_current_page')
-        alert('You have been logged out due to inactivity')
-      }, INACTIVITY_TIMEOUT)
-    }
-
-    // Events that reset the timer
-    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
-    events.forEach(event => window.addEventListener(event, resetTimer))
-
-    // Start the timer
-    resetTimer()
-
-    return () => {
-      clearTimeout(timeoutId)
-      events.forEach(event => window.removeEventListener(event, resetTimer))
-    }
-  }, [isAuthenticated, signOut])
+  const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
     setPage(p)
-    localStorage.setItem('malkia_current_page', p)
   }
 
   const goBack = () => {
@@ -303,7 +249,6 @@ function AppContent() {
     const prev = history[history.length - 1]
     setHistory(h => h.slice(0, -1))
     setPage(prev)
-    localStorage.setItem('malkia_current_page', prev)
   }
 
   // Show loading while checking auth
@@ -336,7 +281,7 @@ function AppContent() {
       case 'reports':           return <ReportsHub onNav={navigate} />
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
-      case 'sales-day-book':    return <SalesDayBook onNav={navigate} />
+      case 'sales-day-book':    return <SalesDayBook />
       case 'trial-balance':     return <TrialBalance />
       case 'balance-sheet':     return <BalanceSheet />
       case 'ar-aging':          return <ARAgingReport />
@@ -401,24 +346,19 @@ function AppContent() {
 
   const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
 
-  // Edit context state
-  const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
-
   return (
     <CacheProvider>
-      <EditContext.Provider value={{ editVoucherId, setEditVoucherId }}>
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-          <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
-          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            <Sidebar current={page} onNav={navigate} />
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-              <Suspense fallback={<PageLoader />}>
-                {renderPage()}
-              </Suspense>
-            </div>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <Sidebar current={page} onNav={navigate} />
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <Suspense fallback={<PageLoader />}>
+              {renderPage()}
+            </Suspense>
           </div>
         </div>
-      </EditContext.Provider>
+      </div>
     </CacheProvider>
   )
 }
