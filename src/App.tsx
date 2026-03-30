@@ -47,6 +47,7 @@ const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
 const LocationSettings = lazy(() => import('./pages/LocationSettings'))
 const InventorySettings = lazy(() => import('./pages/InventorySettings'))
 const AccountingSettings = lazy(() => import('./pages/AccountingSettings'))
+const DisplaySettings = lazy(() => import('./pages/DisplaySettings'))
 
 // User Management & Approvals
 const UserManagement = lazy(() => import('./pages/UserManagement'))
@@ -228,6 +229,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'users': 'Settings / User Management',
   'approvals': 'Settings / Approval Workflows',
   'accounting-settings': 'Settings / Accounting',
+  'display-settings': 'Settings / Display',
 }
 
 // ============================================================================
@@ -333,6 +335,7 @@ function AppContent() {
       case 'users':             return <UserManagement onNav={navigate} />
       case 'approvals':         return <ApprovalWorkflows onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
+      case 'display-settings':  return <DisplaySettings />
       
       // CRM Module Routes
       case 'crm':
