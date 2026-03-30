@@ -47,7 +47,6 @@ const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
 const LocationSettings = lazy(() => import('./pages/LocationSettings'))
 const InventorySettings = lazy(() => import('./pages/InventorySettings'))
 const AccountingSettings = lazy(() => import('./pages/AccountingSettings'))
-const ReportTemplates = lazy(() => import('./pages/ReportTemplates'))
 
 // User Management & Approvals
 const UserManagement = lazy(() => import('./pages/UserManagement'))
@@ -229,7 +228,6 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'users': 'Settings / User Management',
   'approvals': 'Settings / Approval Workflows',
   'accounting-settings': 'Settings / Accounting',
-  'report-templates': 'Settings / Report Templates',
 }
 
 // ============================================================================
@@ -237,13 +235,18 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 // ============================================================================
 
 function AppContent() {
-  const [page, setPage] = useState<Page>('dashboard')
+  // Restore page from localStorage or default to dashboard
+  const [page, setPage] = useState<Page>(() => {
+    const saved = localStorage.getItem('malkia_current_page')
+    return (saved as Page) || 'dashboard'
+  })
   const [history, setHistory] = useState<Page[]>([])
   const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
     setPage(p)
+    localStorage.setItem('malkia_current_page', p)
   }
 
   const goBack = () => {
@@ -251,6 +254,7 @@ function AppContent() {
     const prev = history[history.length - 1]
     setHistory(h => h.slice(0, -1))
     setPage(prev)
+    localStorage.setItem('malkia_current_page', prev)
   }
 
   // Show loading while checking auth
@@ -298,7 +302,6 @@ function AppContent() {
       case 'location-settings': return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
       case 'pricelist-template': return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon</div></div>
-      case 'report-templates':  return <ReportTemplates />
       case 'banks':             return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
