@@ -217,6 +217,17 @@ export default function CRMHub({ onNav }: Props) {
     const { data: convos } = await supabase.from('conversations').select('*').order('last_message_at', { ascending: false }).limit(5)
     const { data: feedback } = await supabase.from('feedback').select('*').order('created_at', { ascending: false }).limit(4)
 
+    // Load counts from CRM tables
+    const { count: unreadCount } = await supabase.from('conversations').select('*', { count: 'exact', head: true }).gt('unread_count', 0)
+    const { count: ticketCount } = await supabase.from('feedback').select('*', { count: 'exact', head: true }).in('status', ['new', 'in_progress'])
+    const { count: referralCount } = await supabase.from('referrals').select('*', { count: 'exact', head: true })
+    const { count: autoCount } = await supabase.from('crm_automations').select('*', { count: 'exact', head: true }).eq('is_active', true)
+    const { count: preorderCount } = await supabase.from('preorders').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+    const { data: pointsData } = await supabase.from('crown_points_log').select('points, type')
+    
+    const pointsIssued = pointsData?.filter(p => p.type === 'earn').reduce((sum, p) => sum + p.points, 0) || 0
+    const pointsRedeemed = pointsData?.filter(p => p.type === 'redeem').reduce((sum, p) => sum + Math.abs(p.points), 0) || 0
+
     if (customers && customers.length > 0) {
       const mama = customers.filter(c => !c.crown_tier || c.crown_tier === 'mama').length
       const gold = customers.filter(c => c.crown_tier === 'gold').length
@@ -224,21 +235,21 @@ export default function CRMHub({ onNav }: Props) {
       
       setStats({
         totalCustomers: customers.length,
-        unreadMessages: 12,
-        openTickets: 4,
-        upsellRate: 25.5,
-        totalReferrals: 412,
+        unreadMessages: unreadCount || 0,
+        openTickets: ticketCount || 0,
+        upsellRate: 0,
+        totalReferrals: referralCount || 0,
         crownMembers: crown + gold,
-        activeAutomations: 18,
-        csatScore: 4.7,
-        preOrders: 3,
+        activeAutomations: autoCount || 0,
+        csatScore: 0,
+        preOrders: preorderCount || 0,
         mamaCount: mama,
         goldCount: gold,
         crownCount: crown,
-        inactiveCount: 23,
-        referralRevenue: 2870000,
-        pointsIssued: 4200000,
-        pointsRedeemed: 1100000
+        inactiveCount: 0,
+        referralRevenue: 0,
+        pointsIssued: pointsIssued,
+        pointsRedeemed: pointsRedeemed
       })
 
       setTopCustomers(customers
