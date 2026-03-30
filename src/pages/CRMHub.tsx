@@ -228,10 +228,34 @@ export default function CRMHub({ onNav }: Props) {
     const pointsIssued = pointsData?.filter(p => p.type === 'earn').reduce((sum, p) => sum + p.points, 0) || 0
     const pointsRedeemed = pointsData?.filter(p => p.type === 'redeem').reduce((sum, p) => sum + Math.abs(p.points), 0) || 0
 
+    // Calculate customer LTV from vouchers
+    const { data: customerSales } = await supabase
+      .from('vouchers')
+      .select('customer_id, total_amount')
+      .in('type', ['cash_sale', 'sales_invoice'])
+      .eq('status', 'posted')
+      .not('customer_id', 'is', null)
+
+    // Aggregate sales by customer
+    const customerStats: Record<string, { ltv: number; orders: number }> = {}
+    customerSales?.forEach(v => {
+      if (!v.customer_id) return
+      if (!customerStats[v.customer_id]) customerStats[v.customer_id] = { ltv: 0, orders: 0 }
+      customerStats[v.customer_id].ltv += v.total_amount || 0
+      customerStats[v.customer_id].orders += 1
+    })
+
     if (customers && customers.length > 0) {
       const mama = customers.filter(c => !c.crown_tier || c.crown_tier === 'mama').length
       const gold = customers.filter(c => c.crown_tier === 'gold').length
       const crown = customers.filter(c => c.crown_tier === 'crown').length
+      
+      // Enrich customers with calculated stats
+      const enrichedCustomers = customers.map(c => ({
+        ...c,
+        lifetime_value: customerStats[c.id]?.ltv || c.lifetime_value || 0,
+        total_orders: customerStats[c.id]?.orders || c.total_orders || 0
+      }))
       
       setStats({
         totalCustomers: customers.length,
@@ -252,7 +276,7 @@ export default function CRMHub({ onNav }: Props) {
         pointsRedeemed: pointsRedeemed
       })
 
-      setTopCustomers(customers
+      setTopCustomers(enrichedCustomers
         .sort((a, b) => (b.lifetime_value || 0) - (a.lifetime_value || 0))
         .slice(0, 5)
         .map(c => ({
