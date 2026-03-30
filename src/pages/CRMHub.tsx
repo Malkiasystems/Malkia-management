@@ -338,10 +338,10 @@ export default function CRMHub({ onNav }: Props) {
     }
 
     // Points activity
-    const { data: pointsData } = await supabase.from('crown_points_log').select('*, customers(name)').order('created_at', { ascending: false }).limit(5)
-    if (pointsData && pointsData.length > 0) {
-      setPointsActivity(pointsData.map(p => ({
-        id: p.id, customer_name: (p.customers as any)?.name || 'Customer', action: p.description || p.source, points: p.points, timestamp: p.created_at
+    const { data: pointsActivityData } = await supabase.from('crown_points_log').select('id, points, type, source, description, created_at, customer_id, customers(name)').order('created_at', { ascending: false }).limit(5)
+    if (pointsActivityData && pointsActivityData.length > 0) {
+      setPointsActivity(pointsActivityData.map((p: any) => ({
+        id: p.id, customer_name: p.customers?.name || 'Customer', action: p.description || p.source, points: p.points, timestamp: p.created_at
       })))
     } else {
       setPointsActivity([])
