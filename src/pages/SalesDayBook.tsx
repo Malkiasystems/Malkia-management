@@ -35,7 +35,7 @@ interface Sale {
 }
 
 
-export default function SalesDayBook({ onNav, onEdit }: Props) {
+export default function SalesDayBook({ onEdit }: Props) {
   const [sales, setSales] = useState<Sale[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
