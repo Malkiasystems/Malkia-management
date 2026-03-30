@@ -214,23 +214,6 @@ export default function Settings({ onNav }: Props) {
         </button>
       </div>
 
-      {/* Report Templates */}
-      <div style={{ background: 'linear-gradient(135deg, rgba(133,194,190,.12) 0%, rgba(133,194,190,.04) 100%)', border: '1px solid rgba(133,194,190,.3)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(133,194,190,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="22" height="22" fill="none" stroke="#85c2be" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
-          </div>
-          <div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Report Templates</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Customize PDF exports · Sales Day Book · Invoices · Receipts</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Upload logo · Choose colors · Toggle sections · Stats bar config</div>
-          </div>
-        </div>
-        <button onClick={() => onNav('report-templates')} className="btn btn-primary" style={{ background: '#85c2be', border: 'none', flexShrink: 0 }}>
-          Customize Templates →
-        </button>
-      </div>
-
       {/* Location Management */}
       <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -245,6 +228,23 @@ export default function Settings({ onNav }: Props) {
         </div>
         <button onClick={() => onNav('location-settings')} className="btn btn-primary" style={{ flexShrink: 0 }}>
           Manage →
+        </button>
+      </div>
+
+      {/* Display Settings */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(168,85,247,.08) 0%, rgba(236,72,153,.06) 100%)', border: '1px solid rgba(168,85,247,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(168,85,247,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#a855f7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Display Settings</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Themes · Colors · Typography · Layout customization</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>8 themes · Font sizes · Border radius · Table options</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('display-settings')} className="btn btn-primary" style={{ background: '#a855f7', border: 'none', flexShrink: 0 }}>
+          Customize →
         </button>
       </div>
 
