@@ -159,37 +159,26 @@ const THEMES = {
 
 type ThemeKey = keyof typeof THEMES
 
-// Font size options
 const FONT_SIZES = [
-  { value: 12, label: 'Compact', description: 'More data on screen' },
-  { value: 14, label: 'Default', description: 'Balanced readability' },
-  { value: 16, label: 'Large', description: 'Easier to read' },
-  { value: 18, label: 'Extra Large', description: 'Maximum readability' },
+  { value: 12, label: 'Compact' },
+  { value: 14, label: 'Default' },
+  { value: 16, label: 'Large' },
+  { value: 18, label: 'X-Large' },
 ]
 
-// Sidebar options
-const SIDEBAR_OPTIONS = [
-  { value: 68, label: 'Compact', description: 'Icons only' },
-  { value: 200, label: 'Expanded', description: 'Icons + labels' },
-]
-
-// Border radius options
 const RADIUS_OPTIONS = [
-  { value: 0, label: 'Sharp', description: 'No rounded corners' },
-  { value: 6, label: 'Subtle', description: 'Slight rounding' },
-  { value: 10, label: 'Default', description: 'Standard rounding' },
-  { value: 16, label: 'Rounded', description: 'More rounded' },
-  { value: 24, label: 'Pill', description: 'Very rounded' },
+  { value: 0, label: 'Sharp' },
+  { value: 6, label: 'Subtle' },
+  { value: 10, label: 'Default' },
+  { value: 16, label: 'Rounded' },
+  { value: 24, label: 'Pill' },
 ]
 
 export default function DisplaySettings() {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
-  
-  // Settings state
   const [currentTheme, setCurrentTheme] = useState<ThemeKey>('midnight')
   const [fontSize, setFontSize] = useState(14)
-  const [sidebarWidth, setSidebarWidth] = useState(68)
   const [borderRadius, setBorderRadius] = useState(10)
   const [animationsEnabled, setAnimationsEnabled] = useState(true)
   const [compactMode, setCompactMode] = useState(false)
@@ -198,122 +187,62 @@ export default function DisplaySettings() {
   const [monoNumbers, setMonoNumbers] = useState(true)
   const [stickyHeaders, setStickyHeaders] = useState(true)
 
-  // Load saved settings on mount
   useEffect(() => {
     const saved = localStorage.getItem('malkia_display_settings')
     if (saved) {
       try {
-        const settings = JSON.parse(saved)
-        if (settings.theme) setCurrentTheme(settings.theme)
-        if (settings.fontSize) setFontSize(settings.fontSize)
-        if (settings.sidebarWidth) setSidebarWidth(settings.sidebarWidth)
-        if (settings.borderRadius !== undefined) setBorderRadius(settings.borderRadius)
-        if (settings.animationsEnabled !== undefined) setAnimationsEnabled(settings.animationsEnabled)
-        if (settings.compactMode !== undefined) setCompactMode(settings.compactMode)
-        if (settings.showGridLines !== undefined) setShowGridLines(settings.showGridLines)
-        if (settings.highlightOnHover !== undefined) setHighlightOnHover(settings.highlightOnHover)
-        if (settings.monoNumbers !== undefined) setMonoNumbers(settings.monoNumbers)
-        if (settings.stickyHeaders !== undefined) setStickyHeaders(settings.stickyHeaders)
-        // Apply theme on load
-        applyTheme(settings.theme || 'midnight')
-        applyFontSize(settings.fontSize || 14)
-        applyBorderRadius(settings.borderRadius ?? 10)
+        const s = JSON.parse(saved)
+        if (s.theme) { setCurrentTheme(s.theme); applyTheme(s.theme) }
+        if (s.fontSize) { setFontSize(s.fontSize); applyFontSize(s.fontSize) }
+        if (s.borderRadius !== undefined) { setBorderRadius(s.borderRadius); applyBorderRadius(s.borderRadius) }
+        if (s.animationsEnabled !== undefined) setAnimationsEnabled(s.animationsEnabled)
+        if (s.compactMode !== undefined) setCompactMode(s.compactMode)
+        if (s.showGridLines !== undefined) setShowGridLines(s.showGridLines)
+        if (s.highlightOnHover !== undefined) setHighlightOnHover(s.highlightOnHover)
+        if (s.monoNumbers !== undefined) setMonoNumbers(s.monoNumbers)
+        if (s.stickyHeaders !== undefined) setStickyHeaders(s.stickyHeaders)
       } catch {}
     }
   }, [])
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { 
-    setToast(msg)
-    setToastType(type) 
-  }
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const applyTheme = (themeKey: ThemeKey) => {
     const theme = THEMES[themeKey]
     if (!theme) return
-    const root = document.documentElement
-    Object.entries(theme.vars).forEach(([key, value]) => {
-      root.style.setProperty(key, value)
-    })
+    Object.entries(theme.vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
   }
 
-  const applyFontSize = (size: number) => {
-    document.documentElement.style.fontSize = `${size}px`
+  const applyFontSize = (size: number) => { document.documentElement.style.fontSize = `${size}px` }
+  const applyBorderRadius = (r: number) => {
+    document.documentElement.style.setProperty('--r', `${r}px`)
+    document.documentElement.style.setProperty('--rl', `${r + 6}px`)
   }
 
-  const applyBorderRadius = (radius: number) => {
-    document.documentElement.style.setProperty('--r', `${radius}px`)
-    document.documentElement.style.setProperty('--rl', `${radius + 6}px`)
-  }
-
-  const handleThemeChange = (themeKey: ThemeKey) => {
-    setCurrentTheme(themeKey)
-    applyTheme(themeKey)
-  }
-
-  const handleFontSizeChange = (size: number) => {
-    setFontSize(size)
-    applyFontSize(size)
-  }
-
-  const handleRadiusChange = (radius: number) => {
-    setBorderRadius(radius)
-    applyBorderRadius(radius)
-  }
+  const handleThemeChange = (k: ThemeKey) => { setCurrentTheme(k); applyTheme(k) }
+  const handleFontSizeChange = (s: number) => { setFontSize(s); applyFontSize(s) }
+  const handleRadiusChange = (r: number) => { setBorderRadius(r); applyBorderRadius(r) }
 
   const saveSettings = () => {
-    const settings = {
-      theme: currentTheme,
-      fontSize,
-      sidebarWidth,
-      borderRadius,
-      animationsEnabled,
-      compactMode,
-      showGridLines,
-      highlightOnHover,
-      monoNumbers,
-      stickyHeaders,
-    }
-    localStorage.setItem('malkia_display_settings', JSON.stringify(settings))
+    localStorage.setItem('malkia_display_settings', JSON.stringify({
+      theme: currentTheme, fontSize, borderRadius, animationsEnabled, compactMode,
+      showGridLines, highlightOnHover, monoNumbers, stickyHeaders,
+    }))
     showToast('Display settings saved')
   }
 
   const resetDefaults = () => {
-    setCurrentTheme('midnight')
-    setFontSize(14)
-    setSidebarWidth(68)
-    setBorderRadius(10)
-    setAnimationsEnabled(true)
-    setCompactMode(false)
-    setShowGridLines(true)
-    setHighlightOnHover(true)
-    setMonoNumbers(true)
-    setStickyHeaders(true)
-    applyTheme('midnight')
-    applyFontSize(14)
-    applyBorderRadius(10)
+    setCurrentTheme('midnight'); setFontSize(14); setBorderRadius(10)
+    setAnimationsEnabled(true); setCompactMode(false); setShowGridLines(true)
+    setHighlightOnHover(true); setMonoNumbers(true); setStickyHeaders(true)
+    applyTheme('midnight'); applyFontSize(14); applyBorderRadius(10)
     localStorage.removeItem('malkia_display_settings')
     showToast('Settings reset to defaults')
   }
 
   const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
-    <div 
-      onClick={() => onChange(!value)} 
-      style={{ 
-        width: 44, height: 24, 
-        background: value ? 'var(--accent)' : 'var(--surface3)', 
-        borderRadius: 12, cursor: 'pointer', 
-        position: 'relative', transition: 'background .2s', 
-        flexShrink: 0 
-      }}
-    >
-      <div style={{ 
-        position: 'absolute', top: 2, 
-        left: value ? 22 : 2, 
-        width: 20, height: 20, 
-        background: '#fff', borderRadius: '50%', 
-        transition: 'left .2s', 
-        boxShadow: '0 1px 4px rgba(0,0,0,.3)' 
-      }} />
+    <div onClick={() => onChange(!value)} style={{ width: 44, height: 24, background: value ? 'var(--accent)' : 'var(--surface3)', borderRadius: 12, cursor: 'pointer', position: 'relative', transition: 'background .2s', flexShrink: 0 }}>
+      <div style={{ position: 'absolute', top: 2, left: value ? 22 : 2, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.3)' }} />
     </div>
   )
 
@@ -334,35 +263,14 @@ export default function DisplaySettings() {
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-title" style={{ marginBottom: 6 }}>Color Theme</div>
         <div className="card-sub" style={{ marginBottom: 20 }}>Choose a color scheme that suits your preference</div>
-        
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
           {(Object.entries(THEMES) as [ThemeKey, typeof THEMES[ThemeKey]][]).map(([key, theme]) => (
-            <div 
-              key={key}
-              onClick={() => handleThemeChange(key)}
-              style={{ 
-                padding: 14,
-                background: currentTheme === key ? 'var(--accent-dim)' : 'var(--surface2)',
-                border: `2px solid ${currentTheme === key ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 12,
-                cursor: 'pointer',
-                transition: 'all .15s',
-              }}
-            >
-              {/* Color preview */}
+            <div key={key} onClick={() => handleThemeChange(key)} style={{ padding: 14, background: currentTheme === key ? 'var(--accent-dim)' : 'var(--surface2)', border: `2px solid ${currentTheme === key ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, cursor: 'pointer', transition: 'all .15s' }}>
               <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-                {theme.preview.map((color, i) => (
-                  <div key={i} style={{ 
-                    width: 24, height: 24, 
-                    borderRadius: 6, 
-                    background: color,
-                    border: '1px solid rgba(255,255,255,0.1)'
-                  }} />
-                ))}
+                {theme.preview.map((color, i) => (<div key={i} style={{ width: 24, height: 24, borderRadius: 6, background: color, border: '1px solid rgba(255,255,255,0.1)' }} />))}
               </div>
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>
-                {theme.name}
-                {currentTheme === key && <span style={{ marginLeft: 6, color: 'var(--accent)' }}>✓</span>}
+                {theme.name}{currentTheme === key && <span style={{ marginLeft: 6, color: 'var(--accent)' }}>✓</span>}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text3)' }}>{theme.description}</div>
             </div>
@@ -375,36 +283,19 @@ export default function DisplaySettings() {
         <div className="card">
           <div className="card-title" style={{ marginBottom: 6 }}>Typography</div>
           <div className="card-sub" style={{ marginBottom: 20 }}>Adjust text size for readability</div>
-          
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>Base Font Size</div>
             <div style={{ display: 'flex', gap: 8 }}>
               {FONT_SIZES.map(size => (
-                <div 
-                  key={size.value}
-                  onClick={() => handleFontSizeChange(size.value)}
-                  style={{ 
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: fontSize === size.value ? 'var(--accent-dim)' : 'var(--surface2)',
-                    border: `1px solid ${fontSize === size.value ? 'var(--accent)' : 'var(--border)'}`,
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    textAlign: 'center',
-                  }}
-                >
+                <div key={size.value} onClick={() => handleFontSizeChange(size.value)} style={{ flex: 1, padding: '10px 12px', background: fontSize === size.value ? 'var(--accent-dim)' : 'var(--surface2)', border: `1px solid ${fontSize === size.value ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer', textAlign: 'center' }}>
                   <div style={{ fontSize: size.value, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>{size.value}px</div>
                   <div style={{ fontSize: 10, color: 'var(--text3)' }}>{size.label}</div>
                 </div>
               ))}
             </div>
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Monospace Numbers</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Use fixed-width digits for alignment</div>
-            </div>
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Monospace Numbers</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>Use fixed-width digits</div></div>
             <Toggle value={monoNumbers} onChange={setMonoNumbers} />
           </div>
         </div>
@@ -413,75 +304,42 @@ export default function DisplaySettings() {
         <div className="card">
           <div className="card-title" style={{ marginBottom: 6 }}>Layout</div>
           <div className="card-sub" style={{ marginBottom: 20 }}>Customize spacing and corners</div>
-          
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>Border Radius</div>
             <div style={{ display: 'flex', gap: 8 }}>
               {RADIUS_OPTIONS.map(opt => (
-                <div 
-                  key={opt.value}
-                  onClick={() => handleRadiusChange(opt.value)}
-                  style={{ 
-                    flex: 1,
-                    padding: '10px 8px',
-                    background: borderRadius === opt.value ? 'var(--accent-dim)' : 'var(--surface2)',
-                    border: `1px solid ${borderRadius === opt.value ? 'var(--accent)' : 'var(--border)'}`,
-                    borderRadius: opt.value,
-                    cursor: 'pointer',
-                    textAlign: 'center',
-                  }}
-                >
+                <div key={opt.value} onClick={() => handleRadiusChange(opt.value)} style={{ flex: 1, padding: '10px 8px', background: borderRadius === opt.value ? 'var(--accent-dim)' : 'var(--surface2)', border: `1px solid ${borderRadius === opt.value ? 'var(--accent)' : 'var(--border)'}`, borderRadius: opt.value, cursor: 'pointer', textAlign: 'center' }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{opt.label}</div>
                 </div>
               ))}
             </div>
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderTop: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Compact Mode</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Reduce padding throughout the UI</div>
-            </div>
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Compact Mode</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>Reduce padding</div></div>
             <Toggle value={compactMode} onChange={setCompactMode} />
           </div>
         </div>
       </div>
 
-      {/* Tables & Data */}
+      {/* Tables */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-title" style={{ marginBottom: 6 }}>Tables & Data Display</div>
-        <div className="card-sub" style={{ marginBottom: 20 }}>How data is presented in tables and lists</div>
-
+        <div className="card-title" style={{ marginBottom: 6 }}>Tables & Data</div>
+        <div className="card-sub" style={{ marginBottom: 20 }}>How data is presented</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Show Grid Lines</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Display borders between table rows</div>
-            </div>
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Grid Lines</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>Borders between rows</div></div>
             <Toggle value={showGridLines} onChange={setShowGridLines} />
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Highlight on Hover</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Highlight rows when hovering</div>
-            </div>
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Hover Highlight</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>Highlight rows on hover</div></div>
             <Toggle value={highlightOnHover} onChange={setHighlightOnHover} />
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Sticky Headers</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Keep table headers visible when scrolling</div>
-            </div>
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Sticky Headers</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>Keep headers visible</div></div>
             <Toggle value={stickyHeaders} onChange={setStickyHeaders} />
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Animations</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Enable smooth transitions</div>
-            </div>
+            <div><div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Animations</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>Smooth transitions</div></div>
             <Toggle value={animationsEnabled} onChange={setAnimationsEnabled} />
           </div>
         </div>
@@ -491,78 +349,28 @@ export default function DisplaySettings() {
       <div className="card">
         <div className="card-title" style={{ marginBottom: 6 }}>Preview</div>
         <div className="card-sub" style={{ marginBottom: 20 }}>See how your settings look</div>
-
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
-          <div className="stat-card amber">
-            <div className="stat-icon">💰</div>
-            <div className="stat-label">Revenue</div>
-            <div className="stat-value">2.4M</div>
-            <div className="stat-change up">↑ 12%</div>
-          </div>
-          <div className="stat-card green">
-            <div className="stat-icon">📦</div>
-            <div className="stat-label">Orders</div>
-            <div className="stat-value">847</div>
-            <div className="stat-change up">↑ 8%</div>
-          </div>
-          <div className="stat-card blue">
-            <div className="stat-icon">👥</div>
-            <div className="stat-label">Customers</div>
-            <div className="stat-value">1,234</div>
-            <div className="stat-change up">↑ 15%</div>
-          </div>
-          <div className="stat-card red">
-            <div className="stat-icon">📉</div>
-            <div className="stat-label">Returns</div>
-            <div className="stat-value">23</div>
-            <div className="stat-change down">↓ 5%</div>
-          </div>
+          <div className="stat-card amber"><div className="stat-icon">💰</div><div className="stat-label">Revenue</div><div className="stat-value">2.4M</div><div className="stat-change up">↑ 12%</div></div>
+          <div className="stat-card green"><div className="stat-icon">📦</div><div className="stat-label">Orders</div><div className="stat-value">847</div><div className="stat-change up">↑ 8%</div></div>
+          <div className="stat-card blue"><div className="stat-icon">👥</div><div className="stat-label">Customers</div><div className="stat-value">1,234</div><div className="stat-change up">↑ 15%</div></div>
+          <div className="stat-card red"><div className="stat-icon">📉</div><div className="stat-label">Returns</div><div className="stat-value">23</div><div className="stat-change down">↓ 5%</div></div>
         </div>
-
         <div className="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Reference</th>
-                <th>Customer</th>
-                <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Amount</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Date</th><th>Reference</th><th>Customer</th><th>Status</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
             <tbody>
-              <tr>
-                <td className="td-mono">2026-03-30</td>
-                <td className="td-mono" style={{ color: 'var(--accent)' }}>CS-10-0042</td>
-                <td className="td-bold">Angela Laurian</td>
-                <td><span className="pill pill-green">Posted</span></td>
-                <td className="td-mono" style={{ textAlign: 'right', color: 'var(--green)' }}>150,000</td>
-              </tr>
-              <tr>
-                <td className="td-mono">2026-03-30</td>
-                <td className="td-mono" style={{ color: 'var(--accent)' }}>CS-10-0041</td>
-                <td className="td-bold">Baraka Zakayo</td>
-                <td><span className="pill pill-yellow">Draft</span></td>
-                <td className="td-mono" style={{ textAlign: 'right', color: 'var(--green)' }}>85,000</td>
-              </tr>
-              <tr>
-                <td className="td-mono">2026-03-29</td>
-                <td className="td-mono" style={{ color: 'var(--accent)' }}>CS-10-0040</td>
-                <td className="td-bold">Erica Matenga</td>
-                <td><span className="pill pill-green">Posted</span></td>
-                <td className="td-mono" style={{ textAlign: 'right', color: 'var(--green)' }}>220,000</td>
-              </tr>
+              <tr><td className="td-mono">2026-03-30</td><td className="td-mono" style={{ color: 'var(--accent)' }}>CS-10-0042</td><td className="td-bold">Angela Laurian</td><td><span className="pill pill-green">Posted</span></td><td className="td-mono" style={{ textAlign: 'right', color: 'var(--green)' }}>150,000</td></tr>
+              <tr><td className="td-mono">2026-03-30</td><td className="td-mono" style={{ color: 'var(--accent)' }}>CS-10-0041</td><td className="td-bold">Baraka Zakayo</td><td><span className="pill pill-yellow">Draft</span></td><td className="td-mono" style={{ textAlign: 'right', color: 'var(--green)' }}>85,000</td></tr>
             </tbody>
           </table>
         </div>
-
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button className="btn btn-primary">Primary Button</button>
-          <button className="btn btn-ghost">Ghost Button</button>
+          <button className="btn btn-primary">Primary</button>
+          <button className="btn btn-ghost">Ghost</button>
           <button className="btn btn-success">Success</button>
           <button className="btn btn-danger">Danger</button>
-          <span className="pill pill-amber">Amber Pill</span>
-          <span className="pill pill-blue">Blue Pill</span>
+          <span className="pill pill-amber">Amber</span>
+          <span className="pill pill-blue">Blue</span>
         </div>
       </div>
 
