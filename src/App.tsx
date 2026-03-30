@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
+import { useState, useEffect, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
@@ -234,6 +234,8 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 // MAIN APP COMPONENT
 // ============================================================================
 
+const INACTIVITY_TIMEOUT = 30 * 60 * 1000 // 30 minutes in milliseconds
+
 function AppContent() {
   // Restore page from localStorage or default to dashboard
   const [page, setPage] = useState<Page>(() => {
@@ -241,7 +243,35 @@ function AppContent() {
     return (saved as Page) || 'dashboard'
   })
   const [history, setHistory] = useState<Page[]>([])
-  const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
+  const { permissions, loading: authLoading, isAuthenticated, refreshUser, signOut } = useAuth()
+
+  // Auto-logout on inactivity
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    let timeoutId: NodeJS.Timeout
+
+    const resetTimer = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        signOut()
+        localStorage.removeItem('malkia_current_page')
+        alert('You have been logged out due to inactivity')
+      }, INACTIVITY_TIMEOUT)
+    }
+
+    // Events that reset the timer
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
+    events.forEach(event => window.addEventListener(event, resetTimer))
+
+    // Start the timer
+    resetTimer()
+
+    return () => {
+      clearTimeout(timeoutId)
+      events.forEach(event => window.removeEventListener(event, resetTimer))
+    }
+  }, [isAuthenticated, signOut])
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
