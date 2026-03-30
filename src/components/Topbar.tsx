@@ -1,5 +1,7 @@
+import { useState, useEffect, useRef } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth } from '../lib/useAuth'
+import { supabase } from '../lib/supabase'
 
 interface Props {
   breadcrumb: string
@@ -8,12 +10,200 @@ interface Props {
   canGoBack: boolean
 }
 
+// Pages that can be searched
+const SEARCHABLE_PAGES: { page: Page; label: string; keywords: string }[] = [
+  { page: 'dashboard', label: 'Dashboard', keywords: 'home overview stats' },
+  { page: 'cash-sale', label: 'New Cash Sale', keywords: 'sell pos point of sale' },
+  { page: 'sales-day-book', label: 'Sales Day Book', keywords: 'sales register transactions' },
+  { page: 'inventory', label: 'Inventory', keywords: 'stock products items' },
+  { page: 'customers', label: 'Customers', keywords: 'clients contacts' },
+  { page: 'chart-of-accounts', label: 'Chart of Accounts', keywords: 'ledger accounts coa' },
+  { page: 'vouchers', label: 'Vouchers Hub', keywords: 'receipts payments' },
+  { page: 'reports', label: 'Reports Hub', keywords: 'analytics' },
+  { page: 'pnl', label: 'Profit & Loss', keywords: 'income statement' },
+  { page: 'balance-sheet', label: 'Balance Sheet', keywords: 'assets liabilities' },
+  { page: 'trial-balance', label: 'Trial Balance', keywords: 'tb' },
+  { page: 'banks', label: 'Banks & Accounts', keywords: 'bank accounts' },
+  { page: 'settings', label: 'Settings', keywords: 'config preferences' },
+  { page: 'petty-cash', label: 'Petty Cash', keywords: 'expenses' },
+  { page: 'cash-payment', label: 'Cash Payment', keywords: 'pay expense' },
+  { page: 'cash-receipt', label: 'Cash Receipt', keywords: 'receive money' },
+  { page: 'credit-note', label: 'Credit Note', keywords: 'refund return' },
+  { page: 'opening-stock', label: 'Opening Stock', keywords: 'initial inventory' },
+  { page: 'stock-adjustment', label: 'Stock Adjustment', keywords: 'adjust inventory' },
+  { page: 'users', label: 'User Management', keywords: 'team staff employees' },
+  { page: 'crm-hub', label: 'CRM Hub', keywords: 'customer relations' },
+]
+
+interface SearchResult {
+  type: 'page' | 'voucher' | 'product' | 'customer'
+  id: string
+  title: string
+  subtitle: string
+  page?: Page
+}
+
 export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) {
   const { user, signOut } = useAuth()
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [showResults, setShowResults] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const searchRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowResults(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Keyboard shortcut: Cmd+K or Ctrl+K to focus search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        inputRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Search when query changes
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([])
+      setShowResults(false)
+      return
+    }
+
+    const search = async () => {
+      setLoading(true)
+      const q = query.toLowerCase()
+      const allResults: SearchResult[] = []
+
+      // Search pages
+      const matchedPages = SEARCHABLE_PAGES.filter(p => 
+        p.label.toLowerCase().includes(q) || p.keywords.toLowerCase().includes(q)
+      ).slice(0, 3)
+      
+      matchedPages.forEach(p => {
+        allResults.push({ type: 'page', id: p.page, title: p.label, subtitle: 'Page', page: p.page })
+      })
+
+      // Search vouchers
+      const { data: vouchers } = await supabase
+        .from('vouchers')
+        .select('id, ref, type, total_amount, posting_date')
+        .or(`ref.ilike.%${q}%,description.ilike.%${q}%`)
+        .order('posting_date', { ascending: false })
+        .limit(4)
+      
+      vouchers?.forEach(v => {
+        allResults.push({
+          type: 'voucher',
+          id: v.id,
+          title: v.ref,
+          subtitle: `${v.type} · TZS ${(v.total_amount || 0).toLocaleString()} · ${v.posting_date}`,
+        })
+      })
+
+      // Search products
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, name, sku, selling_price, qty_on_hand')
+        .or(`name.ilike.%${q}%,sku.ilike.%${q}%`)
+        .eq('is_active', true)
+        .limit(4)
+      
+      products?.forEach(p => {
+        allResults.push({
+          type: 'product',
+          id: p.id,
+          title: p.name,
+          subtitle: `${p.sku} · TZS ${(p.selling_price || 0).toLocaleString()} · Stock: ${p.qty_on_hand || 0}`,
+        })
+      })
+
+      // Search customers
+      const { data: customers } = await supabase
+        .from('customers')
+        .select('id, name, whatsapp, crown_points')
+        .or(`name.ilike.%${q}%,whatsapp.ilike.%${q}%`)
+        .limit(4)
+      
+      customers?.forEach(c => {
+        allResults.push({
+          type: 'customer',
+          id: c.id,
+          title: c.name,
+          subtitle: `${c.whatsapp || 'No phone'} · ${c.crown_points || 0} Crown pts`,
+        })
+      })
+
+      setResults(allResults)
+      setShowResults(true)
+      setSelectedIndex(0)
+      setLoading(false)
+    }
+
+    const debounce = setTimeout(search, 200)
+    return () => clearTimeout(debounce)
+  }, [query])
+
+  const handleSelect = (result: SearchResult) => {
+    setQuery('')
+    setShowResults(false)
+    
+    if (result.type === 'page' && result.page) {
+      onNav(result.page)
+    } else if (result.type === 'voucher') {
+      // Navigate to sales day book (could enhance to go to specific voucher)
+      onNav('sales-day-book')
+    } else if (result.type === 'product') {
+      onNav('inventory')
+    } else if (result.type === 'customer') {
+      onNav('customers')
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!showResults || results.length === 0) return
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex(i => (i + 1) % results.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex(i => (i - 1 + results.length) % results.length)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSelect(results[selectedIndex])
+    } else if (e.key === 'Escape') {
+      setShowResults(false)
+    }
+  }
 
   const handleLogout = async () => {
     if (confirm('Are you sure you want to sign out?')) {
       await signOut()
+    }
+  }
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'page': return '📄'
+      case 'voucher': return '🧾'
+      case 'product': return '📦'
+      case 'customer': return '👤'
+      default: return '🔍'
     }
   }
 
@@ -46,16 +236,56 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
       </div>
 
       <div style={styles.center}>
-        <div style={styles.search}>
-          <svg width="16" height="16" fill="none" stroke="var(--text3)" strokeWidth="2" viewBox="0 0 24 24">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="M21 21l-4.35-4.35"/>
-          </svg>
-          <input 
-            type="text" 
-            placeholder="Search everything — vouchers, products, customers, pages..."
-            style={styles.searchInput}
-          />
+        <div ref={searchRef} style={{ position: 'relative' }}>
+          <div style={styles.search}>
+            <svg width="16" height="16" fill="none" stroke="var(--text3)" strokeWidth="2" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <input 
+              ref={inputRef}
+              type="text" 
+              placeholder="Search everything... ⌘K"
+              style={styles.searchInput}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onFocus={() => query && setShowResults(true)}
+              onKeyDown={handleKeyDown}
+            />
+            {loading && <span style={{ fontSize: 10, color: 'var(--text3)' }}>...</span>}
+          </div>
+
+          {/* Search Results Dropdown */}
+          {showResults && results.length > 0 && (
+            <div style={styles.dropdown}>
+              {results.map((r, i) => (
+                <div 
+                  key={`${r.type}-${r.id}`}
+                  style={{
+                    ...styles.resultItem,
+                    background: i === selectedIndex ? 'var(--surface2)' : 'transparent',
+                  }}
+                  onClick={() => handleSelect(r)}
+                  onMouseEnter={() => setSelectedIndex(i)}
+                >
+                  <span style={styles.resultIcon}>{getTypeIcon(r.type)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={styles.resultTitle}>{r.title}</div>
+                    <div style={styles.resultSub}>{r.subtitle}</div>
+                  </div>
+                  <span style={styles.resultType}>{r.type}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showResults && query && results.length === 0 && !loading && (
+            <div style={styles.dropdown}>
+              <div style={{ padding: 16, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>
+                No results for "{query}"
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -121,7 +351,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--surface2)',
     border: '1px solid var(--border)',
     borderRadius: 6,
-    color: 'var(--text2)',
+    color: 'var(--text3)',
     fontSize: 12,
     cursor: 'pointer',
   },
@@ -130,9 +360,11 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 8,
     fontSize: 13,
+    minWidth: 0,
   },
   company: {
     color: 'var(--text3)',
+    whiteSpace: 'nowrap',
   },
   separator: {
     color: 'var(--text3)',
@@ -161,6 +393,55 @@ const styles: Record<string, React.CSSProperties> = {
     outline: 'none',
     color: 'var(--text)',
     fontSize: 13,
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+    zIndex: 1000,
+    maxHeight: 400,
+    overflowY: 'auto',
+  },
+  resultItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '10px 14px',
+    cursor: 'pointer',
+    borderBottom: '1px solid var(--border)',
+  },
+  resultIcon: {
+    fontSize: 16,
+  },
+  resultTitle: {
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--text)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  resultSub: {
+    fontSize: 11,
+    color: 'var(--text3)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  resultType: {
+    fontSize: 9,
+    color: 'var(--text3)',
+    textTransform: 'uppercase',
+    fontFamily: 'DM Mono, monospace',
+    padding: '2px 6px',
+    background: 'var(--surface2)',
+    borderRadius: 4,
   },
   right: {
     display: 'flex',
