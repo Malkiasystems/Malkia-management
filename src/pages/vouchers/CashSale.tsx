@@ -10,7 +10,7 @@ import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
-import { checkApprovalRequired, createApprovalRequest } from '../../lib/useApproval'
+import { useEditContext } from '../../App'
 
 interface DBProduct { id: string; sku: string; name: string; category: string; cost_price: number; selling_price: number; qty_on_hand: number }
 interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
@@ -39,13 +39,18 @@ const PAYMENT_METHODS: PaymentMethod[] = [
 interface SplitLine { methodId: string; accountId: string; amount: number; ref: string }
 
 export default function CashSale() {
-  const { user } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [autoRef, setAutoRef] = useState('CS-10-????')
   const [posting, setPosting] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [autoReceipt] = useState(true)
+
+  // Edit mode
+  const { editVoucherId, setEditVoucherId } = useEditContext()
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [editVoucherData, setEditVoucherData] = useState<any>(null)
+  const { user } = useAuth()
 
   // Customer
   const [waInput, setWaInput] = useState('')
@@ -94,10 +99,176 @@ export default function CashSale() {
     loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings(); loadWAConfig().then(setWaConfig)
     supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) setLocations(data); if(data?.[0]) setLocationCode(data[0].code) })
     supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} })
-    loadTodayStats(); loadRecentSales(); loadNextRef()
+    loadTodayStats(); loadRecentSales()
+    
+    // Check if we're in edit mode
+    if (editVoucherId) {
+      loadExistingVoucher(editVoucherId).then(() => {
+        setShowModal(true) // Auto-open modal in edit mode
+      })
+    } else {
+      loadNextRef()
+    }
+    
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Load existing voucher for editing
+  const loadExistingVoucher = async (voucherId: string) => {
+    const { data: voucher } = await supabase
+      .from('vouchers')
+      .select(`
+        *, 
+        customers (id, name, whatsapp, crown_points, pregnancy_stage, last_purchase_date, last_purchase_amount, balance),
+        voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category, cost_price, selling_price, qty_on_hand))
+      `)
+      .eq('id', voucherId)
+      .single()
+    
+    if (voucher) {
+      setIsEditMode(true)
+      setEditVoucherData(voucher)
+      setAutoRef(voucher.ref)
+      
+      // Set customer
+      if (voucher.customers) {
+        setSelectedCust(voucher.customers as DBCustomer)
+        setWaInput(voucher.customers.whatsapp || '')
+        setNewCustName(voucher.customers.name || '')
+      }
+      
+      // Set lines
+      const editLines: SaleLine[] = (voucher.voucher_lines || []).map((l: any) => ({
+        productId: l.product_id,
+        name: l.products?.name || '',
+        qty: l.qty,
+        price: l.unit_price,
+        amount: l.total
+      }))
+      if (editLines.length > 0) setLines(editLines)
+      
+      // Set payment method
+      const pm = voucher.payment_method || 'Cash'
+      const methodId = pm.toLowerCase().includes('cash') ? 'cash' :
+                       pm.toLowerCase().includes('m-pesa') ? 'mpesa' :
+                       pm.toLowerCase().includes('mixx') ? 'mixx' :
+                       pm.toLowerCase().includes('nmb') ? 'nmb' :
+                       pm.toLowerCase().includes('crdb') ? 'crdb' :
+                       pm.toLowerCase().includes('pos') ? 'pos' : 'cash'
+      setSelectedMethod(methodId)
+      
+      // Set POD status
+      setIsPOD(voucher.status === 'draft')
+    }
+  }
+
+  // Update existing voucher (edit mode)
+  const updateVoucher = async () => {
+    if (!editVoucherData) return
+    if (!newCustName.trim()) { showToast('Customer name required', 'error'); return }
+    if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
+    
+    setPosting(true)
+    try {
+      // Calculate totals
+      const lineItems = lines.filter(l => l.productId && l.amount > 0)
+      const newSubtotal = lineItems.reduce((sum, l) => sum + l.amount, 0)
+      const deliveryTotal = (parseInt(townDelivery) || 0) + (parseInt(upcountryShipping) || 0)
+      const newTotal = newSubtotal + deliveryTotal
+      
+      // Build payment label
+      const paymentLabel = isSplit
+        ? splitLines.map(l => PAYMENT_METHODS.find(m => m.id === l.methodId)?.label || l.methodId).join(' + ') + ' + ' + currentMethod.label
+        : currentMethod.label
+
+      // Update customer if changed
+      const cleaned = waInput.replace(/[\s+\-()]/g, '')
+      if (selectedCust) {
+        await supabase.from('customers').update({
+          name: newCustName.trim(),
+          whatsapp: cleaned || null,
+        }).eq('id', selectedCust.id)
+      }
+
+      // Update voucher
+      const { error: vErr } = await supabase.from('vouchers').update({
+        subtotal: newSubtotal,
+        total_amount: newTotal,
+        vat_amount: 0, // VAT exempt
+        payment_method: paymentLabel,
+        status: isPOD ? 'draft' : 'posted',
+        notes: [
+          deliveryTotal > 0 ? `Delivery: TZS ${deliveryTotal.toLocaleString()}` : '',
+          currentMethod.id === 'pos' ? 'POS Card payment' : '',
+          paymentRef ? `Ref: ${paymentRef}` : ''
+        ].filter(Boolean).join(' · ') || null,
+      }).eq('id', editVoucherData.id)
+      
+      if (vErr) throw new Error('Voucher update: ' + vErr.message)
+
+      // Get old lines for stock reversal
+      const oldLines = editVoucherData.voucher_lines || []
+      
+      // Reverse old stock changes
+      for (const oldLine of oldLines) {
+        if (!oldLine.product_id) continue
+        const prod = dbProducts.find(p => p.id === oldLine.product_id)
+        if (prod) {
+          // Add back the old quantity
+          await supabase.from('products').update({ 
+            qty_on_hand: prod.qty_on_hand + oldLine.qty 
+          }).eq('id', oldLine.product_id)
+        }
+      }
+
+      // Delete old voucher lines
+      await supabase.from('voucher_lines').delete().eq('voucher_id', editVoucherData.id)
+
+      // Insert new voucher lines and update stock
+      for (let i = 0; i < lineItems.length; i++) {
+        const line = lineItems[i]
+        const prod = dbProducts.find(p => p.id === line.productId)
+        if (!prod) continue
+        
+        await supabase.from('voucher_lines').insert({
+          voucher_id: editVoucherData.id,
+          line_number: i + 1,
+          product_id: line.productId,
+          description: line.name,
+          qty: line.qty,
+          unit_cost: prod.cost_price,
+          unit_price: line.price,
+          subtotal: line.amount,
+          vat_amount: 0,
+          total: line.amount
+        })
+        
+        // Deduct new quantity from stock
+        const currentQty = prod.qty_on_hand + (oldLines.find((ol: any) => ol.product_id === line.productId)?.qty || 0)
+        await supabase.from('products').update({ 
+          qty_on_hand: currentQty - line.qty 
+        }).eq('id', line.productId)
+      }
+
+      showToast(`${editVoucherData.ref} updated successfully`)
+      
+      // Clear edit mode and reset
+      setEditVoucherId(null)
+      setIsEditMode(false)
+      setEditVoucherData(null)
+      resetForm()
+      loadTodayStats()
+      loadRecentSales()
+      loadProducts()
+      
+    } catch (err: any) {
+      console.error(err)
+      showToast(err.message || 'Update failed', 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
 
   const handleClickOutside = (e: MouseEvent) => {
     if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowDropdown(false)
@@ -265,54 +436,11 @@ export default function CashSale() {
     const postingDate = today()
 
     try {
-      // ═══════════════════════════════════════════════════════════════════
-      // APPROVAL CHECK: Check if this sale requires approval
-      // ═══════════════════════════════════════════════════════════════════
-      const approvalCheck = await checkApprovalRequired('large_sale', total)
-      
-      if (approvalCheck.requiresApproval && !user?.is_approver) {
-        // Create approval request instead of posting
-        const result = await createApprovalRequest({
-          typeCode: 'large_sale',
-          referenceType: 'cash_sale',
-          referenceId: crypto.randomUUID(),
-          referenceNumber: ref,
-          summary: `Cash Sale TZS ${total.toLocaleString()} to ${newCustName}`,
-          originalValue: subtotal,
-          requestedValue: total,
-          requestedBy: user?.id || 'unknown',
-        })
-
-        if (result.success) {
-          showToast(`Sale requires approval: ${approvalCheck.reason}. Sent to approver.`, 'error')
-        } else {
-          showToast(`Failed to create approval request: ${result.error}`, 'error')
-        }
-        setPosting(false)
-        return
-      }
-      // ═══════════════════════════════════════════════════════════════════
-
       // Upsert customer
       const cleaned = waInput.replace(/[\s+\-()]/g, '')
-      // Format phone with Tanzania country code
-      const formatPhone = (phone: string): string => {
-        if (!phone) return ''
-        let p = phone.replace(/[\s+\-()]/g, '')
-        // If starts with 0, replace with 255
-        if (p.startsWith('0') && p.length === 10) {
-          p = '255' + p.slice(1)
-        }
-        // If doesn't start with 255, add it
-        if (!p.startsWith('255') && p.length === 9) {
-          p = '255' + p
-        }
-        return p
-      }
-      const formattedPhone = formatPhone(cleaned)
       let customerId = selectedCust?.id || null
       const { data: custData } = await supabase.from('customers').upsert({
-        name: newCustName.trim(), whatsapp: formattedPhone || null, customer_type: 'cash',
+        name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
         segment: 'retail',
         crown_points: (selectedCust?.crown_points || 0) + crownPoints,
         last_purchase_date: postingDate,
@@ -640,19 +768,19 @@ export default function CashSale() {
             {/* Modal Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 22 }}></span>
+                <span style={{ fontSize: 22 }}>{isEditMode ? '✏️' : ''}</span>
                 <div>
-                  <div style={{ fontFamily: 'var(--display)', fontSize: 17, fontWeight: 800 }}>New Cash Sale</div>
-                  <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>Posts journal · Crown points · WhatsApp receipt → customer</div>
+                  <div style={{ fontFamily: 'var(--display)', fontSize: 17, fontWeight: 800 }}>{isEditMode ? 'Edit Cash Sale' : 'New Cash Sale'}</div>
+                  <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{isEditMode ? 'Update voucher details · Stock will be adjusted' : 'Posts journal · Crown points · WhatsApp receipt → customer'}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 12px' }}>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>SALE NO. </span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{autoRef}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginLeft: 6 }}>Auto · Read only</span>
+                <div style={{ background: isEditMode ? 'var(--yellow-dim)' : 'var(--surface2)', border: `1px solid ${isEditMode ? 'var(--yellow)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 12px' }}>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{isEditMode ? 'EDITING ' : 'SALE NO. '}</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: isEditMode ? 'var(--yellow)' : 'var(--accent)' }}>{autoRef}</span>
+                  {!isEditMode && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginLeft: 6 }}>Auto · Read only</span>}
                 </div>
-                <button onClick={() => setShowModal(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: 'var(--text3)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                <button onClick={() => { setShowModal(false); if (isEditMode) { setEditVoucherId(null); setIsEditMode(false); setEditVoucherData(null); resetForm(); } }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: 'var(--text3)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
               </div>
             </div>
 
@@ -898,10 +1026,10 @@ export default function CashSale() {
 
                 {/* Action buttons */}
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setShowModal(false)}>Cancel</button>
-                  <button className="btn btn-ghost btn-sm" style={{ padding: '10px 14px' }}>Draft</button>
-                  <button className="btn btn-primary" onClick={post} disabled={posting} style={{ flex: 2, justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 700, opacity: posting ? 0.6 : 1 }}>
-                    {posting ? 'Posting…' : isPOD ? 'Post POD Sale' : `Post · ${currentMethod.label}`}
+                  <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setShowModal(false); if (isEditMode) { setEditVoucherId(null); setIsEditMode(false); setEditVoucherData(null); resetForm(); } }}>Cancel</button>
+                  {!isEditMode && <button className="btn btn-ghost btn-sm" style={{ padding: '10px 14px' }}>Draft</button>}
+                  <button className="btn btn-primary" onClick={isEditMode ? updateVoucher : post} disabled={posting} style={{ flex: 2, justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 700, opacity: posting ? 0.6 : 1 }}>
+                    {posting ? (isEditMode ? 'Updating…' : 'Posting…') : isEditMode ? 'Update Sale' : isPOD ? 'Post POD Sale' : `Post · ${currentMethod.label}`}
                   </button>
                 </div>
               </div>
