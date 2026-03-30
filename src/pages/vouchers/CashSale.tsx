@@ -440,7 +440,22 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       // Upsert customer
       const cleaned = waInput.replace(/[\s+\-()]/g, '')
       let customerId = selectedCust?.id || null
+      
+      // Generate customer code if new customer (not updating existing)
+      let customerCode: string | undefined
+      if (!selectedCust?.id) {
+        const { data: maxCode } = await supabase
+          .from('customers')
+          .select('code')
+          .like('code', 'CONT-%')
+          .order('code', { ascending: false })
+          .limit(1)
+        const lastNum = maxCode?.[0]?.code ? parseInt(maxCode[0].code.replace('CONT-', '')) || 10000 : 10000
+        customerCode = `CONT-${lastNum + 1}`
+      }
+      
       const { data: custData } = await supabase.from('customers').upsert({
+        ...(customerCode ? { code: customerCode } : {}),
         name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
         segment: 'retail',
         crown_points: (selectedCust?.crown_points || 0) + crownPoints,
