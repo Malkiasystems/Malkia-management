@@ -129,7 +129,10 @@ const EditContext = createContext<EditContextType | null>(null)
 
 export function useEditContext() {
   const ctx = useContext(EditContext)
-  if (!ctx) throw new Error('useEditContext must be used within EditProvider')
+  // Return safe defaults if context not available (prevents crash)
+  if (!ctx) {
+    return { editVoucherId: null, setEditVoucherId: () => {} }
+  }
   return ctx
 }
 
