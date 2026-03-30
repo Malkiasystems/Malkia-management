@@ -77,6 +77,12 @@ export default function SalesDayBook() {
   const [view, setView] = useState<'detail' | 'summary'>('summary')
   const [tpl, setTpl] = useState<TemplateSettings>(DEFAULT_TEMPLATE)
 
+  // Edit modal state
+  const [editSale, setEditSale] = useState<Sale | null>(null)
+  const [editPayment, setEditPayment] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+
   // Filters
   const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
@@ -128,6 +134,29 @@ export default function SalesDayBook() {
     const { data, error } = await query
     if (!error && data) setSales(data as any)
     setLoading(false)
+  }
+
+  const openEdit = (sale: Sale) => {
+    setEditSale(sale)
+    setEditPayment(sale.payment_method || 'Cash')
+    setEditNotes(sale.notes || '')
+  }
+
+  const saveEdit = async () => {
+    if (!editSale) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('vouchers')
+      .update({ payment_method: editPayment, notes: editNotes })
+      .eq('id', editSale.id)
+    
+    if (error) {
+      alert('Error: ' + error.message)
+    } else {
+      setEditSale(null)
+      loadSales()
+    }
+    setSaving(false)
   }
 
   // Client-side filtering
@@ -592,6 +621,7 @@ export default function SalesDayBook() {
                     <th>Posted By</th>
                     <th>Status</th>
                     <th className="td-right">Amount (TZS)</th>
+                    <th style={{ width: 50 }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -609,12 +639,17 @@ export default function SalesDayBook() {
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.posted_by || '—'}</td>
                       <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted ✓'}</span></td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
+                      <td>
+                        <button onClick={() => openEdit(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }} title="Edit">
+                          <svg width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                    <td colSpan={7} className="td-bold" style={{ padding: '12px 14px' }}>TOTALS — {filtered.length} transactions</td>
+                    <td colSpan={8} className="td-bold" style={{ padding: '12px 14px' }}>TOTALS — {filtered.length} transactions</td>
                     <td className="td-right td-mono td-green" style={{ fontSize: 15, fontWeight: 800, padding: '12px 14px' }}>{totalRevenue.toLocaleString()}</td>
                   </tr>
                 </tfoot>
@@ -765,6 +800,53 @@ export default function SalesDayBook() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Edit Sale Modal */}
+      {editSale && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setEditSale(null)}>
+          <div style={{ background: 'var(--surface)', borderRadius: 12, padding: 24, width: 420, maxWidth: '90%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Edit Sale</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 20 }}>
+              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{editSale.ref}</span> · {editSale.posting_date} · {tzs(editSale.total_amount)}
+            </div>
+            
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--text3)', marginBottom: 4, textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>Payment Method</label>
+              <select 
+                className="form-input" 
+                value={editPayment} 
+                onChange={e => setEditPayment(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="Cash">Cash</option>
+                <option value="M-Pesa">M-Pesa</option>
+                <option value="Mixx by YAS">Mixx by YAS</option>
+                <option value="NMB Bank">NMB Bank</option>
+                <option value="CRDB Bank">CRDB Bank</option>
+                <option value="POS Card">POS Card</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--text3)', marginBottom: 4, textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>Notes</label>
+              <textarea 
+                className="form-input" 
+                value={editNotes} 
+                onChange={e => setEditNotes(e.target.value)}
+                style={{ width: '100%', minHeight: 80, resize: 'vertical' }}
+                placeholder="Add any notes about this sale..."
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setEditSale(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
