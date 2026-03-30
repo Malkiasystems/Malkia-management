@@ -3,10 +3,6 @@ import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
-import { useEditContext } from '../App'
-import type { Page } from '../lib/types'
-
-interface Props { onNav: (p: Page) => void }
 
 interface Sale {
   id: string
@@ -32,61 +28,11 @@ interface Sale {
   }[]
 }
 
-interface TemplateSettings {
-  logo_url: string | null
-  logo_position: 'left' | 'center' | 'right'
-  logo_width: number
-  company_name: string
-  company_tagline: string
-  primary_color: string
-  sdb_show_stats_bar: boolean
-  sdb_stat_1: string
-  sdb_stat_2: string
-  sdb_stat_3: string
-  sdb_stat_4: string
-  sdb_show_whatsapp: boolean
-  sdb_show_salesperson: boolean
-  sdb_show_status: boolean
-  sdb_show_payment_badges: boolean
-  sdb_show_credit_notes: boolean
-  sdb_show_footer: boolean
-  sdb_footer_text: string
-}
 
-const DEFAULT_TEMPLATE: TemplateSettings = {
-  logo_url: null,
-  logo_position: 'left',
-  logo_width: 120,
-  company_name: 'MALKIA WELLNESS GROUP',
-  company_tagline: 'Reimagining Motherhood',
-  primary_color: '#85c2be',
-  sdb_show_stats_bar: true,
-  sdb_stat_1: 'total_sales',
-  sdb_stat_2: 'transactions',
-  sdb_stat_3: 'total_cash',
-  sdb_stat_4: 'avg_sale',
-  sdb_show_whatsapp: true,
-  sdb_show_salesperson: true,
-  sdb_show_status: true,
-  sdb_show_payment_badges: true,
-  sdb_show_credit_notes: true,
-  sdb_show_footer: true,
-  sdb_footer_text: 'Malkia Wellness Group Ltd · Dar es Salaam, Tanzania',
-}
-
-
-export default function SalesDayBook({ onNav }: Props) {
+export default function SalesDayBook() {
   const [sales, setSales] = useState<Sale[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
-  const [tpl, setTpl] = useState<TemplateSettings>(DEFAULT_TEMPLATE)
-  const { setEditVoucherId } = useEditContext()
-
-  // Edit modal state
-  const [editSale, setEditSale] = useState<Sale | null>(null)
-  const [editPayment, setEditPayment] = useState('')
-  const [editNotes, setEditNotes] = useState('')
-  const [saving, setSaving] = useState(false)
 
   // Filters
   const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
@@ -103,14 +49,7 @@ export default function SalesDayBook({ onNav }: Props) {
   const catPredicate = makeCategoryPredicate(filterCat, _cats)
   const [showFilters, setShowFilters] = useState(false)
 
-  useEffect(() => { loadSales(); loadTemplateSettings() }, [])
-
-  const loadTemplateSettings = async () => {
-    const { data } = await supabase.from('system_settings').select('value').eq('key', 'report_templates').single()
-    if (data?.value) {
-      try { setTpl({ ...DEFAULT_TEMPLATE, ...JSON.parse(data.value) }) } catch {}
-    }
-  }
+  useEffect(() => { loadSales() }, [])
 
   const loadSales = async (from?: string, to?: string) => {
     setLoading(true)
@@ -139,35 +78,6 @@ export default function SalesDayBook({ onNav }: Props) {
     const { data, error } = await query
     if (!error && data) setSales(data as any)
     setLoading(false)
-  }
-
-  const openEdit = (sale: Sale) => {
-    // Set the voucher ID in context and navigate to CashSale
-    setEditVoucherId(sale.id)
-    onNav('cash-sale')
-  }
-
-  const openQuickEdit = (sale: Sale) => {
-    setEditSale(sale)
-    setEditPayment(sale.payment_method || 'Cash')
-    setEditNotes(sale.notes || '')
-  }
-
-  const saveEdit = async () => {
-    if (!editSale) return
-    setSaving(true)
-    const { error } = await supabase
-      .from('vouchers')
-      .update({ payment_method: editPayment, notes: editNotes })
-      .eq('id', editSale.id)
-    
-    if (error) {
-      alert('Error: ' + error.message)
-    } else {
-      setEditSale(null)
-      loadSales()
-    }
-    setSaving(false)
   }
 
   // Client-side filtering
@@ -214,244 +124,6 @@ export default function SalesDayBook({ onNav }: Props) {
     (filterCat !== 'all' ? 1 : 0) +
     (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
 
-  // ═══════════════════════════════════════════════════════════════════
-  // EXPORT FUNCTIONS
-  // ═══════════════════════════════════════════════════════════════════
-  
-  const exportExcel = () => {
-    // Build data rows
-    const rows: any[][] = []
-    
-    // Header
-    rows.push(['MALKIA WELLNESS GROUP'])
-    rows.push(['Sales Day Book - Summary'])
-    rows.push([`Period: ${fromDate} to ${toDate}`])
-    rows.push([`Generated: ${new Date().toLocaleString()}`])
-    rows.push([])
-    
-    // Column headers
-    rows.push(['Date', 'Voucher No', 'Customer', 'WhatsApp', 'Payment/Bank', 'Posted By', 'Status', 'Amount (TZS)'])
-    
-    // Sales data rows
-    filtered.forEach(s => {
-      rows.push([
-        s.posting_date,
-        s.ref,
-        (s.customers as any)?.name || 'Walk-in',
-        (s.customers as any)?.whatsapp || '',
-        s.payment_method || 'Cash',
-        s.posted_by || '',
-        s.status === 'posted' ? 'Posted' : 'POD',
-        s.total_amount || 0
-      ])
-    })
-    
-    // Sales totals row
-    rows.push([])
-    rows.push(['', '', '', '', '', '', 'SALES TOTAL:', totalRevenue])
-    
-    // TODO: Add Credit Notes section when CN data available
-    // rows.push([])
-    // rows.push(['CREDIT NOTES'])
-    // ... CN rows ...
-    // rows.push(['', '', '', '', '', '', 'CN TOTAL:', cnTotal])
-    // rows.push([])
-    // rows.push(['', '', '', '', '', '', 'NET TOTAL:', totalRevenue - cnTotal])
-    
-    // Convert to CSV then to Excel-compatible format
-    const csvContent = rows.map(row => 
-      row.map(cell => {
-        if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
-          return `"${cell.replace(/"/g, '""')}"`
-        }
-        return cell
-      }).join(',')
-    ).join('\n')
-    
-    // Add BOM for Excel UTF-8 compatibility
-    const BOM = '\uFEFF'
-    const blob = new Blob([BOM + csvContent], { type: 'application/vnd.ms-excel;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `Sales_Day_Book_${fromDate}_to_${toDate}.xls`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
-
-  const exportPDF = () => {
-    // Calculate payment totals for stats
-    const totalCash = filtered.filter(s => (s.payment_method || '').toLowerCase().includes('cash')).reduce((sum, s) => sum + (s.total_amount || 0), 0)
-    const totalMobile = filtered.filter(s => (s.payment_method || '').toLowerCase().includes('m-pesa') || (s.payment_method || '').toLowerCase().includes('mixx')).reduce((sum, s) => sum + (s.total_amount || 0), 0)
-    const totalBank = filtered.filter(s => (s.payment_method || '').toLowerCase().includes('nmb') || (s.payment_method || '').toLowerCase().includes('crdb')).reduce((sum, s) => sum + (s.total_amount || 0), 0)
-
-    // Helper to get stat value
-    const getStatValue = (stat: string): string => {
-      switch(stat) {
-        case 'total_sales': return `TZS ${totalRevenue.toLocaleString()}`
-        case 'total_cash': return `TZS ${totalCash.toLocaleString()}`
-        case 'total_mobile': return `TZS ${totalMobile.toLocaleString()}`
-        case 'total_bank': return `TZS ${totalBank.toLocaleString()}`
-        case 'transactions': return `${filtered.length}`
-        case 'avg_sale': return `TZS ${filtered.length > 0 ? Math.round(totalRevenue / filtered.length).toLocaleString() : 0}`
-        case 'margin': return `${marginPct}%`
-        default: return ''
-      }
-    }
-    const getStatLabel = (stat: string): string => {
-      switch(stat) {
-        case 'total_sales': return 'Total Sales'
-        case 'total_cash': return 'Cash Collected'
-        case 'total_mobile': return 'Mobile Money'
-        case 'total_bank': return 'Bank Transfers'
-        case 'transactions': return 'Transactions'
-        case 'avg_sale': return 'Avg Sale'
-        case 'margin': return 'Gross Margin'
-        default: return ''
-      }
-    }
-
-    // Build stats HTML - compact version
-    const stats = [tpl.sdb_stat_1, tpl.sdb_stat_2, tpl.sdb_stat_3, tpl.sdb_stat_4].filter(s => s !== 'none')
-    const statsHtml = stats.map((stat, i) => `
-      <div class="stat-box" style="background: ${i === 0 ? tpl.primary_color : i === 1 ? '#f7a6ad' : i === 2 ? '#2d3748' : tpl.primary_color};">
-        <div class="stat-label">${getStatLabel(stat)}</div>
-        <div class="stat-value">${getStatValue(stat)}</div>
-      </div>
-    `).join('')
-
-    // Build table columns
-    const colCount = 3 + (tpl.sdb_show_whatsapp ? 1 : 0) + 1 + (tpl.sdb_show_salesperson ? 1 : 0) + (tpl.sdb_show_status ? 1 : 0) + 1
-
-    // Shorten posted_by name to first name + initial
-    const shortName = (name: string) => {
-      if (!name) return '-'
-      const parts = name.trim().split(' ')
-      if (parts.length === 1) return parts[0]
-      return parts[0] + ' ' + parts[parts.length - 1].charAt(0) + '.'
-    }
-
-    const printContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Sales Day Book - ${tpl.company_name}</title>
-        <style>
-          @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;500;600;700&display=swap');
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Inter', -apple-system, sans-serif; font-size: 9px; padding: 20px; color: #1a1a1a; background: #fff; }
-          .header { display: flex; justify-content: ${tpl.logo_position === 'center' ? 'center' : 'space-between'}; flex-direction: ${tpl.logo_position === 'center' ? 'column' : 'row'}; align-items: ${tpl.logo_position === 'center' ? 'center' : 'flex-start'}; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid ${tpl.primary_color}; }
-          .logo-section { text-align: ${tpl.logo_position === 'center' ? 'center' : 'left'}; }
-          .logo-section img { width: ${tpl.logo_width}px; margin-bottom: 4px; }
-          .logo-section h1 { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; color: ${tpl.primary_color}; letter-spacing: -0.5px; }
-          .logo-section p { font-size: 9px; color: #666; margin-top: 2px; }
-          .report-info { text-align: right; }
-          .report-info h2 { font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 700; color: #333; margin-bottom: 3px; }
-          .report-info p { font-size: 8px; color: #888; }
-          .stats-bar { display: flex; gap: 6px; margin-bottom: 10px; }
-          .stat-box { flex: 1; border-radius: 4px; padding: 6px 8px; color: white; }
-          .stat-label { font-size: 6px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 0.9; }
-          .stat-value { font-size: 11px; font-weight: 800; margin-top: 1px; }
-          table { width: 100%; border-collapse: collapse; }
-          thead tr { background: ${tpl.primary_color}; }
-          th { padding: 5px 6px; text-align: left; font-weight: 600; font-size: 7px; text-transform: uppercase; letter-spacing: 0.3px; color: white; }
-          td { padding: 4px 6px; font-size: 8px; border-bottom: 1px solid #eee; }
-          tbody tr:nth-child(even) { background: #f9fafb; }
-          .right { text-align: right; }
-          .mono { font-family: 'SF Mono', Monaco, monospace; font-size: 8px; }
-          .voucher-no { color: ${tpl.primary_color}; font-weight: 600; }
-          .customer { font-weight: 600; color: #333; }
-          .whatsapp { color: #25D366; }
-          .amount { font-weight: 700; color: #1a1a1a; }
-          .status-posted { display: inline-block; background: #d4edda; color: #155724; padding: 1px 4px; border-radius: 8px; font-size: 6px; font-weight: 600; }
-          .status-pod { display: inline-block; background: #fff3cd; color: #856404; padding: 1px 4px; border-radius: 8px; font-size: 6px; font-weight: 600; }
-          .payment-badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 6px; font-weight: 600; }
-          .payment-cash { background: #d4edda; color: #155724; }
-          .payment-mpesa { background: #cce5ff; color: #004085; }
-          .payment-mixx { background: #fff3cd; color: #856404; }
-          .payment-bank { background: #e2e3e5; color: #383d41; }
-          .totals-row { background: ${tpl.primary_color} !important; }
-          .totals-row td { color: white; font-weight: 700; font-size: 9px; border: none; padding: 6px; }
-          .footer { margin-top: 12px; padding-top: 8px; border-top: 1px solid #eee; display: flex; justify-content: space-between; font-size: 7px; color: #888; }
-          @media print { body { padding: 12px; } .stat-box, thead tr, .totals-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="logo-section">
-            ${tpl.logo_url ? `<img src="${tpl.logo_url}" alt="Logo" />` : ''}
-            <h1>${tpl.company_name}</h1>
-            <p>${tpl.company_tagline}</p>
-          </div>
-          <div class="report-info">
-            <h2>Sales Day Book</h2>
-            <p>${fromDate} to ${toDate}</p>
-            <p>Generated: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</p>
-          </div>
-        </div>
-        
-        ${tpl.sdb_show_stats_bar ? `<div class="stats-bar">${statsHtml}</div>` : ''}
-        
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 50px;">Date</th>
-              <th style="width: 70px;">Voucher</th>
-              <th>Customer</th>
-              ${tpl.sdb_show_whatsapp ? '<th style="width: 85px;">WhatsApp</th>' : ''}
-              <th style="width: 60px;">Payment</th>
-              ${tpl.sdb_show_salesperson ? '<th style="width: 65px;">Posted By</th>' : ''}
-              ${tpl.sdb_show_status ? '<th style="width: 45px;">Status</th>' : ''}
-              <th class="right" style="width: 70px;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filtered.map(s => {
-              const paymentClass = (s.payment_method || '').toLowerCase().includes('cash') ? 'payment-cash' :
-                                   (s.payment_method || '').toLowerCase().includes('m-pesa') ? 'payment-mpesa' :
-                                   (s.payment_method || '').toLowerCase().includes('mixx') ? 'payment-mixx' : 'payment-bank'
-              const dateShort = s.posting_date ? s.posting_date.slice(5).replace('-', '/') : ''
-              return `
-                <tr>
-                  <td class="mono">${dateShort}</td>
-                  <td class="mono voucher-no">${s.ref}</td>
-                  <td class="customer">${(s.customers as any)?.name || 'Walk-in'}</td>
-                  ${tpl.sdb_show_whatsapp ? `<td class="mono whatsapp">${(s.customers as any)?.whatsapp || '-'}</td>` : ''}
-                  <td>${tpl.sdb_show_payment_badges ? `<span class="payment-badge ${paymentClass}">${s.payment_method || 'Cash'}</span>` : (s.payment_method || 'Cash')}</td>
-                  ${tpl.sdb_show_salesperson ? `<td style="font-size: 7px;">${shortName(s.posted_by)}</td>` : ''}
-                  ${tpl.sdb_show_status ? `<td><span class="${s.status === 'posted' ? 'status-posted' : 'status-pod'}">${s.status === 'posted' ? 'Posted' : 'POD'}</span></td>` : ''}
-                  <td class="right mono amount">${(s.total_amount || 0).toLocaleString()}</td>
-                </tr>
-              `
-            }).join('')}
-            <tr class="totals-row">
-              <td colspan="${colCount - 1}" class="right">SALES TOTAL</td>
-              <td class="right mono">${totalRevenue.toLocaleString()}</td>
-            </tr>
-          </tbody>
-        </table>
-        
-        ${tpl.sdb_show_footer ? `
-        <div class="footer">
-          <div>${tpl.sdb_footer_text}</div>
-          <div>Page 1 of 1</div>
-        </div>
-        ` : ''}
-        
-        <script>window.onload = function() { window.print(); }</script>
-      </body>
-      </html>
-    `
-    
-    const printWindow = window.open('', '_blank')
-    if (printWindow) {
-      printWindow.document.write(printContent)
-      printWindow.document.close()
-    }
-  }
-
   return (
     <div className="page">
       {/* HEADER */}
@@ -464,8 +136,8 @@ export default function SalesDayBook({ onNav }: Props) {
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" onClick={() => loadSales()} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
-          <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Export PDF</button>
-          <button className="btn btn-ghost btn-sm" onClick={exportExcel} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Export Excel</button>
+          <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print</button>
+          <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
         </div>
       </div>
 
@@ -529,7 +201,7 @@ export default function SalesDayBook({ onNav }: Props) {
               <input className="form-input" style={{ fontSize: 12 }} placeholder="Cash, M-Pesa, Bank" value={searchPayment} onChange={e => setSearchPayment(e.target.value)} />
             </div>
             <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Posted By</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Salesperson</div>
               <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. Joe, Lilian" value={searchSalesperson} onChange={e => setSearchSalesperson(e.target.value)} />
             </div>
             <div>
@@ -554,9 +226,9 @@ export default function SalesDayBook({ onNav }: Props) {
 
       {/* STAT CARDS */}
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-label">Total Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
-        <div className="stat-card blue"><div className="stat-label">Cash Collected</div><div className="stat-value">{tzs(filtered.filter(s => (s.payment_method || '').toLowerCase().includes('cash')).reduce((sum, s) => sum + (s.total_amount || 0), 0))}</div><div className="stat-change up">Cash sales</div></div>
-        <div className="stat-card amber"><div className="stat-label">Mobile Money</div><div className="stat-value">{tzs(filtered.filter(s => (s.payment_method || '').toLowerCase().includes('m-pesa') || (s.payment_method || '').toLowerCase().includes('mixx')).reduce((sum, s) => sum + (s.total_amount || 0), 0))}</div><div className="stat-change up">M-Pesa + Mixx</div></div>
+        <div className="stat-card green"><div className="stat-label">Gross Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
+        <div className="stat-card blue"><div className="stat-label">Net Revenue (excl. VAT)</div><div className="stat-value">{totalNet >= 1000000 ? (totalNet/1000000).toFixed(2)+'M' : (totalNet/1000).toFixed(0)+'K'}</div><div className="stat-change up">After VAT</div></div>
+        <div className="stat-card amber"><div className="stat-label">VAT Collected</div><div className="stat-value">{tzs(totalVat)}</div><div className="stat-change down">Payable to TRA</div></div>
         <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>
       </div>
 
@@ -629,15 +301,14 @@ export default function SalesDayBook({ onNav }: Props) {
                     <th>Customer</th>
                     <th>WhatsApp</th>
                     <th>Payment / Bank</th>
-                    <th>Posted By</th>
+                    <th>Salesperson</th>
                     <th>Status</th>
                     <th className="td-right">Amount (TZS)</th>
-                    <th style={{ width: 50 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((s, i) => (
-                    <tr key={i} onClick={() => openEdit(s)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                    <tr key={i}>
                       <td className="td-mono" style={{ color: 'var(--text3)', fontSize: 11 }}>{s.posting_date}</td>
                       <td className="td-mono td-amber">{s.ref}</td>
                       <td className="td-bold">{(s.customers as any)?.name || '—'}</td>
@@ -650,18 +321,24 @@ export default function SalesDayBook({ onNav }: Props) {
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.posted_by || '—'}</td>
                       <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted ✓'}</span></td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
-                      <td>
-                        <button onClick={(e) => { e.stopPropagation(); openQuickEdit(s) }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }} title="Quick Edit">
-                          <svg width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-                        </button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                    <td colSpan={8} className="td-bold" style={{ padding: '12px 14px' }}>TOTALS — {filtered.length} transactions</td>
+                    <td colSpan={6} className="td-bold" style={{ padding: '12px 14px' }}>TOTALS — {filtered.length} transactions</td>
+                    <td></td>
                     <td className="td-right td-mono td-green" style={{ fontSize: 15, fontWeight: 800, padding: '12px 14px' }}>{totalRevenue.toLocaleString()}</td>
+                  </tr>
+                  <tr style={{ background: 'var(--surface2)' }}>
+                    <td colSpan={6} style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>VAT (18% incl.)</td>
+                    <td></td>
+                    <td className="td-right td-mono td-amber" style={{ fontSize: 12, padding: '4px 14px' }}>{totalVat.toLocaleString()}</td>
+                  </tr>
+                  <tr style={{ background: 'var(--surface2)' }}>
+                    <td colSpan={6} style={{ padding: '4px 14px 12px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>Net Revenue (excl. VAT)</td>
+                    <td></td>
+                    <td className="td-right td-mono" style={{ fontSize: 12, color: 'var(--blue)', padding: '4px 14px 12px' }}>{totalNet.toLocaleString()}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -811,53 +488,6 @@ export default function SalesDayBook({ onNav }: Props) {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Edit Sale Modal */}
-      {editSale && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setEditSale(null)}>
-          <div style={{ background: 'var(--surface)', borderRadius: 12, padding: 24, width: 420, maxWidth: '90%' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Edit Sale</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 20 }}>
-              <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{editSale.ref}</span> · {editSale.posting_date} · {tzs(editSale.total_amount)}
-            </div>
-            
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 11, color: 'var(--text3)', marginBottom: 4, textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>Payment Method</label>
-              <select 
-                className="form-input" 
-                value={editPayment} 
-                onChange={e => setEditPayment(e.target.value)}
-                style={{ width: '100%' }}
-              >
-                <option value="Cash">Cash</option>
-                <option value="M-Pesa">M-Pesa</option>
-                <option value="Mixx by YAS">Mixx by YAS</option>
-                <option value="NMB Bank">NMB Bank</option>
-                <option value="CRDB Bank">CRDB Bank</option>
-                <option value="POS Card">POS Card</option>
-              </select>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 11, color: 'var(--text3)', marginBottom: 4, textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>Notes</label>
-              <textarea 
-                className="form-input" 
-                value={editNotes} 
-                onChange={e => setEditNotes(e.target.value)}
-                style={{ width: '100%', minHeight: 80, resize: 'vertical' }}
-                placeholder="Add any notes about this sale..."
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setEditSale(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>
