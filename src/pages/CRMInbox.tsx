@@ -6,11 +6,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Page } from '../lib/types'
 
-interface Props {
-  onNav: (p: Page) => void
-}
+
 
 interface WATIConversation {
   id: string
@@ -39,7 +36,7 @@ interface WATIMessage {
   created_at: string
 }
 
-export default function CRMInbox({ onNav }: Props) {
+export default function CRMInbox() {
   const [conversations, setConversations] = useState<WATIConversation[]>([])
   const [selectedConvo, setSelectedConvo] = useState<WATIConversation | null>(null)
   const [messages, setMessages] = useState<WATIMessage[]>([])
