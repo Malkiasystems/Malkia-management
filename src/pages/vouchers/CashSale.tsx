@@ -580,6 +580,113 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
         await supabase.from('customer_ledger_entries').insert({ customer_id: customerId, posting_date: postingDate, document_type: 'invoice', document_ref: ref, description: `POD — ${newCustName}`, amount: total, remaining_amount: total, is_open: true, journal_id: journal.id })
       }
 
+      // AUTO-CREATE BANK RECEIPT VOUCHER for non-cash payments
+      if (!isPOD && autoReceipt && currentMethod.id !== 'cash') {
+        try {
+          // Create receipt voucher for the bank/payment account
+          const receiptRef = await nextRef('cash_receipt')
+          
+          // Determine which bank account to credit
+          let bankAccountId = accountMap[currentMethod.accountCode]
+          if (!bankAccountId) {
+            // Fallback: try to find the account
+            const { data: bankAcct } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('code', currentMethod.accountCode)
+              .single()
+            bankAccountId = bankAcct?.id
+          }
+          
+          if (bankAccountId) {
+            // Create receipt journal for the bank deposit
+            const { data: receiptJournal, error: rjErr } = await supabase
+              .from('journals')
+              .insert({
+                ref: 'JV-' + receiptRef,
+                posting_date: postingDate,
+                description: `Auto Bank Receipt — ${currentMethod.label} — ${ref}`,
+                journal_type: 'cash_receipt',
+                source_type: 'cash_sale',
+                source_ref: ref,
+                posted_by: user?.full_name || 'Unknown',
+                status: 'posted',
+              })
+              .select('id')
+              .single()
+            
+            if (rjErr) {
+              console.error('Receipt journal error:', rjErr)
+            } else if (receiptJournal) {
+              // Build receipt journal lines: debit bank account, credit cash/payment account
+              const receiptJLines: any[] = []
+              const lineAmount = isSplit ? total - totalSplitPaid : total
+              
+              receiptJLines.push({
+                journal_id: receiptJournal.id,
+                line_number: 1,
+                account_id: bankAccountId,
+                description: `${currentMethod.label}${paymentRef ? ' · ' + paymentRef : ''} — From ${ref}`,
+                debit: lineAmount,
+                credit: 0
+              })
+              
+              // Credit the payment account (reverse the debit from cash sale)
+              const primaryAcctId = accountMap[currentMethod.accountCode]
+              if (primaryAcctId) {
+                receiptJLines.push({
+                  journal_id: receiptJournal.id,
+                  line_number: 2,
+                  account_id: primaryAcctId,
+                  description: `Deposit received — ${ref}`,
+                  debit: 0,
+                  credit: lineAmount
+                })
+              }
+              
+              // Insert receipt journal lines
+              const { error: rjlErr } = await supabase
+                .from('journal_lines')
+                .insert(receiptJLines)
+              
+              if (!rjlErr) {
+                // Update account balances
+                await Promise.all(
+                  receiptJLines.map(l =>
+                    supabase.rpc('update_account_balance', {
+                      p_account_id: l.account_id,
+                      p_debit: l.debit,
+                      p_credit: l.credit
+                    })
+                  )
+                )
+                
+                // Create receipt voucher record
+                await supabase.from('vouchers').insert({
+                  ref: receiptRef,
+                  type: 'cash_receipt',
+                  posting_date: postingDate,
+                  description: `Auto Receipt — ${currentMethod.label} — ${ref}`,
+                  subtotal: lineAmount,
+                  vat_amount: 0,
+                  total_amount: lineAmount,
+                  status: 'posted',
+                  branch: 'DSM HQ',
+                  customer_id: customerId || null,
+                  journal_id: receiptJournal.id,
+                  payment_method: currentMethod.label,
+                  notes: `Auto-created from ${ref}${paymentRef ? ' · Ref: ' + paymentRef : ''}`,
+                  posted_by: user?.full_name || 'Unknown'
+                })
+              }
+            }
+          }
+        } catch (err: any) {
+          console.error('Auto-receipt creation failed:', err)
+          // Don't fail the main sale if receipt creation fails
+        }
+      }
+
       showToast(`${ref} posted · ${isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
       
       // Build voucher data for receipt
