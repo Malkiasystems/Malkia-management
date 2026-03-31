@@ -204,6 +204,7 @@ export default function CRMHub({ onNav }: Props) {
   const [upsellRules, setUpsellRules] = useState<UpsellRule[]>([])
   const [automations, setAutomations] = useState<AutomationItem[]>([])
   const [pointsActivity, setPointsActivity] = useState<PointsActivity[]>([])
+  const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [quickReply, setQuickReply] = useState('')
 
@@ -369,6 +370,38 @@ export default function CRMHub({ onNav }: Props) {
       })))
     } else {
       setPointsActivity([])
+    }
+
+    // Load pre-order campaigns
+    try {
+      const { data: campaignsData } = await supabase
+        .from('pre_order_campaigns')
+        .select(`
+          id, name, target, orders_received,
+          deposit_percent, total_deposits,
+          close_date, status,
+          products (name)
+        `)
+        .eq('status', 'active')
+        .order('close_date', { ascending: true })
+        .limit(2)
+
+      if (campaignsData && campaignsData.length > 0) {
+        setCampaigns(campaignsData.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          orders: c.orders_received || 0,
+          target: c.target || 0,
+          deposits: c.total_deposits || 0,
+          closes: c.close_date ? new Date(c.close_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD',
+          status: c.status || 'active'
+        })))
+      } else {
+        setCampaigns([])
+      }
+    } catch (err) {
+      console.error('Failed to load campaigns:', err)
+      setCampaigns([])
     }
 
     setLoading(false)
@@ -991,11 +1024,8 @@ export default function CRMHub({ onNav }: Props) {
             </button>
           </div>
           <div style={s.cardBody}>
-            {/* Campaign cards */}
-            {[
-              { id: '1', name: 'Frida Mom Postpartum Bundle', orders: 38, target: 50, deposits: 3800000, closes: 'Mar 25', status: 'active' },
-              { id: '2', name: 'U-Shape Pillow Restock', orders: 27, target: 40, deposits: 2160000, closes: 'Mar 30', status: 'active' },
-            ].map((campaign) => (
+            {/* Campaign cards - load from database */}
+            {campaigns && campaigns.slice(0, 2).map((campaign) => (
               <div key={campaign.id} style={{ padding: 12, background: 'var(--surface2)', borderRadius: 8, marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <div style={{ fontWeight: 700, fontSize: 12 }}>{campaign.name}</div>
