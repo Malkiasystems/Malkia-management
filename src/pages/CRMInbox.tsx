@@ -154,16 +154,9 @@ export default function CRMInbox({ onNav }: Props) {
       setConversations(convos as Conversation[])
       if (convos[0]) selectConversation(convos[0] as Conversation)
     } else {
-      // Demo data
-      const demoConvos: Conversation[] = [
-        { id: '1', customer_id: 'c1', customer_name: 'Amina Hassan', customer_phone: '+255 712 345 678', tier: 'crown', pregnancy_week: 36, last_message: 'Je, nina swali kuhusu breast pump...', last_message_at: '2 min', unread_count: 3, is_urgent: true, is_resolved: false, assigned_to: 'Barbra', tags: ['Week 36', 'VIP'], avatar_color: '#f472b6' },
-        { id: '2', customer_id: 'c2', customer_name: 'Grace Mwanza', customer_phone: '+255 754 987 654', tier: 'crown', postpartum_weeks: 6, last_message: 'Asante sana kwa binder, imenisaidia kupona haraka baada ya C-section...', last_message_at: '14 min', unread_count: 1, is_urgent: false, is_resolved: false, tags: ['Postpartum 6w', 'C-Section'], avatar_color: '#3b82f6' },
-        { id: '3', customer_id: 'c3', customer_name: 'Zainab Ally', customer_phone: '+255 698 111 222', tier: 'gold', pregnancy_week: 28, last_message: 'Naomba delivery kesho asubuhi...', last_message_at: '28 min', unread_count: 0, is_urgent: false, is_resolved: false, assigned_to: 'Lilian', tags: ['Week 28'], avatar_color: '#a855f7' },
-        { id: '4', customer_id: 'c4', customer_name: 'Fatuma Iddi', customer_phone: '+255 621 445 889', tier: 'mama', last_message: 'Pre-order yangu iko wapi?', last_message_at: '1h ago', unread_count: 2, is_urgent: false, is_resolved: false, tags: ['Pre-Order'], avatar_color: '#10b981' },
-        { id: '5', customer_id: 'c5', customer_name: 'Sophia Mwema', customer_phone: '+255 765 432 100', tier: 'mama', last_message: 'Nimepokea order yangu, asante!', last_message_at: '3h ago', unread_count: 0, is_urgent: false, is_resolved: true, tags: [], avatar_color: '#6b7280' },
-      ]
-      setConversations(demoConvos)
-      if (demoConvos[0]) selectConversation(demoConvos[0])
+      // No conversations in database - show empty state
+      setConversations([])
+      setSelectedConvo(null)
     }
 
     setLoading(false)
