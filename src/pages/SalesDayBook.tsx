@@ -41,8 +41,9 @@ export default function SalesDayBook({ onEdit }: Props) {
   const [view, setView] = useState<'detail' | 'summary'>('summary')
 
   // Filters
-  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
-  const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
+  const today = new Date().toISOString().split('T')[0]
+  const [fromDate, setFromDate] = useState(today)
+  const [toDate, setToDate] = useState(today)
   const [voucherType, setVoucherType] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [searchRef, setSearchRef] = useState('')
@@ -137,7 +138,7 @@ export default function SalesDayBook({ onEdit }: Props) {
         <div>
           <div className="page-title">Sales Day Book</div>
           <div className="page-sub">
-            All sales transactions · {filtered.length} vouchers · <span className="sync-dot"></span> Live
+            Today's transactions · {filtered.length} vouchers · <span className="sync-dot"></span> Live
           </div>
         </div>
         <div className="page-actions">
