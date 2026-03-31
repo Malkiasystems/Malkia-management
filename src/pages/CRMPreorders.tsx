@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-// supabase import ready for real data
-// import { supabase } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
