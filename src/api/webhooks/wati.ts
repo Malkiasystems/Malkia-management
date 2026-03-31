@@ -29,11 +29,6 @@ interface WATIMessage {
   };
 }
 
-interface WebhookPayload {
-  messages?: WATIMessage[];
-  statuses?: any[];
-}
-
 export default async function handler(req: any, res: any) {
   // Only accept POST
   if (req.method !== 'POST') {
@@ -220,13 +215,4 @@ async function handleStatusUpdate(status: any) {
   } catch (error) {
     console.error('[WATI] Error processing status update:', error);
   }
-}
-
-/**
- * Verify WATI webhook signature (if WATI provides one)
- */
-function verifySignature(payload: any, signature: string): boolean {
-  // This is optional - WATI may not require signature verification for trial
-  // Implement when WATI provides the secret key
-  return true; // Skip for now
 }
