@@ -9,7 +9,6 @@ interface Sale {
   ref: string
   description: string
   total_amount: number
-  vat_amount: number
   subtotal: number
   payment_method: string
   posting_date: string
@@ -53,7 +52,7 @@ export default function SalesRegister() {
     setLoading(true)
     const { data, error } = await supabase
       .from('vouchers')
-      .select('ref, description, total_amount, vat_amount, subtotal, payment_method, posting_date, status, customers(name, whatsapp), voucher_lines(products(category))')
+      .select('ref, description, total_amount, subtotal, payment_method, posting_date, status, customers(name, whatsapp), voucher_lines(products(category))')
       .in('type', ['cash_sale', 'sales_invoice'])
       .gte('posting_date', fromDate)
       .lte('posting_date', toDate)
@@ -120,8 +119,6 @@ export default function SalesRegister() {
     (s.voucher_lines || []).some(l => l.products && catPredicate(l.products.category))
   )
   const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
-  const totalVat = filtered.reduce((s, v) => s + (v.vat_amount || 0), 0)
-  const totalNet = totalRevenue - totalVat
 
   const archiveTotal = archiveData.reduce((s, a) => s + (a.sales || 0), 0)
 
@@ -185,11 +182,10 @@ export default function SalesRegister() {
       {/* Live Tab */}
       {activeTab === 'live' && (
         <>
-          <div className="grid g4" style={{ marginBottom: 20 }}>
+          <div className="grid g3" style={{ marginBottom: 20 }}>
             <div className="stat-card green"><div className="stat-label">Total Sales</div><div className="stat-value">{filtered.length}</div><div className="stat-change up">Transactions</div></div>
-            <div className="stat-card amber"><div className="stat-label">Gross Revenue</div><div className="stat-value">TZS {(totalRevenue / 1000).toFixed(0)}K</div><div className="stat-change up">Inc. VAT</div></div>
-            <div className="stat-card blue"><div className="stat-label">Net Revenue</div><div className="stat-value">TZS {(totalNet / 1000).toFixed(0)}K</div><div className="stat-change up">Excl. VAT</div></div>
-            <div className="stat-card red"><div className="stat-label">VAT Collected</div><div className="stat-value">TZS {(totalVat / 1000).toFixed(0)}K</div><div className="stat-change down">Payable to TRA</div></div>
+            <div className="stat-card amber"><div className="stat-label">Revenue</div><div className="stat-value">TZS {(totalRevenue / 1000).toFixed(0)}K</div><div className="stat-change up">Total</div></div>
+            <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">TZS {filtered.length > 0 ? (totalRevenue / filtered.length / 1000).toFixed(0) : 0}K</div><div className="stat-change up">Per transaction</div></div>
           </div>
 
           <div className="table-wrap">
@@ -197,15 +193,14 @@ export default function SalesRegister() {
               <thead>
                 <tr>
                   <th>Date</th><th>Ref</th><th>Customer</th><th>WhatsApp</th>
-                  <th>Payment</th><th className="td-right">Net (TZS)</th>
-                  <th className="td-right">VAT</th><th className="td-right">Total (TZS)</th><th>Status</th>
+                  <th>Payment</th><th className="td-right">Total (TZS)</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>Loading...</td></tr>
+                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>Loading...</td></tr>
                 ) : sales.length === 0 ? (
-                  <tr><td colSpan={9} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No sales found for this period.</td></tr>
+                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No sales found for this period.</td></tr>
                 ) : (
                   filtered.map((s, i) => (
                     <tr key={i}>
@@ -214,8 +209,6 @@ export default function SalesRegister() {
                       <td className="td-bold">{s.customers?.name || s.description}</td>
                       <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{s.customers?.whatsapp || '—'}</td>
                       <td><span className={`pill ${s.payment_method === 'cash' ? 'pill-green' : s.payment_method === 'mpesa' ? 'pill-blue' : 'pill-amber'}`}>{s.payment_method}</span></td>
-                      <td className="td-right td-mono">{(s.total_amount - s.vat_amount).toLocaleString()}</td>
-                      <td className="td-right td-mono td-amber">{s.vat_amount?.toLocaleString()}</td>
                       <td className="td-right td-mono td-green">{s.total_amount?.toLocaleString()}</td>
                       <td><span className="pill pill-green">{s.status}</span></td>
                     </tr>
@@ -224,8 +217,6 @@ export default function SalesRegister() {
                 {!loading && sales.length > 0 && (
                   <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
                     <td colSpan={5} className="td-bold">TOTALS</td>
-                    <td className="td-right td-mono td-bold">{totalNet.toLocaleString()}</td>
-                    <td className="td-right td-mono td-amber">{totalVat.toLocaleString()}</td>
                     <td className="td-right td-mono td-green">{totalRevenue.toLocaleString()}</td>
                     <td></td>
                   </tr>

@@ -9,7 +9,7 @@ interface PLSettings {
   phone: string; email: string; website: string
   primary_color: string; accent_color: string
   show_images: boolean; show_sku: boolean; show_category: boolean
-  show_cost: boolean; show_margin: boolean; show_vat_note: boolean
+  show_cost: boolean; show_margin: boolean
   footer_note: string; logo_url: string
 }
 
@@ -33,8 +33,7 @@ const DEFAULT: PLSettings = {
   show_category: true,
   show_cost: false,
   show_margin: false,
-  show_vat_note: true,
-  footer_note: 'Prices are inclusive of VAT (18%) · Valid for 30 days · Subject to change without notice',
+  footer_note: 'Valid for 30 days · Subject to change without notice',
   logo_url: '',
 }
 
@@ -132,7 +131,7 @@ const PricelistDocument = ({ products, settings, selectedCats, listTitle }: {
 
       {/* Footer */}
       <div style={{ margin: '0 36px', padding: '14px 0', borderTop: `1px solid ${p}40`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 10, color: '#999', fontStyle: 'italic', maxWidth: '60%' }}>{settings.show_vat_note ? settings.footer_note : ''}</div>
+        <div style={{ fontSize: 10, color: '#999', fontStyle: 'italic', maxWidth: '60%' }}>{settings.footer_note}</div>
         <div style={{ fontFamily: "'Syne', serif", fontSize: 13, fontWeight: 700, color: p }}>{settings.company_name}</div>
       </div>
       <div style={{ height: 6, background: `linear-gradient(90deg, ${p} 0%, ${a} 100%)` }}></div>
@@ -262,7 +261,6 @@ export default function PricelistTemplate() {
               <Toggle label="Show SKU" k="show_sku" />
               <Toggle label="Show Cost Price" k="show_cost" />
               <Toggle label="Show Margin %" k="show_margin" />
-              <Toggle label="VAT Note in Footer" k="show_vat_note" />
             </div>
             <div className="card">
               <div className="card-title" style={{ marginBottom: 10 }}>Brand Color</div>
@@ -344,7 +342,6 @@ export default function PricelistTemplate() {
               <Toggle label="Show Cost Price" k="show_cost" />
               <Toggle label="Show Margin %" k="show_margin" />
               <Toggle label="Show Category Headers" k="show_category" />
-              <Toggle label="VAT Note in Footer" k="show_vat_note" />
             </div>
           </div>
         </div>

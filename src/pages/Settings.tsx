@@ -41,12 +41,10 @@ export default function Settings({ onNav }: Props) {
           <div className="card-title" style={{ marginBottom: 16 }}>Company Information</div>
           <FG label="Company Name"><input className="form-input" defaultValue="Malkia Wellness Group Ltd" /></FG>
           <FG label="TIN Number"><input className="form-input" defaultValue="123-456-789" /></FG>
-          <FG label="VRN (VAT Reg No)"><input className="form-input" defaultValue="40-123456-E" /></FG>
           <div className="form-row">
             <FG label="Currency"><select className="form-input"><option>TZS — Tanzanian Shilling</option><option>USD</option></select></FG>
             <FG label="Financial Year"><select className="form-input"><option>July — June</option><option>January — December</option></select></FG>
           </div>
-          <FG label="Default VAT Rate (%)"><input className="form-input" type="number" defaultValue="18" /></FG>
           <button className="btn btn-primary" onClick={() => showToast('Settings saved successfully')}>Save Changes</button>
         </div>
 

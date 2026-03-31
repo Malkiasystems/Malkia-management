@@ -21,14 +21,14 @@ export interface ReceiptSettings {
   // Links
   konnect_url: string; community_url: string; community_name: string
   // Toggles
-  show_crown_points: boolean; show_vat_breakdown: boolean; show_cashier: boolean
+  show_crown_points: boolean; show_cashier: boolean
   show_care_tip: boolean; show_stage_message: boolean; konnect_enabled: boolean
   konnect_utm_tracking: boolean; community_enabled: boolean; community_qr_enabled: boolean
 }
 
 export interface ReceiptVoucher {
   ref: string; posting_date: string; description: string
-  total_amount: number; vat_amount: number; subtotal: number
+  total_amount: number; subtotal: number
   payment_method: string; notes: string; posted_by: string
   customers: { name: string; whatsapp: string; pregnancy_stage: string; crown_points: number } | null
   voucher_lines: { qty: number; unit_price: number; total: number; products: { name: string; sku: string; category: string } | null }[]
@@ -52,7 +52,7 @@ const DEFAULT: ReceiptSettings = {
   konnect_cta_text: 'Join Konnect →', konnect_sub_text: 'Weekly guidance · Expert Q&A · Birth prep · Postpartum support',
   konnect_url: 'https://www.malkia.co.tz/join',
   community_url: '', community_name: 'Mama Community',
-  show_crown_points: true, show_vat_breakdown: true, show_cashier: true,
+  show_crown_points: true, show_cashier: true,
   show_care_tip: true, show_stage_message: true, konnect_enabled: true,
   konnect_utm_tracking: true, community_enabled: false, community_qr_enabled: false,
 }
@@ -87,9 +87,6 @@ export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; 
   const konnectHref = s.konnect_utm_tracking
     ? `${s.konnect_url}?ref=${voucher.ref}&utm_source=receipt&utm_medium=pdf`
     : s.konnect_url
-
-  const vat = voucher.vat_amount || Math.round((voucher.total_amount || 0) * 18 / 118)
-  const net = (voucher.total_amount || 0) - vat
 
   const mono = "'DM Mono', 'Courier New', monospace"
   const display = "'Syne', 'Georgia', serif"
@@ -167,16 +164,6 @@ export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; 
 
       {/* ── TOTALS ───────────────────────────────────────────────────────────── */}
       <div style={{ padding: '0 20px 14px' }}>
-        {s.show_vat_breakdown && (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0', color: '#bbb' }}>
-              <span>Net (excl. VAT)</span><span style={{ fontFamily: mono }}>{net.toLocaleString()}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0', color: '#bbb' }}>
-              <span>VAT 18% (inclusive)</span><span style={{ fontFamily: mono }}>{vat.toLocaleString()}</span>
-            </div>
-          </>
-        )}
         {/* Total — the hero number */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, padding: '12px 14px', background: `${p}14`, borderRadius: 10, border: `1.5px solid ${p}35` }}>
           <div>
@@ -405,7 +392,6 @@ export function ReceiptTemplateSettings({ settings, onChange }: { settings: Rece
           <Tog label="Stage Message" desc="Emotional message personalised by pregnancy stage" k="show_stage_message" s={settings} set={setBool} />
           <Tog label="Crown Points" desc="Show loyalty points earned and balance" k="show_crown_points" s={settings} set={setBool} />
           <Tog label="Midwife Tip" desc="Product care tip relevant to purchase category" k="show_care_tip" s={settings} set={setBool} />
-          <Tog label="VAT Breakdown" desc="Show net amount and VAT separately" k="show_vat_breakdown" s={settings} set={setBool} />
           <Tog label="Cashier Name" desc="Show name of who served the customer" k="show_cashier" s={settings} set={setBool} />
           <Tog label="Konnect CTA" desc="Show Join Malkia Konnect section" k="konnect_enabled" s={settings} set={setBool} />
           <Tog label="Community Section" desc="Show Mama Community link" k="community_enabled" s={settings} set={setBool} />
@@ -553,7 +539,7 @@ export default function ReceiptTemplatePage() {
 
   const SAMPLE: ReceiptVoucher = {
     ref: 'CS-10-0042', posting_date: new Date().toISOString().split('T')[0],
-    description: 'Cash Sale — Fatuma Said', total_amount: 185000, vat_amount: 26695, subtotal: 158305,
+    description: 'Cash Sale — Fatuma Said', total_amount: 185000, subtotal: 185000,
     payment_method: 'M-Pesa', notes: '', posted_by: 'Barbra Kabendera',
     customers: { name: 'Fatuma Said', whatsapp: '+255 743 100 212', pregnancy_stage: '28 weeks Pregnant', crown_points: 1240 },
     voucher_lines: [

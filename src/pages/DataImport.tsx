@@ -33,8 +33,6 @@ const BASE_PRODUCT_FIELDS: FieldDef[] = [
   { key: 'unit',          label: 'Unit of Measure',     required: false, type: 'string',  example: 'Piece', hint: 'Piece / Box / Set / Pair / Pack' },
   { key: 'cost_price',    label: 'Cost Price (TZS)',    required: false, type: 'number',  example: '180000', hint: 'Defaults to 0 if blank' },
   { key: 'selling_price', label: 'Selling Price (TZS)', required: false, type: 'number',  example: '250000', hint: 'Defaults to 0 if blank' },
-  { key: 'has_vat',       label: 'VAT Applicable',      required: false, type: 'boolean', example: 'YES', hint: 'YES or NO — defaults to YES' },
-  { key: 'vat_rate',      label: 'VAT Rate (%)',         required: false, type: 'number',  example: '18', hint: 'Defaults to 18' },
   { key: 'reorder_point', label: 'Reorder Point',       required: false, type: 'number',  example: '5' },
   { key: 'qty_on_hand',   label: 'Total Qty in Stock',  required: false, type: 'number',  example: '24', hint: 'Overall total across all locations' },
 ]
@@ -103,8 +101,6 @@ function getTemplateCols(entity: ImportEntity, locations: StockLocation[]): Temp
       { header: 'Unit',                 ex1: 'Piece',                    ex2: 'Set',                     ex3: 'Piece',                   note: 'Use: Piece, Box, Set, Pair, Pack, Bottle.' },
       { header: 'Cost Price (TZS)',     ex1: '180000',                   ex2: '45000',                   ex3: '55000',                   note: 'Purchase cost in TZS. Numbers only, no commas or symbols.' },
       { header: 'Selling Price (TZS)',  ex1: '250000',                   ex2: '65000',                   ex3: '85000',                   note: 'Customer selling price in TZS.' },
-      { header: 'VAT Applicable',       ex1: 'YES',                      ex2: 'YES',                     ex3: 'NO',                      note: 'YES or NO. Defaults to YES if blank.' },
-      { header: 'VAT Rate (%)',          ex1: '18',                       ex2: '18',                      ex3: '0',                       note: 'Standard TZ VAT rate is 18. Use 0 if VAT = NO.' },
       { header: 'Reorder Point',        ex1: '5',                        ex2: '3',                       ex3: '2',                       note: 'Qty that triggers low-stock alert in Inventory.' },
       { header: 'Total Qty',            ex1: '20',                       ex2: '15',                      ex3: '8',                       note: 'Overall stock total. Use per-location columns below for split.' },
       ...locCols,
@@ -200,8 +196,6 @@ const AUTO_MAP_HINTS: Record<string, string> = {
   'sales rate': 'selling_price', 'selling price': 'selling_price', 'price': 'selling_price',
   'rate': 'selling_price', 'mrp': 'selling_price', 'list price': 'selling_price',
   'selling price (tzs)': 'selling_price', 'retail price': 'selling_price',
-  'has vat': 'has_vat', 'vat applicable': 'has_vat', 'vat': 'has_vat', 'taxable': 'has_vat',
-  'vat rate': 'vat_rate', 'vat rate (%)': 'vat_rate', 'tax rate': 'vat_rate',
   'quantity': 'qty_on_hand', 'qty': 'qty_on_hand', 'stock': 'qty_on_hand',
   'closing stock': 'qty_on_hand', 'opening qty': 'qty_on_hand', 'opening quantity': 'qty_on_hand',
   'opening stock': 'qty_on_hand', 'stock in hand': 'qty_on_hand', 'current stock': 'qty_on_hand',
@@ -427,8 +421,6 @@ async function writeProducts(rows: MappedRow[], locations: StockLocation[]): Pro
       cost_price:    coerced['cost_price'] ?? 0,
       selling_price: coerced['selling_price'] ?? 0,
       reorder_point: coerced['reorder_point'] ?? 5,
-      has_vat:       coerced['has_vat'] !== undefined ? coerced['has_vat'] : true,
-      vat_rate:      coerced['vat_rate'] ?? 18,
       qty_on_hand:   totalQty,
     }
     if (coerced['barcode']) payload['barcode'] = coerced['barcode']
@@ -567,7 +559,7 @@ const SOURCES: { id: ImportSource; label: string; ext: string; desc: string; bad
 
 const ENTITIES: { id: ImportEntity; label: string; icon: string; desc: string }[] = [
   { id: 'customers',        label: 'Customers',         icon: 'C', desc: 'Cash customers and debtors with contacts and opening balances' },
-  { id: 'products',         label: 'Products / Stock',  icon: 'P', desc: 'Inventory with SKU, pricing, VAT, brand, and per-location stock' },
+  { id: 'products',         label: 'Products / Stock',  icon: 'P', desc: 'Inventory with SKU, pricing, brand, and per-location stock' },
   { id: 'accounts',         label: 'Chart of Accounts', icon: 'A', desc: 'GL accounts with codes, types, and opening balances' },
   { id: 'opening_balances', label: 'Opening Balances',  icon: 'O', desc: 'Journal entries to set account balances at migration date' },
 ]
@@ -742,8 +734,6 @@ export default function DataImport() {
                 { label: 'Unit', note: 'Piece / Box / Set' },
                 { label: 'Cost Price', note: 'In TZS' },
                 { label: 'Selling Price', note: 'In TZS' },
-                { label: 'VAT Applicable', note: 'YES or NO' },
-                { label: 'VAT Rate (%)', note: 'Default 18%' },
                 { label: 'Reorder Point', note: 'Low-stock alert' },
                 ...locations.map(l => ({ label: `Qty: ${l.name}`, note: l.code })),
               ].map((col, i) => (
@@ -781,7 +771,7 @@ export default function DataImport() {
         {source === 'manual_csv' ? (
           <div>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>Paste comma or tab-separated data. First row must be column headers.</p>
-            <textarea style={s.textarea} placeholder="Product Name,SKU,Category,Cost Price,Selling Price,VAT Applicable&#10;Spectra S1 Breast Pump,BPM-001,Feeding,180000,250000,YES" value={pasteText} onChange={e => setPasteText(e.target.value)} />
+            <textarea style={s.textarea} placeholder="Product Name,SKU,Category,Cost Price,Selling Price&#10;Spectra S1 Breast Pump,BPM-001,Feeding,180000,250000" value={pasteText} onChange={e => setPasteText(e.target.value)} />
             <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between' }}>
               <button style={s.btnGhost} onClick={() => setStep('entity')}>Back</button>
               <button style={s.btn} onClick={() => {
@@ -1020,7 +1010,6 @@ export default function DataImport() {
             <div>Amounts in TZS — numbers only, no commas or symbols</div>
             <div>Products use SKU as unique key — re-import updates existing</div>
             <div>Opening balances require Chart of Accounts to exist first</div>
-            <div>VAT column: YES or NO (defaults to YES if left blank)</div>
             <div>Dates in YYYY-MM-DD format</div>
           </div>
         </div>

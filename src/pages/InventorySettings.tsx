@@ -20,7 +20,6 @@ interface InvSettings {
   costing_method: string
   default_usd_rate: number
   include_landed_cost: boolean
-  vat_on_purchases: boolean
   // Visibility
   show_cost_to: string
   show_margin_to: string
@@ -45,7 +44,6 @@ const DEFAULT: InvSettings = {
   costing_method: 'average',
   default_usd_rate: 2540,
   include_landed_cost: false,
-  vat_on_purchases: false,
   show_cost_to: 'admin',
   show_margin_to: 'admin',
   reorder_notify_whatsapp: false,
@@ -287,7 +285,6 @@ export default function InventorySettings({ onNav }: Props) {
             </FG>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 14 }}>Used in Purchase Orders and GRN costing. Update when rate changes significantly.</div>
             <Toggle label="Include Landed Cost in Average Cost" desc="Add freight, customs, and handling to product cost on GRN." val={settings.include_landed_cost} onChange={v => set('include_landed_cost', v)} />
-            <Toggle label="VAT on Purchases" desc="Track input VAT on purchases separately (for VAT-registered buying)." val={settings.vat_on_purchases} onChange={v => set('vat_on_purchases', v)} />
           </Section>
           <div className="card" style={{ background: 'linear-gradient(135deg, rgba(212,135,74,.08) 0%, rgba(212,135,74,.04) 100%)', border: '1px solid rgba(212,135,74,.2)', borderRadius: 12, padding: 16 }}>
             <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--accent)' }}>How Average Cost Works</div>

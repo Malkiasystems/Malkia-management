@@ -19,7 +19,7 @@ export interface InvoiceSettings {
   label_notes: string; label_salesperson: string
   // Toggles
   show_bank_details: boolean; show_salesperson: boolean
-  show_vat_breakdown: boolean; show_outstanding_balance: boolean
+  show_outstanding_balance: boolean
   show_payment_terms: boolean; show_notes: boolean; show_logo: boolean
 }
 
@@ -37,7 +37,7 @@ const DEFAULT: InvoiceSettings = {
   label_payment_details: 'Payment Details', label_this_invoice: 'This Invoice',
   label_account_statement: 'Account Statement', label_notes: 'Notes',
   label_salesperson: 'Invoiced by',
-  show_bank_details: true, show_salesperson: true, show_vat_breakdown: true,
+  show_bank_details: true, show_salesperson: true,
   show_outstanding_balance: true, show_payment_terms: true, show_notes: true, show_logo: true,
 }
 
@@ -45,7 +45,7 @@ const DEFAULT: InvoiceSettings = {
 interface Voucher {
   ref: string; posting_date: string; due_date?: string
   payment_terms?: string; notes?: string
-  total_amount: number; vat_amount: number; subtotal: number
+  total_amount: number; subtotal: number
   posted_by?: string
   customers: {
     name: string; company?: string; contact_person?: string
@@ -63,8 +63,6 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
   const s: InvoiceSettings = { ...DEFAULT, ...(settings || {}) }
   const p = s.primary_color   // brand teal
   const cust = voucher.customers
-  const net = voucher.subtotal || 0
-  const vat = voucher.vat_amount || 0
   const total = voucher.total_amount || 0
   const prevBalance = cust?.balance || 0
   const totalNowOwed = prevBalance + total
@@ -104,7 +102,7 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
               <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', marginTop: 8, lineHeight: 1.8 }}>
                 {s.address} · {s.phone}<br />
                 {s.email} · {s.website}<br />
-                <span style={{ color: 'rgba(255,255,255,0.5)' }}>TIN: {s.tin} · VRN: {s.vrn}</span>
+                <span style={{ color: 'rgba(255,255,255,0.5)' }}>TIN: {s.tin}</span>
               </div>
             </div>
           </div>
@@ -211,18 +209,6 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
 
         <div style={{ borderLeft: s.show_bank_details ? '1px solid #f0f0f0' : 'none', paddingLeft: s.show_bank_details ? 24 : 0 }}>
           <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_this_invoice}</div>
-          {s.show_vat_breakdown && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '5px 0', color: '#888', borderBottom: '1px solid #f5f5f5' }}>
-                <span>Net Amount (excl. VAT)</span>
-                <span style={{ fontFamily: mono }}>{net.toLocaleString()}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '5px 0', color: '#888', borderBottom: '1px solid #f5f5f5' }}>
-                <span>VAT @ 18% (inclusive)</span>
-                <span style={{ fontFamily: mono }}>{vat.toLocaleString()}</span>
-              </div>
-            </>
-          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: `${p}18`, borderRadius: 8, marginTop: 10, border: `1.5px solid ${p}40` }}>
             <span style={{ fontFamily: display, fontSize: 13, fontWeight: 800, color: '#1a1a1a' }}>Invoice Total</span>
             <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800, color: '#1a1a1a' }}>TZS {total.toLocaleString()}</span>
@@ -348,7 +334,6 @@ export function InvoiceTemplateSettings({ settings, onChange }: { settings: Invo
           <Fld label="Email" k="email" settings={settings} onChange={set} />
           <Fld label="Website" k="website" settings={settings} onChange={set} />
           <Fld label="TIN (Tax ID)" k="tin" settings={settings} onChange={set} placeholder="e.g. 123-456-789" />
-          <Fld label="VRN (VAT Registration)" k="vrn" settings={settings} onChange={set} placeholder="e.g. 40-123456-E" />
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Brand Colour</div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -394,7 +379,6 @@ export function InvoiceTemplateSettings({ settings, onChange }: { settings: Invo
           <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12 }}>Toggle sections on/off. Each toggle has an editable label above it.</div>
           <Tog label="Show Logo" desc="Display company logo in header" k="show_logo" settings={settings} onToggle={set} />
           <Tog label="Bank Details" desc="Show bank/payment info section" k="show_bank_details" settings={settings} onToggle={set} />
-          <Tog label="VAT Breakdown" desc="Show net amount and VAT line" k="show_vat_breakdown" settings={settings} onToggle={set} />
           <Tog label="Outstanding Balance" desc="Show prior balance in account statement" k="show_outstanding_balance" settings={settings} onToggle={set} />
           <Tog label="Payment Terms" desc="Show due date and terms in header" k="show_payment_terms" settings={settings} onToggle={set} />
           <Tog label="Salesperson" desc="Show who issued the invoice" k="show_salesperson" settings={settings} onToggle={set} />
@@ -533,7 +517,7 @@ export default function InvoiceTemplatePage() {
   const SAMPLE: Voucher = {
     ref: 'SI-10-0001', posting_date: '2026-03-27', due_date: '2026-04-26',
     payment_terms: 'NET30', notes: 'Please transfer to the account above and quote invoice number.',
-    total_amount: 520000, vat_amount: 79322, subtotal: 440678, posted_by: 'Joe Gembe',
+    total_amount: 520000, subtotal: 520000, posted_by: 'Joe Gembe',
     customers: { name: 'Dr. Sarah Kimani', company: 'Aga Khan Health Services Tanzania', contact_person: 'Dr. Sarah Kimani', whatsapp: '+255 22 211 5151', address: 'Ocean Road, Dar es Salaam', balance: 185000 },
     voucher_lines: [
       { qty: 10, unit_price: 32000, total: 320000, discount_pct: 0, description: 'Nipple Cream', products: { name: 'Nipple Cream — 60ml', sku: 'MK-003' } },

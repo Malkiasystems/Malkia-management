@@ -16,7 +16,6 @@ interface Sale {
   posting_date: string
   description: string
   total_amount: number
-  vat_amount: number
   subtotal: number
   payment_method: string
   status: string
@@ -29,7 +28,6 @@ interface Sale {
     unit_price: number
     unit_cost: number
     total: number
-    vat_amount: number
     products: { name: string; sku: string; category: string } | null
   }[]
 }
@@ -65,11 +63,11 @@ export default function SalesDayBook({ onEdit }: Props) {
     let query = supabase
       .from('vouchers')
       .select(`
-        id, ref, posting_date, description, total_amount, vat_amount, subtotal,
+        id, ref, posting_date, description, total_amount, subtotal,
         payment_method, status, notes, posted_by,
         customers (name, whatsapp, pregnancy_stage, crown_points),
         voucher_lines (
-          id, qty, unit_price, unit_cost, total, vat_amount,
+          id, qty, unit_price, unit_cost, total,
           products (name, sku, category)
         )
       `)
@@ -106,11 +104,9 @@ export default function SalesDayBook({ onEdit }: Props) {
 
   // Totals
   const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
-  const totalVat = filtered.reduce((s, v) => s + (v.vat_amount || 0), 0)
-  const totalNet = totalRevenue - totalVat
   const totalCost = filtered.reduce((s: number, sale: any) => s + (sale.voucher_lines || []).reduce((acc: number, l: any) => acc + ((l.unit_cost || 0) * (l.qty || 0)), 0), 0)
-  const totalMargin = totalNet - totalCost
-  const marginPct = totalNet > 0 ? Math.round((totalMargin / totalNet) * 100) : 0
+  const totalMargin = totalRevenue - totalCost
+  const marginPct = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0
   const podCount = filtered.filter(s => s.status === 'draft').length
   const postedCount = filtered.filter(s => s.status === 'posted').length
 
@@ -233,9 +229,8 @@ export default function SalesDayBook({ onEdit }: Props) {
 
       {/* STAT CARDS */}
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-label">Gross Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
-        <div className="stat-card blue"><div className="stat-label">Net Revenue (excl. VAT)</div><div className="stat-value">{totalNet >= 1000000 ? (totalNet/1000000).toFixed(2)+'M' : (totalNet/1000).toFixed(0)+'K'}</div><div className="stat-change up">After VAT</div></div>
-        <div className="stat-card amber"><div className="stat-label">VAT Collected</div><div className="stat-value">{tzs(totalVat)}</div><div className="stat-change down">Payable to TRA</div></div>
+        <div className="stat-card green"><div className="stat-label">Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
+        <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
         <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>
       </div>
 
@@ -341,16 +336,6 @@ export default function SalesDayBook({ onEdit }: Props) {
                     <td className="td-right td-mono td-green" style={{ fontSize: 15, fontWeight: 800, padding: '12px 14px' }}>{totalRevenue.toLocaleString()}</td>
                     <td></td>
                   </tr>
-                  <tr style={{ background: 'var(--surface2)' }}>
-                    <td colSpan={6} style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>VAT (18% incl.)</td>
-                    <td></td>
-                    <td className="td-right td-mono td-amber" style={{ fontSize: 12, padding: '4px 14px' }}>{totalVat.toLocaleString()}</td>
-                  </tr>
-                  <tr style={{ background: 'var(--surface2)' }}>
-                    <td colSpan={6} style={{ padding: '4px 14px 12px', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>Net Revenue (excl. VAT)</td>
-                    <td></td>
-                    <td className="td-right td-mono" style={{ fontSize: 12, color: 'var(--blue)', padding: '4px 14px 12px' }}>{totalNet.toLocaleString()}</td>
-                  </tr>
                 </tfoot>
               </table>
             </div>
@@ -368,8 +353,7 @@ export default function SalesDayBook({ onEdit }: Props) {
           ) : (
             filtered.map((s, i) => {
               const custMargin = (s.voucher_lines || []).reduce((acc: number, l: any) => acc + ((l.unit_price - l.unit_cost) * l.qty), 0)
-              const custNet = (s.total_amount || 0) - (s.vat_amount || 0)
-              const custMarginPct = custNet > 0 ? Math.round((custMargin / custNet) * 100) : 0
+              const custMarginPct = (s.total_amount || 0) > 0 ? Math.round((custMargin / (s.total_amount || 1)) * 100) : 0
               return (
                 <div key={i} className="card" style={{ borderLeft: `3px solid ${s.status === 'draft' ? 'var(--yellow)' : 'var(--green)'}` }}>
                   {/* Voucher Header */}
@@ -386,7 +370,6 @@ export default function SalesDayBook({ onEdit }: Props) {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>{tzs(s.total_amount || 0)}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>incl. VAT {tzs(s.vat_amount || 0)}</div>
                       <div style={{ fontSize: 11, color: s.status === 'draft' ? 'var(--yellow)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>
                         {s.status === 'draft' ? 'Receipt pending' : '✓ Receipted'}
                       </div>
@@ -407,16 +390,8 @@ export default function SalesDayBook({ onEdit }: Props) {
                     <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
                       <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 8 }}>Financials</div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
-                        <span style={{ color: 'var(--text3)' }}>Gross</span>
+                        <span style={{ color: 'var(--text3)' }}>Total</span>
                         <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(s.total_amount || 0)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
-                        <span style={{ color: 'var(--text3)' }}>VAT</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{tzs(s.vat_amount || 0)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
-                        <span style={{ color: 'var(--text3)' }}>Net</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{tzs(custNet)}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
                         <span style={{ color: 'var(--text3)' }}>Margin</span>
@@ -484,12 +459,10 @@ export default function SalesDayBook({ onEdit }: Props) {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 14 }}>
                 {[
-                  { label: 'Gross Revenue', value: tzs(totalRevenue), color: 'var(--green)' },
-                  { label: 'VAT (18% incl.)', value: tzs(totalVat), color: 'var(--accent)' },
-                  { label: 'Net Revenue', value: tzs(totalNet), color: 'var(--blue)' },
+                  { label: 'Revenue', value: tzs(totalRevenue), color: 'var(--green)' },
                   { label: 'Cost of Goods', value: tzs(totalCost), color: 'var(--red)' },
                   { label: 'Gross Margin', value: `${tzs(totalMargin)} (${marginPct}%)`, color: 'var(--green)' },
-                  { label: 'Avg per Sale', value: tzs(Math.round(totalRevenue / filtered.length)), color: 'var(--text)' },
+                  { label: 'Avg per Sale', value: filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—', color: 'var(--text)' },
                 ].map((item, i) => (
                   <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
                     <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>{item.label}</div>
