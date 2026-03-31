@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { getPostedBy } from '../lib/utils';
 
@@ -91,13 +91,17 @@ export default function AccountingSettings() {
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const [fyData, periodsData, goLiveData, rulesData, logData] = await Promise.all([
-        supabase.from('fiscal_years').select('*').order('start_date', { ascending: false }),
-        supabase.from('accounting_periods').select('*').order('start_date', { ascending: true }),
-        supabase.from('go_live_dates').select('*').single().catch(() => ({ data: null, error: null })),
-        supabase.from('posting_rules').select('*').single().catch(() => ({ data: null, error: null })),
-        supabase.from('period_lock_log').select('*').order('locked_at', { ascending: false }),
-      ]);
+      
+      const fyData = await supabase.from('fiscal_years').select('*').order('start_date', { ascending: false });
+      const periodsData = await supabase.from('accounting_periods').select('*').order('start_date', { ascending: true });
+      
+      const goLiveRes = await supabase.from('go_live_dates').select('*').single();
+      const goLiveData = { data: goLiveRes.data, error: null };
+      
+      const rulesRes = await supabase.from('posting_rules').select('*').single();
+      const rulesData = { data: rulesRes.data, error: null };
+      
+      const logData = await supabase.from('period_lock_log').select('*').order('locked_at', { ascending: false });
 
       if (fyData.data) setFiscalYears(fyData.data);
       if (periodsData.data) setPeriods(periodsData.data);
@@ -134,7 +138,6 @@ export default function AccountingSettings() {
     try {
       setLoading(true);
       const startDate = new Date(newFYStart);
-      const endDate = new Date(newFYEnd);
 
       // Create fiscal year
       const { data: fy, error: fyError } = await supabase
