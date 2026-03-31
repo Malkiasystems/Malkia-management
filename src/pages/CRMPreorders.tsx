@@ -143,33 +143,6 @@ export default function CRMPreorders({ onNav }: Props) {
       setLoading(false)
     }
   }
-        minDeposit: 120000,
-        totalDeposits: 3750000,
-        closeDate: 'Mar 20, 2026',
-        eta: 'Apr 5, 2026',
-        status: 'completed',
-        customers: []
-      },
-      {
-        id: '4',
-        name: 'Haakaa Gen 3 Bundle',
-        product: 'Haakaa Gen 3 Starter Kit',
-        target: 30,
-        orders: 8,
-        depositPercent: 30,
-        minDeposit: 45000,
-        totalDeposits: 480000,
-        closeDate: 'Apr 5, 2026',
-        eta: 'Apr 25, 2026',
-        status: 'active',
-        customers: []
-      }
-    ]
-
-    setCampaigns(demoCampaigns)
-    setSelectedCampaign(demoCampaigns[0])
-    setLoading(false)
-  }
 
   const getTierColor = (tier: string) => {
     switch (tier) {
