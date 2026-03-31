@@ -34,8 +34,7 @@ export default function LineItemsTable({
   const remove = (i: number) => setLines(lines.filter((_, idx) => idx !== i))
 
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
-  const vat = Math.round(subtotal * 0.18)
-  const total = subtotal + vat
+  const total = subtotal
 
   return (
     <div>
@@ -122,10 +121,6 @@ export default function LineItemsTable({
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
             <span style={{ color: 'var(--text3)' }}>Subtotal</span>
             <span style={{ fontFamily: 'var(--mono)' }}>{subtotal.toLocaleString()}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
-            <span style={{ color: 'var(--text3)' }}>VAT (18%)</span>
-            <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{vat.toLocaleString()}</span>
           </div>
           <div style={{
             display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700,
