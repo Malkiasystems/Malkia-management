@@ -5,13 +5,24 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// CRITICAL: Tell Vercel not to parse body so we can do it manually
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '1mb',
+    },
+  },
+};
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Vercel auto-parses JSON - but log raw to confirm
   const body = req.body;
-  console.log('WATI RAW PAYLOAD:', JSON.stringify(body, null, 2));
+  console.log('WATI BODY TYPE:', typeof body);
+  console.log('WATI BODY:', JSON.stringify(body));
 
   try {
     let phone: string | null = null;
@@ -19,44 +30,46 @@ export default async function handler(req: any, res: any) {
     let customerName = '';
     let messageId = '';
 
+    // Handle all WATI payload shapes
     if (body?.waId) {
-      phone = body.waId;
+      phone = String(body.waId);
       messageText = body?.text?.body || body?.message || '';
       customerName = body?.senderName || body?.contactName || phone;
       messageId = body?.id || body?.wamid || '';
     } else if (body?.contact?.wa_id) {
-      phone = body.contact.wa_id;
+      phone = String(body.contact.wa_id);
       customerName = body?.contact?.name || phone;
       const msg = body?.messages?.[0];
       messageText = msg?.text?.body || '';
       messageId = msg?.id || '';
     } else if (body?.data?.waId) {
-      phone = body.data.waId;
+      phone = String(body.data.waId);
       messageText = body?.data?.text?.body || body?.data?.message || '';
       customerName = body?.data?.senderName || phone;
       messageId = body?.data?.id || '';
     }
 
-    console.log('Parsed - phone:', phone, 'message:', messageText, 'name:', customerName);
+    console.log('PARSED phone:', phone, '| msg:', messageText);
 
     if (!phone) {
-      console.log('No phone found - skipping. Event type:', body?.type || body?.eventType);
-      return res.status(200).json({ status: 'skipped - no phone' });
+      console.log('No phone - skipping. Keys in body:', Object.keys(body || {}));
+      return res.status(200).json({ status: 'skipped' });
     }
 
-    const { data: existing, error: findError } = await supabase
+    // Find or create conversation
+    const { data: existing, error: findErr } = await supabase
       .from('wati_conversations')
       .select('id, unread_count')
       .eq('phone_number', phone)
       .maybeSingle();
 
-    if (findError) console.error('Error finding conversation:', findError);
+    if (findErr) console.error('findErr:', findErr.message);
 
     let conversationId: string | null = null;
 
     if (existing) {
       conversationId = existing.id;
-      const { error: updateError } = await supabase
+      await supabase
         .from('wati_conversations')
         .update({
           last_message_at: new Date().toISOString(),
@@ -65,7 +78,6 @@ export default async function handler(req: any, res: any) {
           status: 'open',
         })
         .eq('id', conversationId);
-      if (updateError) console.error('Error updating conversation:', updateError);
     } else {
       const { data: customer } = await supabase
         .from('customers')
@@ -73,7 +85,7 @@ export default async function handler(req: any, res: any) {
         .or(`phone.eq.${phone},phone.eq.+${phone}`)
         .maybeSingle();
 
-      const { data: newConv, error: insertError } = await supabase
+      const { data: newConv, error: insertErr } = await supabase
         .from('wati_conversations')
         .insert({
           phone_number: phone,
@@ -86,16 +98,16 @@ export default async function handler(req: any, res: any) {
         .select('id')
         .single();
 
-      if (insertError) {
-        console.error('Error creating conversation:', insertError);
+      if (insertErr) {
+        console.error('INSERT ERROR:', insertErr.message, insertErr.details);
       } else {
         conversationId = newConv?.id;
-        console.log('Created conversation:', conversationId);
+        console.log('New conversation created:', conversationId);
       }
     }
 
     if (conversationId && messageText) {
-      const { error: msgError } = await supabase.from('wati_messages').insert({
+      const { error: msgErr } = await supabase.from('wati_messages').insert({
         conversation_id: conversationId,
         content: messageText,
         sender: 'customer',
@@ -103,14 +115,14 @@ export default async function handler(req: any, res: any) {
         is_read: false,
         wati_message_id: messageId,
       });
-      if (msgError) console.error('Error storing message:', msgError);
-      else console.log('Message stored successfully');
+      if (msgErr) console.error('MSG INSERT ERROR:', msgErr.message);
+      else console.log('Message saved OK');
     }
 
-    return res.status(200).json({ status: 'ok', conversationId });
+    return res.status(200).json({ status: 'ok', conversationId, phone });
 
-  } catch (error: any) {
-    console.error('WATI webhook CRASH:', error?.message || error);
-    return res.status(500).json({ status: 'error', message: error?.message });
+  } catch (err: any) {
+    console.error('CRASH:', err.message);
+    return res.status(500).json({ error: err.message });
   }
 }
