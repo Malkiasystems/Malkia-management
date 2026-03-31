@@ -1,636 +1,796 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import Toast from '../components/Toast'
-import { FG } from '../components/FormHelpers'
-import { getPostedBy } from '../lib/utils'
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { getPostedBy } from '../lib/utils';
+
+type Tab = 'fiscal' | 'golive' | 'rules' | 'log';
 
 interface FiscalYear {
-  id: string
-  name: string
-  start_date: string
-  end_date: string
-  status: 'open' | 'closed'
-  is_current: boolean
-  created_at: string
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  status: 'open' | 'closed';
+  is_current: boolean;
+  created_at: string;
 }
 
 interface AccountingPeriod {
-  id: string
-  fiscal_year_id: string
-  name: string
-  period_number: number
-  start_date: string
-  end_date: string
-  status: 'open' | 'locked' | 'closed'
-  locked_by: string | null
-  locked_at: string | null
-  closed_by: string | null
-  closed_at: string | null
+  id: string;
+  fiscal_year_id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  status: 'open' | 'locked' | 'closed';
+  locked_by: string | null;
+  locked_at: string | null;
+  created_at: string;
 }
 
-interface PeriodLockLogEntry {
-  id: string
-  period_id: string
-  action: string
-  previous_status: string
-  new_status: string
-  performed_by: string
-  performed_at: string
-  reason: string | null
-  period?: { name: string }
+interface PostingRule {
+  id: string;
+  allow_posting_to_closed: boolean;
+  allow_backdating_days: number;
+  require_narration: boolean;
+  enable_eod_lock: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-interface AcctSettings {
-  fiscal_year_start_month: number
-  go_live_date: string | null
-  opening_balance_status: 'draft' | 'confirmed' | 'locked'
-  allow_posting_to_locked: boolean
-  max_backdate_days: number
-  require_narration: boolean
-  eod_lock_enabled: boolean
+interface GoLiveDate {
+  id: string;
+  go_live_date: string;
+  opening_balance_status: 'draft' | 'confirmed' | 'locked';
+  created_at: string;
+  updated_at: string;
 }
 
-const DEFAULT_SETTINGS: AcctSettings = {
-  fiscal_year_start_month: 1,
-  go_live_date: null,
-  opening_balance_status: 'draft',
-  allow_posting_to_locked: false,
-  max_backdate_days: 30,
-  require_narration: false,
-  eod_lock_enabled: false
-}
-
-const MONTHS = [
-  { value: 1, label: 'January' },
-  { value: 2, label: 'February' },
-  { value: 3, label: 'March' },
-  { value: 4, label: 'April' },
-  { value: 5, label: 'May' },
-  { value: 6, label: 'June' },
-  { value: 7, label: 'July' },
-  { value: 8, label: 'August' },
-  { value: 9, label: 'September' },
-  { value: 10, label: 'October' },
-  { value: 11, label: 'November' },
-  { value: 12, label: 'December' }
-]
-
-const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
-  const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
-  if (n === 'calendar') return <svg {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-  if (n === 'lock')     return <svg {...p}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-  if (n === 'unlock')   return <svg {...p}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
-  if (n === 'settings') return <svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-  if (n === 'history')  return <svg {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-  if (n === 'file')     return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-  if (n === 'plus')     return <svg {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-  if (n === 'check')    return <svg {...p}><polyline points="20 6 9 17 4 12"/></svg>
-  if (n === 'x')        return <svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-  return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
-}
-
-const Toggle = ({ label, desc, val, onChange }: { label: string; desc: string; val: boolean; onChange: (v: boolean) => void }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-    <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{desc}</div></div>
-    <div onClick={() => onChange(!val)} style={{ width: 44, height: 24, background: val ? 'var(--green)' : 'var(--surface3)', borderRadius: 12, cursor: 'pointer', position: 'relative', transition: 'background .2s', flexShrink: 0, marginLeft: 16 }}>
-      <div style={{ position: 'absolute', top: 2, left: val ? 22 : 2, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }}></div>
-    </div>
-  </div>
-)
-
-const Section = ({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) => (
-  <div className="card" style={{ marginBottom: 16 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
-      <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--accent-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Ic n={icon} s={16} c="var(--accent)" />
-      </div>
-      <div className="card-title" style={{ margin: 0 }}>{title}</div>
-    </div>
-    {children}
-  </div>
-)
-
-const Pill = ({ status }: { status: string }) => {
-  const colors: Record<string, { bg: string; fg: string }> = {
-    open: { bg: 'rgba(34, 197, 94, 0.15)', fg: '#22c55e' },
-    locked: { bg: 'rgba(234, 179, 8, 0.15)', fg: '#eab308' },
-    closed: { bg: 'rgba(239, 68, 68, 0.15)', fg: '#ef4444' },
-    draft: { bg: 'rgba(156, 163, 175, 0.15)', fg: '#9ca3af' },
-    confirmed: { bg: 'rgba(34, 197, 94, 0.15)', fg: '#22c55e' }
-  }
-  const c = colors[status] || colors.draft
-  return (
-    <span style={{ background: c.bg, color: c.fg, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
-      {status}
-    </span>
-  )
-}
-
-function generateMonthlyPeriods(fiscalYearId: string, startMonth: number, year: number) {
-  const periods: any[] = []
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-  for (let i = 0; i < 12; i++) {
-    const monthIndex = (startMonth - 1 + i) % 12
-    const actualYear = monthIndex < startMonth - 1 && startMonth !== 1 ? year + 1 : year
-    
-    const startDate = new Date(actualYear, monthIndex, 1)
-    const endDate = new Date(actualYear, monthIndex + 1, 0)
-
-    periods.push({
-      fiscal_year_id: fiscalYearId,
-      name: `${monthNames[monthIndex]} ${actualYear}`,
-      period_number: i + 1,
-      start_date: startDate.toISOString().split('T')[0],
-      end_date: endDate.toISOString().split('T')[0],
-      status: 'open'
-    })
-  }
-
-  return periods
+interface PeriodLockLog {
+  id: string;
+  period_id: string;
+  period_name: string;
+  action: 'locked' | 'unlocked' | 'closed';
+  locked_by: string;
+  locked_at: string;
 }
 
 export default function AccountingSettings() {
-  const [activeTab, setActiveTab] = useState<'fiscal' | 'golive' | 'rules' | 'log'>('fiscal')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState('')
-  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [activeTab, setActiveTab] = useState<Tab>('fiscal');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([])
-  const [selectedFY, setSelectedFY] = useState<FiscalYear | null>(null)
-  const [periods, setPeriods] = useState<AccountingPeriod[]>([])
-  const [settings, setSettings] = useState<AcctSettings>(DEFAULT_SETTINGS)
-  const [lockLog, setLockLog] = useState<PeriodLockLogEntry[]>([])
+  // Fiscal Years & Periods
+  const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>([]);
+  const [periods, setPeriods] = useState<AccountingPeriod[]>([]);
+  const [newFYName, setNewFYName] = useState('');
+  const [newFYStart, setNewFYStart] = useState('');
+  const [newFYEnd, setNewFYEnd] = useState('');
+  const [autoLockHistorical, setAutoLockHistorical] = useState(true);
+  const [expandedFY, setExpandedFY] = useState<string | null>(null);
 
-  const [showNewFY, setShowNewFY] = useState(false)
-  const [newFYYear, setNewFYYear] = useState(new Date().getFullYear())
+  // Go-Live Date
+  const [goLiveDate, setGoLiveDate] = useState<GoLiveDate | null>(null);
+  const [newGoLiveDate, setNewGoLiveDate] = useState('');
+  const [openingBalanceStatus, setOpeningBalanceStatus] = useState<'draft' | 'confirmed' | 'locked'>('draft');
 
-  useEffect(() => { loadData() }, [])
-  useEffect(() => { if (selectedFY) loadPeriods(selectedFY.id) }, [selectedFY])
+  // Posting Rules
+  const [postingRules, setPostingRules] = useState<PostingRule | null>(null);
+  const [allowPostingClosed, setAllowPostingClosed] = useState(false);
+  const [backdatingDays, setBackdatingDays] = useState(30);
+  const [requireNarration, setRequireNarration] = useState(false);
+  const [enableEODLock, setEnableEODLock] = useState(false);
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
+  // Period Lock Log
+  const [lockLog, setLockLog] = useState<PeriodLockLog[]>([]);
 
-  async function loadData() {
-    setLoading(true)
+  // Load all data
+  useEffect(() => {
+    loadAllData();
+  }, []);
+
+  const loadAllData = async () => {
     try {
-      const { data: fyData } = await supabase
-        .from('fiscal_years')
-        .select('*')
-        .order('start_date', { ascending: false })
+      setLoading(true);
+      const [fyData, periodsData, goLiveData, rulesData, logData] = await Promise.all([
+        supabase.from('fiscal_years').select('*').order('start_date', { ascending: false }),
+        supabase.from('accounting_periods').select('*').order('start_date', { ascending: true }),
+        supabase.from('go_live_dates').select('*').single().catch(() => ({ data: null, error: null })),
+        supabase.from('posting_rules').select('*').single().catch(() => ({ data: null, error: null })),
+        supabase.from('period_lock_log').select('*').order('locked_at', { ascending: false }),
+      ]);
 
-      if (fyData) {
-        setFiscalYears(fyData)
-        const current = fyData.find(y => y.is_current) || fyData[0]
-        setSelectedFY(current || null)
+      if (fyData.data) setFiscalYears(fyData.data);
+      if (periodsData.data) setPeriods(periodsData.data);
+      if (goLiveData.data) setGoLiveDate(goLiveData.data);
+      if (rulesData.data) {
+        setPostingRules(rulesData.data);
+        setAllowPostingClosed(rulesData.data.allow_posting_to_closed);
+        setBackdatingDays(rulesData.data.allow_backdating_days);
+        setRequireNarration(rulesData.data.require_narration);
+        setEnableEODLock(rulesData.data.enable_eod_lock);
       }
+      if (logData.data) setLockLog(logData.data);
 
-      const { data: sysData } = await supabase
-        .from('system_settings')
-        .select('fiscal_year_start_month, go_live_date, opening_balance_status, allow_posting_to_locked, max_backdate_days, require_narration, eod_lock_enabled')
-        .single()
-
-      if (sysData) {
-        setSettings({ ...DEFAULT_SETTINGS, ...sysData })
-      }
-
-      await loadLockLog()
+      // Clear messages after 4 seconds
+      setTimeout(() => {
+        setError(null);
+        setSuccessMsg(null);
+      }, 4000);
     } catch (err) {
-      console.error('Error loading accounting settings:', err)
+      setError('Failed to load accounting settings');
+      console.error(err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  async function loadPeriods(fyId: string) {
-    const { data } = await supabase
-      .from('accounting_periods')
-      .select('*')
-      .eq('fiscal_year_id', fyId)
-      .order('period_number')
-
-    if (data) setPeriods(data)
-  }
-
-  async function loadLockLog() {
-    const { data } = await supabase
-      .from('period_lock_log')
-      .select('*, period:accounting_periods(name)')
-      .order('performed_at', { ascending: false })
-      .limit(50)
-
-    if (data) setLockLog(data as PeriodLockLogEntry[])
-  }
-
-  async function createFiscalYear() {
-    if (!newFYYear) return
-    setSaving(true)
+  // TAB 1: Fiscal Years & Periods
+  const createFiscalYear = async () => {
+    if (!newFYName || !newFYStart || !newFYEnd) {
+      setError('All fiscal year fields required');
+      return;
+    }
 
     try {
-      const startMonth = settings.fiscal_year_start_month
-      const fyStartDate = `${newFYYear}-${String(startMonth).padStart(2, '0')}-01`
-      const fyEndYear = startMonth === 1 ? newFYYear : newFYYear + 1
-      const fyEndMonth = startMonth === 1 ? 12 : startMonth - 1
-      const fyEndDate = new Date(fyEndYear, fyEndMonth, 0).toISOString().split('T')[0]
+      setLoading(true);
+      const startDate = new Date(newFYStart);
+      const endDate = new Date(newFYEnd);
 
-      const fyName = startMonth === 1 ? `FY ${newFYYear}` : `FY ${newFYYear}/${String(newFYYear + 1).slice(-2)}`
-
-      if (fiscalYears.find(fy => fy.name === fyName)) {
-        showToast(`Fiscal year ${fyName} already exists`, 'error')
-        setSaving(false)
-        return
-      }
-
-      const { data: newFY, error: fyError } = await supabase
+      // Create fiscal year
+      const { data: fy, error: fyError } = await supabase
         .from('fiscal_years')
         .insert({
-          name: fyName,
-          start_date: fyStartDate,
-          end_date: fyEndDate,
+          name: newFYName,
+          start_date: newFYStart,
+          end_date: newFYEnd,
           status: 'open',
-          is_current: fiscalYears.length === 0,
-          created_by: getPostedBy()
+          is_current: false,
         })
         .select()
-        .single()
+        .single();
 
-      if (fyError) throw fyError
+      if (fyError) throw fyError;
 
-      const periodsToInsert = generateMonthlyPeriods(newFY.id, startMonth, newFYYear)
-      const { error: periodsError } = await supabase.from('accounting_periods').insert(periodsToInsert)
-      if (periodsError) throw periodsError
+      // Auto-generate 12 monthly periods
+      const periods_to_insert = [];
+      let currentDate = new Date(startDate);
 
-      showToast(`Created ${fyName} with 12 monthly periods`)
-      setShowNewFY(false)
-      await loadData()
-    } catch (err: any) {
-      showToast(err.message || 'Failed to create fiscal year', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
+      for (let i = 0; i < 12; i++) {
+        const monthStart = new Date(currentDate);
+        const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+        const monthName = monthStart.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-  async function setCurrentFiscalYear(fyId: string) {
-    setSaving(true)
-    try {
-      await supabase.from('fiscal_years').update({ is_current: false }).neq('id', fyId)
-      await supabase.from('fiscal_years').update({ is_current: true }).eq('id', fyId)
-      showToast('Current fiscal year updated')
-      await loadData()
-    } catch (err: any) {
-      showToast(err.message, 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
+        periods_to_insert.push({
+          fiscal_year_id: fy.id,
+          name: monthName,
+          start_date: monthStart.toISOString().split('T')[0],
+          end_date: monthEnd.toISOString().split('T')[0],
+          status: autoLockHistorical && monthEnd < new Date() ? 'locked' : 'open',
+          locked_by: autoLockHistorical && monthEnd < new Date() ? getPostedBy() : null,
+          locked_at: autoLockHistorical && monthEnd < new Date() ? new Date().toISOString() : null,
+        });
 
-  async function handlePeriodAction(period: AccountingPeriod, action: 'lock' | 'unlock' | 'close') {
-    if (action === 'close' && !confirm(`Are you sure you want to CLOSE ${period.name}? This cannot be undone.`)) return
-
-    setSaving(true)
-    try {
-      const now = new Date().toISOString()
-      const user = getPostedBy()
-
-      if (action === 'lock') {
-        await supabase.from('accounting_periods').update({ status: 'locked', locked_by: user, locked_at: now }).eq('id', period.id)
-      } else if (action === 'unlock') {
-        await supabase.from('accounting_periods').update({ status: 'open', locked_by: null, locked_at: null }).eq('id', period.id)
-      } else if (action === 'close') {
-        await supabase.from('accounting_periods').update({ status: 'closed', closed_by: user, closed_at: now }).eq('id', period.id)
+        currentDate.setMonth(currentDate.getMonth() + 1);
       }
 
+      const { error: periodsError } = await supabase.from('accounting_periods').insert(periods_to_insert);
+      if (periodsError) throw periodsError;
+
+      setNewFYName('');
+      setNewFYStart('');
+      setNewFYEnd('');
+      setSuccessMsg(`Fiscal year "${newFYName}" created with 12 periods`);
+      await loadAllData();
+    } catch (err) {
+      setError(`Failed to create fiscal year: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const lockPeriod = async (periodId: string, periodName: string) => {
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('accounting_periods')
+        .update({
+          status: 'locked',
+          locked_by: getPostedBy(),
+          locked_at: new Date().toISOString(),
+        })
+        .eq('id', periodId);
+
+      if (error) throw error;
+
+      // Log the action
       await supabase.from('period_lock_log').insert({
-        period_id: period.id,
-        action: action === 'lock' ? 'locked' : action === 'unlock' ? 'unlocked' : 'closed',
-        previous_status: period.status,
-        new_status: action === 'lock' ? 'locked' : action === 'unlock' ? 'open' : 'closed',
-        performed_by: user
-      })
+        period_id: periodId,
+        period_name: periodName,
+        action: 'locked',
+        locked_by: getPostedBy(),
+        locked_at: new Date().toISOString(),
+      });
 
-      showToast(`Period ${period.name} ${action}ed successfully`)
-      await loadPeriods(selectedFY!.id)
-      await loadLockLog()
-    } catch (err: any) {
-      showToast(err.message, 'error')
+      setSuccessMsg(`${periodName} locked`);
+      await loadAllData();
+    } catch (err) {
+      setError(`Failed to lock period: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
-      setSaving(false)
+      setLoading(false);
     }
-  }
+  };
 
-  async function saveSettings() {
-    setSaving(true)
+  const unlockPeriod = async (periodId: string, periodName: string) => {
     try {
-      const { data: existing } = await supabase.from('system_settings').select('id').limit(1).single()
-      if (existing) {
-        await supabase.from('system_settings').update({
-          fiscal_year_start_month: settings.fiscal_year_start_month,
-          go_live_date: settings.go_live_date,
-          opening_balance_status: settings.opening_balance_status,
-          allow_posting_to_locked: settings.allow_posting_to_locked,
-          max_backdate_days: settings.max_backdate_days,
-          require_narration: settings.require_narration,
-          eod_lock_enabled: settings.eod_lock_enabled
-        }).eq('id', existing.id)
-      }
-      showToast('Settings saved')
-    } catch (err: any) {
-      showToast(err.message, 'error')
+      setLoading(true);
+      const { error } = await supabase
+        .from('accounting_periods')
+        .update({
+          status: 'open',
+          locked_by: null,
+          locked_at: null,
+        })
+        .eq('id', periodId);
+
+      if (error) throw error;
+
+      // Log the action
+      await supabase.from('period_lock_log').insert({
+        period_id: periodId,
+        period_name: periodName,
+        action: 'unlocked',
+        locked_by: getPostedBy(),
+        locked_at: new Date().toISOString(),
+      });
+
+      setSuccessMsg(`${periodName} unlocked`);
+      await loadAllData();
+    } catch (err) {
+      setError(`Failed to unlock period: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
-      setSaving(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const tabs: { id: 'fiscal' | 'golive' | 'rules' | 'log'; label: string; icon: string }[] = [
-    { id: 'fiscal', label: 'Fiscal Year & Periods', icon: 'calendar' },
-    { id: 'golive', label: 'Go-Live / Migration', icon: 'file' },
-    { id: 'rules', label: 'Posting Rules', icon: 'settings' },
-    { id: 'log', label: 'Lock Log', icon: 'history' }
-  ]
+  // TAB 2: Go-Live Date
+  const saveGoLiveDate = async () => {
+    if (!newGoLiveDate) {
+      setError('Go-live date required');
+      return;
+    }
 
-  if (loading) {
-    return (
-      <div className="page">
-        <div className="page-header">
-          <div><div className="page-title">Accounting Settings</div><div className="page-sub">Loading...</div></div>
-        </div>
-      </div>
-    )
-  }
+    try {
+      setLoading(true);
+
+      if (goLiveDate) {
+        // Update
+        const { error } = await supabase
+          .from('go_live_dates')
+          .update({
+            go_live_date: newGoLiveDate,
+            opening_balance_status: openingBalanceStatus,
+          })
+          .eq('id', goLiveDate.id);
+        if (error) throw error;
+      } else {
+        // Insert
+        const { error } = await supabase.from('go_live_dates').insert({
+          go_live_date: newGoLiveDate,
+          opening_balance_status: openingBalanceStatus,
+        });
+        if (error) throw error;
+      }
+
+      setSuccessMsg('Go-live date saved');
+      await loadAllData();
+    } catch (err) {
+      setError(`Failed to save go-live date: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // TAB 3: Posting Rules
+  const savePostingRules = async () => {
+    try {
+      setLoading(true);
+
+      if (postingRules) {
+        // Update
+        const { error } = await supabase
+          .from('posting_rules')
+          .update({
+            allow_posting_to_closed: allowPostingClosed,
+            allow_backdating_days: backdatingDays,
+            require_narration: requireNarration,
+            enable_eod_lock: enableEODLock,
+          })
+          .eq('id', postingRules.id);
+        if (error) throw error;
+      } else {
+        // Insert
+        const { error } = await supabase.from('posting_rules').insert({
+          allow_posting_to_closed: allowPostingClosed,
+          allow_backdating_days: backdatingDays,
+          require_narration: requireNarration,
+          enable_eod_lock: enableEODLock,
+        });
+        if (error) throw error;
+      }
+
+      setSuccessMsg('Posting rules saved');
+      await loadAllData();
+    } catch (err) {
+      setError(`Failed to save posting rules: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearMessages = () => {
+    setError(null);
+    setSuccessMsg(null);
+  };
 
   return (
     <div className="page">
       <div className="page-header">
-        <div>
-          <div className="page-title">Accounting Settings</div>
-          <div className="page-sub">Fiscal years, periods, and posting controls</div>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+        <h1 className="page-title">Accounting Settings</h1>
+        <p className="page-sub">Configure fiscal years, periods, and posting rules</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 20 }}>
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px',
-              background: 'none', border: 'none', cursor: 'pointer',
-              borderBottom: activeTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
-              color: activeTab === tab.id ? 'var(--accent)' : 'var(--text3)',
-              fontWeight: activeTab === tab.id ? 600 : 400, fontSize: 13, transition: 'all .15s'
-            }}
-          >
-            <Ic n={tab.icon} s={14} c={activeTab === tab.id ? 'var(--accent)' : 'var(--text3)'} />
-            {tab.label}
-          </button>
-        ))}
+      {error && (
+        <div style={{
+          backgroundColor: '#ffe0e0',
+          borderLeft: '4px solid #ff4444',
+          padding: '12px 16px',
+          borderRadius: '4px',
+          marginBottom: '20px',
+          color: '#cc0000',
+          fontSize: '14px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          {error}
+          <button onClick={clearMessages} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>×</button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div style={{
+          backgroundColor: '#e0ffe0',
+          borderLeft: '4px solid #44aa44',
+          padding: '12px 16px',
+          borderRadius: '4px',
+          marginBottom: '20px',
+          color: '#006600',
+          fontSize: '14px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          {successMsg}
+          <button onClick={clearMessages} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>×</button>
+        </div>
+      )}
+
+      {/* Tab Navigation */}
+      <div style={{
+        display: 'flex',
+        gap: '12px',
+        borderBottom: '1px solid var(--border)',
+        marginBottom: '24px',
+        paddingBottom: '0'
+      }}>
+        <button
+          onClick={() => setActiveTab('fiscal')}
+          className={activeTab === 'fiscal' ? 'btn btn-primary' : 'btn btn-ghost'}
+          style={{
+            borderBottom: activeTab === 'fiscal' ? '3px solid var(--accent)' : 'none',
+            borderRadius: '0',
+            paddingBottom: '12px'
+          }}
+        >
+          Fiscal Years & Periods
+        </button>
+        <button
+          onClick={() => setActiveTab('golive')}
+          className={activeTab === 'golive' ? 'btn btn-primary' : 'btn btn-ghost'}
+          style={{
+            borderBottom: activeTab === 'golive' ? '3px solid var(--accent)' : 'none',
+            borderRadius: '0',
+            paddingBottom: '12px'
+          }}
+        >
+          Go-Live & Migration
+        </button>
+        <button
+          onClick={() => setActiveTab('rules')}
+          className={activeTab === 'rules' ? 'btn btn-primary' : 'btn btn-ghost'}
+          style={{
+            borderBottom: activeTab === 'rules' ? '3px solid var(--accent)' : 'none',
+            borderRadius: '0',
+            paddingBottom: '12px'
+          }}
+        >
+          Posting Rules
+        </button>
+        <button
+          onClick={() => setActiveTab('log')}
+          className={activeTab === 'log' ? 'btn btn-primary' : 'btn btn-ghost'}
+          style={{
+            borderBottom: activeTab === 'log' ? '3px solid var(--accent)' : 'none',
+            borderRadius: '0',
+            paddingBottom: '12px'
+          }}
+        >
+          Period Lock Log
+        </button>
       </div>
 
+      {/* TAB 1: Fiscal Years & Periods */}
       {activeTab === 'fiscal' && (
         <div>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <FG label="Select Fiscal Year">
-              <select
-                className="form-input"
-                value={selectedFY?.id || ''}
-                onChange={(e) => {
-                  const fy = fiscalYears.find(f => f.id === e.target.value)
-                  setSelectedFY(fy || null)
-                }}
-                style={{ minWidth: 200 }}
-              >
-                {fiscalYears.length === 0 && <option value="">No fiscal years</option>}
-                {fiscalYears.map(fy => (
-                  <option key={fy.id} value={fy.id}>{fy.name} {fy.is_current ? '(Current)' : ''}</option>
-                ))}
-              </select>
-            </FG>
-
-            {selectedFY && !selectedFY.is_current && (
-              <button className="btn" onClick={() => setCurrentFiscalYear(selectedFY.id)} disabled={saving}>
-                Set as Current
-              </button>
-            )}
-
-            <button className="btn btn-primary" onClick={() => setShowNewFY(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Ic n="plus" s={14} c="#fff" /> New Fiscal Year
+          <div className="card" style={{ marginBottom: '24px' }}>
+            <h2 className="card-title">Create Fiscal Year</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  Fiscal Year Name
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. FY 2026"
+                  value={newFYName}
+                  onChange={(e) => setNewFYName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={newFYStart}
+                  onChange={(e) => setNewFYStart(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={newFYEnd}
+                  onChange={(e) => setNewFYEnd(e.target.value)}
+                />
+              </div>
+            </div>
+            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                id="autoLock"
+                checked={autoLockHistorical}
+                onChange={(e) => setAutoLockHistorical(e.target.checked)}
+              />
+              <label htmlFor="autoLock" style={{ fontSize: '14px' }}>
+                Auto-lock historical periods (lock periods before today)
+              </label>
+            </div>
+            <button
+              onClick={createFiscalYear}
+              disabled={loading}
+              className="btn btn-primary"
+            >
+              {loading ? 'Creating...' : 'Create Fiscal Year'}
             </button>
           </div>
 
-          {showNewFY && (
-            <Section icon="calendar" title="Create New Fiscal Year">
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <FG label="Year">
-                  <input type="number" className="form-input" value={newFYYear} onChange={(e) => setNewFYYear(parseInt(e.target.value))} min={2020} max={2030} style={{ width: 100 }} />
-                </FG>
-                <FG label="Start Month">
-                  <select className="form-input" value={settings.fiscal_year_start_month} onChange={(e) => setSettings({ ...settings, fiscal_year_start_month: parseInt(e.target.value) })} style={{ width: 140 }}>
-                    {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                </FG>
-                <button className="btn btn-primary" onClick={createFiscalYear} disabled={saving}>{saving ? 'Creating...' : 'Create'}</button>
-                <button className="btn btn-ghost" onClick={() => setShowNewFY(false)}>Cancel</button>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 10 }}>
-                This will create a fiscal year starting {MONTHS.find(m => m.value === settings.fiscal_year_start_month)?.label} {newFYYear} with 12 monthly periods.
-              </div>
-            </Section>
-          )}
+          <div style={{ marginTop: '24px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '16px' }}>Fiscal Years</h2>
+            {fiscalYears.length === 0 ? (
+              <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '40px' }}>No fiscal years created yet</p>
+            ) : (
+              fiscalYears.map((fy) => (
+                <div key={fy.id} className="card" style={{ marginBottom: '16px' }}>
+                  <div
+                    onClick={() => setExpandedFY(expandedFY === fy.id ? null : fy.id)}
+                    style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div>
+                      <h3 className="card-title" style={{ marginBottom: '4px' }}>{fy.name}</h3>
+                      <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
+                        {new Date(fy.start_date).toLocaleDateString()} to {new Date(fy.end_date).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <span style={{ fontSize: '18px', color: 'var(--muted)' }}>
+                      {expandedFY === fy.id ? '−' : '+'}
+                    </span>
+                  </div>
 
-          {selectedFY && (
-            <Section icon="calendar" title={`Accounting Periods - ${selectedFY.name}`}>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={{ width: 40 }}>#</th>
-                      <th>Period</th>
-                      <th>Start</th>
-                      <th>End</th>
-                      <th>Status</th>
-                      <th>Locked By</th>
-                      <th>Locked At</th>
-                      <th style={{ width: 160 }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {periods.length === 0 ? (
-                      <tr><td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--text3)' }}>No periods. Create a fiscal year first.</td></tr>
-                    ) : (
-                      periods.map((p) => (
-                        <tr key={p.id}>
-                          <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{p.period_number}</td>
-                          <td className="td-bold">{p.name}</td>
-                          <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{p.start_date}</td>
-                          <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{p.end_date}</td>
-                          <td><Pill status={p.status} /></td>
-                          <td style={{ fontSize: 11, color: 'var(--text3)' }}>{p.locked_by || '-'}</td>
-                          <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{p.locked_at ? new Date(p.locked_at).toLocaleDateString() : '-'}</td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 4 }}>
-                              {p.status === 'open' && (
-                                <button className="btn btn-ghost btn-sm" onClick={() => handlePeriodAction(p, 'lock')} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                  <Ic n="lock" s={12} /> Lock
-                                </button>
-                              )}
-                              {p.status === 'locked' && (
-                                <>
-                                  <button className="btn btn-ghost btn-sm" onClick={() => handlePeriodAction(p, 'unlock')} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                    <Ic n="unlock" s={12} /> Unlock
+                  {expandedFY === fy.id && (
+                    <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {periods
+                          .filter((p) => p.fiscal_year_id === fy.id)
+                          .map((period) => (
+                            <div
+                              key={period.id}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '10px',
+                                backgroundColor: 'var(--surface2)',
+                                borderRadius: '4px',
+                                fontSize: '14px'
+                              }}
+                            >
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: '500', marginBottom: '2px' }}>{period.name}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                                  {new Date(period.start_date).toLocaleDateString()} to{' '}
+                                  {new Date(period.end_date).toLocaleDateString()}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span
+                                  className="pill"
+                                  style={{
+                                    padding: '4px 10px',
+                                    backgroundColor:
+                                      period.status === 'open'
+                                        ? 'rgba(132, 194, 190, 0.2)'
+                                        : period.status === 'locked'
+                                        ? 'rgba(255, 102, 102, 0.2)'
+                                        : 'rgba(100, 100, 100, 0.2)',
+                                    color:
+                                      period.status === 'open'
+                                        ? '#006633'
+                                        : period.status === 'locked'
+                                        ? '#990000'
+                                        : '#666666',
+                                    fontSize: '12px',
+                                    fontWeight: '500',
+                                    borderRadius: '3px'
+                                  }}
+                                >
+                                  {period.status}
+                                </span>
+                                {period.status === 'open' && (
+                                  <button
+                                    onClick={() => lockPeriod(period.id, period.name)}
+                                    disabled={loading}
+                                    className="btn btn-sm"
+                                    style={{ fontSize: '12px', padding: '6px 12px' }}
+                                  >
+                                    Lock
                                   </button>
-                                  <button className="btn btn-ghost btn-sm" onClick={() => handlePeriodAction(p, 'close')} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#ef4444' }}>
-                                    <Ic n="x" s={12} c="#ef4444" /> Close
+                                )}
+                                {period.status === 'locked' && (
+                                  <button
+                                    onClick={() => unlockPeriod(period.id, period.name)}
+                                    disabled={loading}
+                                    className="btn btn-sm"
+                                    style={{ fontSize: '12px', padding: '6px 12px' }}
+                                  >
+                                    Unlock
                                   </button>
-                                </>
-                              )}
-                              {p.status === 'closed' && (
-                                <span style={{ fontSize: 11, color: 'var(--text3)' }}>Closed</span>
-                              )}
+                                )}
+                              </div>
                             </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Section>
-          )}
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
 
+      {/* TAB 2: Go-Live & Migration */}
       {activeTab === 'golive' && (
-        <div className="grid g2" style={{ gap: 16 }}>
-          <Section icon="file" title="Go-Live Date">
-            <FG label="Go-Live Date">
-              <input
-                type="date"
-                className="form-input"
-                value={settings.go_live_date || ''}
-                onChange={(e) => setSettings({ ...settings, go_live_date: e.target.value || null })}
-                style={{ maxWidth: 200 }}
-              />
-            </FG>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-              The date MalkiaOS takes over as the system of record. Historical data before this date will be imported from Tally.
+        <div>
+          <div className="card">
+            <h2 className="card-title">Go-Live & Migration Date</h2>
+            <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '16px' }}>
+              Set the date when MalkiaOS becomes the system of record. This is informational and does not automatically lock periods.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  Go-Live Date
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={newGoLiveDate || (goLiveDate?.go_live_date || '')}
+                  onChange={(e) => setNewGoLiveDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  Opening Balance Status
+                </label>
+                <select
+                  className="form-input"
+                  value={openingBalanceStatus}
+                  onChange={(e) => setOpeningBalanceStatus(e.target.value as 'draft' | 'confirmed' | 'locked')}
+                >
+                  <option value="draft">Draft</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="locked">Locked</option>
+                </select>
+              </div>
             </div>
-          </Section>
+            <button
+              onClick={saveGoLiveDate}
+              disabled={loading}
+              className="btn btn-primary"
+            >
+              {loading ? 'Saving...' : 'Save Go-Live Date'}
+            </button>
 
-          <Section icon="check" title="Opening Balance Status">
-            <FG label="Status">
-              <select
-                className="form-input"
-                value={settings.opening_balance_status}
-                onChange={(e) => setSettings({ ...settings, opening_balance_status: e.target.value as any })}
-                style={{ maxWidth: 200 }}
-              >
-                <option value="draft">Draft</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="locked">Locked</option>
-              </select>
-            </FG>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-              Draft: Still importing. Confirmed: Ready for review. Locked: Final, no changes allowed.
-            </div>
-          </Section>
+            {goLiveDate && (
+              <div style={{ marginTop: '24px', padding: '16px', backgroundColor: 'var(--surface2)', borderRadius: '4px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Current Setting</h3>
+                <p style={{ fontSize: '14px', marginBottom: '4px' }}>
+                  <strong>Go-Live Date:</strong> {new Date(goLiveDate.go_live_date).toLocaleDateString()}
+                </p>
+                <p style={{ fontSize: '14px' }}>
+                  <strong>Opening Balance Status:</strong> {goLiveDate.opening_balance_status}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
+      {/* TAB 3: Posting Rules */}
       {activeTab === 'rules' && (
-        <div style={{ maxWidth: 600 }}>
-          <Section icon="settings" title="Posting Rules">
-            <Toggle
-              label="Allow posting to locked periods"
-              desc="When enabled, Super Admins can post to locked periods. Not recommended for production use."
-              val={settings.allow_posting_to_locked}
-              onChange={(v) => setSettings({ ...settings, allow_posting_to_locked: v })}
-            />
+        <div>
+          <div className="card">
+            <h2 className="card-title">Posting Rules</h2>
+            <p style={{ color: 'var(--muted)', fontSize: '14px', marginBottom: '16px' }}>
+              Configure rules for posting vouchers. Only Super Admins can bypass these rules.
+            </p>
 
-            <div style={{ padding: '16px 0', borderBottom: '1px solid var(--border)' }}>
-              <FG label="Maximum Backdating (days)">
+            <div style={{ display: 'grid', gap: '16px' }}>
+              <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '500' }}>
+                  <input
+                    type="checkbox"
+                    checked={allowPostingClosed}
+                    onChange={(e) => setAllowPostingClosed(e.target.checked)}
+                  />
+                  Allow posting to closed periods (Super Admin only)
+                </label>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '6px' }}>
+                  If disabled, no one can post to closed periods, not even Super Admin
+                </p>
+              </div>
+
+              <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  Block posting older than (days)
+                </label>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '8px' }}>
+                  Regular users cannot post beyond this limit. Super Admin can override.
+                </p>
                 <input
                   type="number"
                   className="form-input"
-                  value={settings.max_backdate_days}
-                  onChange={(e) => setSettings({ ...settings, max_backdate_days: parseInt(e.target.value) || 0 })}
-                  min={0}
-                  max={365}
-                  style={{ width: 100 }}
+                  value={backdatingDays}
+                  onChange={(e) => setBackdatingDays(parseInt(e.target.value) || 30)}
+                  min="0"
+                  max="365"
                 />
-              </FG>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
-                How many days back users can post. Set to 0 to disable backdating.
+              </div>
+
+              <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '500' }}>
+                  <input
+                    type="checkbox"
+                    checked={requireNarration}
+                    onChange={(e) => setRequireNarration(e.target.checked)}
+                  />
+                  Require narration on all journal entries
+                </label>
+              </div>
+
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '500' }}>
+                  <input
+                    type="checkbox"
+                    checked={enableEODLock}
+                    onChange={(e) => setEnableEODLock(e.target.checked)}
+                  />
+                  Enable end-of-day lock (Super Admin only)
+                </label>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '6px' }}>
+                  Prevents posting after 5 PM unless Super Admin overrides
+                </p>
               </div>
             </div>
 
-            <Toggle
-              label="Require narration on journal entries"
-              desc="Journal vouchers must have a description before posting."
-              val={settings.require_narration}
-              onChange={(v) => setSettings({ ...settings, require_narration: v })}
-            />
-
-            <Toggle
-              label="Enable end-of-day lock"
-              desc="When enabled, posting for previous days is blocked after EOD process runs."
-              val={settings.eod_lock_enabled}
-              onChange={(v) => setSettings({ ...settings, eod_lock_enabled: v })}
-            />
-          </Section>
+            <button
+              onClick={savePostingRules}
+              disabled={loading}
+              className="btn btn-primary"
+              style={{ marginTop: '24px' }}
+            >
+              {loading ? 'Saving...' : 'Save Posting Rules'}
+            </button>
+          </div>
         </div>
       )}
 
+      {/* TAB 4: Period Lock Log */}
       {activeTab === 'log' && (
-        <Section icon="history" title="Period Lock Log">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date/Time</th>
-                  <th>Period</th>
-                  <th>Action</th>
-                  <th>Previous</th>
-                  <th>New</th>
-                  <th>By</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lockLog.length === 0 ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--text3)' }}>No lock/unlock actions recorded yet.</td></tr>
-                ) : (
-                  lockLog.map((entry) => (
-                    <tr key={entry.id}>
-                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{new Date(entry.performed_at).toLocaleString()}</td>
-                      <td className="td-bold">{entry.period?.name || 'Unknown'}</td>
-                      <td>
-                        <span style={{
-                          padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-                          background: entry.action === 'locked' ? 'rgba(234,179,8,.15)' : entry.action === 'unlocked' ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)',
-                          color: entry.action === 'locked' ? '#eab308' : entry.action === 'unlocked' ? '#22c55e' : '#ef4444'
-                        }}>
-                          {entry.action}
-                        </span>
-                      </td>
-                      <td><Pill status={entry.previous_status} /></td>
-                      <td><Pill status={entry.new_status} /></td>
-                      <td style={{ fontSize: 11 }}>{entry.performed_by}</td>
-                      <td style={{ fontSize: 11, color: 'var(--text3)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.reason || '-'}</td>
+        <div>
+          <div className="card">
+            <h2 className="card-title">Period Lock Audit Trail</h2>
+            {lockLog.length === 0 ? (
+              <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '40px' }}>No lock actions recorded yet</p>
+            ) : (
+              <div className="table-wrap" style={{ marginTop: '16px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: '600' }}>Period</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: '600' }}>Action</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: '600' }}>Locked By</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: '600' }}>Date & Time</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {lockLog.map((log) => (
+                      <tr key={log.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '12px' }}>{log.period_name}</td>
+                        <td style={{ padding: '12px' }}>
+                          <span
+                            className="pill"
+                            style={{
+                              padding: '4px 10px',
+                              backgroundColor:
+                                log.action === 'locked'
+                                  ? 'rgba(255, 102, 102, 0.2)'
+                                  : log.action === 'unlocked'
+                                  ? 'rgba(132, 194, 190, 0.2)'
+                                  : 'rgba(100, 100, 100, 0.2)',
+                              color:
+                                log.action === 'locked'
+                                  ? '#990000'
+                                  : log.action === 'unlocked'
+                                  ? '#006633'
+                                  : '#666666',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              borderRadius: '3px'
+                            }}
+                          >
+                            {log.action}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px' }}>{log.locked_by}</td>
+                        <td style={{ padding: '12px', fontSize: '13px', color: 'var(--muted)' }}>
+                          {new Date(log.locked_at).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </Section>
+        </div>
       )}
-
-      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
-  )
+  );
 }
