@@ -87,52 +87,62 @@ export default function CRMPreorders({ onNav }: Props) {
 
   const loadData = async () => {
     setLoading(true)
+    try {
+      // Load pre-order campaigns from database
+      const { data: preorderData, error } = await supabase
+        .from('pre_order_campaigns')
+        .select(`
+          id, name, product_id, target, orders_received, 
+          deposit_percent, min_deposit, total_deposits,
+          close_date, eta_date, status, created_at,
+          products (name),
+          pre_order_customers (
+            id, customer_id, phone, tier, deposit_amount, 
+            paid_at, reminder_sent,
+            customers (name)
+          )
+        `)
+        .order('status', { ascending: false })
+        .order('close_date', { ascending: true })
 
-    // Demo data
-    const demoCampaigns: Campaign[] = [
-      {
-        id: '1',
-        name: 'Frida Mom Postpartum Bundle',
-        product: 'Frida Mom Recovery Kit',
-        target: 50,
-        orders: 38,
-        depositPercent: 30,
-        minDeposit: 75000,
-        totalDeposits: 3800000,
-        closeDate: 'Mar 25, 2026',
-        eta: 'Apr 10, 2026',
-        status: 'active',
-        customers: [
-          { id: 'c1', name: 'Amina Hassan', phone: '+255 712 345 678', tier: 'crown', deposit: 100000, paidAt: 'Mar 10', reminderSent: false },
-          { id: 'c2', name: 'Grace Mwanza', phone: '+255 754 987 654', tier: 'crown', deposit: 100000, paidAt: 'Mar 12', reminderSent: false },
-          { id: 'c3', name: 'Zainab Ally', phone: '+255 698 111 222', tier: 'gold', deposit: 75000, paidAt: 'Mar 14', reminderSent: true },
-          { id: 'c4', name: 'Fatuma Iddi', phone: '+255 621 445 889', tier: 'mama', deposit: 75000, paidAt: 'Mar 15', reminderSent: false },
-        ]
-      },
-      {
-        id: '2',
-        name: 'U-Shape Pillow Restock',
-        product: 'U-Shape Pregnancy Pillow',
-        target: 40,
-        orders: 27,
-        depositPercent: 30,
-        minDeposit: 50000,
-        totalDeposits: 2160000,
-        closeDate: 'Mar 30, 2026',
-        eta: 'Apr 15, 2026',
-        status: 'active',
-        customers: [
-          { id: 'c5', name: 'Neema Omari', phone: '+255 765 432 100', tier: 'gold', deposit: 60000, paidAt: 'Mar 18', reminderSent: false },
-          { id: 'c6', name: 'Halima Juma', phone: '+255 788 222 333', tier: 'mama', deposit: 50000, paidAt: 'Mar 19', reminderSent: true },
-        ]
-      },
-      {
-        id: '3',
-        name: 'Spectra S1 Pump Limited',
-        product: 'Spectra S1 Plus Breast Pump',
-        target: 25,
-        orders: 25,
-        depositPercent: 40,
+      if (error) throw error
+
+      // Transform database records to Campaign format
+      const campaigns: Campaign[] = (preorderData || []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        product: row.products?.name || 'Product',
+        target: row.target || 0,
+        orders: row.orders_received || 0,
+        depositPercent: row.deposit_percent || 30,
+        minDeposit: row.min_deposit || 0,
+        totalDeposits: row.total_deposits || 0,
+        closeDate: row.close_date ? new Date(row.close_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD',
+        eta: row.eta_date ? new Date(row.eta_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD',
+        status: row.status || 'active',
+        customers: (row.pre_order_customers || []).map((cust: any) => ({
+          id: cust.id,
+          name: cust.customers?.name || cust.customer_id,
+          phone: cust.phone || '',
+          tier: cust.tier || 'mama',
+          deposit: cust.deposit_amount || 0,
+          paidAt: cust.paid_at ? new Date(cust.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Pending',
+          reminderSent: cust.reminder_sent || false,
+        }))
+      }))
+
+      setCampaigns(campaigns)
+      if (campaigns.length > 0) {
+        setSelectedCampaign(campaigns[0])
+      }
+    } catch (err) {
+      console.error('Failed to load pre-order campaigns:', err)
+      // If no data in database, show empty state (not demo data)
+      setCampaigns([])
+    } finally {
+      setLoading(false)
+    }
+  }
         minDeposit: 120000,
         totalDeposits: 3750000,
         closeDate: 'Mar 20, 2026',
