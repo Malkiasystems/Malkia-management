@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode, useEffect, useRef } from 'react'
+import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
@@ -240,72 +240,11 @@ function AppContent() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
-  const { permissions, loading: authLoading, isAuthenticated, refreshUser, signOut } = useAuth()
-  
-  // Track user activity for 30-minute inactivity timeout
-  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const INACTIVITY_TIMEOUT = 30 * 60 * 1000 // 30 minutes
-
-  // Initialize page from localStorage on mount
-  useEffect(() => {
-    const savedPage = localStorage.getItem('currentPage')
-    if (savedPage && isAuthenticated) {
-      setPage(savedPage as Page)
-    }
-  }, [isAuthenticated])
-
-  // Save current page to localStorage whenever it changes
-  useEffect(() => {
-    if (isAuthenticated && page !== 'dashboard') {
-      localStorage.setItem('currentPage', page)
-    }
-  }, [page, isAuthenticated])
-
-  // Reset inactivity timer on user activity
-  const resetInactivityTimer = useCallback(() => {
-    if (!isAuthenticated) return
-
-    // Clear existing timer
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current)
-    }
-
-    // Set new timer
-    inactivityTimerRef.current = setTimeout(async () => {
-      console.log('User inactive for 30 minutes. Logging out.')
-      await signOut()
-      localStorage.removeItem('currentPage')
-    }, INACTIVITY_TIMEOUT)
-  }, [isAuthenticated, signOut])
-
-  // Track activity and reset timer
-  useEffect(() => {
-    if (!isAuthenticated) return
-
-    // Start initial timer
-    resetInactivityTimer()
-
-    // Track various user activities
-    const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click']
-    
-    events.forEach(event => {
-      window.addEventListener(event, resetInactivityTimer, true)
-    })
-
-    return () => {
-      events.forEach(event => {
-        window.removeEventListener(event, resetInactivityTimer, true)
-      })
-      if (inactivityTimerRef.current) {
-        clearTimeout(inactivityTimerRef.current)
-      }
-    }
-  }, [isAuthenticated, resetInactivityTimer])
+  const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
     setPage(p)
-    localStorage.setItem('currentPage', p)
   }
 
   const navigateToEdit = (p: Page, voucherId: string) => {
@@ -318,7 +257,6 @@ function AppContent() {
     const prev = history[history.length - 1]
     setHistory(h => h.slice(0, -1))
     setPage(prev)
-    localStorage.setItem('currentPage', prev)
   }
 
   // Show loading while checking auth
@@ -402,7 +340,7 @@ function AppContent() {
       // CRM Module Routes
       case 'crm':
       case 'crm-hub':           return <CRMHub onNav={navigate} />
-      case 'crm-inbox':         return <CRMInbox onNav={navigate} />
+      case 'crm-inbox':         return <CRMInbox />
       case 'crm-automations':   return <CRMAutomations onNav={navigate} />
       case 'crm-preorders':     return <CRMPreorders onNav={navigate} />
       case 'crm-referrals':     return <CRMReferrals onNav={navigate} />
