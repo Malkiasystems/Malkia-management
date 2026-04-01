@@ -242,12 +242,12 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'balance-sheet': ['reports.view'],
   'ar-aging': ['reports.view'],
   'ap-aging': ['reports.view'],
-  'vat-report': ['reports.view'],
   'stock-valuation': ['reports.view'],
   'purchase-register': ['reports.view'],
   'payment-register': ['reports.view'],
   'stock-transfer-register': ['reports.view'],
   'data-import': ['settings.edit'],
+  'report-templates': ['settings.edit'],
 }
 
 export function canAccessPage(page: string, permissions: string[]): boolean {
