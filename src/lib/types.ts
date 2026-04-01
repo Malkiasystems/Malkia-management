@@ -8,7 +8,7 @@ export type Page =
   | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry'
   | 'sales' | 'inventory' | 'reports' | 'pnl'
   | 'sales-register' | 'sales-day-book' | 'trial-balance' | 'balance-sheet'
-  | 'ar-aging' | 'ap-aging' | 'vat-report' | 'stock-valuation'
+  | 'ar-aging' | 'ap-aging' | 'stock-valuation'
   | 'purchase-register' | 'payment-register' | 'stock-transfer-register' | 'customers'
   | 'receipt-template' | 'invoice-template'
   | 'whatsapp-settings' | 'location-settings'
@@ -20,7 +20,7 @@ export type Page =
   | 'crm-referrals' | 'crm-loyalty' | 'crm-feedback' | 'crm-upsell'
   | 'crm-customers'
   // Settings Pages
-  | 'accounting-settings' | 'display-settings'
+  | 'accounting-settings' | 'display-settings' | 'report-templates'
   // User Management & Approvals
   | 'users' | 'approvals'
 
