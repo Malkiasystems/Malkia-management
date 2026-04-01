@@ -38,6 +38,14 @@ export default function SalesDayBook({ onEdit }: Props) {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
 
+  // Expenses for PDF
+  const [expenses, setExpenses] = useState<{ref:string;description:string;total_amount:number;payment_method:string;notes:string}[]>([])
+
+  // PDF template settings
+  const [tplSettings, setTplSettings] = useState<{logo_url:string|null;logo_position:string;logo_width:number;company_name:string;company_tagline:string;primary_color:string}>({
+    logo_url: null, logo_position: 'left', logo_width: 120, company_name: 'Malkia Wellness Group Ltd', company_tagline: 'Reimagining Motherhood', primary_color: '#85c2be'
+  })
+
   // Filters
   const today = new Date().toISOString().split('T')[0]
   const [fromDate, setFromDate] = useState(today)
@@ -54,7 +62,7 @@ export default function SalesDayBook({ onEdit }: Props) {
   const catPredicate = makeCategoryPredicate(filterCat, _cats)
   const [showFilters, setShowFilters] = useState(false)
 
-  useEffect(() => { loadSales() }, [])
+  useEffect(() => { loadSales(); loadTplSettings() }, [])
 
   const loadSales = async (from?: string, to?: string) => {
     setLoading(true)
@@ -82,7 +90,24 @@ export default function SalesDayBook({ onEdit }: Props) {
 
     const { data, error } = await query
     if (!error && data) setSales(data as any)
+    // Also load expenses for this period
+    loadExpenses(f, t)
     setLoading(false)
+  }
+
+  const loadExpenses = async (from: string, to: string) => {
+    const { data } = await supabase.from('vouchers')
+      .select('ref, description, total_amount, payment_method, notes')
+      .in('type', ['cash_payment', 'bank_payment', 'petty_cash'])
+      .gte('posting_date', from).lte('posting_date', to)
+      .eq('status', 'posted')
+      .order('created_at', { ascending: false })
+    if (data) setExpenses(data as any)
+  }
+
+  const loadTplSettings = async () => {
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'report_templates').single()
+    if (data?.value) { try { const p = JSON.parse(data.value); setTplSettings(s => ({ ...s, ...p })) } catch {} }
   }
 
   // Client-side filtering
@@ -115,6 +140,14 @@ export default function SalesDayBook({ onEdit }: Props) {
   filtered.forEach(s => {
     const methods = (s.payment_method || 'Cash').split('+')
     methods.forEach(m => { const key = m.trim(); paymentSplit[key] = (paymentSplit[key] || 0) + (s.total_amount || 0) / methods.length })
+  })
+
+  // Expense split by payment method (bank)
+  const totalExpenses = expenses.reduce((s, e) => s + (e.total_amount || 0), 0)
+  const expenseSplit: Record<string, number> = {}
+  expenses.forEach(e => {
+    const key = e.payment_method || 'Cash'
+    expenseSplit[key] = (expenseSplit[key] || 0) + (e.total_amount || 0)
   })
 
   const clearFilters = () => {
@@ -152,10 +185,31 @@ export default function SalesDayBook({ onEdit }: Props) {
   const exportPDF = () => {
     if (filtered.length === 0) return
     const now = new Date().toLocaleString('en-GB')
-    const paymentRows = Object.entries(paymentSplit).map(([method, amount]) => {
+    const t = tplSettings
+    const pc = t.primary_color || '#85c2be'
+
+    // Logo HTML
+    const logoHtml = t.logo_url
+      ? `<img src="${t.logo_url}" alt="Logo" style="width:${t.logo_width}px;height:auto;object-fit:contain" />`
+      : `<div class="logo-mark"><div class="logo-inner"></div></div>`
+    const logoAlign = t.logo_position === 'center' ? 'center' : t.logo_position === 'right' ? 'flex-end' : 'flex-start'
+
+    // Banking summary rows (sales received by bank/method)
+    const bankingRows = Object.entries(paymentSplit).map(([method, amount]) => {
       const pct = totalRevenue > 0 ? ((amount / totalRevenue) * 100).toFixed(0) : '0'
       return `<tr><td>${method}</td><td class="num">${Math.round(amount).toLocaleString()}</td><td class="num">${pct}%</td></tr>`
     }).join('')
+
+    // Expense summary rows
+    const expenseRows = expenses.map(e =>
+      `<tr><td class="ref">${e.ref}</td><td>${e.description || '—'}</td><td>${e.payment_method || 'Cash'}</td><td class="num">${(e.total_amount || 0).toLocaleString()}</td></tr>`
+    ).join('')
+    const expenseBankRows = Object.entries(expenseSplit).map(([method, amount]) => {
+      const pct = totalExpenses > 0 ? ((amount / totalExpenses) * 100).toFixed(0) : '0'
+      return `<tr><td>${method}</td><td class="num">${Math.round(amount).toLocaleString()}</td><td class="num">${pct}%</td></tr>`
+    }).join('')
+
+    // Transaction rows
     const tableRows = filtered.map(s =>
       `<tr>
         <td>${s.posting_date}</td>
@@ -176,20 +230,21 @@ export default function SalesDayBook({ onEdit }: Props) {
       <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:'Instrument Sans','Helvetica Neue',sans-serif;color:#1a1a1a;padding:0;background:#fff}
-        .page{max-width:1000px;margin:0 auto;padding:32px 40px}
-        .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:3px solid #85c2be}
-        .logo-area{display:flex;align-items:center;gap:14}
-        .logo-mark{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#85c2be,#f7a6ad);display:flex;align-items:center;justify-content:center}
-        .logo-inner{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.4)}
-        .company-name{font-family:'Syne',serif;font-size:18px;font-weight:800;letter-spacing:-.3px}
-        .company-sub{font-size:10px;color:#999;margin-top:2px}
-        .doc-title{font-family:'Syne',serif;font-size:20px;font-weight:800;text-align:right}
-        .doc-meta{font-family:'DM Mono',monospace;font-size:10px;color:#999;text-align:right;margin-top:4px;line-height:1.6}
+        .page{max-width:1000px;margin:0 auto;padding:0}
+        .header{display:flex;justify-content:space-between;align-items:center;padding:24px 40px;background:${pc};color:#fff}
+        .logo-area{display:flex;align-items:center;gap:14;justify-content:${logoAlign}}
+        .logo-mark{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center}
+        .logo-inner{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.5)}
+        .company-name{font-family:'Syne',serif;font-size:20px;font-weight:800;letter-spacing:-.3px;color:#fff}
+        .company-sub{font-size:10px;color:rgba(255,255,255,.75);margin-top:3px}
+        .doc-title{font-family:'Syne',serif;font-size:22px;font-weight:800;text-align:right;color:#fff}
+        .doc-meta{font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.7);text-align:right;margin-top:4px;line-height:1.6}
+        .content{padding:28px 40px}
         .stats{display:flex;gap:12px;margin-bottom:24px}
         .stat{flex:1;background:#f9f9f9;border:1px solid #eee;border-radius:10px;padding:14px 16px}
         .stat-label{font-family:'DM Mono',monospace;font-size:9px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
         .stat-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700}
-        .stat-val.green{color:#1a7a4a} .stat-val.blue{color:#2563eb} .stat-val.amber{color:#d48744}
+        .stat-val.green{color:#1a7a4a} .stat-val.blue{color:#2563eb} .stat-val.amber{color:#d48744} .stat-val.red{color:#c0392b}
         .section-title{font-family:'Syne',serif;font-size:13px;font-weight:700;margin-bottom:10px;color:#333}
         .split-grid{display:flex;gap:20px;margin-bottom:24px}
         .split-grid>div{flex:1}
@@ -205,16 +260,20 @@ export default function SalesDayBook({ onEdit }: Props) {
         .total-row{background:#f5f5f5;font-weight:700}
         .total-row td{padding:10px;border-top:2px solid #ddd}
         .footer{margin-top:24px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;display:flex;justify-content:space-between}
-        @media print{body{padding:0}.page{padding:20px}@page{margin:15mm 12mm}}
+        .net-bar{display:flex;gap:12px;margin-bottom:24px;padding:16px 20px;background:#f0faf7;border:1px solid ${pc}40;border-radius:10px}
+        .net-bar>div{flex:1;text-align:center}
+        .net-label{font-size:9px;color:#888;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px}
+        .net-val{font-family:'DM Mono',monospace;font-size:16px;font-weight:700}
+        @media print{body{padding:0}.content{padding:20px 30px}@page{margin:10mm 8mm}.header{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
       </style>
     </head><body>
       <div class="page">
         <div class="header">
           <div class="logo-area">
-            <div class="logo-mark"><div class="logo-inner"></div></div>
+            ${logoHtml}
             <div>
-              <div class="company-name">Malkia Wellness Group Ltd</div>
-              <div class="company-sub">Dar es Salaam, Tanzania · Sales Day Book</div>
+              <div class="company-name">${t.company_name}</div>
+              <div class="company-sub">${t.company_tagline} · Sales Day Book</div>
             </div>
           </div>
           <div>
@@ -223,30 +282,41 @@ export default function SalesDayBook({ onEdit }: Props) {
           </div>
         </div>
 
+        <div class="content">
         <div class="stats">
           <div class="stat"><div class="stat-label">Revenue</div><div class="stat-val green">TZS ${totalRevenue.toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-label">Expenses</div><div class="stat-val red">TZS ${totalExpenses.toLocaleString()}</div></div>
           <div class="stat"><div class="stat-label">Transactions</div><div class="stat-val">${filtered.length}</div></div>
-          <div class="stat"><div class="stat-label">Avg Sale</div><div class="stat-val blue">TZS ${filtered.length > 0 ? Math.round(totalRevenue / filtered.length).toLocaleString() : '0'}</div></div>
           <div class="stat"><div class="stat-label">Gross Margin</div><div class="stat-val green">${marginPct}%</div></div>
+        </div>
+
+        <div class="net-bar">
+          <div><div class="net-label">Sales In</div><div class="net-val" style="color:#1a7a4a">TZS ${totalRevenue.toLocaleString()}</div></div>
+          <div><div class="net-label">Expenses Out</div><div class="net-val" style="color:#c0392b">TZS ${totalExpenses.toLocaleString()}</div></div>
+          <div><div class="net-label">Net Position</div><div class="net-val" style="color:${totalRevenue - totalExpenses >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${(totalRevenue - totalExpenses).toLocaleString()}</div></div>
         </div>
 
         <div class="split-grid">
           <div>
-            <div class="section-title">Payment Breakdown</div>
-            <table><thead><tr><th>Method</th><th class="num">Amount (TZS)</th><th class="num">Share</th></tr></thead>
-            <tbody>${paymentRows}</tbody>
-            <tfoot><tr class="total-row"><td>Total</td><td class="num">${totalRevenue.toLocaleString()}</td><td class="num">100%</td></tr></tfoot>
+            <div class="section-title">Banking Summary</div>
+            <table><thead><tr><th>Method / Bank</th><th class="num">Received (TZS)</th><th class="num">Share</th></tr></thead>
+            <tbody>${bankingRows}</tbody>
+            <tfoot><tr class="total-row"><td>Total Received</td><td class="num">${totalRevenue.toLocaleString()}</td><td class="num">100%</td></tr></tfoot>
             </table>
           </div>
           <div>
-            <div class="section-title">Status Summary</div>
-            <table><thead><tr><th>Status</th><th class="num">Count</th></tr></thead>
-            <tbody>
-              <tr><td><span class="pill pill-g">Posted</span></td><td class="num">${postedCount}</td></tr>
-              <tr><td><span class="pill pill-y">POD Pending</span></td><td class="num">${podCount}</td></tr>
-            </tbody>
-            <tfoot><tr class="total-row"><td>Total</td><td class="num">${filtered.length}</td></tr></tfoot>
-            </table>
+            <div class="section-title">Expense Summary</div>
+            ${expenses.length > 0 ? `
+              <table><thead><tr><th>Ref</th><th>Description</th><th>Paid From</th><th class="num">Amount (TZS)</th></tr></thead>
+              <tbody>${expenseRows}</tbody>
+              <tfoot><tr class="total-row"><td colspan="3">Total Expenses</td><td class="num">${totalExpenses.toLocaleString()}</td></tr></tfoot>
+              </table>
+              ${Object.keys(expenseSplit).length > 1 ? `
+                <div style="margin-top:12px;font-size:10px;color:#888;font-family:'DM Mono',monospace">
+                  ${Object.entries(expenseSplit).map(([m, a]) => `${m}: TZS ${Math.round(a).toLocaleString()}`).join(' · ')}
+                </div>
+              ` : ''}
+            ` : '<div style="font-size:12px;color:#bbb;padding:16px 0">No expenses recorded for this period.</div>'}
           </div>
         </div>
 
@@ -258,8 +328,9 @@ export default function SalesDayBook({ onEdit }: Props) {
         </table>
 
         <div class="footer">
-          <div>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</div>
+          <div>${t.company_name} · Dar es Salaam, Tanzania</div>
           <div>Generated ${now} · MalkiaOS</div>
+        </div>
         </div>
       </div>
     </body></html>`)
