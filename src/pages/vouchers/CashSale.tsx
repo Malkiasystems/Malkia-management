@@ -252,8 +252,6 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
 
   // Totals
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
-  const vat = Math.round(subtotal * 18 / 118)
-  const netRevenue = subtotal - vat
   const deliveryTotal = (parseFloat(townDelivery) || 0) + (parseFloat(upcountryShipping) || 0)
   const total = subtotal + deliveryTotal
   const crownPoints = Math.round(subtotal / 1000)
@@ -315,7 +313,6 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       const { error: vErr } = await supabase.from('vouchers').update({
         subtotal: newSubtotal,
         total_amount: newTotal,
-        vat_amount: 0,
         payment_method: paymentLabel,
         status: isPOD ? 'draft' : 'posted',
         notes: [
@@ -359,7 +356,6 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
           unit_cost: prod.cost_price,
           unit_price: line.price,
           subtotal: line.amount,
-          vat_amount: 0,
           total: line.amount
         })
         
@@ -466,11 +462,11 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       if (custData) customerId = custData.id
 
       // Get accounts
-      const neededCodes = ['4010', '5010', '1110', '2020', '1050', '2085']
+      const neededCodes = ['4010', '5010', '1110', '1050', '2085']
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', neededCodes)
       const acct = (code: string) => acctData?.find(a => a.code === code)?.id
       const revenueId = acct('4010'); const cogsId = acct('5010')
-      const inventoryId = acct('1110'); const vatId = acct('2020')
+      const inventoryId = acct('1110')
       const arId = acct('1050'); const delivFloatId = acct('2085') || deliveryAccountId
       if (!revenueId || !cogsId || !inventoryId) throw new Error('Required accounts not found')
 
@@ -528,9 +524,8 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
         jLines.push({ journal_id: journal.id, line_number: ln++, account_id: arId, description: `POD — ${newCustName} — ${ref}`, debit: total, credit: 0 })
       }
 
-      // Revenue, VAT, COGS, Inventory
-      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: revenueId, description: `Sales — ${ref}`, debit: 0, credit: netRevenue })
-      if (vatId) jLines.push({ journal_id: journal.id, line_number: ln++, account_id: vatId, description: `VAT — ${ref}`, debit: 0, credit: vat })
+      // Revenue, COGS, Inventory
+      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: revenueId, description: `Sales — ${ref}`, debit: 0, credit: subtotal })
       jLines.push({ journal_id: journal.id, line_number: ln++, account_id: cogsId, description: `COGS — ${ref}`, debit: cogsTotal, credit: 0 })
       jLines.push({ journal_id: journal.id, line_number: ln++, account_id: inventoryId, description: `Inventory out — ${ref}`, debit: 0, credit: cogsTotal })
       if (deliveryTotal > 0 && delivFloatId) {
@@ -546,7 +541,7 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
         ref, type: 'cash_sale', posting_date: postingDate,
         description: `Cash Sale — ${newCustName}`,
-        subtotal: netRevenue, vat_amount: vat, total_amount: total,
+        subtotal, total_amount: total,
         status: isPOD ? 'draft' : 'posted', branch: 'DSM HQ',
         customer_id: customerId, journal_id: journal.id,
         payment_method: paymentLabel,
@@ -563,7 +558,7 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]; if (!line.productId) continue
         const prod = dbProducts.find(p => p.id === line.productId); if (!prod) continue
-        await supabase.from('voucher_lines').insert({ voucher_id: voucher.id, line_number: i + 1, product_id: line.productId, description: line.name, qty: line.qty, unit_cost: prod.cost_price, unit_price: line.price, subtotal: line.amount, vat_amount: Math.round(line.amount * 18 / 118), total: line.amount })
+        await supabase.from('voucher_lines').insert({ voucher_id: voucher.id, line_number: i + 1, product_id: line.productId, description: line.name, qty: line.qty, unit_cost: prod.cost_price, unit_price: line.price, subtotal: line.amount, total: line.amount })
         await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand - line.qty }).eq('id', line.productId)
         await supabase.from('item_ledger_entries').insert({ product_id: line.productId, entry_type: 'sale', document_type: 'cash_sale', document_ref: ref, posting_date: postingDate, qty: -line.qty, cost_amount: prod.cost_price * line.qty, location_code: locationCode })
         // Update product_locations balance
@@ -668,7 +663,6 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
                   posting_date: postingDate,
                   description: `Auto Receipt — ${currentMethod.label} — ${ref}`,
                   subtotal: lineAmount,
-                  vat_amount: 0,
                   total_amount: lineAmount,
                   status: 'posted',
                   branch: 'DSM HQ',
@@ -694,7 +688,7 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
         const receiptData = {
           ref, posting_date: postingDate,
           description: `Cash Sale — ${newCustName}`,
-          total_amount: total, vat_amount: vat, subtotal: netRevenue,
+          total_amount: total, subtotal,
           payment_method: currentMethod.label, notes: '', posted_by: user?.full_name || 'Unknown',
           customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp, pregnancy_stage: selectedCust.pregnancy_stage, crown_points: (selectedCust.crown_points || 0) + crownPoints } : { name: newCustName, whatsapp: waInput, pregnancy_stage: '', crown_points: crownPoints },
           voucher_lines: lines.filter(l => l.productId).map(l => {
@@ -1128,8 +1122,6 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
                 {/* TOTALS */}
                 <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Products subtotal</span><span style={{ fontFamily: 'var(--mono)' }}>{subtotal.toLocaleString()}</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>VAT (18% incl.)</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{vat.toLocaleString()}</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Net revenue (excl. VAT)</span><span style={{ fontFamily: 'var(--mono)' }}>{netRevenue.toLocaleString()}</span></div>
                   {deliveryTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Delivery → Float 2085</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{deliveryTotal.toLocaleString()}</span></div>}
                   {margin > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 800, padding: '12px 0 0', borderTop: '1px solid var(--border2)', marginTop: 8 }}>
@@ -1228,7 +1220,7 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
                 konnect_sub_text: 'Weekly guidance · Expert Q&A · Birth prep · Postpartum support',
                 konnect_utm_tracking: true,
                 community_url: '', community_enabled: false, community_name: 'Mama Community', community_qr_enabled: false,
-                show_crown_points: true, show_vat_breakdown: true, show_cashier: true,
+                show_crown_points: true, show_cashier: true,
                 show_care_tip: true, show_stage_message: true,
                 footer_message: 'Share your Malkia moment — tag us on Instagram',
                 msg_pregnant: 'You are doing something extraordinary. Every choice you make matters, Mama.',
