@@ -38,8 +38,9 @@ export default function SalesDayBook({ onEdit }: Props) {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
 
-  // Expenses for PDF
+  // Expenses + Credit Notes for PDF
   const [expenses, setExpenses] = useState<{ref:string;description:string;total_amount:number;payment_method:string;notes:string}[]>([])
+  const [creditNotes, setCreditNotes] = useState<{ref:string;description:string;total_amount:number;posting_date:string}[]>([])
 
   // PDF template settings
   const [tplSettings, setTplSettings] = useState<{logo_url:string|null;logo_position:string;logo_width:number;company_name:string;company_tagline:string;primary_color:string}>({
@@ -103,6 +104,14 @@ export default function SalesDayBook({ onEdit }: Props) {
       .eq('status', 'posted')
       .order('created_at', { ascending: false })
     if (data) setExpenses(data as any)
+
+    const { data: cn } = await supabase.from('vouchers')
+      .select('ref, description, total_amount, posting_date')
+      .eq('type', 'credit_note')
+      .gte('posting_date', from).lte('posting_date', to)
+      .eq('status', 'posted')
+      .order('created_at', { ascending: false })
+    if (cn) setCreditNotes(cn as any)
   }
 
   const loadTplSettings = async () => {
@@ -149,6 +158,10 @@ export default function SalesDayBook({ onEdit }: Props) {
     const key = e.payment_method || 'Cash'
     expenseSplit[key] = (expenseSplit[key] || 0) + (e.total_amount || 0)
   })
+
+  // Credit notes
+  const totalCreditNotes = creditNotes.reduce((s, c) => s + (c.total_amount || 0), 0)
+  const netSales = totalRevenue - totalCreditNotes
 
   const clearFilters = () => {
     setSearchRef(''); setSearchCustomer(''); setSearchProduct('')
@@ -256,10 +269,6 @@ export default function SalesDayBook({ onEdit }: Props) {
         .total-row{background:#f5f5f5;font-weight:700}
         .total-row td{padding:10px;border-top:2px solid #ddd}
         .footer{margin-top:24px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;display:flex;justify-content:space-between}
-        .net-bar{display:flex;gap:12px;margin-bottom:24px;padding:16px 20px;background:#f0faf7;border:1px solid ${pc}40;border-radius:10px}
-        .net-bar>div{flex:1;text-align:center}
-        .net-label{font-size:9px;color:#888;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px}
-        .net-val{font-family:'DM Mono',monospace;font-size:16px;font-weight:700}
         @media print{body{padding:0}.content{padding:20px 30px}@page{margin:10mm 8mm}.header{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
       </style>
     </head><body>
@@ -280,16 +289,11 @@ export default function SalesDayBook({ onEdit }: Props) {
 
         <div class="content">
         <div class="stats">
-          <div class="stat"><div class="stat-label">Revenue</div><div class="stat-val green">TZS ${totalRevenue.toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-label">Gross Sales</div><div class="stat-val green">TZS ${totalRevenue.toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-label">Credit Notes</div><div class="stat-val" style="color:${totalCreditNotes > 0 ? '#c0392b' : '#999'}">${totalCreditNotes > 0 ? '(TZS ' + totalCreditNotes.toLocaleString() + ')' : 'None'}</div></div>
+          <div class="stat"><div class="stat-label">Net Sales</div><div class="stat-val green">TZS ${netSales.toLocaleString()}</div></div>
           <div class="stat"><div class="stat-label">Expenses</div><div class="stat-val red">TZS ${totalExpenses.toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-label">Transactions</div><div class="stat-val">${filtered.length}</div></div>
-          <div class="stat"><div class="stat-label">Gross Margin</div><div class="stat-val green">${marginPct}%</div></div>
-        </div>
-
-        <div class="net-bar">
-          <div><div class="net-label">Sales In</div><div class="net-val" style="color:#1a7a4a">TZS ${totalRevenue.toLocaleString()}</div></div>
-          <div><div class="net-label">Expenses Out</div><div class="net-val" style="color:#c0392b">TZS ${totalExpenses.toLocaleString()}</div></div>
-          <div><div class="net-label">Net Position</div><div class="net-val" style="color:${totalRevenue - totalExpenses >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${(totalRevenue - totalExpenses).toLocaleString()}</div></div>
+          <div class="stat" style="background:${(netSales - totalExpenses) >= 0 ? '#f0faf7' : '#fef2f2'};border-color:${(netSales - totalExpenses) >= 0 ? pc + '40' : '#fca5a540'}"><div class="stat-label">Net Position</div><div class="stat-val" style="color:${(netSales - totalExpenses) >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${(netSales - totalExpenses).toLocaleString()}</div></div>
         </div>
 
         <div class="split-grid">
@@ -320,7 +324,14 @@ export default function SalesDayBook({ onEdit }: Props) {
         <table>
           <thead><tr><th>Date</th><th>Ref</th><th>Customer</th><th>WhatsApp</th><th>Payment</th><th>Salesperson</th><th>Status</th><th class="num">Amount (TZS)</th></tr></thead>
           <tbody>${tableRows}</tbody>
-          <tfoot><tr class="total-row"><td colspan="7">TOTALS — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr></tfoot>
+          <tfoot>
+            <tr class="total-row"><td colspan="7">Sales Subtotal — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr>
+            ${creditNotes.length > 0 ? `
+              ${creditNotes.map(c => `<tr style="color:#c0392b"><td>${c.posting_date}</td><td class="ref" style="color:#c0392b">${c.ref}</td><td colspan="5">${c.description || 'Credit Note'}</td><td class="num">(${(c.total_amount || 0).toLocaleString()})</td></tr>`).join('')}
+              <tr style="background:#fef2f2;font-weight:700"><td colspan="7">Total Credit Notes</td><td class="num" style="color:#c0392b">(${totalCreditNotes.toLocaleString()})</td></tr>
+            ` : ''}
+            <tr style="background:#e6f9f0;font-weight:800"><td colspan="7" style="padding:12px 10px;font-size:13px">NET SALES</td><td class="num" style="padding:12px 10px;font-size:15px;color:#1a7a4a">${netSales.toLocaleString()}</td></tr>
+          </tfoot>
         </table>
 
         <div class="footer">
