@@ -204,10 +204,6 @@ export default function SalesDayBook({ onEdit }: Props) {
     const expenseRows = expenses.map(e =>
       `<tr><td class="ref">${e.ref}</td><td>${e.description || '—'}</td><td>${e.payment_method || 'Cash'}</td><td class="num">${(e.total_amount || 0).toLocaleString()}</td></tr>`
     ).join('')
-    const expenseBankRows = Object.entries(expenseSplit).map(([method, amount]) => {
-      const pct = totalExpenses > 0 ? ((amount / totalExpenses) * 100).toFixed(0) : '0'
-      return `<tr><td>${method}</td><td class="num">${Math.round(amount).toLocaleString()}</td><td class="num">${pct}%</td></tr>`
-    }).join('')
 
     // Transaction rows
     const tableRows = filtered.map(s =>
