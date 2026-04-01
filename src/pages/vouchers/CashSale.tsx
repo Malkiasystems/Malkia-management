@@ -10,6 +10,9 @@ import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
+import BundlePicker from '../../components/BundlePicker'
+import { logBundleSale } from '../../lib/useBundles'
+import type { Bundle } from '../../lib/useBundles'
 
 interface Props {
   editVoucherId?: string | null
@@ -53,6 +56,7 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
   // Edit mode
   const [isEditMode, setIsEditMode] = useState(false)
   const [editVoucherData, setEditVoucherData] = useState<any>(null)
+  const [appliedBundle, setAppliedBundle] = useState<Bundle | null>(null)
   const { user } = useAuth()
 
   // Customer
@@ -275,7 +279,7 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
     setSelectedMethod('cash'); setIsSplit(false); setSplitLines([])
     setTendered(''); setPaymentRef(''); setIsPOD(false)
     setTownDelivery(''); setUpcountryShipping(''); setShowDelivery(false)
-    setIsEditMode(false); setEditVoucherData(null)
+    setIsEditMode(false); setEditVoucherData(null); setAppliedBundle(null)
     if (onClearEdit) onClearEdit()
   }
 
@@ -682,6 +686,21 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       }
 
       showToast(`${ref} posted · ${isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
+
+      // Log bundle sale for analytics (does not touch journals)
+      if (appliedBundle && voucher) {
+        logBundleSale({
+          bundleId: appliedBundle.id,
+          voucherId: voucher.id,
+          voucherRef: ref,
+          customerId: customerId,
+          customerName: newCustName,
+          bundlePrice: appliedBundle.bundle_price,
+          individualTotal: appliedBundle.individual_total,
+          soldBy: user?.full_name || 'Unknown',
+          postingDate,
+        }).catch(err => console.error('Bundle sale log failed:', err))
+      }
       
       // Build voucher data for receipt
       if (!isPOD) {
@@ -975,6 +994,17 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
                 {/* STEP 3 (was 2) — PRODUCTS */}
                 <div>
                   <div className="step-header" style={{ marginBottom: 8 }}><div className="step-num">{locations.length > 1 ? '3' : '2'}</div><div className="step-title">PRODUCTS SOLD</div></div>
+                  {/* Bundle quick-pick */}
+                  <BundlePicker onApply={(bundleLines, bundle) => {
+                    setLines(bundleLines)
+                    setAppliedBundle(bundle)
+                  }} />
+                  {appliedBundle && (
+                    <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,229,160,.3)', borderRadius: 8, padding: '6px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
+                      <span style={{ color: 'var(--green)', fontWeight: 600 }}>Bundle applied: {appliedBundle.name} · Save {tzs(appliedBundle.individual_total - appliedBundle.bundle_price)}</span>
+                      <button onClick={() => { setAppliedBundle(null); setLines([{ productId: '', name: '', qty: 1, price: 0, amount: 0 }]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 10, textDecoration: 'underline' }}>Clear</button>
+                    </div>
+                  )}
                   {/* Category filter strip */}
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
                     <button onClick={() => setFilterCat('all')} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === 'all' ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === 'all' ? 'var(--accent)' : 'transparent', color: filterCat === 'all' ? '#fff' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>All</button>
