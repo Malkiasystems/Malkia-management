@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth, canAccessPage } from '../lib/useAuth'
-import { useCompany } from '../lib/useCompany'
 
 const VOUCHER_PAGES: Page[] = [
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
@@ -97,29 +96,6 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   
   const { permissions } = useAuth()
-  const { companyId } = useCompany()
-
-  // Malkia's fixed company ID from migration
-  const MALKIA_ID = '00000000-0000-0000-0000-000000000001'
-  const isMalkia = companyId === MALKIA_ID
-
-  // CRM/Konnect/Services only for Malkia. Investors for other companies.
-  const CRM_ONLY_ITEMS = new Set(['crm', 'konnect', 'services'])
-  const filteredNav = NAV.filter(item => {
-    if ('sep' in item) return true
-    if (CRM_ONLY_ITEMS.has(item.icon || '') && !isMalkia) return false
-    return true
-  })
-  // Add Investors tab for non-Malkia companies (insert before Data Import separator)
-  const navItems = isMalkia ? filteredNav : (() => {
-    const items = [...filteredNav]
-    // Find the last separator before Data Import
-    const importIdx = items.findIndex(i => i.icon === 'import')
-    if (importIdx > 0) {
-      items.splice(importIdx, 0, { icon: 'investors', label: 'Investors', page: 'investors-hub' as Page, hasSub: false } as any)
-    }
-    return items
-  })()
 
   const isSalesActive = SALES_PAGES.includes(current)
   const isCrmActive = CRM_PAGES.includes(current)
@@ -141,7 +117,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
       padding: '10px 0', flexShrink: 0, overflowY: 'auto', scrollbarWidth: 'none',
       position: 'relative'
     }}>
-      {navItems.map((item, i) => {
+      {NAV.map((item, i) => {
         if ('sep' in item && item.sep) return (
           <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
         )
