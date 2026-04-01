@@ -127,6 +127,146 @@ export default function SalesDayBook({ onEdit }: Props) {
     (filterCat !== 'all' ? 1 : 0) +
     (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
 
+  // ── EXPORT: CSV ──────────────────────────────────────────────────────
+  const exportCSV = () => {
+    if (filtered.length === 0) return
+    const headers = ['Date','Ref','Customer','WhatsApp','Payment','Salesperson','Status','Amount (TZS)']
+    const rows = filtered.map(s => [
+      s.posting_date,
+      s.ref,
+      `"${(s.customers as any)?.name || s.description || ''}"`,
+      (s.customers as any)?.whatsapp || '',
+      s.payment_method || '',
+      s.posted_by || '',
+      s.status || '',
+      String(s.total_amount || 0),
+    ])
+    rows.push(['TOTALS','','','','','','',String(totalRevenue)])
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `Sales_Day_Book_${fromDate}_to_${toDate}.csv`; a.click()
+  }
+
+  // ── EXPORT: PDF (Print) ──────────────────────────────────────────────
+  const exportPDF = () => {
+    if (filtered.length === 0) return
+    const now = new Date().toLocaleString('en-GB')
+    const paymentRows = Object.entries(paymentSplit).map(([method, amount]) => {
+      const pct = totalRevenue > 0 ? ((amount / totalRevenue) * 100).toFixed(0) : '0'
+      return `<tr><td>${method}</td><td class="num">${Math.round(amount).toLocaleString()}</td><td class="num">${pct}%</td></tr>`
+    }).join('')
+    const tableRows = filtered.map(s =>
+      `<tr>
+        <td>${s.posting_date}</td>
+        <td class="ref">${s.ref}</td>
+        <td>${(s.customers as any)?.name || '—'}</td>
+        <td class="mono">${(s.customers as any)?.whatsapp || '—'}</td>
+        <td><span class="pill ${s.payment_method?.includes('Cash') ? 'pill-g' : s.payment_method?.includes('M-Pesa') ? 'pill-b' : 'pill-a'}">${s.payment_method || '—'}</span></td>
+        <td>${s.posted_by || '—'}</td>
+        <td><span class="pill ${s.status === 'posted' ? 'pill-g' : 'pill-y'}">${s.status === 'draft' ? 'POD' : 'Posted'}</span></td>
+        <td class="num">${(s.total_amount || 0).toLocaleString()}</td>
+      </tr>`
+    ).join('')
+
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sales Day Book</title>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Instrument Sans','Helvetica Neue',sans-serif;color:#1a1a1a;padding:0;background:#fff}
+        .page{max-width:1000px;margin:0 auto;padding:32px 40px}
+        .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:3px solid #85c2be}
+        .logo-area{display:flex;align-items:center;gap:14}
+        .logo-mark{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#85c2be,#f7a6ad);display:flex;align-items:center;justify-content:center}
+        .logo-inner{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.4)}
+        .company-name{font-family:'Syne',serif;font-size:18px;font-weight:800;letter-spacing:-.3px}
+        .company-sub{font-size:10px;color:#999;margin-top:2px}
+        .doc-title{font-family:'Syne',serif;font-size:20px;font-weight:800;text-align:right}
+        .doc-meta{font-family:'DM Mono',monospace;font-size:10px;color:#999;text-align:right;margin-top:4px;line-height:1.6}
+        .stats{display:flex;gap:12px;margin-bottom:24px}
+        .stat{flex:1;background:#f9f9f9;border:1px solid #eee;border-radius:10px;padding:14px 16px}
+        .stat-label{font-family:'DM Mono',monospace;font-size:9px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+        .stat-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700}
+        .stat-val.green{color:#1a7a4a} .stat-val.blue{color:#2563eb} .stat-val.amber{color:#d48744}
+        .section-title{font-family:'Syne',serif;font-size:13px;font-weight:700;margin-bottom:10px;color:#333}
+        .split-grid{display:flex;gap:20px;margin-bottom:24px}
+        .split-grid>div{flex:1}
+        table{width:100%;border-collapse:collapse;font-size:11px}
+        th{text-align:left;padding:8px 10px;background:#f5f5f5;border-bottom:2px solid #ddd;font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#888}
+        td{padding:7px 10px;border-bottom:1px solid #f0f0f0}
+        .num{text-align:right;font-family:'DM Mono',monospace}
+        .ref{font-family:'DM Mono',monospace;color:#D48744;font-weight:600}
+        .mono{font-family:'DM Mono',monospace;font-size:10px;color:#888}
+        .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600}
+        .pill-g{background:#e6f9f0;color:#1a7a4a} .pill-b{background:#e8f0fe;color:#2563eb}
+        .pill-a{background:#fff3e0;color:#d48744} .pill-y{background:#fef9e7;color:#b8860b}
+        .total-row{background:#f5f5f5;font-weight:700}
+        .total-row td{padding:10px;border-top:2px solid #ddd}
+        .footer{margin-top:24px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;display:flex;justify-content:space-between}
+        @media print{body{padding:0}.page{padding:20px}@page{margin:15mm 12mm}}
+      </style>
+    </head><body>
+      <div class="page">
+        <div class="header">
+          <div class="logo-area">
+            <div class="logo-mark"><div class="logo-inner"></div></div>
+            <div>
+              <div class="company-name">Malkia Wellness Group Ltd</div>
+              <div class="company-sub">Dar es Salaam, Tanzania · Sales Day Book</div>
+            </div>
+          </div>
+          <div>
+            <div class="doc-title">Sales Day Book</div>
+            <div class="doc-meta">Period: ${fromDate} to ${toDate}<br>Generated: ${now}<br>${filtered.length} transactions</div>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="stat-label">Revenue</div><div class="stat-val green">TZS ${totalRevenue.toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-label">Transactions</div><div class="stat-val">${filtered.length}</div></div>
+          <div class="stat"><div class="stat-label">Avg Sale</div><div class="stat-val blue">TZS ${filtered.length > 0 ? Math.round(totalRevenue / filtered.length).toLocaleString() : '0'}</div></div>
+          <div class="stat"><div class="stat-label">Gross Margin</div><div class="stat-val green">${marginPct}%</div></div>
+        </div>
+
+        <div class="split-grid">
+          <div>
+            <div class="section-title">Payment Breakdown</div>
+            <table><thead><tr><th>Method</th><th class="num">Amount (TZS)</th><th class="num">Share</th></tr></thead>
+            <tbody>${paymentRows}</tbody>
+            <tfoot><tr class="total-row"><td>Total</td><td class="num">${totalRevenue.toLocaleString()}</td><td class="num">100%</td></tr></tfoot>
+            </table>
+          </div>
+          <div>
+            <div class="section-title">Status Summary</div>
+            <table><thead><tr><th>Status</th><th class="num">Count</th></tr></thead>
+            <tbody>
+              <tr><td><span class="pill pill-g">Posted</span></td><td class="num">${postedCount}</td></tr>
+              <tr><td><span class="pill pill-y">POD Pending</span></td><td class="num">${podCount}</td></tr>
+            </tbody>
+            <tfoot><tr class="total-row"><td>Total</td><td class="num">${filtered.length}</td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="section-title">Transaction Detail</div>
+        <table>
+          <thead><tr><th>Date</th><th>Ref</th><th>Customer</th><th>WhatsApp</th><th>Payment</th><th>Salesperson</th><th>Status</th><th class="num">Amount (TZS)</th></tr></thead>
+          <tbody>${tableRows}</tbody>
+          <tfoot><tr class="total-row"><td colspan="7">TOTALS — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr></tfoot>
+        </table>
+
+        <div class="footer">
+          <div>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</div>
+          <div>Generated ${now} · MalkiaOS</div>
+        </div>
+      </div>
+    </body></html>`)
+    win.document.close()
+    setTimeout(() => win.print(), 600)
+  }
+
   return (
     <div className="page">
       {/* HEADER */}
@@ -139,8 +279,8 @@ export default function SalesDayBook({ onEdit }: Props) {
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" onClick={() => loadSales()} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
-          <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print</button>
-          <button className="btn btn-ghost btn-sm" style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
+          <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print / PDF</button>
+          <button className="btn btn-ghost btn-sm" onClick={exportCSV} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
         </div>
       </div>
 
