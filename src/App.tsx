@@ -34,7 +34,6 @@ const TrialBalance = lazy(() => import('./pages/TrialBalance'))
 const BalanceSheet = lazy(() => import('./pages/BalanceSheet'))
 const ARAgingReport = lazy(() => import('./pages/ARAgingReport'))
 const APAgingReport = lazy(() => import('./pages/APAgingReport'))
-const VATReport = lazy(() => import('./pages/VATReport'))
 const StockValuationReport = lazy(() => import('./pages/StockValuationReport'))
 const PurchaseRegister = lazy(() => import('./pages/PurchaseRegister'))
 const PaymentRegister = lazy(() => import('./pages/PaymentRegister'))
@@ -48,6 +47,7 @@ const LocationSettings = lazy(() => import('./pages/LocationSettings'))
 const InventorySettings = lazy(() => import('./pages/InventorySettings'))
 const AccountingSettings = lazy(() => import('./pages/AccountingSettings'))
 const DisplaySettings = lazy(() => import('./pages/DisplaySettings'))
+const ReportTemplates = lazy(() => import('./pages/ReportTemplates'))
 
 // User Management & Approvals
 const UserManagement = lazy(() => import('./pages/UserManagement'))
@@ -230,6 +230,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'approvals': 'Settings / Approval Workflows',
   'accounting-settings': 'Settings / Accounting',
   'display-settings': 'Settings / Display',
+  'report-templates': 'Settings / Report Templates',
 }
 
 // ============================================================================
@@ -294,7 +295,6 @@ function AppContent() {
       case 'balance-sheet':     return <BalanceSheet />
       case 'ar-aging':          return <ARAgingReport />
       case 'ap-aging':          return <APAgingReport />
-      case 'vat-report':        return <VATReport />
       case 'stock-valuation':   return <StockValuationReport />
       case 'purchase-register': return <PurchaseRegister />
       case 'payment-register':  return <PaymentRegister />
@@ -336,6 +336,7 @@ function AppContent() {
       case 'approvals':         return <ApprovalWorkflows onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
+      case 'report-templates':  return <ReportTemplates />
       
       // CRM Module Routes
       case 'crm':
