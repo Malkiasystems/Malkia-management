@@ -1,697 +1,269 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
-import { useCategories } from '../lib/useCategories'
-import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
-import type { Page } from '../lib/types'
+import Toast from '../components/Toast'
+import { FG } from '../components/FormHelpers'
 
-interface Props {
-  onNav: (p: Page) => void
-  onEdit: (p: Page, voucherId: string) => void
-}
+interface DBAccount { id: string; code: string; name: string; category: string }
 
-interface Sale {
-  id: string
-  ref: string
-  posting_date: string
-  description: string
-  total_amount: number
-  subtotal: number
-  payment_method: string
-  status: string
-  notes: string
-  posted_by: string
-  customers: { name: string; whatsapp: string; pregnancy_stage: string; crown_points: number } | null
-  voucher_lines: {
-    id: string
-    qty: number
-    unit_price: number
-    unit_cost: number
-    total: number
-    products: { name: string; sku: string; category: string } | null
-  }[]
-}
+interface Props { onNav: (p: import('../lib/types').Page) => void }
+export default function Settings({ onNav }: Props) {
+  const [toast, setToast] = useState('')
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [allBankAccounts, setAllBankAccounts] = useState<DBAccount[]>([])
+  const [autoReceipt, setAutoReceipt] = useState(true)
+  const [allowedBanks, setAllowedBanks] = useState<string[]>([])
 
+  useEffect(() => { loadBankAccounts() }, [])
 
-export default function SalesDayBook({ onEdit }: Props) {
-  const [sales, setSales] = useState<Sale[]>([])
-  const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<'detail' | 'summary'>('summary')
-
-  // Expenses + Credit Notes for PDF
-  const [expenses, setExpenses] = useState<{ref:string;description:string;total_amount:number;payment_method:string;notes:string}[]>([])
-  const [creditNotes, setCreditNotes] = useState<{ref:string;description:string;total_amount:number;posting_date:string}[]>([])
-
-  // PDF template settings
-  const [tplSettings, setTplSettings] = useState<{logo_url:string|null;logo_position:string;logo_width:number;company_name:string;company_tagline:string;primary_color:string}>({
-    logo_url: null, logo_position: 'left', logo_width: 120, company_name: 'Malkia Wellness Group Ltd', company_tagline: 'Reimagining Motherhood', primary_color: '#85c2be'
-  })
-
-  // Filters
-  const today = new Date().toISOString().split('T')[0]
-  const [fromDate, setFromDate] = useState(today)
-  const [toDate, setToDate] = useState(today)
-  const [voucherType, setVoucherType] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [searchRef, setSearchRef] = useState('')
-  const [searchCustomer, setSearchCustomer] = useState('')
-  const [searchProduct, setSearchProduct] = useState('')
-  const [filterCat, setFilterCat] = useState('all')
-  const [searchPayment, setSearchPayment] = useState('')
-  const [searchSalesperson, setSearchSalesperson] = useState('')
-  const { categories: _cats } = useCategories()
-  const catPredicate = makeCategoryPredicate(filterCat, _cats)
-  const [showFilters, setShowFilters] = useState(false)
-
-  useEffect(() => { loadSales(); loadTplSettings() }, [])
-
-  const loadSales = async (from?: string, to?: string) => {
-    setLoading(true)
-    const f = from || fromDate
-    const t = to || toDate
-    let query = supabase
-      .from('vouchers')
-      .select(`
-        id, ref, posting_date, description, total_amount, subtotal,
-        payment_method, status, notes, posted_by,
-        customers (name, whatsapp, pregnancy_stage, crown_points),
-        voucher_lines (
-          id, qty, unit_price, unit_cost, total,
-          products (name, sku, category)
-        )
-      `)
-      .in('type', ['cash_sale', 'sales_invoice'])
-      .gte('posting_date', f)
-      .lte('posting_date', t)
-      .order('posting_date', { ascending: false })
-      .order('created_at', { ascending: false })
-
-    if (voucherType !== 'all') query = query.eq('type', voucherType)
-    if (statusFilter !== 'all') query = query.eq('status', statusFilter)
-
-    const { data, error } = await query
-    if (!error && data) setSales(data as any)
-    // Also load expenses for this period
-    loadExpenses(f, t)
-    setLoading(false)
+  const loadBankAccounts = async () => {
+    const { data } = await supabase.from('accounts').select('id, code, name, category').eq('category', 'Cash & Bank').eq('is_active', true).order('code')
+    if (data) {
+      setAllBankAccounts(data)
+      setAllowedBanks(data.map(a => a.code))
+    }
   }
 
-  const loadExpenses = async (from: string, to: string) => {
-    const { data } = await supabase.from('vouchers')
-      .select('ref, description, total_amount, payment_method, notes')
-      .in('type', ['cash_payment', 'bank_payment', 'petty_cash'])
-      .gte('posting_date', from).lte('posting_date', to)
-      .eq('status', 'posted')
-      .order('created_at', { ascending: false })
-    if (data) setExpenses(data as any)
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
-    const { data: cn } = await supabase.from('vouchers')
-      .select('ref, description, total_amount, posting_date')
-      .eq('type', 'credit_note')
-      .gte('posting_date', from).lte('posting_date', to)
-      .eq('status', 'posted')
-      .order('created_at', { ascending: false })
-    if (cn) setCreditNotes(cn as any)
-  }
-
-  const loadTplSettings = async () => {
-    const { data } = await supabase.from('system_settings').select('value').eq('key', 'report_templates').single()
-    if (data?.value) { try { const p = JSON.parse(data.value); setTplSettings(s => ({ ...s, ...p })) } catch {} }
-  }
-
-  // Client-side filtering
-  const filtered = sales.filter(s => {
-    const custName = (s.customers as any)?.name?.toLowerCase() || ''
-    const custWa = (s.customers as any)?.whatsapp || ''
-    const products = (s.voucher_lines || []).map((l: any) => l.products?.name?.toLowerCase() || '').join(' ')
-    const payment = s.payment_method?.toLowerCase() || ''
-    const salesperson = s.posted_by?.toLowerCase() || ''
-
-    if (searchRef && !s.ref.toLowerCase().includes(searchRef.toLowerCase())) return false
-    if (searchCustomer && !custName.includes(searchCustomer.toLowerCase()) && !custWa.includes(searchCustomer)) return false
-    if (searchProduct && !products.includes(searchProduct.toLowerCase())) return false
-    if (filterCat !== 'all' && !(s.voucher_lines || []).some((l: any) => l.products && catPredicate(l.products.category))) return false
-    if (searchPayment && !payment.includes(searchPayment.toLowerCase())) return false
-    if (searchSalesperson && !salesperson.includes(searchSalesperson.toLowerCase())) return false
-    return true
-  })
-
-  // Totals
-  const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
-  const totalCost = filtered.reduce((s: number, sale: any) => s + (sale.voucher_lines || []).reduce((acc: number, l: any) => acc + ((l.unit_cost || 0) * (l.qty || 0)), 0), 0)
-  const totalMargin = totalRevenue - totalCost
-  const marginPct = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0
-  const podCount = filtered.filter(s => s.status === 'draft').length
-  const postedCount = filtered.filter(s => s.status === 'posted').length
-
-  // Payment split
-  const paymentSplit: Record<string, number> = {}
-  filtered.forEach(s => {
-    const methods = (s.payment_method || 'Cash').split('+')
-    methods.forEach(m => { const key = m.trim(); paymentSplit[key] = (paymentSplit[key] || 0) + (s.total_amount || 0) / methods.length })
-  })
-
-  // Expense split by payment method (bank)
-  const totalExpenses = expenses.reduce((s, e) => s + (e.total_amount || 0), 0)
-  const expenseSplit: Record<string, number> = {}
-  expenses.forEach(e => {
-    const key = e.payment_method || 'Cash'
-    expenseSplit[key] = (expenseSplit[key] || 0) + (e.total_amount || 0)
-  })
-
-  // Credit notes
-  const totalCreditNotes = creditNotes.reduce((s, c) => s + (c.total_amount || 0), 0)
-  const netSales = totalRevenue - totalCreditNotes
-
-  const clearFilters = () => {
-    setSearchRef(''); setSearchCustomer(''); setSearchProduct('')
-    setFilterCat('all'); setSearchPayment(''); setSearchSalesperson('')
-    setVoucherType('all'); setStatusFilter('all')
-  }
-
-  const activeFilters = [searchRef, searchCustomer, searchProduct, searchPayment, searchSalesperson].filter(Boolean).length +
-    (filterCat !== 'all' ? 1 : 0) +
-    (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
-
-  // ── EXPORT: CSV ──────────────────────────────────────────────────────
-  const exportCSV = () => {
-    if (filtered.length === 0) return
-    const headers = ['Date','Ref','Customer','WhatsApp','Payment','Salesperson','Status','Amount (TZS)']
-    const rows = filtered.map(s => [
-      s.posting_date,
-      s.ref,
-      `"${(s.customers as any)?.name || s.description || ''}"`,
-      (s.customers as any)?.whatsapp || '',
-      s.payment_method || '',
-      s.posted_by || '',
-      s.status || '',
-      String(s.total_amount || 0),
-    ])
-    rows.push(['TOTALS','','','','','','',String(totalRevenue)])
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-    a.download = `Sales_Day_Book_${fromDate}_to_${toDate}.csv`; a.click()
-  }
-
-  // ── EXPORT: PDF (Print) ──────────────────────────────────────────────
-  const exportPDF = () => {
-    if (filtered.length === 0) return
-    const now = new Date().toLocaleString('en-GB')
-    const t = tplSettings
-    const pc = t.primary_color || '#85c2be'
-
-    // Logo HTML
-    const logoHtml = t.logo_url
-      ? `<img src="${t.logo_url}" alt="Logo" style="width:${t.logo_width}px;height:auto;object-fit:contain" />`
-      : `<div class="logo-mark"><div class="logo-inner"></div></div>`
-    const logoAlign = t.logo_position === 'center' ? 'center' : t.logo_position === 'right' ? 'flex-end' : 'flex-start'
-
-    // Banking summary rows (sales received by bank/method)
-    const bankingRows = Object.entries(paymentSplit).map(([method, amount]) => {
-      const pct = totalRevenue > 0 ? ((amount / totalRevenue) * 100).toFixed(0) : '0'
-      return `<tr><td>${method}</td><td class="num">${Math.round(amount).toLocaleString()}</td><td class="num">${pct}%</td></tr>`
-    }).join('')
-
-    // Expense summary rows
-    const expenseRows = expenses.map(e =>
-      `<tr><td class="ref">${e.ref}</td><td>${e.description || '—'}</td><td>${e.payment_method || 'Cash'}</td><td class="num">${(e.total_amount || 0).toLocaleString()}</td></tr>`
-    ).join('')
-
-    // Transaction rows
-    const tableRows = filtered.map(s =>
-      `<tr>
-        <td>${s.posting_date}</td>
-        <td class="ref">${s.ref}</td>
-        <td>${(s.customers as any)?.name || '—'}</td>
-        <td class="mono">${(s.customers as any)?.whatsapp || '—'}</td>
-        <td><span class="pill ${s.payment_method?.includes('Cash') ? 'pill-g' : s.payment_method?.includes('M-Pesa') ? 'pill-b' : 'pill-a'}">${s.payment_method || '—'}</span></td>
-        <td>${s.posted_by || '—'}</td>
-        <td><span class="pill ${s.status === 'posted' ? 'pill-g' : 'pill-y'}">${s.status === 'draft' ? 'POD' : 'Posted'}</span></td>
-        <td class="num">${(s.total_amount || 0).toLocaleString()}</td>
-      </tr>`
-    ).join('')
-
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sales Day Book</title>
-      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-      <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:'Instrument Sans','Helvetica Neue',sans-serif;color:#1a1a1a;padding:0;background:#fff}
-        .page{max-width:1000px;margin:0 auto;padding:0}
-        .header{display:flex;justify-content:space-between;align-items:center;padding:24px 40px;background:${pc};color:#fff}
-        .logo-area{display:flex;align-items:center;gap:14;justify-content:${logoAlign}}
-        .logo-mark{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center}
-        .logo-inner{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.5)}
-        .company-name{font-family:'Syne',serif;font-size:20px;font-weight:800;letter-spacing:-.3px;color:#fff}
-        .company-sub{font-size:10px;color:rgba(255,255,255,.75);margin-top:3px}
-        .doc-title{font-family:'Syne',serif;font-size:22px;font-weight:800;text-align:right;color:#fff}
-        .doc-meta{font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.7);text-align:right;margin-top:4px;line-height:1.6}
-        .content{padding:28px 40px}
-        .stats{display:flex;gap:12px;margin-bottom:24px}
-        .stat{flex:1;background:#f9f9f9;border:1px solid #eee;border-radius:10px;padding:14px 16px}
-        .stat-label{font-family:'DM Mono',monospace;font-size:9px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-        .stat-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700}
-        .stat-val.green{color:#1a7a4a} .stat-val.blue{color:#2563eb} .stat-val.amber{color:#d48744} .stat-val.red{color:#c0392b}
-        .section-title{font-family:'Syne',serif;font-size:13px;font-weight:700;margin-bottom:10px;color:#333}
-        .split-grid{display:flex;gap:20px;margin-bottom:24px}
-        .split-grid>div{flex:1}
-        table{width:100%;border-collapse:collapse;font-size:11px}
-        th{text-align:left;padding:8px 10px;background:#f5f5f5;border-bottom:2px solid #ddd;font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#888}
-        td{padding:7px 10px;border-bottom:1px solid #f0f0f0}
-        .num{text-align:right;font-family:'DM Mono',monospace}
-        .ref{font-family:'DM Mono',monospace;color:#D48744;font-weight:600}
-        .mono{font-family:'DM Mono',monospace;font-size:10px;color:#888}
-        .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600}
-        .pill-g{background:#e6f9f0;color:#1a7a4a} .pill-b{background:#e8f0fe;color:#2563eb}
-        .pill-a{background:#fff3e0;color:#d48744} .pill-y{background:#fef9e7;color:#b8860b}
-        .total-row{background:#f5f5f5;font-weight:700}
-        .total-row td{padding:10px;border-top:2px solid #ddd}
-        .footer{margin-top:24px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;display:flex;justify-content:space-between}
-        @media print{body{padding:0}.content{padding:20px 30px}@page{margin:10mm 8mm}.header{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-      </style>
-    </head><body>
-      <div class="page">
-        <div class="header">
-          <div class="logo-area">
-            ${logoHtml}
-            <div>
-              <div class="company-name">${t.company_name}</div>
-              <div class="company-sub">${t.company_tagline} · Sales Day Book</div>
-            </div>
-          </div>
-          <div>
-            <div class="doc-title">Sales Day Book</div>
-            <div class="doc-meta">Period: ${fromDate} to ${toDate}<br>Generated: ${now}<br>${filtered.length} transactions</div>
-          </div>
-        </div>
-
-        <div class="content">
-        <div class="stats">
-          <div class="stat"><div class="stat-label">Gross Sales</div><div class="stat-val green">TZS ${totalRevenue.toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-label">Credit Notes</div><div class="stat-val" style="color:${totalCreditNotes > 0 ? '#c0392b' : '#999'}">${totalCreditNotes > 0 ? '(TZS ' + totalCreditNotes.toLocaleString() + ')' : 'None'}</div></div>
-          <div class="stat"><div class="stat-label">Net Sales</div><div class="stat-val green">TZS ${netSales.toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-label">Expenses</div><div class="stat-val red">TZS ${totalExpenses.toLocaleString()}</div></div>
-          <div class="stat" style="background:${(netSales - totalExpenses) >= 0 ? '#f0faf7' : '#fef2f2'};border-color:${(netSales - totalExpenses) >= 0 ? pc + '40' : '#fca5a540'}"><div class="stat-label">Net Position</div><div class="stat-val" style="color:${(netSales - totalExpenses) >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${(netSales - totalExpenses).toLocaleString()}</div></div>
-        </div>
-
-        <div class="split-grid">
-          <div>
-            <div class="section-title">Banking Summary</div>
-            <table><thead><tr><th>Method / Bank</th><th class="num">Received (TZS)</th><th class="num">Share</th></tr></thead>
-            <tbody>${bankingRows}</tbody>
-            <tfoot><tr class="total-row"><td>Total Received</td><td class="num">${totalRevenue.toLocaleString()}</td><td class="num">100%</td></tr></tfoot>
-            </table>
-          </div>
-          <div>
-            <div class="section-title">Expense Summary</div>
-            ${expenses.length > 0 ? `
-              <table><thead><tr><th>Ref</th><th>Description</th><th>Paid From</th><th class="num">Amount (TZS)</th></tr></thead>
-              <tbody>${expenseRows}</tbody>
-              <tfoot><tr class="total-row"><td colspan="3">Total Expenses</td><td class="num">${totalExpenses.toLocaleString()}</td></tr></tfoot>
-              </table>
-              ${Object.keys(expenseSplit).length > 1 ? `
-                <div style="margin-top:12px;font-size:10px;color:#888;font-family:'DM Mono',monospace">
-                  ${Object.entries(expenseSplit).map(([m, a]) => `${m}: TZS ${Math.round(a).toLocaleString()}`).join(' · ')}
-                </div>
-              ` : ''}
-            ` : '<div style="font-size:12px;color:#bbb;padding:16px 0">No expenses recorded for this period.</div>'}
-          </div>
-        </div>
-
-        <div class="section-title">Transaction Detail</div>
-        <table>
-          <thead><tr><th>Date</th><th>Ref</th><th>Customer</th><th>WhatsApp</th><th>Payment</th><th>Salesperson</th><th>Status</th><th class="num">Amount (TZS)</th></tr></thead>
-          <tbody>${tableRows}</tbody>
-          <tfoot>
-            <tr class="total-row"><td colspan="7">Sales Subtotal — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr>
-            ${creditNotes.length > 0 ? `
-              ${creditNotes.map(c => `<tr style="color:#c0392b"><td>${c.posting_date}</td><td class="ref" style="color:#c0392b">${c.ref}</td><td colspan="5">${c.description || 'Credit Note'}</td><td class="num">(${(c.total_amount || 0).toLocaleString()})</td></tr>`).join('')}
-              <tr style="background:#fef2f2;font-weight:700"><td colspan="7">Total Credit Notes</td><td class="num" style="color:#c0392b">(${totalCreditNotes.toLocaleString()})</td></tr>
-            ` : ''}
-            <tr style="background:#e6f9f0;font-weight:800"><td colspan="7" style="padding:12px 10px;font-size:13px">NET SALES</td><td class="num" style="padding:12px 10px;font-size:15px;color:#1a7a4a">${netSales.toLocaleString()}</td></tr>
-          </tfoot>
-        </table>
-
-        <div class="footer">
-          <div>${t.company_name} · Dar es Salaam, Tanzania</div>
-          <div>Generated ${now} · MalkiaOS</div>
-        </div>
-        </div>
-      </div>
-    </body></html>`)
-    win.document.close()
-    setTimeout(() => win.print(), 600)
+  const toggleBank = (code: string) => {
+    setAllowedBanks(prev => prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code])
   }
 
   return (
     <div className="page">
-      {/* HEADER */}
       <div className="page-header">
-        <div>
-          <div className="page-title">Sales Day Book</div>
-          <div className="page-sub">
-            Today's transactions · {filtered.length} vouchers · <span className="sync-dot"></span> Live
-          </div>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" onClick={() => loadSales()} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
-          <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print / PDF</button>
-          <button className="btn btn-ghost btn-sm" onClick={exportCSV} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
-        </div>
+        <div><div className="page-title">Settings</div><div className="page-sub">System configuration · Malkia Wellness Group Ltd</div></div>
       </div>
 
-      {/* DATE + VIEW CONTROLS */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '6px 12px' }}>
-          <span style={{ fontSize: 12, color: 'var(--text3)' }}>From</span>
-          <input type="date" className="form-input" style={{ width: 140, padding: '4px 8px', fontSize: 12, border: 'none', background: 'transparent' }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
-          <span style={{ fontSize: 12, color: 'var(--text3)' }}>To</span>
-          <input type="date" className="form-input" style={{ width: 140, padding: '4px 8px', fontSize: 12, border: 'none', background: 'transparent' }} value={toDate} onChange={e => setToDate(e.target.value)} />
-          <button className="btn btn-primary btn-sm" onClick={() => loadSales()}>Load</button>
-        </div>
-
-        {/* Quick date presets */}
-        {[
-          { label: 'Today', from: new Date().toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
-          { label: 'This Week', from: new Date(Date.now() - 6*86400000).toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
-          { label: 'This Month', from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
-        ].map(p => (
-          <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setFromDate(p.from); setToDate(p.to); loadSales(p.from, p.to) }}>{p.label}</button>
-        ))}
-
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowFilters(!showFilters)} className="btn btn-ghost btn-sm" style={{ position: 'relative' }}>
-            Filters
-            {activeFilters > 0 && <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, background: 'var(--accent)', borderRadius: '50%', fontSize: 9, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{activeFilters}</span>}
-          </button>
-          <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
-            <button onClick={() => setView('summary')} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: view === 'summary' ? 'var(--accent)' : 'transparent', color: view === 'summary' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}>Summary</button>
-            <button onClick={() => setView('detail')} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: view === 'detail' ? 'var(--accent)' : 'transparent', color: view === 'detail' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}>Detail</button>
-          </div>
-        </div>
-      </div>
-
-      {/* FILTER PANEL */}
-      {showFilters && (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 16, marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 700 }}>Filters</div>
-            {activeFilters > 0 && <button className="btn btn-ghost btn-sm" onClick={clearFilters}>× Clear all filters</button>}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Voucher Ref</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. CS-0001" value={searchRef} onChange={e => setSearchRef(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Customer / WhatsApp</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="Name or number" value={searchCustomer} onChange={e => setSearchCustomer(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Product</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="Product name" value={searchProduct} onChange={e => setSearchProduct(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Category / Group</div>
-              <CategoryFilter value={filterCat} onChange={setFilterCat} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Payment Method</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="Cash, M-Pesa, Bank" value={searchPayment} onChange={e => setSearchPayment(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Salesperson</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. Joe, Lilian" value={searchSalesperson} onChange={e => setSearchSalesperson(e.target.value)} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Voucher Type</div>
-              <select className="form-input" style={{ fontSize: 12 }} value={voucherType} onChange={e => setVoucherType(e.target.value)}>
-                <option value="all">All Types</option>
-                <option value="cash_sale">Cash Sale</option>
-                <option value="sales_invoice">Sales Invoice</option>
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
-              <select className="form-input" style={{ fontSize: 12 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                <option value="all">All Statuses</option>
-                <option value="posted">Posted</option>
-                <option value="draft">POD Pending</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STAT CARDS */}
-      <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-label">Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
-        <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
-        <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>
-      </div>
-
-      {/* PAYMENT SPLIT + STATUS */}
-      <div className="grid g2" style={{ marginBottom: 20 }}>
-        <div className="card card-sm">
-          <div className="card-title" style={{ marginBottom: 12 }}>Payment Split</div>
-          {Object.keys(paymentSplit).length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>No data</div>
-          ) : Object.entries(paymentSplit).map(([method, amount], i) => {
-            const pct = totalRevenue > 0 ? (amount / totalRevenue) * 100 : 0
-            return (
-              <div key={i} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--text3)' }}>{method.includes('Cash') ? '' : method.includes('Pesa') || method.includes('pesa') ? '' : ''} {method}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(amount)} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
-                </div>
-                <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3 }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: method.includes('Cash') ? 'var(--green)' : method.includes('Pesa') || method.includes('pesa') ? 'var(--blue)' : 'var(--accent)', borderRadius: 3 }}></div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        <div className="card card-sm">
-          <div className="card-title" style={{ marginBottom: 12 }}>Voucher Status</div>
-          <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-            <div style={{ flex: 1, background: 'var(--green-dim)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--green)', fontFamily: 'var(--display)' }}>{postedCount}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Posted ✓</div>
-            </div>
-            <div style={{ flex: 1, background: 'var(--yellow-dim)', border: '1px solid rgba(255,211,42,.2)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--yellow)', fontFamily: 'var(--display)' }}>{podCount}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>POD Pending </div>
-            </div>
-            <div style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--display)' }}>{filtered.length}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Total</div>
-            </div>
-          </div>
-          {filtered.length > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-              Avg sale: <span style={{ color: 'var(--text)', fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(Math.round(totalRevenue / filtered.length))}</span> ·
-              Avg margin: <span style={{ color: 'var(--green)', fontFamily: 'var(--mono)', fontWeight: 600 }}> {marginPct}%</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── SUMMARY VIEW ────────────────────────── */}
-      {view === 'summary' && (
+      <div className="grid g2" style={{ gap: 20, marginBottom: 20 }}>
+        {/* Company */}
         <div className="card">
-          <div className="card-header" style={{ marginBottom: 14 }}>
-            <div>
-              <div className="card-title">Sales Register — Summary</div>
-              <div className="card-sub">{filtered.length} transactions · {fromDate} to {toDate}</div>
-            </div>
+          <div className="card-title" style={{ marginBottom: 16 }}>Company Information</div>
+          <FG label="Company Name"><input className="form-input" defaultValue="Malkia Wellness Group Ltd" /></FG>
+          <FG label="TIN Number"><input className="form-input" defaultValue="123-456-789" /></FG>
+          <div className="form-row">
+            <FG label="Currency"><select className="form-input"><option>TZS — Tanzanian Shilling</option><option>USD</option></select></FG>
+            <FG label="Financial Year"><select className="form-input"><option>July — June</option><option>January — December</option></select></FG>
           </div>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading…</div>
-          ) : filtered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>No sales found for this period and filters.</div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Voucher No</th>
-                    <th>Customer</th>
-                    <th>WhatsApp</th>
-                    <th>Payment / Bank</th>
-                    <th>Salesperson</th>
-                    <th>Status</th>
-                    <th className="td-right">Amount (TZS)</th>
-                    <th style={{ width: 30 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((s, i) => (
-                    <tr key={i} onClick={() => onEdit('cash-sale', s.id)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                      <td className="td-mono" style={{ color: 'var(--text3)', fontSize: 11 }}>{s.posting_date}</td>
-                      <td className="td-mono td-amber">{s.ref}</td>
-                      <td className="td-bold">{(s.customers as any)?.name || '—'}</td>
-                      <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{(s.customers as any)?.whatsapp || '—'}</td>
-                      <td>
-                        <span className={`pill ${s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('M-Pesa') ? 'pill-blue' : s.payment_method?.includes('Mixx') ? 'pill-yellow' : s.payment_method?.includes('NMB') ? 'pill-blue' : s.payment_method?.includes('CRDB') ? 'pill-green' : s.payment_method?.includes('POS') ? 'pill-gray' : 'pill-amber'}`} style={{ fontSize: 10 }}>
-                          {s.payment_method?.includes('Cash') ? '' : s.payment_method?.includes('M-Pesa') ? '' : s.payment_method?.includes('Mixx') ? '' : s.payment_method?.includes('NMB') ? '' : s.payment_method?.includes('CRDB') ? '' : s.payment_method?.includes('POS') ? '' : ''} {s.payment_method}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.posted_by || '—'}</td>
-                      <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted ✓'}</span></td>
-                      <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
-                      <td style={{ width: 30 }}>
-                        <svg width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                    <td colSpan={7} className="td-bold" style={{ padding: '12px 14px' }}>TOTALS — {filtered.length} transactions</td>
-                    <td className="td-right td-mono td-green" style={{ fontSize: 15, fontWeight: 800, padding: '12px 14px' }}>{totalRevenue.toLocaleString()}</td>
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+          <button className="btn btn-primary" onClick={() => showToast('Settings saved successfully')}>Save Changes</button>
         </div>
-      )}
 
-      {/* ── DETAIL VIEW ─────────────────────────── */}
-      {view === 'detail' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading…</div>
-          ) : filtered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>No sales found for this period and filters.</div>
-          ) : (
-            filtered.map((s, i) => {
-              const custMargin = (s.voucher_lines || []).reduce((acc: number, l: any) => acc + ((l.unit_price - l.unit_cost) * l.qty), 0)
-              const custMarginPct = (s.total_amount || 0) > 0 ? Math.round((custMargin / (s.total_amount || 1)) * 100) : 0
-              return (
-                <div key={i} className="card" style={{ borderLeft: `3px solid ${s.status === 'draft' ? 'var(--yellow)' : 'var(--green)'}` }}>
-                  {/* Voucher Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                    <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 800, color: 'var(--accent)' }}>{s.ref}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>{s.posting_date} · {s.posted_by}</div>
-                      </div>
-                      <span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`}>{s.status === 'draft' ? 'POD Pending' : 'Posted ✓'}</span>
-                      <span className={`pill ${s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('M-Pesa') ? 'pill-blue' : s.payment_method?.includes('Mixx') ? 'pill-yellow' : s.payment_method?.includes('NMB') ? 'pill-blue' : s.payment_method?.includes('CRDB') ? 'pill-green' : s.payment_method?.includes('POS') ? 'pill-gray' : 'pill-amber'}`}>
-                        {s.payment_method?.includes('Cash') ? '' : s.payment_method?.includes('M-Pesa') ? '' : s.payment_method?.includes('Mixx') ? '' : s.payment_method?.includes('NMB') ? '' : s.payment_method?.includes('CRDB') ? '' : s.payment_method?.includes('POS') ? '' : ''} {s.payment_method}
-                      </span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>{tzs(s.total_amount || 0)}</div>
-                      <div style={{ fontSize: 11, color: s.status === 'draft' ? 'var(--yellow)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {s.status === 'draft' ? 'Receipt pending' : '✓ Receipted'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
-                    {/* Customer */}
-                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
-                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 8 }}>Customer</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{(s.customers as any)?.name || '—'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--wa)', fontFamily: 'var(--mono)' }}>{(s.customers as any)?.whatsapp || '—'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>{(s.customers as any)?.pregnancy_stage || '—'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4, fontFamily: 'var(--mono)' }}>{((s.customers as any)?.crown_points || 0).toLocaleString()} pts</div>
-                    </div>
-
-                    {/* Financial Summary */}
-                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
-                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 8 }}>Financials</div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
-                        <span style={{ color: 'var(--text3)' }}>Total</span>
-                        <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(s.total_amount || 0)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
-                        <span style={{ color: 'var(--text3)' }}>Margin</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 700 }}>{custMarginPct}% · {tzs(custMargin)}</span>
-                      </div>
-                      {s.notes && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 6, fontStyle: 'italic' }}> {s.notes}</div>}
-                    </div>
-
-                    {/* Crown Points + CRM */}
-                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
-                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 8 }}>CRM & Loyalty</div>
-                      <div style={{ fontSize: 13, color: 'var(--yellow)', fontFamily: 'var(--mono)', fontWeight: 700, marginBottom: 6 }}>
-                        +{Math.round((s.total_amount || 0) / 1000)} Crown pts earned
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)' }}>Total pts: {((s.customers as any)?.crown_points || 0).toLocaleString()}</div>
-                      <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 4 }}>WhatsApp receipt {s.status === 'draft' ? 'pending' : 'sent'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Posted by: {s.posted_by}</div>
-                    </div>
-                  </div>
-
-                  {/* Line Items */}
-                  {(s.voucher_lines || []).length > 0 && (
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr style={{ background: 'var(--surface3)' }}>
-                            <th>SKU</th><th>Product</th><th>Category</th>
-                            <th className="td-right" style={{ width: 60 }}>Qty</th>
-                            <th className="td-right" style={{ width: 120 }}>Unit Cost</th>
-                            <th className="td-right" style={{ width: 120 }}>Unit Price</th>
-                            <th className="td-right" style={{ width: 80 }}>Margin</th>
-                            <th className="td-right" style={{ width: 130 }}>Line Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(s.voucher_lines as any[]).map((l, li) => {
-                            const linePct = l.unit_price > 0 ? Math.round(((l.unit_price - l.unit_cost) / l.unit_price) * 100) : 0
-                            return (
-                              <tr key={li}>
-                                <td className="td-mono td-amber" style={{ fontSize: 11 }}>{l.products?.sku || '—'}</td>
-                                <td className="td-bold" style={{ fontSize: 12 }}>{l.products?.name || '—'}</td>
-                                <td style={{ fontSize: 11, color: 'var(--text3)' }}>{l.products?.category || '—'}</td>
-                                <td className="td-right td-mono" style={{ fontSize: 12 }}>{l.qty}</td>
-                                <td className="td-right td-mono" style={{ fontSize: 12, color: 'var(--text3)' }}>{(l.unit_cost || 0).toLocaleString()}</td>
-                                <td className="td-right td-mono" style={{ fontSize: 12 }}>{(l.unit_price || 0).toLocaleString()}</td>
-                                <td className="td-right" style={{ fontSize: 11, color: 'var(--green)', fontFamily: 'var(--mono)' }}>{linePct}%</td>
-                                <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{(l.total || 0).toLocaleString()}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )
-            })
-          )}
-
-          {/* DETAIL TOTALS FOOTER */}
-          {filtered.length > 0 && !loading && (
-            <div style={{ background: 'var(--surface)', border: '2px solid var(--accent)', borderRadius: 'var(--r)', padding: 20 }}>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, marginBottom: 16, color: 'var(--text)' }}>
-                Period Totals — {fromDate} to {toDate} · {filtered.length} transactions
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 14 }}>
+        {/* Users */}
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 16 }}>Users & Access</div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Status</th></tr></thead>
+              <tbody>
                 {[
-                  { label: 'Revenue', value: tzs(totalRevenue), color: 'var(--green)' },
-                  { label: 'Cost of Goods', value: tzs(totalCost), color: 'var(--red)' },
-                  { label: 'Gross Margin', value: `${tzs(totalMargin)} (${marginPct}%)`, color: 'var(--green)' },
-                  { label: 'Avg per Sale', value: filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—', color: 'var(--text)' },
-                ].map((item, i) => (
-                  <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
-                    <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>{item.label}</div>
-                    <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: item.color }}>{item.value}</div>
-                  </div>
+                  { n: 'Joe Gembe', r: 'Super Admin', b: 'DSM HQ', s: 'Active' },
+                  { n: 'Jane Mwatonoka', r: 'Super Admin', b: 'DSM HQ', s: 'Active' },
+                  { n: 'Barbra Kabendera', r: 'CRM Manager', b: 'DSM HQ', s: 'Pending' },
+                  { n: 'Lilian Mallya', r: 'Sales Rep', b: 'DSM HQ', s: 'Pending' },
+                  { n: 'Sophia Kipanta', r: 'Midwife', b: 'DSM HQ', s: 'Pending' },
+                ].map((u, i) => (
+                  <tr key={i}>
+                    <td className="td-bold">{u.n}</td>
+                    <td><span className={`pill ${u.r === 'Super Admin' ? 'pill-amber' : 'pill-blue'}`}>{u.r}</span></td>
+                    <td style={{ fontSize: 11, color: 'var(--text3)' }}>{u.b}</td>
+                    <td><span className={`pill ${u.s === 'Active' ? 'pill-green' : 'pill-gray'}`}>{u.s}</span></td>
+                  </tr>
                 ))}
-              </div>
-            </div>
-          )}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }}>+ Invite User</button>
         </div>
-      )}
+      </div>
+
+      {/* Cash Sale Settings */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-title" style={{ marginBottom: 6 }}>Cash Sale Settings</div>
+        <div className="card-sub" style={{ marginBottom: 20 }}>Control how cash sales behave at the counter</div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Auto-Receipt on Full Payment</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>When ON — posting a cash sale automatically creates the receipt journal entry. When OFF — cashier must manually receipt each sale.</div>
+          </div>
+          <div onClick={() => setAutoReceipt(!autoReceipt)} style={{ width: 48, height: 26, background: autoReceipt ? 'var(--green)' : 'var(--surface3)', borderRadius: 13, cursor: 'pointer', position: 'relative', transition: 'background .2s', flexShrink: 0, marginLeft: 20 }}>
+            <div style={{ position: 'absolute', top: 3, left: autoReceipt ? 25 : 3, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.3)' }}></div>
+          </div>
+        </div>
+
+        <div style={{ paddingTop: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>Payment Accounts Shown at Counter</div>
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>Choose which bank/cash accounts appear in the Cash Sale payment dropdown. Uncheck to hide from cashiers.</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+            {allBankAccounts.map(a => (
+              <div key={a.id} onClick={() => toggleBank(a.code)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: allowedBanks.includes(a.code) ? 'var(--green-dim)' : 'var(--surface2)', border: `1px solid ${allowedBanks.includes(a.code) ? 'var(--green)' : 'var(--border)'}`, borderRadius: 'var(--r)', cursor: 'pointer', transition: 'all .15s' }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, background: allowedBanks.includes(a.code) ? 'var(--green)' : 'var(--surface3)', border: `2px solid ${allowedBanks.includes(a.code) ? 'var(--green)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {allowedBanks.includes(a.code) && <span style={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>✓</span>}
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{a.name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{a.code}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Receipt Template */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(247,166,173,.08) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(247,166,173,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(247,166,173,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#f7a6ad" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Receipt Template</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Branded cash sale receipt · Teal & blush · Malkia identity · PDF & WhatsApp ready</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Edit messages · Toggle sections · Set Konnect link · Brand colors</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('receipt-template')} className="btn btn-primary" style={{ background: '#85c2be', border: 'none', flexShrink: 0 }}>
+          Edit Template →
+        </button>
+      </div>
+
+      {/* Invoice Template */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(26,26,26,.06) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(133,194,190,.2)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(26,26,26,.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#85c2be" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Sales Invoice Template</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>B2B invoice · Classic layout · Logo + bank details · PDF ready</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Edit bank details · Toggle sections · Outstanding balance · Payment terms</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('invoice-template')} className="btn btn-primary" style={{ background: '#1a1a1a', border: 'none', flexShrink: 0 }}>
+          Edit Template →
+        </button>
+      </div>
+
+      {/* Report Templates (Sales Day Book PDF) */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(212,135,74,.08) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(212,135,74,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(212,135,74,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#D48744" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Report Templates</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Sales Day Book PDF export · Logo · Company details · Colors · Section toggles</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Upload logo · Set position & size · Customize stats bar · Footer text</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('report-templates')} className="btn btn-primary" style={{ background: '#D48744', border: 'none', flexShrink: 0 }}>
+          Edit Template →
+        </button>
+      </div>
+
+      {/* WhatsApp Integration */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(37,211,102,.08) 0%, rgba(37,211,102,.04) 100%)', border: '1px solid rgba(37,211,102,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(37,211,102,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#25D366" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>WhatsApp Integration</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Send receipts and invoices directly to customers · Wati · Twilio · Infobip</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Configure API · Message templates · Send logs</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('whatsapp-settings')} className="btn btn-primary" style={{ background: '#25D366', border: 'none', flexShrink: 0 }}>
+          Configure →
+        </button>
+      </div>
+
+      {/* Accounting Settings */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,.08) 0%, rgba(133,194,190,.06) 100%)', border: '1px solid rgba(99,102,241,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(99,102,241,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#6366f1" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Accounting Settings</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Fiscal years · Accounting periods · Period locking · Posting rules</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Go-live date · Migration status · Backdate limits · EOD lock</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('accounting-settings')} className="btn btn-primary" style={{ background: '#6366f1', border: 'none', flexShrink: 0 }}>
+          Configure →
+        </button>
+      </div>
+
+      {/* Inventory Settings */}
+      <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Inventory Settings</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Stock control · Valuation · Reorder alerts · Categories · Units · Stock taking</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Block negative stock · Min margin · USD rate · Visibility rules</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('inventory-settings')} className="btn btn-primary" style={{ flexShrink: 0 }}>
+          Configure →
+        </button>
+      </div>
+
+      {/* Price List */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(133,194,190,.08) 0%, rgba(247,166,173,.06) 100%)', border: '1px solid rgba(133,194,190,.2)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(133,194,190,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#85c2be" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Price List</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Branded price list · Print · PDF · CSV · Filter by category</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Malkia logo · Teal & blush · Template settings</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('pricelist-template')} className="btn btn-primary" style={{ background: '#85c2be', border: 'none', flexShrink: 0 }}>
+          Open Price List →
+        </button>
+      </div>
+
+      {/* Location Management */}
+      <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Location Management</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Branches · Stock locations · 4-digit location codes · Voucher permissions</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Current: Branch 10 — DSM HQ · Locations: 1001 Front Office · 1002 Warehouse</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('location-settings')} className="btn btn-primary" style={{ flexShrink: 0 }}>
+          Manage →
+        </button>
+      </div>
+
+      {/* Display Settings */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(168,85,247,.08) 0%, rgba(236,72,153,.06) 100%)', border: '1px solid rgba(168,85,247,.25)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(168,85,247,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="22" height="22" fill="none" stroke="#a855f7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Display Settings</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Themes · Colors · Typography · Layout customization</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>8 themes · Font sizes · Border radius · Table options</div>
+          </div>
+        </div>
+        <button onClick={() => onNav('display-settings')} className="btn btn-primary" style={{ background: '#a855f7', border: 'none', flexShrink: 0 }}>
+          Customize →
+        </button>
+      </div>
+
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
   )
 }

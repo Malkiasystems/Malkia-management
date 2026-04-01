@@ -9,7 +9,7 @@ import type { Page } from '../lib/types'
 interface Props { onNav?: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; category: string; selling_price: number; qty_on_hand: number }
 
-export default function Bundles({ onNav }: Props) {
+export default function Bundles(_props: Props) {
   const { bundles, loading, createBundle, updateBundle, toggleBundle, deleteBundle, refresh } = useBundles()
   const [tab, setTab] = useState<'bundles' | 'analytics'>('bundles')
   const [toast, setToast] = useState('')
