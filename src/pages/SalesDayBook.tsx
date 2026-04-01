@@ -6,8 +6,8 @@ import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFil
 import type { Page } from '../lib/types'
 
 interface Props {
-  onNav: (p: Page) => void
-  onEdit: (p: Page, voucherId: string) => void
+  onNav?: (p: Page) => void
+  onEdit?: (p: Page, voucherId: string) => void
 }
 
 interface Sale {
@@ -529,7 +529,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                 </thead>
                 <tbody>
                   {filtered.map((s, i) => (
-                    <tr key={i} onClick={() => onEdit('cash-sale', s.id)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                    <tr key={i} onClick={() => onEdit?.('cash-sale', s.id)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
                       <td className="td-mono" style={{ color: 'var(--text3)', fontSize: 11 }}>{s.posting_date}</td>
                       <td className="td-mono td-amber">{s.ref}</td>
                       <td className="td-bold">{(s.customers as any)?.name || '—'}</td>
