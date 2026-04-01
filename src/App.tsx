@@ -2,6 +2,7 @@ import { useState, lazy, Suspense, createContext, useContext, useCallback, React
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
+import { CompanyProvider } from './lib/useCompany'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
@@ -53,6 +54,9 @@ const ReportTemplates = lazy(() => import('./pages/ReportTemplates'))
 const UserManagement = lazy(() => import('./pages/UserManagement'))
 const ApprovalWorkflows = lazy(() => import('./pages/ApprovalWorkflows'))
 
+// Bundles
+const Bundles = lazy(() => import('./pages/Bundles'))
+
 // Vouchers
 const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
 const CashPayment = lazy(() => import('./pages/vouchers/CashPayment'))
@@ -83,6 +87,12 @@ const CRMReferrals = lazy(() => import('./pages/CRMReferrals'))
 const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
 const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
 const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
+
+// Investors Module
+const InvestorsHub = lazy(() => import('./pages/InvestorsHub'))
+
+// Bundles
+const Bundles = lazy(() => import('./pages/Bundles'))
 
 // ============================================================================
 // PERFORMANCE: Global Data Cache Context
@@ -231,6 +241,10 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'accounting-settings': 'Settings / Accounting',
   'display-settings': 'Settings / Display',
   'report-templates': 'Settings / Report Templates',
+  'investors': 'Investors',
+  'investors-hub': 'Investors',
+  'investors-portfolio': 'Investors / Portfolio',
+  'investors-reports': 'Investors / Reports',
 }
 
 // ============================================================================
@@ -241,7 +255,7 @@ function AppContent() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
-  const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
+  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
@@ -330,6 +344,7 @@ function AppContent() {
       case 'customers':         return <Customers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'data-import':       return <DataImport />
+      case 'bundles':            return <Bundles onNav={navigate} />
       
       // User Management & Approvals
       case 'users':             return <UserManagement onNav={navigate} />
@@ -350,6 +365,12 @@ function AppContent() {
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
       case 'crm-customers':     return <Customers />
       
+      // Investors Module
+      case 'investors':
+      case 'investors-hub':      return <InvestorsHub onNav={navigate} />
+      case 'investors-portfolio': return <ComingSoon module="Investor Portfolio" />
+      case 'investors-reports':  return <ComingSoon module="Investor Reports" />
+      
       default:                  return <ComingSoon module={BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || page} />
     }
   }
@@ -357,19 +378,21 @@ function AppContent() {
   const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
 
   return (
-    <CacheProvider>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar current={page} onNav={navigate} />
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <Suspense fallback={<PageLoader />}>
-              {renderPage()}
-            </Suspense>
+    <CompanyProvider userId={user?.id || null}>
+      <CacheProvider>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+          <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            <Sidebar current={page} onNav={navigate} />
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <Suspense fallback={<PageLoader />}>
+                {renderPage()}
+              </Suspense>
+            </div>
           </div>
         </div>
-      </div>
-    </CacheProvider>
+      </CacheProvider>
+    </CompanyProvider>
   )
 }
 
