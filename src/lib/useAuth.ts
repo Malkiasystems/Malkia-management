@@ -248,6 +248,11 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'stock-transfer-register': ['reports.view'],
   'data-import': ['settings.edit'],
   'report-templates': ['settings.edit'],
+  'investors': ['reports.view'],
+  'investors-hub': ['reports.view'],
+  'investors-portfolio': ['reports.view'],
+  'investors-reports': ['reports.view'],
+  'bundles': ['sales.view'],
 }
 
 export function canAccessPage(page: string, permissions: string[]): boolean {

@@ -25,7 +25,6 @@ export const ACCOUNTS: Account[] = [
   { id:'a11', code:'1121', name:'GRN Interim / Expected Cost', type:'asset', category:'Inventory', balance:0 },
   { id:'a12', code:'2010', name:'Accounts Payable — Import Suppliers', type:'liability', category:'Payables', balance:-2100000 },
   { id:'a13', code:'2011', name:'Accounts Payable — Local Suppliers', type:'liability', category:'Payables', balance:-340000 },
-  { id:'a14', code:'2020', name:'VAT Payable — Output Tax (18%)', type:'liability', category:'Tax', balance:-480000 },
   { id:'a15', code:'2030', name:'PAYE Payable', type:'liability', category:'Payroll Tax', balance:-120000 },
   { id:'a16', code:'2050', name:'Deferred Revenue — Konnect', type:'liability', category:'Deferred Revenue', balance:-180000 },
   { id:'a17', code:'2060', name:'Crown Points Liability', type:'liability', category:'Other', balance:-45000 },
@@ -78,8 +77,9 @@ export const BREADCRUMBS: Record<string, string> = {
   'journal-entry':'Journal Entry',
   'pnl':'Profit & Loss', 'sales-register':'Sales Register', 'sales-day-book':'Sales Day Book',
   'trial-balance':'Trial Balance', 'balance-sheet':'Balance Sheet',
-  'ar-aging':'AR Aging', 'ap-aging':'AP Aging', 'vat-report':'VAT Report',
+  'ar-aging':'AR Aging', 'ap-aging':'AP Aging',
   'stock-valuation':'Stock Valuation', 'purchase-register':'Purchase Register',
   'payment-register':'Payment Register', 'stock-transfer-register':'Stock Transfer Register', 'customers':'Customers', 'receipt-template':'Receipt Template', 'invoice-template':'Invoice Template', 'whatsapp-settings':'WhatsApp', 'location-settings':'Location Management', 'inventory-settings':'Inventory Settings', 'pricelist-template':'Price List',
   'settings':'Settings', 'data-import':'Data Import Studio', 'coming-soon':'Coming Soon',
+  'bundles':'Product Bundles',
 }

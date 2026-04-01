@@ -13,7 +13,7 @@ export type Page =
   | 'receipt-template' | 'invoice-template'
   | 'whatsapp-settings' | 'location-settings'
   | 'inventory-settings' | 'pricelist-template'
-  | 'banks' | 'settings' | 'data-import' | 'coming-soon'
+  | 'banks' | 'settings' | 'data-import' | 'coming-soon' | 'bundles'
   | 'stock-levels' | 'suppliers' | 'stock-movements'
   // CRM Module Pages
   | 'crm' | 'crm-hub' | 'crm-inbox' | 'crm-automations' | 'crm-preorders'
@@ -23,6 +23,10 @@ export type Page =
   | 'accounting-settings' | 'display-settings' | 'report-templates'
   // User Management & Approvals
   | 'users' | 'approvals'
+  // Investors Module
+  | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
+  // Bundles
+  | 'bundles'
 
 export interface Product {
   id: string
