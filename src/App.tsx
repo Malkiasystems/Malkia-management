@@ -2,7 +2,6 @@ import { useState, lazy, Suspense, createContext, useContext, useCallback, React
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
-import { CompanyProvider } from './lib/useCompany'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
@@ -87,12 +86,6 @@ const CRMReferrals = lazy(() => import('./pages/CRMReferrals'))
 const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
 const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
 const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
-
-// Investors Module
-const InvestorsHub = lazy(() => import('./pages/InvestorsHub'))
-
-// Bundles
-const Bundles = lazy(() => import('./pages/Bundles'))
 
 // ============================================================================
 // PERFORMANCE: Global Data Cache Context
@@ -241,10 +234,6 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'accounting-settings': 'Settings / Accounting',
   'display-settings': 'Settings / Display',
   'report-templates': 'Settings / Report Templates',
-  'investors': 'Investors',
-  'investors-hub': 'Investors',
-  'investors-portfolio': 'Investors / Portfolio',
-  'investors-reports': 'Investors / Reports',
 }
 
 // ============================================================================
@@ -365,12 +354,6 @@ function AppContent() {
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
       case 'crm-customers':     return <Customers />
       
-      // Investors Module
-      case 'investors':
-      case 'investors-hub':      return <InvestorsHub onNav={navigate} />
-      case 'investors-portfolio': return <ComingSoon module="Investor Portfolio" />
-      case 'investors-reports':  return <ComingSoon module="Investor Reports" />
-      
       default:                  return <ComingSoon module={BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || page} />
     }
   }
@@ -378,7 +361,6 @@ function AppContent() {
   const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
 
   return (
-    <CompanyProvider userId={user?.id || null}>
       <CacheProvider>
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
           <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
@@ -392,7 +374,6 @@ function AppContent() {
           </div>
         </div>
       </CacheProvider>
-    </CompanyProvider>
   )
 }
 
