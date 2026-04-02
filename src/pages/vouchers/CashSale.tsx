@@ -77,12 +77,25 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
   const [waSent, setWaSent] = useState(false)
   const [lastVoucher, setLastVoucher] = useState<any>(null)
   const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null)
+  const [pageLoading, setPageLoading] = useState(true)
 
   useEffect(() => {
-    loadProducts(); loadDeliveryAccount(); loadAccountMap(); loadReceiptSettings(); loadWAConfig().then(setWaConfig)
-    supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) setLocations(data); if(data?.[0]) setLocationCode(data[0].code) })
-    supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} })
-    loadTodayStats(); loadRecentSales()
+    const loadInitialData = async () => {
+      setPageLoading(true)
+      await Promise.all([
+        loadProducts(),
+        loadDeliveryAccount(),
+        loadAccountMap(),
+        loadReceiptSettings(),
+        loadWAConfig().then(setWaConfig),
+        supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) setLocations(data); if(data?.[0]) setLocationCode(data[0].code) }),
+        supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} }),
+        loadTodayStats(),
+        loadRecentSales(),
+      ])
+      setPageLoading(false)
+    }
+    loadInitialData()
     
     // Check if we're in edit mode
     if (editVoucherId) {
@@ -412,6 +425,20 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       </div>
 
       {/* TODAY STATS */}
+      {pageLoading ? (
+        <div style={{ marginBottom: 20 }}>
+          <div className="grid g4" style={{ marginBottom: 20 }}>
+            {[1,2,3,4].map(i => (
+              <div key={i} className="stat-card" style={{ opacity: 0.4 }}>
+                <div className="stat-label" style={{ background: 'var(--surface3)', width: 80, height: 10, borderRadius: 4 }}></div>
+                <div className="stat-value" style={{ background: 'var(--surface3)', width: 60, height: 24, borderRadius: 4, marginTop: 8 }}></div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)', fontSize: 13 }}>Loading today's data...</div>
+        </div>
+      ) : (
+      <>
       <div className="grid g4" style={{ marginBottom: 20 }}>
         <div className="stat-card green"><div className="stat-label">Sales Today</div><div className="stat-value">{todayStats.count}</div><div className="stat-change up">↑ Transactions</div></div>
         <div className="stat-card amber"><div className="stat-label">Revenue Today</div><div className="stat-value">{todayStats.total >= 1000000 ? (todayStats.total/1000000).toFixed(2)+'M' : (todayStats.total/1000).toFixed(0)+'K'}</div><div className="stat-change up">↑ TZS</div></div>
@@ -491,6 +518,8 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* ── MODAL ──────────────────────────────── */}
       {showModal && (
