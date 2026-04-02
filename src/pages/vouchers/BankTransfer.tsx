@@ -5,12 +5,15 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
 import { today } from '../../lib/utils'
+import { validatePostingDate } from '../../lib/dateValidation'
+import { useAuth } from '../../lib/useAuth'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface DBAccount { id: string; code: string; name: string }
 
 export default function BankTransfer({ onNav }: Props) {
+  const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [, setPosting] = useState(false)
@@ -40,6 +43,8 @@ export default function BankTransfer({ onNav }: Props) {
     if (!form.fromAccount || !form.toAccount) { showToast('Please select both accounts', 'error'); return }
     if (form.fromAccount === form.toAccount) { showToast('From and To accounts cannot be the same', 'error'); return }
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
+    const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
+    if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
     setPosting(true)
     const amount = parseFloat(form.amount)
 

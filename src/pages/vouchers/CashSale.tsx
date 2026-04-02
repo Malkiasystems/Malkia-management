@@ -10,6 +10,7 @@ import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
+import { useDataCache } from '../../App'
 import BundlePicker from '../../components/BundlePicker'
 import type { Bundle } from '../../lib/useBundles'
 import { PAYMENT_METHODS } from '../../lib/cashSaleTypes'
@@ -78,17 +79,36 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
   const [lastVoucher, setLastVoucher] = useState<any>(null)
   const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null)
   const [pageLoading, setPageLoading] = useState(true)
+  const { getCache, setCache, isStale } = useDataCache()
 
   useEffect(() => {
     const loadInitialData = async () => {
       setPageLoading(true)
+
+      // Use cached products/accounts/settings if fresh (< 60s old)
+      const cachedProducts = !isStale('cs_products') ? getCache('cs_products') : null
+      const cachedAcctMap = !isStale('cs_acctmap') ? getCache('cs_acctmap') : null
+      const cachedLocations = !isStale('cs_locations') ? getCache('cs_locations') : null
+
+      if (cachedProducts) setDbProducts(cachedProducts as DBProduct[])
+      if (cachedAcctMap) {
+        const map: Record<string, string> = {}
+        ;(cachedAcctMap as any[]).forEach(a => { map[a.code] = a.id })
+        setAccountMap(map)
+      }
+      if (cachedLocations) {
+        const locs = cachedLocations as {id:string;code:string;name:string}[]
+        setLocations(locs)
+        if (locs[0]) setLocationCode(locs[0].code)
+      }
+
       await Promise.all([
-        loadProducts(),
+        cachedProducts ? Promise.resolve() : loadProducts(),
         loadDeliveryAccount(),
-        loadAccountMap(),
+        cachedAcctMap ? Promise.resolve() : loadAccountMap(),
         loadReceiptSettings(),
         loadWAConfig().then(setWaConfig),
-        supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) setLocations(data); if(data?.[0]) setLocationCode(data[0].code) }),
+        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) { setLocations(data); setCache('cs_locations', data); if(data[0]) setLocationCode(data[0].code) } }),
         supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} }),
         loadTodayStats(),
         loadRecentSales(),
@@ -171,12 +191,13 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
       const map: Record<string, string> = {}
       data.forEach(a => { map[a.code] = a.id })
       setAccountMap(map)
+      setCache('cs_acctmap', data)
     }
   }
 
   const loadProducts = async () => {
     const { data } = await supabase.from('products').select('id, sku, name, category, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name')
-    if (data) setDbProducts(data)
+    if (data) { setDbProducts(data); setCache('cs_products', data) }
   }
 
   const loadReceiptSettings = async () => {

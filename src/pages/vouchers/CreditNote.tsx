@@ -5,11 +5,14 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
+import { validatePostingDate } from '../../lib/dateValidation'
+import { useAuth } from '../../lib/useAuth'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 
 export default function CreditNote({ onNav }: Props) {
+  const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -39,6 +42,8 @@ export default function CreditNote({ onNav }: Props) {
     if (!form.customer.trim()) { showToast('Customer name required', 'error'); return }
     if (!form.amount || parseFloat(form.amount) <= 0) { showToast('Credit amount required', 'error'); return }
     if (!form.reason) { showToast('Select a reason', 'error'); return }
+    const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
+    if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
     setPosting(true)
     const amount = parseFloat(form.amount)
     try {

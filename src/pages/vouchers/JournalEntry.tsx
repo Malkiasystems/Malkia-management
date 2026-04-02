@@ -5,12 +5,15 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
 import { today } from '../../lib/utils'
+import { validatePostingDate } from '../../lib/dateValidation'
+import { useAuth } from '../../lib/useAuth'
 import type { Page, JournalLine } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface DBAccount { id: string; code: string; name: string }
 
 export default function JournalEntry({ onNav }: Props) {
+  const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -47,6 +50,8 @@ export default function JournalEntry({ onNav }: Props) {
   const post = async () => {
     if (!balanced) { showToast('Journal not balanced — Debits must equal Credits', 'error'); return }
     if (!form.narration.trim()) { showToast('Please enter a narration/description', 'error'); return }
+    const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
+    if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
     setPosting(true)
 
     try {

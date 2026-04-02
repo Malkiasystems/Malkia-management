@@ -5,12 +5,15 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
+import { validatePostingDate } from '../../lib/dateValidation'
+import { useAuth } from '../../lib/useAuth'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface ReturnLine { productId: string; name: string; qty: number; salePrice: number; costPrice: number; amount: number }
 
 export default function SalesReturn({ onNav }: Props) {
+  const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -57,6 +60,8 @@ export default function SalesReturn({ onNav }: Props) {
     if (!form.customer.trim()) { showToast('Customer name required', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (form.refundMethod !== 'credit' && form.refundMethod !== 'exchange' && !form.refundAccountId) { showToast('Select refund account', 'error'); return }
+    const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
+    if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
     setPosting(true)
     try {
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['4050', '5010', '1110', '2020'])

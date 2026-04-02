@@ -4,6 +4,8 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
+import { validatePostingDate } from '../../lib/dateValidation'
+import { useAuth } from '../../lib/useAuth'
 import { nextRef } from '../../lib/refs'
 import type { Page } from '../../lib/types'
 
@@ -11,6 +13,7 @@ interface Props { onNav: (p: Page) => void }
 interface ExpLine { desc: string; amount: number; accountId: string }
 
 export default function PettyCash({ onNav }: Props) {
+  const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -46,6 +49,8 @@ export default function PettyCash({ onNav }: Props) {
     if (lines.some(l => l.amount > 0 && !l.accountId)) { showToast('Select expense account for each line', 'error'); return }
     if (!pettyCashId) { showToast('Petty Cash account (1040) not found', 'error'); return }
     if (!form.ref) { showToast('Reference number not generated', 'error'); return }
+    const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
+    if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
     setPosting(true)
     try {
       const { data: j, error: jErr } = await supabase.from('journals').insert({
