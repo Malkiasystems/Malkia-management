@@ -30,6 +30,9 @@ interface InvSettings {
   stocktake_frequency: string
   freeze_on_stocktake: boolean
   variance_threshold: number
+  // Date restrictions
+  lock_posting_to_today: boolean
+  backdate_super_admin_only: boolean
   // Product defaults
   auto_sku_prefix: string
 }
@@ -51,6 +54,8 @@ const DEFAULT: InvSettings = {
   stocktake_frequency: 'monthly',
   freeze_on_stocktake: false,
   variance_threshold: 5,
+  lock_posting_to_today: true,
+  backdate_super_admin_only: true,
   auto_sku_prefix: 'MK-',
 }
 
@@ -245,6 +250,15 @@ export default function InventorySettings({ onNav }: Props) {
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Set to 0 to block all discounts. Max 100.</div>
               </div>
             </Section>
+            <Section icon="lock" title="Date & Posting Restrictions">
+              <Toggle label="Lock All Entries to Today's Date" desc="All vouchers (sales, payments, journals) can only be posted on today's date. No backdating allowed." val={settings.lock_posting_to_today} onChange={v => set('lock_posting_to_today', v)} />
+              <Toggle label="Super Admin Can Backdate" desc="When date lock is ON, super admins can still post to past dates. Other users are blocked." val={settings.backdate_super_admin_only} onChange={v => set('backdate_super_admin_only', v)} />
+              {settings.lock_posting_to_today && (
+                <div style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 11, color: 'var(--accent)' }}>
+                  Date lock is active. {settings.backdate_super_admin_only ? 'Only super admins can backdate entries.' : 'Nobody can backdate entries, including admins.'}
+                </div>
+              )}
+            </Section>
           </div>
           <div>
             <div className="card" style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
@@ -255,6 +269,8 @@ export default function InventorySettings({ onNav }: Props) {
                 { label: 'Min margin', val: `${settings.global_min_margin}%`, ok: settings.warn_below_min_margin },
                 { label: 'Price edit at POS', val: settings.allow_price_edit_pos ? 'Allowed' : 'Blocked', ok: !settings.allow_price_edit_pos },
                 { label: 'Max discount', val: `${settings.max_discount_pct}%`, ok: settings.max_discount_pct <= 15 },
+                { label: 'Date lock', val: settings.lock_posting_to_today ? 'Today only' : 'Any date', ok: settings.lock_posting_to_today },
+                { label: 'Admin backdate', val: settings.backdate_super_admin_only ? 'Super admin only' : 'Disabled', ok: settings.backdate_super_admin_only },
               ].map(item => (
                 <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 12 }}>
                   <span style={{ color: 'var(--text3)' }}>{item.label}</span>
