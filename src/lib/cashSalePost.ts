@@ -60,7 +60,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
   const {
     newCustName, waInput, lines, dbProducts, selectedCust,
     isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
-    townDelivery, upcountryShipping, deliveryAccountId,
+    deliveryAccountId,
     locationCode, locations, invSettings, userName, appliedBundle,
     subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
   } = params

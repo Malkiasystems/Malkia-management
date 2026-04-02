@@ -67,7 +67,7 @@ export function exportPDF(data: ExportData) {
   const {
     filtered, expenses, creditNotes, paymentSplit, expenseSplit,
     totalRevenue, totalExpenses, totalCreditNotes, netSales,
-    marginPct, fromDate, toDate, tplSettings,
+    fromDate, toDate, tplSettings,
   } = data
   if (filtered.length === 0) return
 
