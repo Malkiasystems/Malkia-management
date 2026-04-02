@@ -53,7 +53,7 @@ export default function SalesDayBook({ onEdit }: Props) {
       .from('vouchers')
       .select(`
         id, ref, posting_date, description, total_amount, subtotal,
-        payment_method, status, notes, posted_by,
+        payment_method, payment_split, status, notes, posted_by,
         customers (name, whatsapp, pregnancy_stage, crown_points),
         voucher_lines (
           id, qty, unit_price, unit_cost, total,
@@ -124,11 +124,19 @@ export default function SalesDayBook({ onEdit }: Props) {
   const podCount = filtered.filter(s => s.status === 'draft').length
   const postedCount = filtered.filter(s => s.status === 'posted').length
 
-  // Payment split
+  // Payment split — use actual amounts from payment_split JSON when available
   const paymentSplit: Record<string, number> = {}
   filtered.forEach(s => {
-    const methods = (s.payment_method || 'Cash').split('+')
-    methods.forEach(m => { const key = m.trim(); paymentSplit[key] = (paymentSplit[key] || 0) + (s.total_amount || 0) / methods.length })
+    if (s.payment_split && typeof s.payment_split === 'object') {
+      // New vouchers have exact split amounts
+      Object.entries(s.payment_split as Record<string, number>).forEach(([method, amount]) => {
+        paymentSplit[method] = (paymentSplit[method] || 0) + (amount || 0)
+      })
+    } else {
+      // Legacy vouchers without payment_split — single method gets full amount
+      const method = (s.payment_method || 'Cash').trim()
+      paymentSplit[method] = (paymentSplit[method] || 0) + (s.total_amount || 0)
+    }
   })
 
   // Expense split by payment method (bank)
