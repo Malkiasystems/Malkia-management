@@ -6,6 +6,7 @@
 export interface SDBSale {
   id: string; ref: string; posting_date: string; description: string
   total_amount: number; subtotal: number; payment_method: string
+  payment_split?: Record<string, number> | null
   status: string; notes: string; posted_by: string
   customers: { name: string; whatsapp: string; pregnancy_stage: string; crown_points: number } | null
   voucher_lines: { id: string; qty: number; unit_price: number; unit_cost: number; total: number; products: { name: string; sku: string; category: string } | null }[]

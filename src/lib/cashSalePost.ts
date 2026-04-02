@@ -200,6 +200,23 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
 
     await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
 
+    // Build payment split breakdown (actual amounts per method)
+    const paymentSplitData: Record<string, number> = {}
+    if (isSplit) {
+      // Primary method gets the remainder
+      const primaryAmount = total - totalSplitPaid
+      if (primaryAmount > 0) paymentSplitData[currentMethod.label] = primaryAmount
+      // Each split line
+      for (const sl of splitLines) {
+        if (!sl.amount) continue
+        const m = PAYMENT_METHODS.find(pm => pm.id === sl.methodId)
+        const label = m?.label || sl.methodId
+        paymentSplitData[label] = (paymentSplitData[label] || 0) + sl.amount
+      }
+    } else {
+      paymentSplitData[currentMethod.label] = total
+    }
+
     // Create voucher
     const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
       ref, type: 'cash_sale', posting_date: postingDate,
@@ -208,6 +225,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       status: isPOD ? 'draft' : 'posted', branch: 'DSM HQ',
       customer_id: customerId, journal_id: journal.id,
       payment_method: paymentLabel,
+      payment_split: paymentSplitData,
       notes: [
         deliveryTotal > 0 ? `Delivery: TZS ${deliveryTotal.toLocaleString()}` : '',
         currentMethod.id === 'pos' ? 'POS Card payment' : '',
