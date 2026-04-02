@@ -11,39 +11,15 @@ import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
 import BundlePicker from '../../components/BundlePicker'
-import { logBundleSale } from '../../lib/useBundles'
 import type { Bundle } from '../../lib/useBundles'
+import { PAYMENT_METHODS } from '../../lib/cashSaleTypes'
+import type { DBProduct, DBCustomer, SaleLine, SplitLine, PaymentMethod } from '../../lib/cashSaleTypes'
+import { postCashSale, updateCashSale } from '../../lib/cashSalePost'
 
 interface Props {
   editVoucherId?: string | null
   onClearEdit?: () => void
 }
-
-interface DBProduct { id: string; sku: string; name: string; category: string; cost_price: number; selling_price: number; qty_on_hand: number }
-interface DBCustomer { id: string; name: string; whatsapp: string; crown_points: number; pregnancy_stage: string; last_purchase_date: string; last_purchase_amount: number; balance: number }
-interface SaleLine { productId: string; name: string; qty: number; price: number; amount: number }
-
-// ── PAYMENT METHODS — hardwired to Malkia's actual accounts ──
-interface PaymentMethod {
-  id: string
-  label: string
-  sublabel: string
-  accountCode: string
-  color: string
-  bg: string
-  showRef: boolean
-}
-
-const PAYMENT_METHODS: PaymentMethod[] = [
-  { id: 'cash',  label: 'Cash',        sublabel: 'Cash in Hand',                    accountCode: '1010', color: '#22c55e', bg: '#14532d', showRef: false },
-  { id: 'mpesa', label: 'M-Pesa',      sublabel: '50582099 · Malkia Wellness',      accountCode: '1020', color: '#ef4444', bg: '#7f1d1d', showRef: true  },
-  { id: 'mixx',  label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness',      accountCode: '1021', color: '#facc15', bg: '#1e3a8a', showRef: true  },
-  { id: 'nmb',   label: 'NMB Bank',    sublabel: '22510074972 · Malkia Wellness',   accountCode: '1022', color: '#60a5fa', bg: '#1e3a5f', showRef: true  },
-  { id: 'crdb',  label: 'CRDB Bank',   sublabel: '015C874857300 · Malkia Wellness', accountCode: '1030', color: '#4ade80', bg: '#14532d', showRef: true  },
-  { id: 'pos',   label: 'POS Card',    sublabel: 'CRDB Card Machine',               accountCode: '1030', color: '#c084fc', bg: '#3b0764', showRef: true  },
-]
-
-interface SplitLine { methodId: string; accountId: string; amount: number; ref: string }
 
 export default function CashSale({ editVoucherId, onClearEdit }: Props) {
   const [toast, setToast] = useState('')
@@ -288,101 +264,21 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
   // Update existing voucher (edit mode)
   const updateVoucher = async () => {
     if (!editVoucherData) return
-    if (!newCustName.trim()) { showToast('Customer name required', 'error'); return }
-    if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
-    
     setPosting(true)
-    try {
-      // Calculate totals
-      const lineItems = lines.filter(l => l.productId && l.amount > 0)
-      const newSubtotal = lineItems.reduce((sum, l) => sum + l.amount, 0)
-      const deliveryTotal = (parseInt(townDelivery) || 0) + (parseInt(upcountryShipping) || 0)
-      const newTotal = newSubtotal + deliveryTotal
-      
-      // Build payment label
-      const paymentLabel = isSplit
-        ? splitLines.map(l => PAYMENT_METHODS.find(m => m.id === l.methodId)?.label || l.methodId).join(' + ') + ' + ' + currentMethod.label
-        : currentMethod.label
-
-      // Update customer if changed
-      const cleaned = waInput.replace(/[\s+\-()]/g, '')
-      if (selectedCust) {
-        await supabase.from('customers').update({
-          name: newCustName.trim(),
-          whatsapp: cleaned || null,
-        }).eq('id', selectedCust.id)
-      }
-
-      // Update voucher
-      const { error: vErr } = await supabase.from('vouchers').update({
-        subtotal: newSubtotal,
-        total_amount: newTotal,
-        payment_method: paymentLabel,
-        status: isPOD ? 'draft' : 'posted',
-        notes: [
-          deliveryTotal > 0 ? `Delivery: TZS ${deliveryTotal.toLocaleString()}` : '',
-          currentMethod.id === 'pos' ? 'POS Card payment' : '',
-          paymentRef ? `Ref: ${paymentRef}` : ''
-        ].filter(Boolean).join(' · ') || null,
-      }).eq('id', editVoucherData.id)
-      
-      if (vErr) throw new Error('Voucher update: ' + vErr.message)
-
-      // Get old lines for stock reversal
-      const oldLines = editVoucherData.voucher_lines || []
-      
-      // Reverse old stock changes
-      for (const oldLine of oldLines) {
-        if (!oldLine.product_id) continue
-        const prod = dbProducts.find(p => p.id === oldLine.product_id)
-        if (prod) {
-          await supabase.from('products').update({ 
-            qty_on_hand: prod.qty_on_hand + oldLine.qty 
-          }).eq('id', oldLine.product_id)
-        }
-      }
-
-      // Delete old voucher lines
-      await supabase.from('voucher_lines').delete().eq('voucher_id', editVoucherData.id)
-
-      // Insert new voucher lines and update stock
-      for (let i = 0; i < lineItems.length; i++) {
-        const line = lineItems[i]
-        const prod = dbProducts.find(p => p.id === line.productId)
-        if (!prod) continue
-        
-        await supabase.from('voucher_lines').insert({
-          voucher_id: editVoucherData.id,
-          line_number: i + 1,
-          product_id: line.productId,
-          description: line.name,
-          qty: line.qty,
-          unit_cost: prod.cost_price,
-          unit_price: line.price,
-          subtotal: line.amount,
-          total: line.amount
-        })
-        
-        // Deduct new quantity from stock
-        const currentQty = prod.qty_on_hand + (oldLines.find((ol: any) => ol.product_id === line.productId)?.qty || 0)
-        await supabase.from('products').update({ 
-          qty_on_hand: currentQty - line.qty 
-        }).eq('id', line.productId)
-      }
-
+    const result = await updateCashSale({
+      editVoucherData, newCustName, waInput, lines, dbProducts, selectedCust,
+      isPOD, selectedMethod, isSplit, splitLines, paymentRef,
+      townDelivery, upcountryShipping, currentMethod,
+    })
+    if (result.success) {
       showToast(`${editVoucherData.ref} updated successfully`)
       setShowModal(false)
       resetForm()
-      loadTodayStats()
-      loadRecentSales()
-      loadProducts()
-      
-    } catch (err: any) {
-      console.error(err)
-      showToast(err.message || 'Update failed', 'error')
-    } finally {
-      setPosting(false)
+      loadTodayStats(); loadRecentSales(); loadProducts()
+    } else {
+      showToast(result.error || 'Update failed', 'error')
     }
+    setPosting(false)
   }
 
   const addSplitLine = () => {
@@ -401,333 +297,33 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
   }
 
   const post = async () => {
-    if (!newCustName.trim()) { showToast('Customer name required', 'error'); return }
-    if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
-    // Inventory settings enforcement
-    if (invSettings?.block_negative_stock) {
-      for (const line of lines) {
-        if (!line.productId) continue
-        const prod = dbProducts.find(p => p.id === line.productId)
-        if (prod && prod.qty_on_hand < line.qty) { showToast(`Insufficient stock for ${prod.name}. Available: ${prod.qty_on_hand} units`, 'error'); return }
-      }
-    }
-    if (invSettings?.block_sell_below_cost) {
-      for (const line of lines) {
-        if (!line.productId || !line.price) continue
-        const prod = dbProducts.find(p => p.id === line.productId)
-        if (prod && line.price < prod.cost_price) { showToast(`Selling ${prod.name} below cost price. Adjust price or change settings.`, 'error'); return }
-      }
-    }
-    if (invSettings?.warn_below_min_margin) {
-      for (const line of lines) {
-        if (!line.productId || !line.price) continue
-        const prod = dbProducts.find(p => p.id === line.productId)
-        if (prod && prod.selling_price > 0) {
-          const margin = ((line.price - prod.cost_price) / line.price) * 100
-          if (margin < (invSettings.global_min_margin || 0)) { showToast(`Warning: ${prod.name} margin is ${Math.round(margin)}% — below minimum ${invSettings.global_min_margin}%`, 'error'); return }
-        }
-      }
-    }
-    if (!isPOD && !isSplit && currentMethod.showRef && !paymentRef.trim()) {
-      showToast(`Please enter the ${currentMethod.label} transaction reference number`, 'error')
+    setPosting(true)
+    const result = await postCashSale({
+      newCustName, waInput, lines, dbProducts, selectedCust,
+      isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
+      townDelivery, upcountryShipping, deliveryAccountId,
+      locationCode, locations, invSettings,
+      userName: user?.full_name || 'Unknown',
+      appliedBundle, subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
+    })
+
+    if (!result.success) {
+      showToast(result.error || 'Something went wrong', 'error')
+      setPosting(false)
       return
     }
-    setPosting(true)
-    const ref = await nextRef('cash_sale')
-    const postingDate = today()
 
-    try {
-      // Upsert customer
-      const cleaned = waInput.replace(/[\s+\-()]/g, '')
-      let customerId = selectedCust?.id || null
-      
-      // Generate customer code if new customer (not updating existing)
-      let customerCode: string | undefined
-      if (!selectedCust?.id) {
-        const { data: maxCode } = await supabase
-          .from('customers')
-          .select('code')
-          .like('code', 'CONT-%')
-          .order('code', { ascending: false })
-          .limit(1)
-        const lastNum = maxCode?.[0]?.code ? parseInt(maxCode[0].code.replace('CONT-', '')) || 10000 : 10000
-        customerCode = `CONT-${lastNum + 1}`
-      }
-      
-      const { data: custData } = await supabase.from('customers').upsert({
-        ...(customerCode ? { code: customerCode } : {}),
-        name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
-        segment: 'retail',
-        crown_points: (selectedCust?.crown_points || 0) + crownPoints,
-        last_purchase_date: postingDate,
-        last_purchase_amount: subtotal,
-        balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
-      }, { onConflict: 'whatsapp' }).select('id').single()
-      if (custData) customerId = custData.id
+    showToast(`${result.ref} posted · ${result.isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
 
-      // Get accounts
-      const neededCodes = ['4010', '5010', '1110', '1050', '2085']
-      const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', neededCodes)
-      const acct = (code: string) => acctData?.find(a => a.code === code)?.id
-      const revenueId = acct('4010'); const cogsId = acct('5010')
-      const inventoryId = acct('1110')
-      const arId = acct('1050'); const delivFloatId = acct('2085') || deliveryAccountId
-      if (!revenueId || !cogsId || !inventoryId) throw new Error('Required accounts not found')
-
-      // Build payment label for voucher
-      const paymentLabel = isSplit
-        ? splitLines.map(l => PAYMENT_METHODS.find(m => m.id === l.methodId)?.label || l.methodId).join(' + ') + ' + ' + currentMethod.label
-        : currentMethod.label
-
-      // Create journal
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
-        ref: 'JV-' + ref, posting_date: postingDate,
-        description: `Cash Sale — ${newCustName} — ${ref}`,
-        journal_type: 'cash_sale', source_type: 'cash_sale', source_ref: ref,
-        posted_by: user?.full_name || 'Unknown', status: 'posted',
-      }).select('id').single()
-      if (jErr) throw new Error('Journal: ' + jErr.message)
-
-      const cogsTotal = lines.reduce((s, l) => {
-        const p = dbProducts.find(p => p.id === l.productId)
-        return s + (p ? p.cost_price * l.qty : 0)
-      }, 0)
-
-      // Build journal lines
-      const jLines: any[] = []
-      let ln = 1
-
-      if (!isPOD && autoReceipt) {
-        // Primary payment method
-        const primaryAcctId = accountMap[currentMethod.accountCode]
-        if (!primaryAcctId) throw new Error(`Payment account not found for ${currentMethod.label} (code: ${currentMethod.accountCode}). Check Chart of Accounts.`)
-        const primaryAmount = isSplit ? total - totalSplitPaid : total
-        jLines.push({
-          journal_id: journal.id, line_number: ln++,
-          account_id: primaryAcctId,
-          description: `${currentMethod.label}${paymentRef ? ' · ' + paymentRef : ''} — ${newCustName}`,
-          debit: primaryAmount > 0 ? primaryAmount : total, credit: 0
-        })
-        // Split payment lines
-        for (const sl of splitLines) {
-          if (!sl.accountId || !sl.amount) continue
-          const m = PAYMENT_METHODS.find(pm => pm.id === sl.methodId)
-          jLines.push({
-            journal_id: journal.id, line_number: ln++,
-            account_id: sl.accountId,
-            description: `${m?.label || sl.methodId}${sl.ref ? ' · ' + sl.ref : ''} — ${newCustName}`,
-            debit: sl.amount, credit: 0
-          })
-        }
-        // Delivery collected
-        if (deliveryTotal > 0 && delivFloatId) {
-          const delivAcctId = accountMap[currentMethod.accountCode]
-          if (delivAcctId) jLines.push({ journal_id: journal.id, line_number: ln++, account_id: delivAcctId, description: `Delivery collected — ${ref}`, debit: deliveryTotal, credit: 0 })
-        }
-      } else if (isPOD && arId) {
-        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: arId, description: `POD — ${newCustName} — ${ref}`, debit: total, credit: 0 })
-      }
-
-      // Revenue, COGS, Inventory
-      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: revenueId, description: `Sales — ${ref}`, debit: 0, credit: subtotal })
-      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: cogsId, description: `COGS — ${ref}`, debit: cogsTotal, credit: 0 })
-      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: inventoryId, description: `Inventory out — ${ref}`, debit: 0, credit: cogsTotal })
-      if (deliveryTotal > 0 && delivFloatId) {
-        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: delivFloatId, description: `Delivery float — ${ref}`, debit: 0, credit: deliveryTotal })
-      }
-
-      const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
-      if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
-
-      await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
-
-      // Create voucher
-      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
-        ref, type: 'cash_sale', posting_date: postingDate,
-        description: `Cash Sale — ${newCustName}`,
-        subtotal, total_amount: total,
-        status: isPOD ? 'draft' : 'posted', branch: 'DSM HQ',
-        customer_id: customerId, journal_id: journal.id,
-        payment_method: paymentLabel,
-        notes: [
-          deliveryTotal > 0 ? `Delivery: TZS ${deliveryTotal.toLocaleString()}` : '',
-          currentMethod.id === 'pos' ? 'POS Card payment' : '',
-          paymentRef ? `Ref: ${paymentRef}` : ''
-        ].filter(Boolean).join(' · ') || null,
-        posted_by: user?.full_name || 'Unknown',
-      }).select('id').single()
-      if (vErr) throw new Error('Voucher: ' + vErr.message)
-
-      // Voucher lines + stock
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]; if (!line.productId) continue
-        const prod = dbProducts.find(p => p.id === line.productId); if (!prod) continue
-        await supabase.from('voucher_lines').insert({ voucher_id: voucher.id, line_number: i + 1, product_id: line.productId, description: line.name, qty: line.qty, unit_cost: prod.cost_price, unit_price: line.price, subtotal: line.amount, total: line.amount })
-        await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand - line.qty }).eq('id', line.productId)
-        await supabase.from('item_ledger_entries').insert({ product_id: line.productId, entry_type: 'sale', document_type: 'cash_sale', document_ref: ref, posting_date: postingDate, qty: -line.qty, cost_amount: prod.cost_price * line.qty, location_code: locationCode })
-        // Update product_locations balance
-        const locObj = locations.find(l => l.code === locationCode)
-        if (locObj) {
-          await supabase.from('product_locations').upsert(
-            { product_id: line.productId, location_id: locObj.id, location_code: locationCode, qty_on_hand: Math.max(0, (prod.qty_on_hand || 0) - line.qty), last_updated: new Date().toISOString() },
-            { onConflict: 'product_id,location_id' }
-          )
-        }
-      }
-
-      if (isPOD && customerId && arId) {
-        await supabase.from('customer_ledger_entries').insert({ customer_id: customerId, posting_date: postingDate, document_type: 'invoice', document_ref: ref, description: `POD — ${newCustName}`, amount: total, remaining_amount: total, is_open: true, journal_id: journal.id })
-      }
-
-      // AUTO-CREATE BANK RECEIPT VOUCHER for non-cash payments
-      if (!isPOD && autoReceipt && currentMethod.id !== 'cash') {
-        try {
-          // Create receipt voucher for the bank/payment account
-          const receiptRef = await nextRef('cash_receipt')
-          
-          // Determine which bank account to credit
-          let bankAccountId = accountMap[currentMethod.accountCode]
-          if (!bankAccountId) {
-            // Fallback: try to find the account
-            const { data: bankAcct } = await supabase
-              .from('accounts')
-              .select('id')
-              .eq('code', currentMethod.accountCode)
-              .single()
-            bankAccountId = bankAcct?.id
-          }
-          
-          if (bankAccountId) {
-            // Create receipt journal for the bank deposit
-            const { data: receiptJournal, error: rjErr } = await supabase
-              .from('journals')
-              .insert({
-                ref: 'JV-' + receiptRef,
-                posting_date: postingDate,
-                description: `Auto Bank Receipt — ${currentMethod.label} — ${ref}`,
-                journal_type: 'cash_receipt',
-                source_type: 'cash_sale',
-                source_ref: ref,
-                posted_by: user?.full_name || 'Unknown',
-                status: 'posted',
-              })
-              .select('id')
-              .single()
-            
-            if (rjErr) {
-              console.error('Receipt journal error:', rjErr)
-            } else if (receiptJournal) {
-              // Build receipt journal lines: debit bank account, credit cash/payment account
-              const receiptJLines: any[] = []
-              const lineAmount = isSplit ? total - totalSplitPaid : total
-              
-              receiptJLines.push({
-                journal_id: receiptJournal.id,
-                line_number: 1,
-                account_id: bankAccountId,
-                description: `${currentMethod.label}${paymentRef ? ' · ' + paymentRef : ''} — From ${ref}`,
-                debit: lineAmount,
-                credit: 0
-              })
-              
-              // Credit the payment account (reverse the debit from cash sale)
-              const primaryAcctId = accountMap[currentMethod.accountCode]
-              if (primaryAcctId) {
-                receiptJLines.push({
-                  journal_id: receiptJournal.id,
-                  line_number: 2,
-                  account_id: primaryAcctId,
-                  description: `Deposit received — ${ref}`,
-                  debit: 0,
-                  credit: lineAmount
-                })
-              }
-              
-              // Insert receipt journal lines
-              const { error: rjlErr } = await supabase
-                .from('journal_lines')
-                .insert(receiptJLines)
-              
-              if (!rjlErr) {
-                // Update account balances
-                await Promise.all(
-                  receiptJLines.map(l =>
-                    supabase.rpc('update_account_balance', {
-                      p_account_id: l.account_id,
-                      p_debit: l.debit,
-                      p_credit: l.credit
-                    })
-                  )
-                )
-                
-                // Create receipt voucher record
-                await supabase.from('vouchers').insert({
-                  ref: receiptRef,
-                  type: 'cash_receipt',
-                  posting_date: postingDate,
-                  description: `Auto Receipt — ${currentMethod.label} — ${ref}`,
-                  subtotal: lineAmount,
-                  total_amount: lineAmount,
-                  status: 'posted',
-                  branch: 'DSM HQ',
-                  customer_id: customerId || null,
-                  journal_id: receiptJournal.id,
-                  payment_method: currentMethod.label,
-                  notes: `Auto-created from ${ref}${paymentRef ? ' · Ref: ' + paymentRef : ''}`,
-                  posted_by: user?.full_name || 'Unknown'
-                })
-              }
-            }
-          }
-        } catch (err: any) {
-          console.error('Auto-receipt creation failed:', err)
-          // Don't fail the main sale if receipt creation fails
-        }
-      }
-
-      showToast(`${ref} posted · ${isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
-
-      // Log bundle sale for analytics (does not touch journals)
-      if (appliedBundle && voucher) {
-        logBundleSale({
-          bundleId: appliedBundle.id,
-          voucherId: voucher.id,
-          voucherRef: ref,
-          customerId: customerId,
-          customerName: newCustName,
-          bundlePrice: appliedBundle.bundle_price,
-          individualTotal: appliedBundle.individual_total,
-          soldBy: user?.full_name || 'Unknown',
-          postingDate,
-        }).catch(err => console.error('Bundle sale log failed:', err))
-      }
-      
-      // Build voucher data for receipt
-      if (!isPOD) {
-        const receiptData = {
-          ref, posting_date: postingDate,
-          description: `Cash Sale — ${newCustName}`,
-          total_amount: total, subtotal,
-          payment_method: currentMethod.label, notes: '', posted_by: user?.full_name || 'Unknown',
-          customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp, pregnancy_stage: selectedCust.pregnancy_stage, crown_points: (selectedCust.crown_points || 0) + crownPoints } : { name: newCustName, whatsapp: waInput, pregnancy_stage: '', crown_points: crownPoints },
-          voucher_lines: lines.filter(l => l.productId).map(l => {
-            const prod = dbProducts.find(p => p.id === l.productId)
-            return { qty: l.qty, unit_price: l.price, total: l.amount, products: prod ? { name: prod.name, sku: prod.sku, category: '' } : null }
-          }),
-        }
-        setLastVoucher(receiptData)
-        setShowModal(false)
-        setShowReceipt(true)
-      } else {
-        setShowModal(false); resetForm()
-      }
-      loadTodayStats(); loadRecentSales(); loadProducts()
-
-    } catch (err: any) {
-      showToast('' + (err.message || 'Something went wrong'), 'error')
-    } finally {
-      setPosting(false)
+    if (!result.isPOD && result.receiptData) {
+      setLastVoucher(result.receiptData)
+      setShowModal(false)
+      setShowReceipt(true)
+    } else {
+      setShowModal(false); resetForm()
     }
+    loadTodayStats(); loadRecentSales(); loadProducts()
+    setPosting(false)
   }
 
   // ── PAYMENT BUTTON COMPONENT ──────────────────
