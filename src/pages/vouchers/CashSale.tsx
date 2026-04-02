@@ -994,11 +994,6 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
                 {/* STEP 3 (was 2) — PRODUCTS */}
                 <div>
                   <div className="step-header" style={{ marginBottom: 8 }}><div className="step-num">{locations.length > 1 ? '3' : '2'}</div><div className="step-title">PRODUCTS SOLD</div></div>
-                  {/* Bundle quick-pick */}
-                  <BundlePicker onApply={(bundleLines, bundle) => {
-                    setLines(bundleLines)
-                    setAppliedBundle(bundle)
-                  }} />
                   {appliedBundle && (
                     <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,229,160,.3)', borderRadius: 8, padding: '6px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
                       <span style={{ color: 'var(--green)', fontWeight: 600 }}>Bundle applied: {appliedBundle.name} · Save {tzs(appliedBundle.individual_total - appliedBundle.bundle_price)}</span>
@@ -1032,7 +1027,13 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
                     )
                   })}
                   <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>PRODUCT · QTY · PRICE (editable for custom amounts)</div>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, amount: 0 }])}>+ Add item</button>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, amount: 0 }])}>+ Add item</button>
+                    <BundlePicker onApply={(bundleLines, bundle) => {
+                      setLines(bundleLines)
+                      setAppliedBundle(bundle)
+                    }} />
+                  </div>
                 </div>
 
                 {/* STEP 3 — DELIVERY (collapsible) */}
