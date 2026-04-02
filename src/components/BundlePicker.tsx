@@ -9,7 +9,7 @@
  * component and handles the onApply callback.
  */
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useBundles } from '../lib/useBundles'
 import type { Bundle } from '../lib/useBundles'
 
@@ -29,6 +29,17 @@ export default function BundlePicker({ onApply }: Props) {
   const { activeBundles, loading } = useBundles()
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const bundleRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  const handleExpand = useCallback((bundleId: string) => {
+    const next = expanded === bundleId ? null : bundleId
+    setExpanded(next)
+    if (next) {
+      setTimeout(() => {
+        bundleRefs.current[next]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }, 50)
+    }
+  }, [expanded])
 
   if (loading || activeBundles.length === 0) return null
 
@@ -92,7 +103,7 @@ export default function BundlePicker({ onApply }: Props) {
             onClick={e => e.stopPropagation()}
             style={{
               background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 16, width: '92%', maxWidth: 560, maxHeight: '80vh',
+              borderRadius: 16, width: '92%', maxWidth: 560, maxHeight: '90vh',
               overflow: 'hidden', display: 'flex', flexDirection: 'column',
             }}
           >
@@ -126,6 +137,7 @@ export default function BundlePicker({ onApply }: Props) {
               {activeBundles.map(bundle => (
                 <div
                   key={bundle.id}
+                  ref={el => { bundleRefs.current[bundle.id] = el }}
                   style={{
                     background: expanded === bundle.id ? 'var(--accent-dim)' : 'var(--surface2)',
                     border: `1.5px solid ${expanded === bundle.id ? 'var(--accent)' : 'var(--border)'}`,
@@ -134,7 +146,7 @@ export default function BundlePicker({ onApply }: Props) {
                 >
                   {/* Bundle summary row */}
                   <div
-                    onClick={() => setExpanded(expanded === bundle.id ? null : bundle.id)}
+                    onClick={() => handleExpand(bundle.id)}
                     style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                   >
                     <div>
