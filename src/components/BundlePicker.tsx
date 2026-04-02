@@ -2,14 +2,12 @@
  * BundlePicker Component
  * 
  * Collapsed by default — shows a small "Apply Bundle" button.
- * When clicked, opens a modal overlay with bundle cards.
- * Once applied, shows the applied bundle name inline.
- * 
- * Does NOT touch CashSale's posting logic. CashSale just renders this
- * component and handles the onApply callback.
+ * When clicked, opens a full-height side panel with scrollable bundle list.
+ * Each bundle expands inline to show products + apply button.
+ * The panel itself is fully scrollable so expanded bundles are always reachable.
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useBundles } from '../lib/useBundles'
 import type { Bundle } from '../lib/useBundles'
 
@@ -29,15 +27,14 @@ export default function BundlePicker({ onApply }: Props) {
   const { activeBundles, loading } = useBundles()
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const bundleRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const expandedRef = useRef<HTMLDivElement | null>(null)
 
-  const handleExpand = useCallback((bundleId: string) => {
-    const next = expanded === bundleId ? null : bundleId
-    setExpanded(next)
-    if (next) {
+  // Scroll expanded bundle into view
+  useEffect(() => {
+    if (expanded && expandedRef.current) {
       setTimeout(() => {
-        bundleRefs.current[next]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      }, 50)
+        expandedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 80)
     }
   }, [expanded])
 
@@ -89,27 +86,37 @@ export default function BundlePicker({ onApply }: Props) {
         Apply Bundle ({activeBundles.length})
       </button>
 
-      {/* Modal overlay */}
+      {/* Full-screen overlay — the entire thing scrolls */}
       {open && (
         <div
-          onClick={() => { setOpen(false); setExpanded(null) }}
           style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 300,
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)',
+            zIndex: 300, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+            padding: '40px 0',
           }}
         >
+          {/* Tap backdrop to close */}
+          <div
+            onClick={() => { setOpen(false); setExpanded(null) }}
+            style={{ position: 'absolute', inset: 0 }}
+          />
+
+          {/* Modal card — not fixed height, grows with content */}
           <div
             onClick={e => e.stopPropagation()}
             style={{
+              position: 'relative',
               background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 16, width: '92%', maxWidth: 560, maxHeight: '90vh',
-              overflow: 'hidden', display: 'flex', flexDirection: 'column',
+              borderRadius: 16, width: '92%', maxWidth: 560,
+              margin: '0 auto',
             }}
           >
-            {/* Header */}
+            {/* Sticky header */}
             <div style={{
-              padding: '16px 20px', borderBottom: '1px solid var(--border)',
+              position: 'sticky', top: 0, zIndex: 10,
+              background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+              borderRadius: '16px 16px 0 0',
+              padding: '16px 20px',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -118,86 +125,92 @@ export default function BundlePicker({ onApply }: Props) {
                 </svg>
                 <div>
                   <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 800 }}>Product Bundles</div>
-                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{activeBundles.length} active · Click to expand, then apply</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{activeBundles.length} active · Tap to expand, then apply</div>
                 </div>
               </div>
               <button
                 onClick={() => { setOpen(false); setExpanded(null) }}
                 style={{
                   background: 'var(--surface2)', border: '1px solid var(--border)',
-                  borderRadius: 8, width: 28, height: 28, cursor: 'pointer',
-                  color: 'var(--text3)', fontSize: 14,
+                  borderRadius: 8, width: 32, height: 32, cursor: 'pointer',
+                  color: 'var(--text3)', fontSize: 16,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >x</button>
             </div>
 
-            {/* Bundle list */}
-            <div style={{ overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {activeBundles.map(bundle => (
-                <div
-                  key={bundle.id}
-                  ref={el => { bundleRefs.current[bundle.id] = el }}
-                  style={{
-                    background: expanded === bundle.id ? 'var(--accent-dim)' : 'var(--surface2)',
-                    border: `1.5px solid ${expanded === bundle.id ? 'var(--accent)' : 'var(--border)'}`,
-                    borderRadius: 12, overflow: 'hidden', transition: 'all .15s',
-                  }}
-                >
-                  {/* Bundle summary row */}
+            {/* Bundle list — no inner scroll, the whole overlay scrolls */}
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {activeBundles.map(bundle => {
+                const isExpanded = expanded === bundle.id
+                return (
                   <div
-                    onClick={() => handleExpand(bundle.id)}
-                    style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    key={bundle.id}
+                    ref={isExpanded ? expandedRef : undefined}
+                    style={{
+                      background: isExpanded ? 'var(--accent-dim)' : 'var(--surface2)',
+                      border: `1.5px solid ${isExpanded ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 12, overflow: 'hidden', transition: 'all .15s',
+                    }}
                   >
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>{bundle.name}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)' }}>{bundle.items.length} items · {bundle.code}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 800, color: 'var(--green)' }}>{tzs(bundle.bundle_price)}</span>
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textDecoration: 'line-through' }}>{tzs(bundle.individual_total)}</span>
+                    {/* Bundle summary row */}
+                    <div
+                      onClick={() => setExpanded(isExpanded ? null : bundle.id)}
+                      style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>{bundle.name}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text3)' }}>{bundle.items.length} items · {bundle.code}</div>
                       </div>
-                      <div style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 600 }}>Save {savingsPct(bundle)}%</div>
+                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 800, color: 'var(--green)' }}>{tzs(bundle.bundle_price)}</span>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textDecoration: 'line-through' }}>{tzs(bundle.individual_total)}</span>
+                          </div>
+                          <div style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 600 }}>Save {savingsPct(bundle)}%</div>
+                        </div>
+                        <span style={{ fontSize: 16, color: 'var(--text3)', transition: 'transform .2s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Expanded detail */}
-                  {expanded === bundle.id && (
-                    <div style={{ borderTop: '1px solid var(--border)' }}>
-                      {bundle.items.map((item, i) => (
-                        <div key={i} style={{
-                          padding: '7px 14px', borderBottom: i < bundle.items.length - 1 ? '1px solid var(--border)' : 'none',
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12,
-                        }}>
-                          <div>
-                            <span style={{ fontWeight: 500 }}>{item.product?.name || 'Unknown'}</span>
-                            <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginLeft: 8 }}>
-                              x{item.qty} · Stk: {item.product?.qty_on_hand || 0}
+                    {/* Expanded detail — products + apply button */}
+                    {isExpanded && (
+                      <div style={{ borderTop: '1px solid var(--border)' }}>
+                        {bundle.items.map((item, i) => (
+                          <div key={i} style={{
+                            padding: '8px 14px', borderBottom: i < bundle.items.length - 1 ? '1px solid var(--border)' : 'none',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12,
+                          }}>
+                            <div>
+                              <span style={{ fontWeight: 500 }}>{item.product?.name || 'Unknown'}</span>
+                              <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginLeft: 8 }}>
+                                x{item.qty} · Stk: {item.product?.qty_on_hand || 0}
+                              </span>
+                            </div>
+                            <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', fontSize: 11 }}>
+                              {tzs((item.product?.selling_price || 0) * item.qty)}
                             </span>
                           </div>
-                          <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', fontSize: 11 }}>
-                            {tzs((item.product?.selling_price || 0) * item.qty)}
-                          </span>
+                        ))}
+                        <div style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', background: 'var(--surface)', fontSize: 12 }}>
+                          <span style={{ color: 'var(--text3)' }}>You save</span>
+                          <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 700 }}>{tzs(savings(bundle))} ({savingsPct(bundle)}%)</span>
                         </div>
-                      ))}
-                      <div style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', background: 'var(--surface)', fontSize: 12 }}>
-                        <span style={{ color: 'var(--text3)' }}>You save</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 700 }}>{tzs(savings(bundle))} ({savingsPct(bundle)}%)</span>
+                        <div style={{ padding: '10px 12px' }}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleApply(bundle) }}
+                            className="btn btn-primary"
+                            style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 700 }}
+                          >
+                            Apply Bundle to Sale
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ padding: '8px 12px' }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleApply(bundle) }}
-                          className="btn btn-primary"
-                          style={{ width: '100%', justifyContent: 'center', padding: '10px', fontSize: 12, fontWeight: 700 }}
-                        >
-                          Apply Bundle to Sale
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
