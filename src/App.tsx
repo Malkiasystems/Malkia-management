@@ -333,7 +333,7 @@ function AppContent() {
       case 'customers':         return <Customers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'data-import':       return <DataImport />
-      case 'bundles':            return <Bundles onNav={navigate} />
+      case 'bundles':            return <Bundles />
       
       // User Management & Approvals
       case 'users':             return <UserManagement onNav={navigate} />
