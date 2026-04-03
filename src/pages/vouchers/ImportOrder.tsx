@@ -73,7 +73,7 @@ const EMPTY_LINE: OrderLine = {
   qty_received: 0, landed_unit_cost_tzs: 0
 }
 
-export default function ImportOrder({ onNav }: Props) {
+export default function ImportOrder({ onNav: _onNav }: Props) {
   const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -435,10 +435,8 @@ export default function ImportOrder({ onNav }: Props) {
       const totalPaid = (allPayments || []).reduce((s: number, p: { amount_tzs: number }) => s + p.amount_tzs, 0)
       const totalQty = (freshLines || []).reduce((s: number, l: { qty: number }) => s + l.qty, 0)
       if (totalQty > 0 && freshLines) {
-        for (const fl of freshLines) {
-          const unitLanded = (totalPaid / totalQty)
-          await supabase.from('import_order_lines').update({ landed_unit_cost_tzs: unitLanded }).eq('order_id', activeOrder.id)
-        }
+        const unitLanded = totalPaid / totalQty
+        await supabase.from('import_order_lines').update({ landed_unit_cost_tzs: unitLanded }).eq('order_id', activeOrder.id)
       }
 
       showToast('Shipment received! Stock updated.')
