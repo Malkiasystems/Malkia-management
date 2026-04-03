@@ -218,6 +218,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'purchase-order': ['accounting.create'],
   'grn': ['inventory.create'],
   'purchase-invoice': ['accounting.create'],
+  'import-order': ['accounting.create'],
   'purchase-return': ['accounting.create'],
   'opening-stock': ['inventory.adjust'],
   'stock-adjustment': ['inventory.adjust'],

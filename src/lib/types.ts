@@ -5,7 +5,7 @@ export type Page =
   | 'petty-cash' | 'contra' | 'sales-invoice' | 'proforma' | 'quotation'
   | 'sales-return' | 'debit-note' | 'credit-note'
   | 'purchase-order' | 'grn' | 'purchase-invoice' | 'purchase-return'
-  | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry'
+  | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry' | 'import-order'
   | 'sales' | 'inventory' | 'reports' | 'pnl'
   | 'sales-register' | 'sales-day-book' | 'trial-balance' | 'balance-sheet'
   | 'ar-aging' | 'ap-aging' | 'stock-valuation'

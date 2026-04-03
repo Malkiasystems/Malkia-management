@@ -25,6 +25,7 @@ export const VOUCHER_PREFIXES: Record<string, string> = {
   stock_adjustment: 'ADJ',
   opening_stock:    'OST',
   journal_entry:    'JNL',
+  import_order:     'IMP',
 }
 
 const DEFAULT_BRANCH = '10'
