@@ -43,27 +43,6 @@ const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
 ]
 
-const NAV = [
-  { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
-  { sep: true },
-  { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page },
-  { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
-  { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
-  { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
-  { icon: 'customers', label: 'Customers', page: 'customers' as Page },
-  { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page },
-  { icon: 'bundles',  label: 'Bundles',   page: 'bundles' as Page },
-  { icon: 'reports',   label: 'Reports',   page: 'reports' as Page },
-  { sep: true },
-  { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
-  { icon: 'konnect',   label: 'Konnect',   page: 'coming-soon' as Page, coming: true },
-  { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
-  { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
-  { sep: true },
-  { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
-  { icon: 'settings',  label: 'Settings',  page: 'settings' as Page, hasSub: true },
-]
-
 interface SidebarProps { current: Page; onNav: (p: Page) => void }
 
 const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
@@ -76,8 +55,8 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
     bank:      <svg {...p}><path d="M3 10L12 3l9 7"/><rect x="5" y="10" width="3" height="8"/><rect x="10.5" y="10" width="3" height="8"/><rect x="16" y="10" width="3" height="8"/><path d="M2 18h20"/></svg>,
     sales:     <svg {...p}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
     customers: <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+    suppliers: <svg {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
     inventory: <svg {...p}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
-    bundles:   <svg {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
     reports:   <svg {...p}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
     services:  <svg {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.1 1.24h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.64a16 16 0 0 0 6.29 6.29l1.46-1.46a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
     konnect:   <svg {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
@@ -99,6 +78,35 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const { permissions } = useAuth()
   const company = getActiveCompany()
   const CRM_HIDDEN = new Set(['services', 'konnect', 'crm'])
+
+  // Build NAV dynamically based on company
+  const NAV: (
+    | { icon: string; label: string; page: Page; hasSub?: boolean; coming?: boolean; badge?: number }
+    | { sep: true }
+  )[] = [
+    { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
+    { sep: true },
+    { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page },
+    { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
+    { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
+    { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
+    { icon: 'customers', label: 'Customers', page: 'customers' as Page },
+    { icon: 'suppliers', label: 'Suppliers', page: 'suppliers' as Page },
+    { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page },
+    // Bundles only for companies that don't hide them
+    ...(!company.hideBundles ? [{ icon: 'inventory', label: 'Bundles', page: 'bundles' as Page }] : []),
+    { icon: 'reports',   label: 'Reports',   page: 'reports' as Page },
+    { sep: true },
+    // Investors only for companies that show them
+    ...(company.showInvestors ? [{ icon: 'investors', label: 'Investors', page: 'investors-hub' as Page }] : []),
+    { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
+    { icon: 'konnect',   label: 'Konnect',   page: 'coming-soon' as Page, coming: true },
+    { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
+    { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
+    { sep: true },
+    { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
+    { icon: 'settings',  label: 'Settings',  page: 'settings' as Page, hasSub: true },
+  ]
 
   // Filter NAV based on company (hide CRM for wholesale)
   const filteredNav = company.hideCRM
@@ -129,7 +137,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
         if ('sep' in item && item.sep) return (
           <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
         )
-        
+
         // Skip items user can't access (except coming soon items)
         if (!item.coming && item.page && !canAccess(item.page as Page)) {
           // For parent items (Sales, CRM, Settings), check if any sub-items are accessible
@@ -204,13 +212,13 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 }}>›</span>
               )}
 
-              {'badge' in item && (item as any).badge && (
+              {'badge' in item && (item as { badge?: number }).badge && (
                 <span style={{
                   position: 'absolute', top: 5, right: 6, minWidth: 14, height: 14,
                   background: 'var(--red)', borderRadius: 7, fontSize: 7, fontWeight: 800,
                   color: '#fff', display: 'flex', alignItems: 'center',
                   justifyContent: 'center', padding: '0 3px'
-                }}>{(item as any).badge}</span>
+                }}>{(item as { badge?: number }).badge}</span>
               )}
 
               {item.coming && (
