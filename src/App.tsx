@@ -80,6 +80,7 @@ const OpeningStock = lazy(() => import('./pages/vouchers/OpeningStock'))
 const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
 const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
 const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
+const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
@@ -240,6 +241,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'report-templates': 'Settings / Report Templates',
   'suppliers': 'Suppliers',
   'investors-hub': 'Investors Hub',
+  'import-order': 'Import Orders',
 }
 
 // ============================================================================
@@ -339,6 +341,7 @@ function AppContent() {
       case 'customers':         return <Customers />
       case 'suppliers':         return <Suppliers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
+      case 'import-order':      return <ImportOrder onNav={navigate} />
       case 'data-import':       return <DataImport />
       case 'bundles':           return <Bundles />
       
