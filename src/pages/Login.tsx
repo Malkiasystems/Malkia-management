@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, COMPANIES, getActiveCompany, switchCompany } from '../lib/supabase'
+import type { Company } from '../lib/supabase'
 
 interface Props {
   onLogin: () => void
@@ -10,11 +11,21 @@ export default function Login({ onLogin }: Props) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [selectedCompany, setSelectedCompany] = useState<Company>(getActiveCompany())
+
+  const handleCompanySelect = (company: Company) => {
+    setSelectedCompany(company)
+    switchCompany(company.id)
+    setError('')
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
+
+    // Ensure we're using the right client
+    switchCompany(selectedCompany.id)
 
     const { error: authError } = await supabase.auth.signInWithPassword({
       email,
@@ -35,7 +46,7 @@ export default function Login({ onLogin }: Props) {
       .single()
 
     if (userError || !userData) {
-      setError('Account not found. Contact your administrator.')
+      setError('Account not found in this company. Check you selected the right one.')
       await supabase.auth.signOut()
       setLoading(false)
       return
@@ -57,7 +68,7 @@ export default function Login({ onLogin }: Props) {
       <div style={styles.card}>
         <div style={styles.logo}>
           <svg width="48" height="48" viewBox="0 0 100 100" fill="none">
-            <circle cx="50" cy="50" r="45" fill="#85c2be"/>
+            <circle cx="50" cy="50" r="45" fill={selectedCompany.color}/>
             <path d="M30 65 L50 35 L70 65" stroke="#fff" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
             <circle cx="50" cy="28" r="6" fill="#f7a6ad"/>
           </svg>
@@ -65,6 +76,48 @@ export default function Login({ onLogin }: Props) {
         
         <h1 style={styles.title}>MalkiaOS</h1>
         <p style={styles.subtitle}>Sign in to your account</p>
+
+        {/* Company Selector */}
+        <div style={styles.companySection}>
+          <label style={styles.companyLabel}>SELECT COMPANY</label>
+          <div style={styles.companyGrid}>
+            {COMPANIES.map(company => {
+              const isSelected = selectedCompany.id === company.id
+              return (
+                <div
+                  key={company.id}
+                  onClick={() => handleCompanySelect(company)}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    border: `2px solid ${isSelected ? company.color : '#333'}`,
+                    background: isSelected ? `${company.color}15` : '#0d0d0d',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    textAlign: 'left' as const,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: isSelected ? company.color : '#444',
+                      flexShrink: 0,
+                    }} />
+                    <div>
+                      <div style={{
+                        fontSize: 13, fontWeight: 600,
+                        color: isSelected ? company.color : '#ccc',
+                      }}>{company.shortName}</div>
+                      <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>
+                        {company.hideCRM ? 'Wholesale' : 'Retail + CRM'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
 
         <form onSubmit={handleLogin} style={styles.form}>
           {error && (
@@ -103,16 +156,17 @@ export default function Login({ onLogin }: Props) {
             disabled={loading}
             style={{
               ...styles.button,
+              background: selectedCompany.color,
               opacity: loading ? 0.7 : 1,
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in...' : `Sign In to ${selectedCompany.shortName}`}
           </button>
         </form>
 
         <p style={styles.footer}>
-          Malkia Wellness Group Ltd
+          {selectedCompany.name}
         </p>
       </div>
     </div>
@@ -152,7 +206,22 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     color: '#888',
     margin: 0,
-    marginBottom: 32,
+    marginBottom: 24,
+  },
+  companySection: {
+    marginBottom: 24,
+  },
+  companyLabel: {
+    display: 'block',
+    fontSize: 10,
+    fontWeight: 600,
+    color: '#666',
+    marginBottom: 10,
+    letterSpacing: '1px',
+  },
+  companyGrid: {
+    display: 'flex',
+    gap: 8,
   },
   form: {
     display: 'flex',
