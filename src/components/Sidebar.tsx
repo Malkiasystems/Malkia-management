@@ -138,33 +138,37 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
           <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
         )
 
+        // Narrow type: after sep guard, item must be a nav item
+        if (!('page' in item)) return null
+        const navItem = item as { icon: string; label: string; page: Page; hasSub?: boolean; coming?: boolean; badge?: number }
+
         // Skip items user can't access (except coming soon items)
-        if (!item.coming && item.page && !canAccess(item.page as Page)) {
+        if (!navItem.coming && navItem.page && !canAccess(navItem.page as Page)) {
           // For parent items (Sales, CRM, Settings), check if any sub-items are accessible
-          if (item.page === 'sales' && visibleSalesSub.length === 0) return null
-          if (item.page === 'crm-hub' && visibleCrmSub.length === 0) return null
-          if (item.page === 'settings' && visibleSettingsSub.length === 0) return null
+          if (navItem.page === 'sales' && visibleSalesSub.length === 0) return null
+          if (navItem.page === 'crm-hub' && visibleCrmSub.length === 0) return null
+          if (navItem.page === 'settings' && visibleSettingsSub.length === 0) return null
           // For non-parent items, just skip
-          if (!['sales', 'crm-hub', 'settings'].includes(item.page as string)) return null
+          if (!['sales', 'crm-hub', 'settings'].includes(navItem.page as string)) return null
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
         const active =
-          current === item.page ||
-          (item.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive) ||
-          (item.page === 'sales' && isSalesActive) ||
-          (item.page === 'crm-hub' && isCrmActive) ||
-          (item.page === 'settings' && isSettingsActive)
+          current === navItem.page ||
+          (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive) ||
+          (navItem.page === 'sales' && isSalesActive) ||
+          (navItem.page === 'crm-hub' && isCrmActive) ||
+          (navItem.page === 'settings' && isSettingsActive)
 
-        const isSalesItem = item.page === 'sales'
-        const isCrmItem = item.page === 'crm-hub'
-        const isSettingsItem = item.page === 'settings'
+        const isSalesItem = navItem.page === 'sales'
+        const isCrmItem = navItem.page === 'crm-hub'
+        const isSettingsItem = navItem.page === 'settings'
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div
               onClick={() => {
-                if (item.coming || !item.page) return
+                if (navItem.coming || !navItem.page) return
                 if (isSalesItem) {
                   setSalesOpen(o => !o)
                   setCrmOpen(false)
@@ -184,7 +188,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                   setSalesOpen(false)
                   setCrmOpen(false)
                   setSettingsOpen(false)
-                  onNav(item.page)
+                  onNav(navItem.page)
                 }
               }}
               style={{
@@ -193,16 +197,16 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 borderRadius: 10,
                 borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
                 background: active ? 'var(--accent-dim)' : 'transparent',
-                opacity: item.coming ? 0.4 : 1,
+                opacity: navItem.coming ? 0.4 : 1,
                 transition: 'all .15s', margin: '1px 0',
-                position: 'relative', cursor: item.coming ? 'default' : 'pointer'
+                position: 'relative', cursor: navItem.coming ? 'default' : 'pointer'
               }}>
-              <span style={{ fontSize: 18 }}><SideIcon name={item.icon || 'home'} active={active} /></span>
+              <span style={{ fontSize: 18 }}><SideIcon name={navItem.icon || 'home'} active={active} /></span>
               <span style={{
                 fontSize: 8, fontWeight: 600,
                 color: active ? 'var(--accent)' : 'var(--text3)',
                 textTransform: 'uppercase', letterSpacing: '.4px'
-              }}>{item.label}</span>
+              }}>{navItem.label}</span>
 
               {Boolean(isSalesItem || isCrmItem || isSettingsItem) && (
                 <span style={{ 
@@ -212,16 +216,16 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 }}>›</span>
               )}
 
-              {'badge' in item && (item as { badge?: number }).badge && (
+              {navItem.badge && (
                 <span style={{
                   position: 'absolute', top: 5, right: 6, minWidth: 14, height: 14,
                   background: 'var(--red)', borderRadius: 7, fontSize: 7, fontWeight: 800,
                   color: '#fff', display: 'flex', alignItems: 'center',
                   justifyContent: 'center', padding: '0 3px'
-                }}>{(item as { badge?: number }).badge}</span>
+                }}>{navItem.badge}</span>
               )}
 
-              {item.coming && (
+              {navItem.coming && (
                 <span style={{
                   position: 'absolute', top: 4, right: 2, background: 'var(--surface3)',
                   border: '1px solid var(--border)', borderRadius: 3, fontSize: 6,
