@@ -197,6 +197,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'banks': ['accounting.view'],
   'inventory': ['inventory.view'],
   'customers': ['customers.view'],
+  'suppliers': ['accounting.view'],
   'reports': ['reports.view'],
   'settings': ['settings.view'],
   'sales': ['sales.view'],
