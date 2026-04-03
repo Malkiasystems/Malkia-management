@@ -23,6 +23,7 @@ const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
 const Customers = lazy(() => import('./pages/Customers'))
+const Suppliers = lazy(() => import('./pages/Suppliers'))
 const Settings = lazy(() => import('./pages/Settings'))
 const DataImport = lazy(() => import('./pages/DataImport'))
 
@@ -55,6 +56,9 @@ const ApprovalWorkflows = lazy(() => import('./pages/ApprovalWorkflows'))
 
 // Bundles
 const Bundles = lazy(() => import('./pages/Bundles'))
+
+// Investors
+const InvestorsHub = lazy(() => import('./pages/InvestorsHub'))
 
 // Vouchers
 const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
@@ -234,6 +238,8 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'accounting-settings': 'Settings / Accounting',
   'display-settings': 'Settings / Display',
   'report-templates': 'Settings / Report Templates',
+  'suppliers': 'Suppliers',
+  'investors-hub': 'Investors Hub',
 }
 
 // ============================================================================
@@ -331,9 +337,10 @@ function AppContent() {
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-register': return <StockTransferRegister />
       case 'customers':         return <Customers />
+      case 'suppliers':         return <Suppliers />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'data-import':       return <DataImport />
-      case 'bundles':            return <Bundles />
+      case 'bundles':           return <Bundles />
       
       // User Management & Approvals
       case 'users':             return <UserManagement onNav={navigate} />
@@ -341,6 +348,10 @@ function AppContent() {
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />
+
+      // Investors
+      case 'investors':
+      case 'investors-hub':     return <InvestorsHub />
       
       // CRM Module Routes
       case 'crm':
