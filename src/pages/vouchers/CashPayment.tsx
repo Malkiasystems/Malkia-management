@@ -59,6 +59,15 @@ export default function CashPayment({ onNav }: Props) {
     setForm(f => ({ ...f, ref }))
   }
 
+  // When supplier is selected, auto-fill Pay To
+  const handleSupplierChange = (supplierId: string) => {
+    set('supplierId', supplierId)
+    if (supplierId) {
+      const sup = suppliers.find(s => s.id === supplierId)
+      if (sup) set('payTo', sup.name)
+    }
+  }
+
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
 
@@ -129,19 +138,33 @@ export default function CashPayment({ onNav }: Props) {
       })
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
-      // Update supplier balance if selected
+      // Update supplier balance and create vendor ledger entry if supplier selected
       if (form.supplierId) {
         const supplier = suppliers.find(s => s.id === form.supplierId)
         if (supplier) {
           await supabase.from('suppliers').update({ balance_tzs: supplier.balance_tzs - amount }).eq('id', form.supplierId)
         }
+
+        // Create vendor ledger entry for supplier payment
+        await supabase.from('vendor_ledger_entries').insert({
+          supplier_id: form.supplierId,
+          posting_date: form.date,
+          document_type: 'payment',
+          document_ref: form.ref,
+          description: `Cash Payment — ${form.payTo}${form.narration ? ' — ' + form.narration : ''}`,
+          amount_tzs: -amount,
+          remaining_amount: 0,
+          is_open: false,
+          journal_id: journal.id,
+        })
       }
 
       showToast(`${form.ref} posted · Dr ${expAcct.code} / Cr ${cashAcct.code} · Journal created`)
       onNav('vouchers')
 
-    } catch (err: any) {
-      showToast('' + (err.message || 'Something went wrong'), 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Something went wrong'
+      showToast(msg, 'error')
     } finally {
       setPosting(false)
     }
@@ -163,14 +186,14 @@ export default function CashPayment({ onNav }: Props) {
             <FG label="Voucher Ref" req><input className="form-input" value={form.ref} readOnly  /></FG>
             <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
           </div>
-          <FG label="Pay To (Payee)" req>
-            <input className="form-input" placeholder="e.g. Meditech Tanzania, John Msomi" value={form.payTo} onChange={e => set('payTo', e.target.value)} />
-          </FG>
           <FG label="Supplier (if paying a supplier)">
-            <select className="form-input" value={form.supplierId} onChange={e => set('supplierId', e.target.value)}>
+            <select className="form-input" value={form.supplierId} onChange={e => handleSupplierChange(e.target.value)}>
               <option value="">— Select supplier (optional) —</option>
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} · Balance: TZS {s.balance_tzs?.toLocaleString()}</option>)}
             </select>
+          </FG>
+          <FG label="Pay To (Payee)" req>
+            <input className="form-input" placeholder="e.g. Meditech Tanzania, John Msomi" value={form.payTo} onChange={e => set('payTo', e.target.value)} />
           </FG>
           <FG label="Amount (TZS)" req>
             <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="0" value={form.amount} onChange={e => set('amount', e.target.value)} />
