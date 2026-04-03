@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth, canAccessPage } from '../lib/useAuth'
+import { getActiveCompany } from '../lib/supabase'
 
 const VOUCHER_PAGES: Page[] = [
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
@@ -96,6 +97,13 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   
   const { permissions } = useAuth()
+  const company = getActiveCompany()
+  const CRM_HIDDEN = new Set(['services', 'konnect', 'crm'])
+
+  // Filter NAV based on company (hide CRM for wholesale)
+  const filteredNav = company.hideCRM
+    ? NAV.filter(item => !('icon' in item && CRM_HIDDEN.has(item.icon || '')))
+    : NAV
 
   const isSalesActive = SALES_PAGES.includes(current)
   const isCrmActive = CRM_PAGES.includes(current)
@@ -117,7 +125,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
       padding: '10px 0', flexShrink: 0, overflowY: 'auto', scrollbarWidth: 'none',
       position: 'relative'
     }}>
-      {NAV.map((item, i) => {
+      {filteredNav.map((item, i) => {
         if ('sep' in item && item.sep) return (
           <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
         )
@@ -279,6 +287,14 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
           </div>
         )
       })}
+
+      {/* Company indicator */}
+      <div style={{ marginTop: 'auto', padding: '12px 4px', textAlign: 'center', borderTop: '1px solid var(--border)' }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: company.color, margin: '0 auto 4px' }} />
+        <div style={{ fontSize: 7, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.5px', lineHeight: 1.3 }}>
+          {company.shortName}
+        </div>
+      </div>
     </div>
   )
 }
