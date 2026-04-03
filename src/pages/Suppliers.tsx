@@ -15,7 +15,7 @@ interface VendorLedgerEntry {
   id: string; posting_date: string; document_type: string
   document_ref: string; description: string
   amount: number; amount_tzs: number; remaining_amount: number
-  is_open: boolean; journal_id: string
+  is_open: boolean; journal_id: string; import_order_ref: string
 }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
@@ -306,6 +306,7 @@ export default function Suppliers() {
     const closingBal = rows.length > 0 ? rows[rows.length - 1].runningBalance : 0
     const openEntries = ledger.filter(e => e.is_open && (e.amount_tzs ?? e.amount ?? 0) > 0)
     const totalOpen = openEntries.reduce((s, e) => s + (e.remaining_amount || 0), 0)
+    const importOrderRefs = [...new Set(ledger.map(e => e.import_order_ref).filter(Boolean))]
 
     return (
       <div className="page">
@@ -337,12 +338,13 @@ export default function Suppliers() {
         </div>
 
         {/* Supplier summary */}
-        <div style={{ background: 'linear-gradient(135deg,rgba(10,10,10,1) 0%,rgba(25,25,25,1) 100%)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 14, padding: '18px 24px', marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
+        <div style={{ background: 'linear-gradient(135deg,rgba(10,10,10,1) 0%,rgba(25,25,25,1) 100%)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 14, padding: '18px 24px', marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 16 }}>
           {[
             { label: 'AP Balance', val: tzs(selected.balance_tzs || 0), color: (selected.balance_tzs || 0) > 0 ? 'var(--red)' : 'var(--green)' },
             { label: 'Payment Terms', val: selected.payment_terms || 'NET30', color: 'var(--text)' },
+            { label: 'Total Entries', val: String(ledger.length), color: 'var(--text)' },
             { label: 'Open Entries', val: String(openEntries.length), color: openEntries.length > 0 ? 'var(--yellow)' : 'var(--text3)' },
-            { label: 'Total Outstanding', val: tzs(totalOpen), color: totalOpen > 0 ? 'var(--red)' : 'var(--text3)' },
+            { label: 'Import Orders', val: String(importOrderRefs.length), color: importOrderRefs.length > 0 ? 'var(--accent)' : 'var(--text3)' },
           ].map(item => (
             <div key={item.label}>
               <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{item.label}</div>
@@ -350,6 +352,26 @@ export default function Suppliers() {
             </div>
           ))}
         </div>
+
+        {/* Consignment breakdown */}
+        {importOrderRefs.length > 0 && (
+          <div style={{ background: 'rgba(133,194,190,.06)', border: '1px solid rgba(133,194,190,.15)', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Consignments Linked</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {importOrderRefs.map(ref => {
+                const refEntries = ledger.filter(e => e.import_order_ref === ref)
+                const refTotal = refEntries.reduce((s, e) => s + Math.abs(e.amount_tzs ?? e.amount ?? 0), 0)
+                return (
+                  <div key={ref} style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', borderRadius: 8, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>{ref}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text3)' }}>{refEntries.length} entries</span>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600 }}>{tzs(refTotal)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Date range filter */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
@@ -373,6 +395,7 @@ export default function Suppliers() {
                     <th className="td-right">Debit</th>
                     <th className="td-right">Credit</th>
                     <th className="td-right">Balance</th>
+                    <th>Consignment</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -392,6 +415,12 @@ export default function Suppliers() {
                           <span style={{ fontSize: 9, marginLeft: 4, color: 'var(--text3)' }}>{e.runningBalance > 0 ? 'DR' : 'CR'}</span>
                         </td>
                         <td>
+                          {(e as VendorLedgerEntry).import_order_ref
+                            ? <span style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-dim)', padding: '2px 6px', borderRadius: 4 }}>{(e as VendorLedgerEntry).import_order_ref}</span>
+                            : <span style={{ fontSize: 10, color: 'var(--text3)' }}></span>
+                          }
+                        </td>
+                        <td>
                           {isOpen
                             ? <span className="pill pill-amber" style={{ fontSize: 9 }}>Open</span>
                             : e._amount < 0
@@ -409,7 +438,7 @@ export default function Suppliers() {
                     <td colSpan={3} className="td-right td-mono" style={{ color: closingBal > 0 ? 'var(--red)' : 'var(--green)', fontSize: 15, padding: '12px 14px', fontWeight: 800 }}>
                       {tzs(Math.abs(closingBal))} {closingBal > 0 ? 'DR' : 'CR'}
                     </td>
-                    <td />
+                    <td colSpan={2} />
                   </tr>
                 </tfoot>
               </table>
