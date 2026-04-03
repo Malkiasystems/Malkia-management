@@ -305,7 +305,6 @@ export default function Suppliers() {
     const rows = ledgerWithBalance()
     const closingBal = rows.length > 0 ? rows[rows.length - 1].runningBalance : 0
     const openEntries = ledger.filter(e => e.is_open && (e.amount_tzs ?? e.amount ?? 0) > 0)
-    const totalOpen = openEntries.reduce((s, e) => s + (e.remaining_amount || 0), 0)
     const importOrderRefs = [...new Set(ledger.map(e => e.import_order_ref).filter(Boolean))]
 
     return (
