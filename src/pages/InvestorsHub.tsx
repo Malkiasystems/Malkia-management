@@ -57,7 +57,7 @@ export default function InvestorsHub() {
   const [eqJournals, setEqJournals] = useState<EquityJournal[]>([])
   const [eqForm, setEqForm] = useState({ shareholderId: '', amount: '', bankAccount: '', assetDesc: '', date: today() })
   const [eqPosting, setEqPosting] = useState(false)
-  const [accounts, setAccounts] = useState<{ id: string; code: string; name: string; category: string }[]>([])
+  const [accounts, setAccounts] = useState<{ id: string; code: string; name: string; category: string; type: string }[]>([])
 
   // Reports
   const [reportFrom, setReportFrom] = useState(() => {
@@ -81,7 +81,7 @@ export default function InvestorsHub() {
   }
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name, category').eq('is_active', true).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, category, type').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
 
@@ -97,7 +97,12 @@ export default function InvestorsHub() {
   const totalPaid = shareholders.reduce((s, sh) => s + sh.total_paid, 0)
   const totalReceivable = totalCapital - totalPaid
 
-  const bankAccounts = accounts.filter(a => a.category === 'Cash & Bank')
+  const bankAccounts = accounts.filter(a =>
+    a.category === 'Cash & Bank'
+    || a.category?.toLowerCase().includes('cash')
+    || a.category?.toLowerCase().includes('bank')
+    || (a.type === 'asset' && /^10[1-4]/.test(a.code))
+  )
 
   // ── SAVE SHAREHOLDER ──────────────────────────────
   const saveShareholder = async () => {
