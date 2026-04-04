@@ -53,7 +53,12 @@ export default function ImportOrder({ onNav: _onNav }: Props) {
   useEffect(() => { loadAll() }, [])
   const loadAll = async () => {
     setLoading(true)
-    const [s,p,a,o] = await Promise.all([supabase.from('suppliers').select('id,code,name,balance_tzs').eq('is_active',true).order('name'), supabase.from('products').select('id,name,sku,cost_price,qty').eq('is_active',true).order('name'), supabase.from('accounts').select('id,code,name,category,type').eq('is_active',true).order('code'), supabase.from('import_orders').select('*,suppliers(name,code)').order('created_at',{ascending:false})])
+    const [s,p,a,o] = await Promise.all([
+      supabase.from('suppliers').select('id, code, name, balance_tzs').eq('is_active', true).order('name'),
+      supabase.from('products').select('*').eq('is_active', true).order('name'),
+      supabase.from('accounts').select('id, code, name, category, type').eq('is_active', true).order('code'),
+      supabase.from('import_orders').select('*, suppliers(name, code)').order('created_at', { ascending: false }),
+    ])
     if(s.data) setSuppliers(s.data as DBSupplier[]); if(p.data) setProducts(p.data as DBProduct[]); if(a.data) setAccounts(a.data as DBAccount[]); if(o.data) setOrders(o.data as ImportOrder[])
     setLoading(false)
   }
