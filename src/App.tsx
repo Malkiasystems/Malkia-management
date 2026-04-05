@@ -2,6 +2,7 @@ import { useState, lazy, Suspense, createContext, useContext, useCallback, React
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
+import { useInactivityLogout } from './lib/useInactivityLogout'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
@@ -253,6 +254,7 @@ function AppContent() {
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
   const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
+  useInactivityLogout()
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
