@@ -120,7 +120,8 @@ export default function HRMAttendance({ onNav: _onNav }: HRMProps) {
     if (notIn.length === 0) { setToast('Everyone already clocked in'); setToastType('error'); return }
     const now = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Dar_es_Salaam', hour: '2-digit', minute: '2-digit' })
     const late = isLate(now)
-    const rows = notIn.map(e => ({ employee_id: e.id, date: today, clock_in: now, entry_type: 'office' as const, status: (late ? 'late' : 'present') as const }))
+    const statusVal: 'late' | 'present' = late ? 'late' : 'present'
+    const rows = notIn.map(e => ({ employee_id: e.id, date: today, clock_in: now, entry_type: 'office' as const, status: statusVal }))
     const { error } = await supabase.from('hrm_attendance').insert(rows)
     if (error) { setToast(error.message); setToastType('error'); return }
     setToast(`${notIn.length} employees clocked in`); setToastType('success'); load()
