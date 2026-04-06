@@ -93,6 +93,19 @@ const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
 const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
 const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
 
+// HRM Module (lazy - loads on first HRM page visit)
+const HRMDashboard = lazy(() => import('./pages/hrm/HRMDashboard'))
+const HRMEmployees = lazy(() => import('./pages/hrm/HRMEmployees'))
+const HRMAssets = lazy(() => import('./pages/hrm/HRMAssets'))
+const HRMPayroll = lazy(() => import('./pages/hrm/HRMPayroll'))
+const HRMPayslips = lazy(() => import('./pages/hrm/HRMPayslips'))
+const HRMLeave = lazy(() => import('./pages/hrm/HRMLeave'))
+const HRMAttendance = lazy(() => import('./pages/hrm/HRMAttendance'))
+const HRMPerformance = lazy(() => import('./pages/hrm/HRMPerformance'))
+const HRMRecruitment = lazy(() => import('./pages/hrm/HRMRecruitment'))
+const HRMEvents = lazy(() => import('./pages/hrm/HRMEvents'))
+const HRMSettings = lazy(() => import('./pages/hrm/HRMSettings'))
+
 // ============================================================================
 // PERFORMANCE: Global Data Cache Context
 // ============================================================================
@@ -243,6 +256,18 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'suppliers': 'Suppliers',
   'investors-hub': 'Investors Hub',
   'import-order': 'Import Orders',
+  // HRM Module
+  'hrm': 'HR Dashboard',
+  'hrm-employees': 'HRM / Employees',
+  'hrm-assets': 'HRM / Asset Allocation',
+  'hrm-payroll': 'HRM / Payroll',
+  'hrm-payslips': 'HRM / Payslips',
+  'hrm-leave': 'HRM / Leave',
+  'hrm-attendance': 'HRM / Attendance',
+  'hrm-performance': 'HRM / Performance',
+  'hrm-recruitment': 'HRM / Recruitment',
+  'hrm-events': 'HRM / Events',
+  'hrm-settings': 'HRM / Settings',
 }
 
 // ============================================================================
@@ -369,6 +394,19 @@ function AppContent() {
       case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
       case 'crm-customers':     return <Customers />
+      
+      // HRM Module Routes
+      case 'hrm':               return <HRMDashboard onNav={navigate} />
+      case 'hrm-employees':     return <HRMEmployees onNav={navigate} />
+      case 'hrm-assets':        return <HRMAssets onNav={navigate} />
+      case 'hrm-payroll':       return <HRMPayroll onNav={navigate} />
+      case 'hrm-payslips':      return <HRMPayslips onNav={navigate} />
+      case 'hrm-leave':         return <HRMLeave onNav={navigate} />
+      case 'hrm-attendance':    return <HRMAttendance onNav={navigate} />
+      case 'hrm-performance':   return <HRMPerformance onNav={navigate} />
+      case 'hrm-recruitment':   return <HRMRecruitment onNav={navigate} />
+      case 'hrm-events':        return <HRMEvents onNav={navigate} />
+      case 'hrm-settings':      return <HRMSettings onNav={navigate} />
       
       default:                  return <ComingSoon module={BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || page} />
     }
