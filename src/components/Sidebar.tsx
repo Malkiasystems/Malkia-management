@@ -17,6 +17,17 @@ const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'cr
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates']
 
+const HRM_PAGES: Page[] = ['hrm', 'hrm-employees', 'hrm-assets', 'hrm-payroll', 'hrm-payslips', 'hrm-leave', 'hrm-attendance', 'hrm-performance', 'hrm-recruitment', 'hrm-events', 'hrm-settings']
+
+const HRM_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'Dashboard', page: 'hrm',             icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
+  { label: 'Employees', page: 'hrm-employees',   icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
+  { label: 'Payroll',   page: 'hrm-payroll',      icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
+  { label: 'Leave',     page: 'hrm-leave',        icon: 'M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z' },
+  { label: 'Recruit',   page: 'hrm-recruitment',  icon: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35' },
+  { label: 'Events',    page: 'hrm-events',       icon: 'M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z M16 2v4 M8 2v4 M3 10h18' },
+]
+
 const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'General',     page: 'settings',        icon: 'M12 3a9 9 0 0 0-9 9v1h6v-1a3 3 0 0 1 6 0v1h6v-1a9 9 0 0 0-9-9zM3 14v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4' },
   { label: 'Users',       page: 'users',           icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
@@ -75,6 +86,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const [salesOpen, setSalesOpen] = useState(false)
   const [crmOpen, setCrmOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [hrmOpen, setHrmOpen] = useState(false)
   
   const { permissions } = useAuth()
   const company = getActiveCompany()
@@ -104,7 +116,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
     { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
     { icon: 'konnect',   label: 'Konnect',   page: 'coming-soon' as Page, coming: true },
     { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
-    { icon: 'hrm',       label: 'HRM',       page: 'coming-soon' as Page, coming: true },
+    { icon: 'hrm',       label: 'HRM',       page: 'hrm' as Page,       hasSub: true },
     { sep: true },
     { icon: 'import',    label: 'Data Import', page: 'data-import' as Page },
     { icon: 'settings',  label: 'Settings',  page: 'settings' as Page, hasSub: true },
@@ -118,6 +130,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const isSalesActive = SALES_PAGES.includes(current)
   const isCrmActive = CRM_PAGES.includes(current)
   const isSettingsActive = SETTINGS_PAGES.includes(current)
+  const isHrmActive = HRM_PAGES.includes(current)
   
   // Filter NAV items based on permissions
   const canAccess = (page: Page) => canAccessPage(page, permissions)
@@ -126,6 +139,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const visibleSalesSub = SALES_SUB.filter(sub => canAccess(sub.page))
   const visibleCrmSub = CRM_SUB.filter(sub => canAccess(sub.page))
   const visibleSettingsSub = SETTINGS_SUB.filter(sub => canAccess(sub.page))
+  const visibleHrmSub = HRM_SUB.filter(sub => canAccess(sub.page))
 
   return (
     <div style={{
@@ -150,21 +164,24 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
           if (navItem.page === 'sales' && visibleSalesSub.length === 0) return null
           if (navItem.page === 'crm-hub' && visibleCrmSub.length === 0) return null
           if (navItem.page === 'settings' && visibleSettingsSub.length === 0) return null
+          if (navItem.page === 'hrm' && visibleHrmSub.length === 0) return null
           // For non-parent items, just skip
-          if (!['sales', 'crm-hub', 'settings'].includes(navItem.page as string)) return null
+          if (!['sales', 'crm-hub', 'settings', 'hrm'].includes(navItem.page as string)) return null
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
         const active =
           current === navItem.page ||
-          (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive) ||
+          (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive && !isHrmActive) ||
           (navItem.page === 'sales' && isSalesActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
-          (navItem.page === 'settings' && isSettingsActive)
+          (navItem.page === 'settings' && isSettingsActive) ||
+          (navItem.page === 'hrm' && isHrmActive)
 
         const isSalesItem = navItem.page === 'sales'
         const isCrmItem = navItem.page === 'crm-hub'
         const isSettingsItem = navItem.page === 'settings'
+        const isHrmItem = navItem.page === 'hrm'
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -175,21 +192,31 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                   setSalesOpen(o => !o)
                   setCrmOpen(false)
                   setSettingsOpen(false)
+                  setHrmOpen(false)
                   onNav('sales')
                 } else if (isCrmItem) {
                   setCrmOpen(o => !o)
                   setSalesOpen(false)
                   setSettingsOpen(false)
+                  setHrmOpen(false)
                   onNav('crm-hub')
                 } else if (isSettingsItem) {
                   setSettingsOpen(o => !o)
                   setSalesOpen(false)
                   setCrmOpen(false)
+                  setHrmOpen(false)
                   onNav('settings')
+                } else if (isHrmItem) {
+                  setHrmOpen(o => !o)
+                  setSalesOpen(false)
+                  setCrmOpen(false)
+                  setSettingsOpen(false)
+                  onNav('hrm')
                 } else {
                   setSalesOpen(false)
                   setCrmOpen(false)
                   setSettingsOpen(false)
+                  setHrmOpen(false)
                   onNav(navItem.page)
                 }
               }}
@@ -210,10 +237,10 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{navItem.label}</span>
 
-              {Boolean(isSalesItem || isCrmItem || isSettingsItem) && (
+              {Boolean(isSalesItem || isCrmItem || isSettingsItem || isHrmItem) && (
                 <span style={{ 
                   position:'absolute', right:4, top:'50%', 
-                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) ? 90 : 0}deg)`, 
+                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
                   transition:'transform .2s', color:'var(--text3)', fontSize:8 
                 }}>›</span>
               )}
@@ -282,6 +309,27 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
             {Boolean(isSettingsItem) && (settingsOpen || isSettingsActive) && visibleSettingsSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSettingsSub.map(sub => {
+                  const subActive = current === sub.page
+                  return (
+                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                        background: subActive ? 'var(--accent-dim)' : 'transparent',
+                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
+                      }}>
+                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <path d={sub.icon}/>
+                      </svg>
+                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* HRM sub-menu */}
+            {Boolean(isHrmItem) && (hrmOpen || isHrmActive) && visibleHrmSub.length > 0 && (
+              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+                {visibleHrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
