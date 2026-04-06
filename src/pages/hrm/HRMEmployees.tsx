@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../lib/useAuth'
 import { tzs } from '../../lib/utils'
 import Toast from '../../components/Toast'
 import type { HRMProps, Employee, EmployeeLetter, HRMAsset, SalaryAdvance } from './hrmTypes'
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS, getInitials, DEFAULT_HR_SETTINGS } from './hrmTypes'
 
 export default function HRMEmployees({ onNav }: HRMProps) {
+  const { user } = useAuth()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [filterDept, setFilterDept] = useState('all')
@@ -33,6 +35,11 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   const [showLetterModal, setShowLetterModal] = useState(false)
   const [letterForm, setLetterForm] = useState({ letter_type: 'Offer Letter', issued_date: '', issued_by: '', notes: '' })
 
+  // Advance modal
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false)
+  const [advanceForm, setAdvanceForm] = useState({ amount: '', monthly_deduction: '', issued_date: '', source_account: '', notes: '' })
+  const [cashAccounts, setCashAccounts] = useState<{ id: string; code: string; name: string }[]>([])
+
   useEffect(() => { load(); loadSettings() }, [])
 
   const load = async () => {
@@ -43,13 +50,17 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   }
 
   const loadSettings = async () => {
-    const { data } = await supabase.from('system_settings').select('value').eq('key', 'hr_settings').single()
-    if (data?.value) {
+    const [settRes, cashRes] = await Promise.all([
+      supabase.from('system_settings').select('value').eq('key', 'hr_settings').single(),
+      supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
+    ])
+    if (settRes.data?.value) {
       try {
-        const s = JSON.parse(data.value)
+        const s = JSON.parse(settRes.data.value)
         if (s.departments) setDepartments(s.departments)
       } catch {}
     }
+    if (cashRes.data) setCashAccounts(cashRes.data)
   }
 
   const openDrawer = async (emp: Employee) => {
@@ -72,10 +83,14 @@ export default function HRMEmployees({ onNav }: HRMProps) {
       setToast('Fill in required fields'); setToastType('error'); return
     }
     const initials = getInitials(form.full_name)
-    // Generate emp code
-    const { data: maxCode } = await supabase.from('hrm_employees').select('emp_code').like('emp_code', 'EMP-%').order('emp_code', { ascending: false }).limit(1)
-    const lastNum = maxCode?.[0]?.emp_code ? parseInt(maxCode[0].emp_code.replace('EMP-', '')) || 0 : 0
-    const empCode = `EMP-${String(lastNum + 1).padStart(3, '0')}`
+    // Generate emp code — MWG-0001 series (Malkia Wellness Group)
+    const { data: allCodes } = await supabase.from('hrm_employees').select('emp_code').like('emp_code', 'MWG-%').order('created_at', { ascending: false }).limit(50)
+    let maxNum = 0
+    for (const row of (allCodes || [])) {
+      const num = parseInt((row.emp_code || '').replace('MWG-', '')) || 0
+      if (num > maxNum) maxNum = num
+    }
+    const empCode = `MWG-${String(maxNum + 1).padStart(4, '0')}`
 
     const { error } = await supabase.from('hrm_employees').insert({
       emp_code: empCode,
@@ -130,6 +145,69 @@ export default function HRMEmployees({ onNav }: HRMProps) {
     setToastType('success')
     setShowLetterModal(false)
     openDrawer(drawerEmp)
+  }
+
+  const issueAdvance = async () => {
+    if (!drawerEmp) return
+    const amount = parseFloat(advanceForm.amount)
+    const monthlyDed = parseFloat(advanceForm.monthly_deduction)
+    if (!amount || amount <= 0) { setToast('Enter advance amount'); setToastType('error'); return }
+    if (!monthlyDed || monthlyDed <= 0) { setToast('Enter monthly deduction'); setToastType('error'); return }
+    if (!advanceForm.source_account) { setToast('Select source account (Cash/Bank)'); setToastType('error'); return }
+    if (!advanceForm.issued_date) { setToast('Enter issue date'); setToastType('error'); return }
+
+    try {
+      // Ensure Salary Advance Receivable account exists (1060)
+      let { data: advAcct } = await supabase.from('accounts').select('id').eq('code', '1060').single()
+      if (!advAcct) {
+        const { data: created, error: createErr } = await supabase.from('accounts').insert({
+          code: '1060', name: 'Salary Advance Receivable', type: 'asset',
+          category: 'Current Assets', balance: 0, is_active: true, is_default: true,
+        }).select('id').single()
+        if (createErr) throw new Error(createErr.message)
+        advAcct = created
+      }
+
+      // Create journal: Dr Salary Advance Receivable (1060) / Cr Cash/Bank
+      const ref = `ADV-${drawerEmp.emp_code}-${advanceForm.issued_date.replace(/-/g, '')}`
+      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+        ref: 'JV-' + ref, posting_date: advanceForm.issued_date,
+        description: `Salary Advance — ${drawerEmp.full_name} — ${ref}`,
+        journal_type: 'salary_advance', source_type: 'salary_advance', source_ref: ref,
+        posted_by: user?.full_name || 'System', status: 'posted',
+      }).select('id').single()
+      if (jErr) throw new Error(jErr.message)
+
+      const jLines = [
+        { journal_id: journal.id, line_number: 1, account_id: advAcct!.id, description: `Advance to ${drawerEmp.full_name}`, debit: amount, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: advanceForm.source_account, description: `Cash/Bank out — Advance ${ref}`, debit: 0, credit: amount },
+      ]
+      await supabase.from('journal_lines').insert(jLines)
+      await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
+
+      // Create voucher
+      await supabase.from('vouchers').insert({
+        ref, type: 'salary_advance', posting_date: advanceForm.issued_date,
+        description: `Salary Advance — ${drawerEmp.full_name}`,
+        total_amount: amount, status: 'posted', journal_id: journal.id,
+        notes: advanceForm.notes || null, posted_by: user?.full_name || 'System',
+      })
+
+      // Create advance record
+      await supabase.from('hrm_salary_advances').insert({
+        employee_id: drawerEmp.id, amount, remaining: amount,
+        monthly_deduction: monthlyDed, issued_date: advanceForm.issued_date,
+        status: 'active', notes: advanceForm.notes || null,
+      })
+
+      setToast(`Advance ${tzs(amount)} issued to ${drawerEmp.full_name} — Dr 1060 / Cr ${cashAccounts.find(a => a.id === advanceForm.source_account)?.code || 'Bank'}`)
+      setToastType('success')
+      setShowAdvanceModal(false)
+      setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: '', source_account: '', notes: '' })
+      openDrawer(drawerEmp)
+    } catch (err: any) {
+      setToast(err.message || 'Failed'); setToastType('error')
+    }
   }
 
   const filtered = filterDept === 'all' ? employees : employees.filter(e => e.department === filterDept)
@@ -299,7 +377,10 @@ export default function HRMEmployees({ onNav }: HRMProps) {
             {/* ADVANCES TAB */}
             {drawerTab === 'advances' && (
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', marginBottom: 8 }}>SALARY ADVANCES / LOANS</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>SALARY ADVANCES / LOANS</div>
+                  <button onClick={() => { setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: new Date().toISOString().split('T')[0], source_account: cashAccounts[0]?.id || '', notes: '' }); setShowAdvanceModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Advance</button>
+                </div>
                 {advances.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No advances on record</div>
                 ) : advances.map(a => (
@@ -310,6 +391,11 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--text3)' }}>Remaining: {tzs(a.remaining)} · Monthly deduction: {tzs(a.monthly_deduction)}</div>
                     <div style={{ fontSize: 10, color: 'var(--text3)' }}>Issued: {a.issued_date}</div>
+                    {a.remaining > 0 && (
+                      <div style={{ marginTop: 4, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.round(((a.amount - a.remaining) / a.amount) * 100)}%`, height: '100%', background: 'var(--accent)', borderRadius: 2 }} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -404,6 +490,37 @@ export default function HRMEmployees({ onNav }: HRMProps) {
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn btn-ghost" onClick={() => setShowLetterModal(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={issueLetter}>Issue Letter</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ISSUE ADVANCE MODAL ────────────── */}
+      {showAdvanceModal && drawerEmp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400 }} onClick={e => { if (e.target === e.currentTarget) setShowAdvanceModal(false) }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, width: 480, maxWidth: '95vw' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>Issue Salary Advance to {drawerEmp.full_name}</div>
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div><label style={labelStyle}>Advance Amount (TZS) *</label><input type="number" style={{ ...inputStyle, fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700 }} value={advanceForm.amount} onChange={e => setAdvanceForm({ ...advanceForm, amount: e.target.value })} placeholder="e.g. 500000" /></div>
+              <div><label style={labelStyle}>Monthly Deduction (TZS) *</label><input type="number" style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={advanceForm.monthly_deduction} onChange={e => setAdvanceForm({ ...advanceForm, monthly_deduction: e.target.value })} placeholder="e.g. 100000" /></div>
+              {advanceForm.amount && advanceForm.monthly_deduction && parseFloat(advanceForm.monthly_deduction) > 0 && (
+                <div style={{ padding: '8px 12px', background: '#6366f111', border: '1px solid #6366f133', borderRadius: 6, fontSize: 11, color: '#6366f1' }}>
+                  Recovery: {Math.ceil(parseFloat(advanceForm.amount) / parseFloat(advanceForm.monthly_deduction))} months at {tzs(parseFloat(advanceForm.monthly_deduction))}/month
+                </div>
+              )}
+              <div><label style={labelStyle}>Issue Date *</label><input type="date" style={inputStyle} value={advanceForm.issued_date} onChange={e => setAdvanceForm({ ...advanceForm, issued_date: e.target.value })} /></div>
+              <div><label style={labelStyle}>Pay From Account *</label><select style={inputStyle} value={advanceForm.source_account} onChange={e => setAdvanceForm({ ...advanceForm, source_account: e.target.value })}>
+                <option value="">— Select Cash/Bank Account —</option>
+                {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              </select></div>
+              <div><label style={labelStyle}>Notes</label><textarea style={{ ...inputStyle, resize: 'none', height: 50 }} value={advanceForm.notes} onChange={e => setAdvanceForm({ ...advanceForm, notes: e.target.value })} placeholder="Reason for advance..." /></div>
+              <div style={{ padding: '8px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 10, color: 'var(--text3)' }}>
+                Journal: Dr Salary Advance Receivable (1060) / Cr Cash or Bank · Auto-deducted monthly from payroll.
+              </div>
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-ghost" onClick={() => setShowAdvanceModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={issueAdvance}>Issue Advance</button>
             </div>
           </div>
         </div>
