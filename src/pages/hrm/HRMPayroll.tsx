@@ -71,14 +71,61 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
   const postPayroll = async () => {
     if (lines.length === 0) return
     setPosting(true)
+    const userName = user?.full_name || 'System'
+    const ref = `PAY-${period.replace('-', '')}`
+
     try {
-      // Create payroll run
+      // ── 1. Ensure payroll accounts exist ──────────────
+      const requiredAccounts = [
+        { code: '6010', name: 'Salaries — Full-Time Staff', type: 'expense', category: 'People' },
+        { code: '6020', name: 'NSSF Expense — Employer', type: 'expense', category: 'People' },
+        { code: '6030', name: 'SDL Expense', type: 'expense', category: 'People' },
+        { code: '2030', name: 'PAYE Payable', type: 'liability', category: 'Payroll Tax' },
+        { code: '2040', name: 'NSSF Payable', type: 'liability', category: 'Payroll Tax' },
+        { code: '2050', name: 'SDL Payable', type: 'liability', category: 'Payroll Tax' },
+        { code: '2060', name: 'Net Salary Payable', type: 'liability', category: 'Payroll Tax' },
+      ]
+
+      const { data: existingAccts } = await supabase.from('accounts')
+        .select('id, code').in('code', requiredAccounts.map(a => a.code))
+
+      const existingCodes = new Set((existingAccts || []).map(a => a.code))
+      const missing = requiredAccounts.filter(a => !existingCodes.has(a.code))
+
+      if (missing.length > 0) {
+        const { error: insertErr } = await supabase.from('accounts').insert(
+          missing.map(a => ({ ...a, balance: 0, is_active: true, is_default: true }))
+        )
+        if (insertErr) throw new Error(`Failed to create accounts: ${insertErr.message}`)
+      }
+
+      // Refetch all account IDs
+      const { data: acctData } = await supabase.from('accounts')
+        .select('id, code').in('code', requiredAccounts.map(a => a.code))
+      if (!acctData || acctData.length < 4) throw new Error('Payroll accounts not found. Check Chart of Accounts.')
+
+      const acct = (code: string) => {
+        const found = acctData.find(a => a.code === code)
+        if (!found) throw new Error(`Account ${code} not found`)
+        return found.id
+      }
+
+      const salaryId = acct('6010')
+      const nssfExpId = acct('6020')
+      const sdlExpId = acct('6030')
+      const payePayId = acct('2030')
+      const nssfPayId = acct('2040')
+      const sdlPayId = acct('2050')
+      const netPayId = acct('2060')
+
+      // ── 2. Create payroll run in HRM ──────────────────
       const { data: run, error: runErr } = await supabase.from('hrm_payroll_runs').insert({
-        period, status: 'posted', posted_by: user?.full_name || 'System', posted_at: new Date().toISOString(),
+        period, status: 'posted', journal_ref: ref,
+        posted_by: userName, posted_at: new Date().toISOString(),
       }).select('id').single()
       if (runErr) throw new Error(runErr.message)
 
-      // Insert payroll lines
+      // ── 3. Insert payroll lines ───────────────────────
       const payLines = lines.map(l => ({
         payroll_run_id: run.id, employee_id: l.empId,
         gross: l.gross, allowances: l.allowances, deductions: l.deductions,
@@ -89,10 +136,79 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
       const { error: lineErr } = await supabase.from('hrm_payroll_lines').insert(payLines)
       if (lineErr) throw new Error(lineErr.message)
 
-      // Deduct advances
+      // ── 4. Create accounting journal ──────────────────
+      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+        ref: 'JV-' + ref, posting_date: `${period}-28`,
+        description: `Payroll — ${period} — ${lines.length} employees`,
+        journal_type: 'payroll', source_type: 'payroll', source_ref: ref,
+        posted_by: userName, status: 'posted',
+      }).select('id').single()
+      if (jErr) throw new Error(jErr.message)
+
+      // ── 5. Build journal lines ────────────────────────
+      const jLines: { journal_id: string; line_number: number; account_id: string; description: string; debit: number; credit: number }[] = []
+      let ln = 1
+
+      // Dr Salary Expense (6010) — total gross
+      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: salaryId,
+        description: `Gross salaries — ${period}`, debit: totals.gross, credit: 0 })
+
+      // Cr PAYE Payable (2030) — total PAYE withheld
+      if (totals.paye > 0) {
+        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: payePayId,
+          description: `PAYE withheld — ${period}`, debit: 0, credit: totals.paye })
+      }
+
+      // Cr NSSF Payable (2040) — employee NSSF contribution
+      if (totals.nssfEe > 0) {
+        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: nssfPayId,
+          description: `NSSF employee contribution — ${period}`, debit: 0, credit: totals.nssfEe })
+      }
+
+      // Cr Net Salary Payable (2060) — net pay owed to employees
+      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: netPayId,
+        description: `Net salary payable — ${period}`, debit: 0, credit: totals.net })
+
+      // Dr NSSF Expense (6020) / Cr NSSF Payable (2040) — employer NSSF
+      if (totals.nssfEr > 0) {
+        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: nssfExpId,
+          description: `NSSF employer contribution — ${period}`, debit: totals.nssfEr, credit: 0 })
+        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: nssfPayId,
+          description: `NSSF employer payable — ${period}`, debit: 0, credit: totals.nssfEr })
+      }
+
+      // Dr SDL Expense (6030) / Cr SDL Payable (2050) — SDL
+      if (totals.sdl > 0) {
+        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: sdlExpId,
+          description: `SDL — ${period}`, debit: totals.sdl, credit: 0 })
+        jLines.push({ journal_id: journal.id, line_number: ln++, account_id: sdlPayId,
+          description: `SDL payable — ${period}`, debit: 0, credit: totals.sdl })
+      }
+
+      const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
+      if (jlErr) throw new Error(jlErr.message)
+
+      // ── 6. Update account balances ────────────────────
+      await Promise.all(jLines.map(l =>
+        supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })
+      ))
+
+      // ── 7. Create voucher record ──────────────────────
+      await supabase.from('vouchers').insert({
+        ref, type: 'payroll', posting_date: `${period}-28`,
+        description: `Payroll — ${period} — ${lines.length} employees`,
+        total_amount: totals.gross + totals.nssfEr + totals.sdl,
+        status: 'posted', journal_id: journal.id,
+        notes: `Gross: ${totals.gross.toLocaleString()} · PAYE: ${totals.paye.toLocaleString()} · NSSF Ee: ${totals.nssfEe.toLocaleString()} · Er: ${totals.nssfEr.toLocaleString()} · SDL: ${totals.sdl.toLocaleString()} · Net: ${totals.net.toLocaleString()}`,
+        posted_by: userName,
+      })
+
+      // ── 8. Deduct salary advances ─────────────────────
       for (const l of lines) {
         if (l.advanceDeduction > 0) {
-          const { data: advs } = await supabase.from('hrm_salary_advances').select('id, remaining, monthly_deduction').eq('employee_id', l.empId).eq('status', 'active')
+          const { data: advs } = await supabase.from('hrm_salary_advances')
+            .select('id, remaining, monthly_deduction')
+            .eq('employee_id', l.empId).eq('status', 'active')
           for (const adv of (advs || [])) {
             const newRemaining = Math.max(0, adv.remaining - adv.monthly_deduction)
             await supabase.from('hrm_salary_advances').update({
@@ -102,7 +218,7 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
         }
       }
 
-      setToast(`Payroll ${period} posted. ${lines.length} payslips generated.`)
+      setToast(`Payroll ${period} posted to accounts · Dr Salaries (6010) ${totals.gross.toLocaleString()} · Cr PAYE (2030) · Cr NSSF (2040) · Cr Net Pay (2060)`)
       setToastType('success')
     } catch (err: any) {
       setToast(err.message || 'Post failed'); setToastType('error')
@@ -118,7 +234,7 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
       <div className="page-header">
         <div>
           <div className="page-title">Payroll Run</div>
-          <div className="page-sub">TRA 2024 PAYE bands · NSSF optional per employee · SDL {settings.sdl_rate}% · Live calculation</div>
+          <div className="page-sub">TRA 2024 PAYE bands · NSSF optional per employee · SDL {settings.sdl_rate}% · Posts to accounts: 6010, 2030, 2040, 2050, 2060</div>
         </div>
         <div className="page-actions">
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 11 }}>
