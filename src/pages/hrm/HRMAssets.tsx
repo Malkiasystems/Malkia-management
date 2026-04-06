@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
-import type { HRMProps, HRMAsset, Employee } from './hrmTypes'
+import type { HRMProps, HRMAsset } from './hrmTypes'
 
-export default function HRMAssets({ onNav }: HRMProps) {
+export default function HRMAssets({ onNav: _onNav }: HRMProps) {
   const [assets, setAssets] = useState<HRMAsset[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState('')
