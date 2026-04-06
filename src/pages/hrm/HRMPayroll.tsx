@@ -165,9 +165,11 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
           description: `NSSF employee contribution — ${period}`, debit: 0, credit: totals.nssfEe })
       }
 
-      // Cr Net Salary Payable (2060) — net pay owed to employees
+      // Cr Net Salary Payable (2060) — net pay owed (before advance deduction)
+      // Advance deduction is handled separately below as Dr 2060 / Cr 1060
+      const preAdvanceNet = totals.net + totals.advDed
       jLines.push({ journal_id: journal.id, line_number: ln++, account_id: netPayId,
-        description: `Net salary payable — ${period}`, debit: 0, credit: totals.net })
+        description: `Net salary payable — ${period}`, debit: 0, credit: preAdvanceNet })
 
       // Dr NSSF Expense (6020) / Cr NSSF Payable (2040) — employer NSSF
       if (totals.nssfEr > 0) {
@@ -183,6 +185,29 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
           description: `SDL — ${period}`, debit: totals.sdl, credit: 0 })
         jLines.push({ journal_id: journal.id, line_number: ln++, account_id: sdlPayId,
           description: `SDL payable — ${period}`, debit: 0, credit: totals.sdl })
+      }
+
+      // Advance recovery: Cr Salary Advance Receivable (1060) — reduces employee debt
+      // The net pay (2060) is already reduced by advance amount in the computation,
+      // so we need to explicitly clear the advance asset
+      if (totals.advDed > 0) {
+        let { data: advAcct } = await supabase.from('accounts').select('id').eq('code', '1060').single()
+        if (!advAcct) {
+          const { data: created } = await supabase.from('accounts').insert({
+            code: '1060', name: 'Salary Advance Receivable', type: 'asset',
+            category: 'Current Assets', balance: 0, is_active: true, is_default: true,
+          }).select('id').single()
+          advAcct = created
+        }
+        if (advAcct) {
+          // The net pay credited to 2060 is already net of advances.
+          // To balance: we need to credit 1060 (asset goes down) and add the advance amount back to 2060.
+          // Effectively: Dr Net Salary Payable (2060) / Cr Salary Advance Receivable (1060)
+          jLines.push({ journal_id: journal.id, line_number: ln++, account_id: netPayId,
+            description: `Advance recovery from salaries — ${period}`, debit: totals.advDed, credit: 0 })
+          jLines.push({ journal_id: journal.id, line_number: ln++, account_id: advAcct.id,
+            description: `Advance recovery — ${period}`, debit: 0, credit: totals.advDed })
+        }
       }
 
       const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
