@@ -11,9 +11,9 @@ interface PayLine {
   paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string
 }
 
-export default function HRMPayroll({ onNav }: HRMProps) {
+export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
   const { user } = useAuth()
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [_employees, setEmployees] = useState<Employee[]>([])
   const [lines, setLines] = useState<PayLine[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7))

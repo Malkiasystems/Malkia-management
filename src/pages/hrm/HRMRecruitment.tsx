@@ -7,7 +7,7 @@ const STAGE_COLORS: Record<string, string> = { applied: '#6366f1', screening: '#
 const STAGE_LABELS: Record<string, string> = { applied: 'Applied', screening: 'Screening', interview: 'Interview', offer: 'Offer', hired: 'Hired', rejected: 'Rejected' }
 const STAGE_ORDER = ['applied', 'screening', 'interview', 'offer', 'hired']
 
-export default function HRMRecruitment({ onNav }: HRMProps) {
+export default function HRMRecruitment({ onNav: _onNav }: HRMProps) {
   const [jobs, setJobs] = useState<JobOpening[]>([])
   const [applicants, setApplicants] = useState<Applicant[]>([])
   const [loading, setLoading] = useState(true)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
-import type { HRMProps, PayrollLine } from './hrmTypes'
+import type { HRMProps } from './hrmTypes'
 import { DEPT_COLORS } from './hrmTypes'
 
 export default function HRMPayslips({ onNav }: HRMProps) {

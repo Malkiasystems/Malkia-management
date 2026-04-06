@@ -4,7 +4,7 @@ import Toast from '../../components/Toast'
 import type { HRMProps, HRSettings } from './hrmTypes'
 import { DEFAULT_HR_SETTINGS } from './hrmTypes'
 
-export default function HRMSettings({ onNav }: HRMProps) {
+export default function HRMSettings({ onNav: _onNav }: HRMProps) {
   const [settings, setSettings] = useState<HRSettings>(DEFAULT_HR_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
@@ -35,7 +35,7 @@ export default function HRMSettings({ onNav }: HRMProps) {
   }
 
   const removeDept = (d: string) => {
-    setSettings({ ...settings, departments: settings.departments.filter(x => x !== d) })
+    setSettings({ ...settings, departments: settings.departments.filter((x: string) => x !== d) })
   }
 
   const update = (field: keyof HRSettings, val: any) => setSettings({ ...settings, [field]: val })
@@ -57,7 +57,7 @@ export default function HRMSettings({ onNav }: HRMProps) {
         <div className="card">
           <div style={{ fontWeight: 700, color: '#6366f1', marginBottom: 14 }}>Departments</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-            {settings.departments.map(d => (
+            {settings.departments.map((d: string) => (
               <div key={d} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', background: 'var(--surface2)', borderRadius: 6, fontSize: 12 }}>
                 <span>{d}</span>
                 <button onClick={() => removeDept(d)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 14 }}>x</button>
