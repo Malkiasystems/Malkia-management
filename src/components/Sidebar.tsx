@@ -24,7 +24,7 @@ const HRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Employees', page: 'hrm-employees',   icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
   { label: 'Payroll',   page: 'hrm-payroll',      icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
   { label: 'Leave',     page: 'hrm-leave',        icon: 'M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z' },
-  { label: 'Recruit',   page: 'hrm-recruitment',  icon: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35' },
+  { label: 'Attend',    page: 'hrm-attendance',   icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2' },
   { label: 'Events',    page: 'hrm-events',       icon: 'M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z M16 2v4 M8 2v4 M3 10h18' },
 ]
 
