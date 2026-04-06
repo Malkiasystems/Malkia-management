@@ -2,16 +2,16 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
 import { useAuth } from '../../lib/useAuth'
-import type { HRMProps, LeaveRequest, LeaveBalance, Employee } from './hrmTypes'
+import type { HRMProps, LeaveRequest, LeaveBalance } from './hrmTypes'
 import { LEAVE_LABELS } from './hrmTypes'
 
-export default function HRMLeave({ onNav }: HRMProps) {
+export default function HRMLeave({ onNav: _onNav }: HRMProps) {
   const { user } = useAuth()
   const [tab, setTab] = useState<'balances' | 'pending' | 'history'>('balances')
   const [balances, setBalances] = useState<LeaveBalance[]>([])
   const [pending, setPending] = useState<LeaveRequest[]>([])
   const [history, setHistory] = useState<LeaveRequest[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState('')

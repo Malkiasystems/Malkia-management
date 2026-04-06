@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
-import type { HRMProps, Appraisal, Employee } from './hrmTypes'
+import type { HRMProps, Appraisal } from './hrmTypes'
 import { DEPT_COLORS } from './hrmTypes'
 
 export default function HRMPerformance({ onNav: _onNav }: HRMProps) {
   const [tab, setTab] = useState<'appraisals' | 'policies' | 'sops'>('appraisals')
   const [appraisals, setAppraisals] = useState<Appraisal[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState('')

@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
 import type { HRMProps, AttendanceEntry, Employee } from './hrmTypes'
 
-export default function HRMAttendance({ onNav }: HRMProps) {
+export default function HRMAttendance({ onNav: _onNav }: HRMProps) {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [entries, setEntries] = useState<AttendanceEntry[]>([])
   const [todayStatus, setTodayStatus] = useState<Record<string, AttendanceEntry>>({})

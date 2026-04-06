@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
-import type { HRMProps, HRMEvent, Employee } from './hrmTypes'
+import type { HRMProps, HRMEvent } from './hrmTypes'
 import { EVENT_COLORS, EVENT_LABELS } from './hrmTypes'
 
-export default function HRMEvents({ onNav }: HRMProps) {
+export default function HRMEvents({ onNav: _onNav }: HRMProps) {
   const [events, setEvents] = useState<HRMEvent[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [employees, setEmployees] = useState<{ id: string; full_name: string; date_of_birth: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [filterType, setFilterType] = useState('all')
   const [showModal, setShowModal] = useState(false)
@@ -41,7 +41,6 @@ export default function HRMEvents({ onNav }: HRMProps) {
 
   const today = new Date().toISOString().split('T')[0]
   const upcoming = events.filter(e => e.event_date >= today)
-  const past = events.filter(e => e.event_date < today)
   const filtered = filterType === 'all' ? events : events.filter(e => e.event_type === filterType)
   const filteredUpcoming = filtered.filter(e => e.event_date >= today)
   const filteredPast = filtered.filter(e => e.event_date < today)
