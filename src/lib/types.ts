@@ -27,6 +27,10 @@ export type Page =
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles
   | 'bundles'
+  // HRM Module Pages
+  | 'hrm' | 'hrm-employees' | 'hrm-assets' | 'hrm-payroll' | 'hrm-payslips'
+  | 'hrm-leave' | 'hrm-attendance' | 'hrm-performance' | 'hrm-recruitment'
+  | 'hrm-events' | 'hrm-settings'
 
 export interface Product {
   id: string

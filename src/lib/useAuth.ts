@@ -255,6 +255,18 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'investors-portfolio': ['reports.view'],
   'investors-reports': ['reports.view'],
   'bundles': ['sales.view'],
+  // HRM Module
+  'hrm': ['hrm.view'],
+  'hrm-employees': ['hrm.view'],
+  'hrm-assets': ['hrm.view'],
+  'hrm-payroll': ['hrm.payroll'],
+  'hrm-payslips': ['hrm.payroll'],
+  'hrm-leave': ['hrm.view'],
+  'hrm-attendance': ['hrm.view'],
+  'hrm-performance': ['hrm.view'],
+  'hrm-recruitment': ['hrm.recruit'],
+  'hrm-events': ['hrm.view'],
+  'hrm-settings': ['settings.edit'],
 }
 
 export function canAccessPage(page: string, permissions: string[]): boolean {
