@@ -7,7 +7,8 @@ import { computePayrollLine, DEFAULT_HR_SETTINGS } from './hrmTypes'
 
 interface PayLine {
   empId: string; name: string; title: string; code: string; contractType: string
-  gross: number; nssfEnabled: boolean; allowances: number; deductions: number; advanceDeduction: number
+  gross: number; nssfEnabled: boolean; payeEnabled: boolean; sdlEnabled: boolean
+  allowances: number; deductions: number; advanceDeduction: number
   paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string
 }
 
@@ -41,10 +42,13 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
 
     const computed = emps.map(emp => {
       const advDed = advMap[emp.id] || 0
-      const r = computePayrollLine(emp.gross_salary || 0, emp.nssf_enabled, s.nssf_ee_rate, s.nssf_er_rate, s.sdl_rate, 0, 0, advDed)
+      const payeOn = emp.paye_enabled !== false  // default true for backwards compat
+      const sdlOn = emp.sdl_enabled !== false
+      const r = computePayrollLine(emp.gross_salary || 0, emp.nssf_enabled, s.nssf_ee_rate, s.nssf_er_rate, s.sdl_rate, 0, 0, advDed, payeOn, sdlOn)
       return {
         empId: emp.id, name: emp.full_name, title: emp.job_title, code: emp.emp_code,
-        contractType: emp.contract_type, gross: emp.gross_salary || 0, nssfEnabled: emp.nssf_enabled,
+        contractType: emp.contract_type, gross: emp.gross_salary || 0,
+        nssfEnabled: emp.nssf_enabled, payeEnabled: payeOn, sdlEnabled: sdlOn,
         allowances: 0, deductions: 0, advanceDeduction: advDed,
         paye: r.paye, nssfEe: r.nssfEe, nssfEr: r.nssfEr, sdl: r.sdl, net: r.net, band: r.band,
       }
@@ -56,7 +60,7 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
   const recalcLine = (i: number, newGross: number) => {
     const nl = [...lines]
     const line = nl[i]
-    const r = computePayrollLine(newGross, line.nssfEnabled, settings.nssf_ee_rate, settings.nssf_er_rate, settings.sdl_rate, line.allowances, line.deductions, line.advanceDeduction)
+    const r = computePayrollLine(newGross, line.nssfEnabled, settings.nssf_ee_rate, settings.nssf_er_rate, settings.sdl_rate, line.allowances, line.deductions, line.advanceDeduction, line.payeEnabled, line.sdlEnabled)
     nl[i] = { ...line, gross: newGross, paye: r.paye, nssfEe: r.nssfEe, nssfEr: r.nssfEr, sdl: r.sdl, net: r.net, band: r.band }
     setLines(nl)
   }
@@ -318,7 +322,7 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
               <tbody>
                 {lines.map((l, i) => (
                   <tr key={l.empId} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '10px 14px' }}><div style={{ fontWeight: 700 }}>{l.name}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>{l.title} · {l.code}{!l.nssfEnabled ? ' · No NSSF' : ''}</div></td>
+                    <td style={{ padding: '10px 14px' }}><div style={{ fontWeight: 700 }}>{l.name}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>{l.title} · {l.code}{!l.nssfEnabled ? ' · No NSSF' : ''}{!l.payeEnabled ? ' · No PAYE' : ''}{!l.sdlEnabled ? ' · No SDL' : ''}</div></td>
                     <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                       <input type="number" value={l.gross} onChange={e => recalcLine(i, parseFloat(e.target.value) || 0)} style={{ width: 110, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 8px', borderRadius: 5, fontSize: 12, fontFamily: 'var(--mono)', textAlign: 'right' }} />
                     </td>
