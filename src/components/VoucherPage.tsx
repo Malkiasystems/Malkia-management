@@ -1,3 +1,11 @@
+import type { Page } from '../lib/types'
+
+export interface Shortcut {
+  label: string
+  icon: string
+  page: Page
+}
+
 interface VoucherPageProps {
   title: string
   icon: string
@@ -8,11 +16,14 @@ interface VoucherPageProps {
   onDraft?: () => void
   postLabel?: string
   journalNote?: string
+  shortcuts?: Shortcut[]
+  onNav?: (p: Page) => void
 }
 
 export default function VoucherPage({
   title, icon, subtitle, color, children,
-  onPost, onDraft, postLabel = 'Post Voucher', journalNote
+  onPost, onDraft, postLabel = 'Post Voucher', journalNote,
+  shortcuts, onNav
 }: VoucherPageProps) {
   return (
     <div className="page">
@@ -33,6 +44,18 @@ export default function VoucherPage({
           <button className="btn btn-primary" onClick={onPost}>{postLabel}</button>
         </div>
       </div>
+
+      {shortcuts && shortcuts.length > 0 && onNav && (
+        <div className="shortcut-bar">
+          {shortcuts.map((s, i) => (
+            <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
+              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              {s.label}
+              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ))}
+        </div>
+      )}
 
       {journalNote && (
         <div style={{
