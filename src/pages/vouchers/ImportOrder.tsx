@@ -339,6 +339,21 @@ export default function ImportOrder({ onNav: _onNav }: Props) {
     <div className="page-header"><div><div className="page-title">Import Orders</div><div className="page-sub">China/India sourcing · Quote to shelf</div></div>
     <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={loadAll} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="refresh"/> Refresh</button>
     <button className="btn btn-primary btn-sm" onClick={()=>{setForm({supplier:'',orderDate:today(),expectedReady:'',currency:'USD',fxRate:'2500',notes:''});setLines([{...EMPTY_LINE}]);setView('create')}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="plus" s={13}/> New Import Order</button></div></div>
+    <div className="shortcut-bar">
+      {[
+        { icon: '🏢', label: 'Suppliers', page: 'suppliers' as Page },
+        { icon: '🚚', label: 'GRN', page: 'grn' as Page },
+        { icon: '📦', label: 'Inventory', page: 'inventory' as Page },
+        { icon: '🧾', label: 'Purchase Invoice', page: 'purchase-invoice' as Page },
+        { icon: '📋', label: 'Purchase Register', page: 'purchase-register' as Page },
+      ].map((s, i) => (
+        <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
+          <span style={{ fontSize: 13 }}>{s.icon}</span>
+          {s.label}
+          <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      ))}
+    </div>
     {loading?<div className="card" style={{textAlign:'center',padding:'40px 0',color:'var(--text3)'}}>Loading...</div>:orders.length===0?<div className="card" style={{textAlign:'center',padding:'60px 0',color:'var(--text3)'}}><div style={{fontSize:14,fontWeight:600}}>No import orders yet</div></div>:
     <div className="card"><div className="table-wrap"><table><thead><tr><th>Ref</th><th>Supplier</th><th>Date</th><th>Status</th><th className="td-right">USD</th><th className="td-right">TZS</th><th className="td-right">Freight</th><th className="td-right">Landed</th></tr></thead><tbody>
       {orders.map(o=>(<tr key={o.id} style={{cursor:'pointer'}} onClick={()=>loadOrderDetail(o)} onMouseEnter={e=>(e.currentTarget.style.background='var(--surface2)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}><td className="td-mono td-amber" style={{fontSize:12,fontWeight:700}}>{o.ref}</td><td style={{fontSize:12,fontWeight:600}}>{o.suppliers?.name||''}</td><td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{o.order_date}</td><td><span className={`pill ${STA_C[o.status]||'pill-gray'}`} style={{fontSize:9}}>{STA_L[o.status]||o.status}</span></td><td className="td-right td-mono" style={{fontSize:12}}>${o.total_usd.toLocaleString()}</td><td className="td-right td-mono" style={{fontSize:12}}>{tzs(o.total_tzs)}</td><td className="td-right td-mono" style={{fontSize:12,color:o.total_freight_tzs>0?'var(--blue)':'var(--text3)'}}>{o.total_freight_tzs>0?tzs(o.total_freight_tzs):''}</td><td className="td-right td-mono" style={{fontSize:12,fontWeight:700,color:'var(--accent)'}}>{tzs(o.total_landed_tzs)}</td></tr>))}
