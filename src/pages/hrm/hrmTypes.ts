@@ -282,10 +282,12 @@ export function computePayrollLine(
   payeEnabled: boolean = true,
   sdlEnabled: boolean = true,
 ): { paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string } {
-  const { paye: rawPaye, band } = computePAYE(gross)
-  const paye = payeEnabled ? rawPaye : 0
+  // NSSF is a pre-tax deduction — PAYE is calculated on gross MINUS NSSF employee contribution
   const nssfEe = nssfEnabled ? Math.round(gross * nssfEeRate / 100) : 0
   const nssfEr = nssfEnabled ? Math.round(gross * nssfErRate / 100) : 0
+  const taxableIncome = gross - nssfEe
+  const { paye: rawPaye, band } = computePAYE(taxableIncome)
+  const paye = payeEnabled ? rawPaye : 0
   const sdl = sdlEnabled ? Math.round(gross * sdlRate / 100) : 0
   const net = gross + allowances - paye - nssfEe - deductions - advanceDeduction
   return { paye, nssfEe, nssfEr, sdl, net, band: payeEnabled ? band : 'Exempt' }
