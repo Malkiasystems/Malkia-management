@@ -24,6 +24,8 @@ export interface Employee {
   bank_account: string | null
   nssf_number: string | null
   nssf_enabled: boolean
+  paye_enabled: boolean
+  sdl_enabled: boolean
   tin_number: string | null
   date_of_birth: string | null
   emergency_contact: string | null
@@ -277,13 +279,16 @@ export function computePayrollLine(
   allowances: number = 0,
   deductions: number = 0,
   advanceDeduction: number = 0,
+  payeEnabled: boolean = true,
+  sdlEnabled: boolean = true,
 ): { paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string } {
-  const { paye, band } = computePAYE(gross)
+  const { paye: rawPaye, band } = computePAYE(gross)
+  const paye = payeEnabled ? rawPaye : 0
   const nssfEe = nssfEnabled ? Math.round(gross * nssfEeRate / 100) : 0
   const nssfEr = nssfEnabled ? Math.round(gross * nssfErRate / 100) : 0
-  const sdl = Math.round(gross * sdlRate / 100)
+  const sdl = sdlEnabled ? Math.round(gross * sdlRate / 100) : 0
   const net = gross + allowances - paye - nssfEe - deductions - advanceDeduction
-  return { paye, nssfEe, nssfEr, sdl, net, band }
+  return { paye, nssfEe, nssfEr, sdl, net, band: payeEnabled ? band : 'Exempt' }
 }
 
 // ── Helpers ───────────────────────────────────────────────
