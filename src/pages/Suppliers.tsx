@@ -3,6 +3,9 @@ import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { tzs, formatDate } from '../lib/utils'
+import type { Page } from '../lib/types'
+
+interface SuppliersProps { onNav?: (p: Page) => void }
 
 interface SupplierRow {
   id: string; code: string; name: string; contact_person: string
@@ -34,7 +37,7 @@ const EMPTY_FORM = {
   address: '', payment_terms: 'NET30', balance_tzs: '0',
 }
 
-export default function Suppliers() {
+export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([])
   const [search, setSearch] = useState('')
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('active')
@@ -531,6 +534,26 @@ export default function Suppliers() {
           <button className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add Supplier</button>
         </div>
       </div>
+
+      {/* SHORTCUTS */}
+      {onNav && (
+        <div className="shortcut-bar">
+          {[
+            { icon: '📋', label: 'Purchase Order', page: 'purchase-order' as Page },
+            { icon: '🚚', label: 'GRN', page: 'grn' as Page },
+            { icon: '🧾', label: 'Purchase Invoice', page: 'purchase-invoice' as Page },
+            { icon: '📊', label: 'AP Aging', page: 'ap-aging' as Page },
+            { icon: '💸', label: 'Cash Payment', page: 'cash-payment' as Page },
+            { icon: '🚢', label: 'Import Order', page: 'import-order' as Page },
+          ].map((s, i) => (
+            <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
+              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              {s.label}
+              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Summary banner */}
       <div style={{ background: 'linear-gradient(135deg,rgba(168,85,247,.08) 0%,rgba(168,85,247,.04) 100%)', border: '1px solid rgba(168,85,247,.2)', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

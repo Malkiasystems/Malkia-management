@@ -3,6 +3,9 @@ import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { tzs } from '../lib/utils'
+import type { Page } from '../lib/types'
+
+interface CustomersProps { onNav?: (p: Page) => void }
 
 interface Customer {
   id: string; customer_number: string; name: string; company: string; contact_person: string
@@ -42,7 +45,7 @@ const EMPTY_FORM = {
   credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: ''
 }
 
-export default function Customers() {
+export default function Customers({ onNav }: { onNav?: (p: Page) => void }) {
   const [tab, setTab] = useState<'cash'|'debtors'>('cash')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [search, setSearch] = useState('')
@@ -437,6 +440,25 @@ export default function Customers() {
           <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add {tab==='cash'?'Contact':'Debtor'}</button>
         </div>
       </div>
+
+      {/* SHORTCUTS */}
+      {onNav && (
+        <div className="shortcut-bar">
+          {[
+            { icon: '💰', label: 'Cash Sale', page: 'cash-sale' as Page },
+            { icon: '🧾', label: 'Sales Invoice', page: 'sales-invoice' as Page },
+            { icon: '📊', label: 'AR Aging', page: 'ar-aging' as Page },
+            { icon: '📋', label: 'Sales Register', page: 'sales-register' as Page },
+            { icon: '👑', label: 'CRM Hub', page: 'crm-hub' as Page },
+          ].map((s, i) => (
+            <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
+              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              {s.label}
+              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Master account banner */}
       <div style={{ background:'linear-gradient(135deg,rgba(133,194,190,.08) 0%,rgba(133,194,190,.04) 100%)',border:'1px solid rgba(133,194,190,.2)',borderRadius:12,padding:'14px 20px',marginBottom:20,display:'flex',justifyContent:'space-between',alignItems:'center' }}>

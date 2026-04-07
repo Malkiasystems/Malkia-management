@@ -6,6 +6,9 @@ import { getStatus, tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter from '../components/CategoryFilter'
 import { makeCategoryPredicate } from '../components/CategoryFilter'
+import type { Page } from '../lib/types'
+
+interface InventoryProps { onNav?: (p: Page) => void }
 
 interface DBProduct {
   id: string; sku: string; name: string; category: string
@@ -51,7 +54,7 @@ const ENTRY_TYPE_LABELS: Record<string, { label: string; color: string; dr: stri
   transfer_out:    { label: 'Transfer Out',  color: 'var(--accent)', dr: 'Inventory (dest)', cr: 'Inventory (src)' },
 }
 
-export default function Inventory() {
+export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
   const [products, setProducts] = useState<DBProduct[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [search, setSearch] = useState('')
@@ -447,6 +450,26 @@ export default function Inventory() {
           <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add Product</button>
         </div>
       </div>
+
+      {/* SHORTCUTS */}
+      {onNav && (
+        <div className="shortcut-bar">
+          {[
+            { icon: '💰', label: 'Cash Sale', page: 'cash-sale' as Page },
+            { icon: '🚚', label: 'GRN', page: 'grn' as Page },
+            { icon: '📊', label: 'Stock Valuation', page: 'stock-valuation' as Page },
+            { icon: '🔀', label: 'Stock Transfer', page: 'stock-transfer' as Page },
+            { icon: '⚖️', label: 'Stock Adjustment', page: 'stock-adjustment' as Page },
+            { icon: '🚢', label: 'Import Order', page: 'import-order' as Page },
+          ].map((s, i) => (
+            <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
+              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              {s.label}
+              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid g4" style={{ marginBottom: 20 }}>
