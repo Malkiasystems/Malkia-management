@@ -154,10 +154,9 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
     icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2',
     color: '#6366f1',
     permissions: [
-      { key: 'hrm.view_own', label: 'View Own Profile' },
-      { key: 'hrm.view_team', label: 'View Team' },
-      { key: 'hrm.view_all', label: 'View All Staff' },
-      { key: 'hrm.manage', label: 'Manage HRM' },
+      { key: 'hrm.view', label: 'View HRM (Dashboard, Employees, Leave, Attendance, Assets, Events, Performance)' },
+      { key: 'hrm.payroll', label: 'Payroll & Payslips (view, compute, post to accounts)' },
+      { key: 'hrm.recruit', label: 'Recruitment (job openings, applicants, pipeline)' },
     ]
   },
   {
@@ -239,7 +238,7 @@ export default function UserManagement({ onNav }: Props) {
 
   const openNewUser = () => {
     setEditingUser(null)
-    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view_own'] })
+    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view'] })
     setActiveTab('details')
     setExpandedGroups([])
     setShowModal(true)
@@ -524,7 +523,16 @@ export default function UserManagement({ onNav }: Props) {
                     </div>
                   </td>
                   <td style={s.td}>
-                    <span style={s.permBadge}>{getPermissionCount(user)} permissions</span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {PERMISSION_GROUPS.map(g => {
+                        const count = g.permissions.filter(p => user.permissions.includes(p.key)).length
+                        if (count === 0) return null
+                        const full = count === g.permissions.length
+                        return <span key={g.module} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: full ? `${g.color}22` : `${g.color}11`, color: g.color, fontWeight: full ? 700 : 500, border: `1px solid ${g.color}33` }}>{g.label}{!full ? ` ${count}/${g.permissions.length}` : ''}</span>
+                      })}
+                      {user.permissions.length === 0 && <span style={{ fontSize: 11, color: 'var(--text3)' }}>No access</span>}
+                      {user.permissions.length >= 40 && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#ef444422', color: '#ef4444', fontWeight: 700 }}>Super Admin</span>}
+                    </div>
                   </td>
                   <td style={s.td}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -636,12 +644,34 @@ export default function UserManagement({ onNav }: Props) {
               </>
             ) : (
               <>
+                {/* Role Presets */}
+                <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>Quick Role Presets</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {[
+                      { label: 'Super Admin (All)', color: '#ef4444', perms: ALL_PERMISSIONS },
+                      { label: 'COO / Manager', color: '#6366f1', perms: ['dashboard.view','accounting.view','accounting.create','accounting.edit','accounting.post','accounting.approve','accounting.coa','accounting.export','sales.view','sales.create','sales.edit','sales.delete','sales.approve','sales.export','inventory.view','inventory.create','inventory.edit','inventory.adjust','inventory.transfer','inventory.approve','inventory.export','customers.view','customers.create','customers.edit','customers.credit','customers.export','crm.view','crm.create','crm.edit','crm.delete','crm.inbox','crm.automations','crm.export','reports.view','reports.export','hrm.view','hrm.payroll','hrm.recruit','settings.view','settings.edit','settings.users','settings.roles','settings.approvals'] },
+                      { label: 'Sales Staff', color: '#22c55e', perms: ['dashboard.view','sales.view','sales.create','inventory.view','customers.view','customers.create','crm.view','hrm.view'] },
+                      { label: 'Accountant', color: '#3b82f6', perms: ['dashboard.view','accounting.view','accounting.create','accounting.edit','accounting.post','accounting.coa','accounting.export','sales.view','sales.export','reports.view','reports.export','hrm.view','hrm.payroll'] },
+                      { label: 'Inventory Clerk', color: '#f59e0b', perms: ['dashboard.view','inventory.view','inventory.create','inventory.edit','inventory.adjust','inventory.transfer','sales.view','hrm.view'] },
+                      { label: 'Customer Service', color: '#ec4899', perms: ['dashboard.view','sales.view','sales.create','customers.view','customers.create','customers.edit','crm.view','crm.create','crm.edit','crm.inbox','hrm.view'] },
+                      { label: 'HRM Only', color: '#a78bfa', perms: ['dashboard.view','hrm.view','hrm.payroll','hrm.recruit'] },
+                      { label: 'View Only', color: '#64748b', perms: ['dashboard.view','sales.view','inventory.view','customers.view','reports.view','hrm.view'] },
+                    ].map(preset => (
+                      <button key={preset.label} onClick={() => setFormData(prev => ({ ...prev, permissions: [...preset.perms] }))}
+                        style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${preset.color}44`, background: `${preset.color}11`, color: preset.color, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
                   <button 
                     style={{ ...s.btn, ...s.btnGhost, flex: 1 }} 
                     onClick={selectAllPermissions}
                   >
-                    Select All
+                    Select All ({ALL_PERMISSIONS.length})
                   </button>
                   <button 
                     style={{ ...s.btn, ...s.btnGhost, flex: 1 }} 
@@ -650,6 +680,19 @@ export default function UserManagement({ onNav }: Props) {
                     Clear All
                   </button>
                 </div>
+
+                {/* Active permissions summary */}
+                {formData.permissions.length > 0 && (
+                  <div style={{ marginBottom: 12, padding: '8px 12px', background: '#22c55e11', border: '1px solid #22c55e33', borderRadius: 8, fontSize: 11 }}>
+                    <strong style={{ color: '#22c55e' }}>{formData.permissions.length} permissions active:</strong>{' '}
+                    <span style={{ color: 'var(--text3)' }}>
+                      {PERMISSION_GROUPS.map(g => {
+                        const count = g.permissions.filter(p => formData.permissions.includes(p.key)).length
+                        return count > 0 ? `${g.label} (${count}/${g.permissions.length})` : null
+                      }).filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                )}
 
                 <div style={{ maxHeight: 400, overflowY: 'auto' }}>
                   {PERMISSION_GROUPS.map(group => {
