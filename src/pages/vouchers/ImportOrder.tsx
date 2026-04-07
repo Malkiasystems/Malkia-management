@@ -32,7 +32,7 @@ const STA_C: Record<string, string> = { draft:'pill-gray', deposit_paid:'pill-am
 const STA_L: Record<string, string> = { draft:'Draft', deposit_paid:'Deposit Paid', balance_paid:'Fully Paid', shipped:'Shipped', partially_received:'Partial Received', received:'All Received', closed:'Closed' }
 const EMPTY_LINE: OrderLine = { line_number:1, product_id:'', description:'', qty:1, unit_cost_usd:0, unit_cost_tzs:0, subtotal_usd:0, subtotal_tzs:0, qty_received:0, landed_unit_cost_tzs:0 }
 
-export default function ImportOrder({ onNav: _onNav }: Props) {
+export default function ImportOrder({ onNav }: Props) {
   const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState(''); const [toastType, setToastType] = useState<'success'|'error'>('success')
   const showToast = (m: string, t: 'success'|'error' = 'success') => { setToast(m); setToastType(t) }

@@ -15,14 +15,17 @@ import BundlePicker from '../../components/BundlePicker'
 import type { Bundle } from '../../lib/useBundles'
 import { PAYMENT_METHODS } from '../../lib/cashSaleTypes'
 import type { DBProduct, DBCustomer, SaleLine, SplitLine, PaymentMethod } from '../../lib/cashSaleTypes'
+import type { Page } from '../../lib/types'
 import { postCashSale, updateCashSale } from '../../lib/cashSalePost'
 
 interface Props {
   editVoucherId?: string | null
   onClearEdit?: () => void
+  onNav?: (p: Page) => void
 }
 
-export default function CashSale({ editVoucherId, onClearEdit }: Props) {
+
+export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [autoRef, setAutoRef] = useState('CS-10-????')
@@ -444,6 +447,26 @@ export default function CashSale({ editVoucherId, onClearEdit }: Props) {
           <button className="btn btn-primary" onClick={openNewSale} style={{ padding: '10px 20px', fontSize: 14, fontWeight: 700 }}>+ New Cash Sale</button>
         </div>
       </div>
+
+      {/* SHORTCUTS */}
+      {onNav && (
+        <div className="shortcut-bar">
+          {[
+            { icon: '📦', label: 'Inventory', page: 'inventory' as Page },
+            { icon: '👥', label: 'Customers', page: 'customers' as Page },
+            { icon: '📊', label: 'Sales Register', page: 'sales-register' as Page },
+            { icon: '📋', label: 'Sales Day Book', page: 'sales-day-book' as Page },
+            { icon: '🔄', label: 'Sales Return', page: 'sales-return' as Page },
+            { icon: '🧾', label: 'Sales Invoice', page: 'sales-invoice' as Page },
+          ].map((s, i) => (
+            <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
+              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              {s.label}
+              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* TODAY STATS */}
       {pageLoading ? (
