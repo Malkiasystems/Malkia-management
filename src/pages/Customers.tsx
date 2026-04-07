@@ -5,8 +5,6 @@ import { FG } from '../components/FormHelpers'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
-interface CustomersProps { onNav?: (p: Page) => void }
-
 interface Customer {
   id: string; customer_number: string; name: string; company: string; contact_person: string
   customer_type: 'cash' | 'debtor'; segment: string

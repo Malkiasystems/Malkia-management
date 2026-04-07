@@ -8,8 +8,6 @@ import CategoryFilter from '../components/CategoryFilter'
 import { makeCategoryPredicate } from '../components/CategoryFilter'
 import type { Page } from '../lib/types'
 
-interface InventoryProps { onNav?: (p: Page) => void }
-
 interface DBProduct {
   id: string; sku: string; name: string; category: string
   cost_price: number; selling_price: number; qty_on_hand: number

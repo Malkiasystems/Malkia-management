@@ -5,8 +5,6 @@ import { FG } from '../components/FormHelpers'
 import { tzs, formatDate } from '../lib/utils'
 import type { Page } from '../lib/types'
 
-interface SuppliersProps { onNav?: (p: Page) => void }
-
 interface SupplierRow {
   id: string; code: string; name: string; contact_person: string
   phone: string; email: string; address: string
