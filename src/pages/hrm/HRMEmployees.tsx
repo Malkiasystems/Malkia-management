@@ -40,6 +40,11 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   const [advanceForm, setAdvanceForm] = useState({ amount: '', monthly_deduction: '', issued_date: '', source_account: '', notes: '' })
   const [cashAccounts, setCashAccounts] = useState<{ id: string; code: string; name: string }[]>([])
 
+  // Edit mode
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState<Record<string, any>>({})
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false)
+
   useEffect(() => { load(); loadSettings() }, [])
 
   const load = async () => {
@@ -212,6 +217,63 @@ export default function HRMEmployees({ onNav }: HRMProps) {
 
   const filtered = filterDept === 'all' ? employees : employees.filter(e => e.department === filterDept)
 
+  const startEdit = () => {
+    if (!drawerEmp) return
+    setEditForm({
+      full_name: drawerEmp.full_name, job_title: drawerEmp.job_title, department: drawerEmp.department,
+      contract_type: drawerEmp.contract_type, end_date: drawerEmp.end_date || '',
+      gross_salary: String(drawerEmp.gross_salary || 0), whatsapp: drawerEmp.whatsapp || '',
+      bank_name: drawerEmp.bank_name || '', bank_account: drawerEmp.bank_account || '',
+      nssf_number: drawerEmp.nssf_number || '', nssf_enabled: drawerEmp.nssf_enabled,
+      tin_number: drawerEmp.tin_number || '', date_of_birth: drawerEmp.date_of_birth || '',
+      emergency_contact: drawerEmp.emergency_contact || '', notes: drawerEmp.notes || '',
+    })
+    setEditing(true)
+  }
+
+  const saveEdit = async () => {
+    if (!drawerEmp) return
+    const oldGross = drawerEmp.gross_salary || 0
+    const newGross = parseFloat(editForm.gross_salary) || 0
+    const initials = getInitials(editForm.full_name || drawerEmp.full_name)
+
+    const { error } = await supabase.from('hrm_employees').update({
+      full_name: editForm.full_name.trim(), initials,
+      job_title: editForm.job_title.trim(), department: editForm.department,
+      contract_type: editForm.contract_type, end_date: editForm.end_date || null,
+      gross_salary: newGross, whatsapp: editForm.whatsapp || null,
+      bank_name: editForm.bank_name || null, bank_account: editForm.bank_account || null,
+      nssf_number: editForm.nssf_number || null, nssf_enabled: editForm.nssf_enabled,
+      tin_number: editForm.tin_number || null, date_of_birth: editForm.date_of_birth || null,
+      emergency_contact: editForm.emergency_contact || null, notes: editForm.notes || null,
+    }).eq('id', drawerEmp.id)
+
+    if (error) { setToast(error.message); setToastType('error'); return }
+
+    // Track salary change
+    if (newGross !== oldGross && newGross > 0) {
+      await supabase.from('hrm_salary_history').insert({
+        employee_id: drawerEmp.id, effective_date: new Date().toISOString().split('T')[0],
+        old_gross: oldGross, new_gross: newGross,
+        reason: 'Profile update', approved_by: user?.full_name || 'System',
+      })
+    }
+
+    setToast('Employee updated'); setToastType('success')
+    setEditing(false)
+    load()
+    // Refresh drawer
+    const { data: refreshed } = await supabase.from('hrm_employees').select('*').eq('id', drawerEmp.id).single()
+    if (refreshed) setDrawerEmp(refreshed)
+  }
+
+  const deactivateEmployee = async () => {
+    if (!drawerEmp) return
+    await supabase.from('hrm_employees').update({ is_active: false }).eq('id', drawerEmp.id)
+    setToast(`${drawerEmp.full_name} deactivated`); setToastType('success')
+    setShowDeactivateConfirm(false); setDrawerEmp(null); load()
+  }
+
   const daysUntilExpiry = (d: string | null) => {
     if (!d) return null
     return Math.ceil((new Date(d).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -286,7 +348,20 @@ export default function HRMEmployees({ onNav }: HRMProps) {
         <div style={{ position: 'fixed', top: 0, right: 0, width: 500, height: '100vh', background: 'var(--surface)', borderLeft: '1px solid var(--border)', zIndex: 200, overflowY: 'auto', boxShadow: '-4px 0 24px rgba(0,0,0,.4)' }}>
           <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: 14 }}>Employee Profile</div>
-            <button onClick={() => setDrawerEmp(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text)' }}>x</button>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {!editing ? (
+                <>
+                  <button onClick={startEdit} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Edit</button>
+                  <button onClick={() => setShowDeactivateConfirm(true)} style={{ background: '#ef444422', border: '1px solid #ef444444', color: '#ef4444', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Deactivate</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={saveEdit} style={{ background: '#22c55e', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Save</button>
+                  <button onClick={() => setEditing(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 10px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Cancel</button>
+                </>
+              )}
+              <button onClick={() => { setDrawerEmp(null); setEditing(false) }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text)' }}>x</button>
+            </div>
           </div>
           <div style={{ padding: '16px 20px' }}>
             {/* Avatar & Name */}
@@ -308,7 +383,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
             </div>
 
             {/* PROFILE TAB */}
-            {drawerTab === 'profile' && (
+            {drawerTab === 'profile' && !editing && (
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11, marginBottom: 12 }}>
                   {[
@@ -331,6 +406,37 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* PROFILE TAB — EDIT MODE */}
+            {drawerTab === 'profile' && editing && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                <div><label style={labelStyle}>Full Name</label><input style={inputStyle} value={editForm.full_name} onChange={e => setEditForm({ ...editForm, full_name: e.target.value })} /></div>
+                <div><label style={labelStyle}>Job Title</label><input style={inputStyle} value={editForm.job_title} onChange={e => setEditForm({ ...editForm, job_title: e.target.value })} /></div>
+                <div><label style={labelStyle}>Department</label><select style={inputStyle} value={editForm.department} onChange={e => setEditForm({ ...editForm, department: e.target.value })}>{departments.map(d => <option key={d}>{d}</option>)}</select></div>
+                <div><label style={labelStyle}>Contract Type</label><select style={inputStyle} value={editForm.contract_type} onChange={e => setEditForm({ ...editForm, contract_type: e.target.value })}><option value="full_time">Full-time</option><option value="fixed_term">Fixed-term</option><option value="part_time">Part-time</option><option value="intern">Intern</option><option value="consultant">Consultant</option></select></div>
+                <div><label style={labelStyle}>End Date</label><input type="date" style={inputStyle} value={editForm.end_date} onChange={e => setEditForm({ ...editForm, end_date: e.target.value })} /></div>
+                <div><label style={labelStyle}>Gross Salary (TZS)</label><input type="number" style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.gross_salary} onChange={e => setEditForm({ ...editForm, gross_salary: e.target.value })} /></div>
+                <div><label style={labelStyle}>WhatsApp</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.whatsapp} onChange={e => setEditForm({ ...editForm, whatsapp: e.target.value })} /></div>
+                <div><label style={labelStyle}>Bank Name</label><input style={inputStyle} value={editForm.bank_name} onChange={e => setEditForm({ ...editForm, bank_name: e.target.value })} /></div>
+                <div><label style={labelStyle}>Bank Account</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.bank_account} onChange={e => setEditForm({ ...editForm, bank_account: e.target.value })} /></div>
+                <div><label style={labelStyle}>TIN Number</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.tin_number} onChange={e => setEditForm({ ...editForm, tin_number: e.target.value })} /></div>
+                <div><label style={labelStyle}>Date of Birth</label><input type="date" style={inputStyle} value={editForm.date_of_birth} onChange={e => setEditForm({ ...editForm, date_of_birth: e.target.value })} /></div>
+                <div><label style={labelStyle}>Emergency Contact</label><input style={inputStyle} value={editForm.emergency_contact} onChange={e => setEditForm({ ...editForm, emergency_contact: e.target.value })} /></div>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={editForm.nssf_enabled} onChange={e => setEditForm({ ...editForm, nssf_enabled: e.target.checked })} style={{ accentColor: 'var(--accent)' }} />
+                    Enroll in NSSF
+                  </label>
+                  {editForm.nssf_enabled && <input style={{ ...inputStyle, marginTop: 6, fontFamily: 'var(--mono)' }} value={editForm.nssf_number} onChange={e => setEditForm({ ...editForm, nssf_number: e.target.value })} placeholder="NSSF Number" />}
+                </div>
+                <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>Notes</label><textarea style={{ ...inputStyle, resize: 'none', height: 50 }} value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} /></div>
+                {parseFloat(editForm.gross_salary) !== (drawerEmp.gross_salary || 0) && parseFloat(editForm.gross_salary) > 0 && (
+                  <div style={{ gridColumn: '1/-1', padding: '8px 12px', background: '#f59e0b11', border: '1px solid #f59e0b33', borderRadius: 6, fontSize: 11, color: '#f59e0b' }}>
+                    Salary change: {(drawerEmp.gross_salary || 0).toLocaleString()} &rarr; {parseFloat(editForm.gross_salary).toLocaleString()} ({Math.round(((parseFloat(editForm.gross_salary) - (drawerEmp.gross_salary || 0)) / Math.max(drawerEmp.gross_salary || 1, 1)) * 100)}%). Will be recorded in salary history.
+                  </div>
+                )}
               </div>
             )}
 
@@ -521,6 +627,24 @@ export default function HRMEmployees({ onNav }: HRMProps) {
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn btn-ghost" onClick={() => setShowAdvanceModal(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={issueAdvance}>Issue Advance</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DEACTIVATE CONFIRM ──────────────── */}
+      {showDeactivateConfirm && drawerEmp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={e => { if (e.target === e.currentTarget) setShowDeactivateConfirm(false) }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid #ef444444', borderRadius: 16, width: 400, maxWidth: '95vw', padding: 24, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 12 }}>!</div>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>Deactivate {drawerEmp.full_name}?</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>
+              They will be removed from active employee lists, payroll, and attendance.
+              This does not delete their records. They can be reactivated later from the database.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+              <button onClick={() => setShowDeactivateConfirm(false)} className="btn btn-ghost">Cancel</button>
+              <button onClick={deactivateEmployee} style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Deactivate</button>
             </div>
           </div>
         </div>
