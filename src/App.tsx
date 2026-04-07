@@ -324,7 +324,7 @@ function AppContent() {
       // Lazy loaded pages
       case 'vouchers':          return <VouchersHub onNav={navigate} />
       case 'chart-of-accounts': return <ChartOfAccounts />
-      case 'inventory':         return <Inventory />
+      case 'inventory':         return <Inventory onNav={navigate} />
       case 'reports':           return <ReportsHub onNav={navigate} />
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
@@ -351,8 +351,8 @@ function AppContent() {
       case 'bank-transfer':     return <BankTransfer onNav={navigate} />
       case 'petty-cash':        return <PettyCash onNav={navigate} />
       case 'contra':            return <ContraEntry onNav={navigate} />
-      case 'cash-sale':         return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} />
-      case 'sales':             return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} />
+      case 'cash-sale':         return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} onNav={navigate} />
+      case 'sales':             return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} onNav={navigate} />
       case 'sales-invoice':     return <SalesInvoice onNav={navigate} />
       case 'sales-return':      return <SalesReturn onNav={navigate} />
       case 'debit-note':        return <DebitNote onNav={navigate} />
@@ -365,8 +365,8 @@ function AppContent() {
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-register': return <StockTransferRegister />
-      case 'customers':         return <Customers />
-      case 'suppliers':         return <Suppliers />
+      case 'customers':         return <Customers onNav={navigate} />
+      case 'suppliers':         return <Suppliers onNav={navigate} />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'import-order':      return <ImportOrder onNav={navigate} />
       case 'data-import':       return <DataImport />
@@ -393,7 +393,7 @@ function AppContent() {
       case 'crm-loyalty':       return <CRMLoyalty onNav={navigate} />
       case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
-      case 'crm-customers':     return <Customers />
+      case 'crm-customers':     return <Customers onNav={navigate} />
       
       // HRM Module Routes
       case 'hrm':               return <HRMDashboard onNav={navigate} />
