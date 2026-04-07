@@ -62,7 +62,6 @@ export default function HRMAssets({ onNav: _onNav }: HRMProps) {
 
     try {
       // Post to accounts if enabled and value > 0
-      let _journalId: string | null = null
       if (form.post_to_accounts && value > 0) {
         if (!form.source_account_id) { setToast('Select source Cash/Bank account'); setToastType('error'); return }
 
@@ -85,8 +84,6 @@ export default function HRMAssets({ onNav: _onNav }: HRMProps) {
           posted_by: userName, status: 'posted',
         }).select('id').single()
         if (jErr) throw new Error(jErr.message)
-        _journalId = journal.id
-
         const jLines = [
           { journal_id: journal.id, line_number: 1, account_id: assetAccountId, description: `Fixed Asset — ${form.asset_name}`, debit: value, credit: 0 },
           { journal_id: journal.id, line_number: 2, account_id: form.source_account_id, description: `Asset purchase — ${form.asset_tag}`, debit: 0, credit: value },
