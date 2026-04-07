@@ -28,7 +28,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   const [form, setForm] = useState({
     full_name: '', job_title: '', department: 'Management', contract_type: 'full_time',
     start_date: '', end_date: '', gross_salary: '', whatsapp: '', bank_name: '', bank_account: '',
-    nssf_number: '', nssf_enabled: false, tin_number: '', date_of_birth: '', emergency_contact: '', notes: '',
+    nssf_number: '', nssf_enabled: false, paye_enabled: true, sdl_enabled: true, tin_number: '', date_of_birth: '', emergency_contact: '', notes: '',
   })
 
   // Letter modal
@@ -112,6 +112,8 @@ export default function HRMEmployees({ onNav }: HRMProps) {
       bank_account: form.bank_account || null,
       nssf_number: form.nssf_number || null,
       nssf_enabled: form.nssf_enabled,
+      paye_enabled: form.paye_enabled,
+      sdl_enabled: form.sdl_enabled,
       tin_number: form.tin_number || null,
       date_of_birth: form.date_of_birth || null,
       emergency_contact: form.emergency_contact || null,
@@ -131,7 +133,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
     setToast(`${form.full_name} added as ${empCode}`)
     setToastType('success')
     setShowModal(false)
-    setForm({ full_name: '', job_title: '', department: 'Management', contract_type: 'full_time', start_date: '', end_date: '', gross_salary: '', whatsapp: '', bank_name: '', bank_account: '', nssf_number: '', nssf_enabled: false, tin_number: '', date_of_birth: '', emergency_contact: '', notes: '' })
+    setForm({ full_name: '', job_title: '', department: 'Management', contract_type: 'full_time', start_date: '', end_date: '', gross_salary: '', whatsapp: '', bank_name: '', bank_account: '', nssf_number: '', nssf_enabled: false, paye_enabled: true, sdl_enabled: true, tin_number: '', date_of_birth: '', emergency_contact: '', notes: '' })
     load()
   }
 
@@ -225,6 +227,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
       gross_salary: String(drawerEmp.gross_salary || 0), whatsapp: drawerEmp.whatsapp || '',
       bank_name: drawerEmp.bank_name || '', bank_account: drawerEmp.bank_account || '',
       nssf_number: drawerEmp.nssf_number || '', nssf_enabled: drawerEmp.nssf_enabled,
+      paye_enabled: drawerEmp.paye_enabled !== false, sdl_enabled: drawerEmp.sdl_enabled !== false,
       tin_number: drawerEmp.tin_number || '', date_of_birth: drawerEmp.date_of_birth || '',
       emergency_contact: drawerEmp.emergency_contact || '', notes: drawerEmp.notes || '',
     })
@@ -244,6 +247,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
       gross_salary: newGross, whatsapp: editForm.whatsapp || null,
       bank_name: editForm.bank_name || null, bank_account: editForm.bank_account || null,
       nssf_number: editForm.nssf_number || null, nssf_enabled: editForm.nssf_enabled,
+      paye_enabled: editForm.paye_enabled, sdl_enabled: editForm.sdl_enabled,
       tin_number: editForm.tin_number || null, date_of_birth: editForm.date_of_birth || null,
       emergency_contact: editForm.emergency_contact || null, notes: editForm.notes || null,
     }).eq('id', drawerEmp.id)
@@ -316,6 +320,10 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                     <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                       <span style={{ fontSize: 10, background: `${CONTRACT_COLORS[emp.contract_type]}22`, color: CONTRACT_COLORS[emp.contract_type], padding: '1px 5px', borderRadius: 4 }}>{CONTRACT_LABELS[emp.contract_type]}</span>
                       {emp.nssf_enabled && <span style={{ fontSize: 10, background: '#3b82f622', color: '#3b82f6', padding: '1px 5px', borderRadius: 4 }}>NSSF</span>}
+                      {emp.paye_enabled === false && <span style={{ fontSize: 10, background: '#f59e0b22', color: '#f59e0b', padding: '1px 5px', borderRadius: 4 }}>No PAYE</span>}
+                      {emp.sdl_enabled === false && <span style={{ fontSize: 10, background: '#a78bfa22', color: '#a78bfa', padding: '1px 5px', borderRadius: 4 }}>No SDL</span>}
+                      {emp.paye_enabled === false && <span style={{ fontSize: 10, background: '#f59e0b22', color: '#f59e0b', padding: '1px 5px', borderRadius: 4 }}>No PAYE</span>}
+                      {emp.sdl_enabled === false && <span style={{ fontSize: 10, background: '#f59e0b22', color: '#f59e0b', padding: '1px 5px', borderRadius: 4 }}>No SDL</span>}
                       {daysLeft !== null && daysLeft <= 90 && daysLeft > 0 && (
                         <span style={{ fontSize: 10, background: '#ef444422', color: '#ef4444', padding: '1px 5px', borderRadius: 4 }}>Renew {daysLeft}d</span>
                       )}
@@ -395,6 +403,8 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                     ['Gross Salary', `TZS ${(drawerEmp.gross_salary || 0).toLocaleString()}`],
                     ['Bank', `${drawerEmp.bank_name || ''} ${drawerEmp.bank_account || ''}`],
                     ['NSSF', drawerEmp.nssf_enabled ? (drawerEmp.nssf_number || 'Enabled') : 'Not enrolled'],
+                    ['PAYE', drawerEmp.paye_enabled !== false ? 'Subject to PAYE' : 'Exempt'],
+                    ['SDL', drawerEmp.sdl_enabled !== false ? 'Subject to SDL' : 'Exempt'],
                     ['TIN', drawerEmp.tin_number || 'N/A'],
                     ['WhatsApp', drawerEmp.whatsapp || 'N/A'],
                     ['DOB', drawerEmp.date_of_birth || 'N/A'],
@@ -430,6 +440,16 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                     Enroll in NSSF
                   </label>
                   {editForm.nssf_enabled && <input style={{ ...inputStyle, marginTop: 6, fontFamily: 'var(--mono)' }} value={editForm.nssf_number} onChange={e => setEditForm({ ...editForm, nssf_number: e.target.value })} placeholder="NSSF Number" />}
+                </div>
+                <div style={{ gridColumn: '1/-1', display: 'flex', gap: 20 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={editForm.paye_enabled !== false} onChange={e => setEditForm({ ...editForm, paye_enabled: e.target.checked })} style={{ accentColor: 'var(--accent)' }} />
+                    Subject to PAYE
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={editForm.sdl_enabled !== false} onChange={e => setEditForm({ ...editForm, sdl_enabled: e.target.checked })} style={{ accentColor: 'var(--accent)' }} />
+                    Subject to SDL
+                  </label>
                 </div>
                 <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>Notes</label><textarea style={{ ...inputStyle, resize: 'none', height: 50 }} value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} /></div>
                 {parseFloat(editForm.gross_salary) !== (drawerEmp.gross_salary || 0) && parseFloat(editForm.gross_salary) > 0 && (
@@ -563,13 +583,23 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                   </label>
                   {form.nssf_enabled && <input style={{ ...inputStyle, marginTop: 6, fontFamily: 'var(--mono)' }} value={form.nssf_number} onChange={e => setForm({ ...form, nssf_number: e.target.value })} placeholder="NSSF Number" />}
                 </div>
+                <div style={{ gridColumn: '1/-1', display: 'flex', gap: 20 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={form.paye_enabled} onChange={e => setForm({ ...form, paye_enabled: e.target.checked })} style={{ accentColor: 'var(--accent)' }} />
+                    Subject to PAYE
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={form.sdl_enabled} onChange={e => setForm({ ...form, sdl_enabled: e.target.checked })} style={{ accentColor: 'var(--accent)' }} />
+                    Subject to SDL
+                  </label>
+                </div>
               </div>
               <div style={{ marginTop: 12 }}>
                 <label style={labelStyle}>Notes</label>
                 <textarea style={{ ...inputStyle, resize: 'none', height: 60 }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Any additional notes..." />
               </div>
               <div style={{ marginTop: 10, padding: '8px 12px', background: '#6366f111', border: '1px solid #6366f133', borderRadius: 6, fontSize: 10, color: '#6366f1' }}>
-                Employee will be added to payroll from next cycle. NSSF enrollment is optional and can be enabled later.
+                Employee will be added to payroll from next cycle. NSSF, PAYE, and SDL are optional per employee.
               </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
