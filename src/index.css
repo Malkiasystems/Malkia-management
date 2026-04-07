@@ -90,6 +90,18 @@ a { text-decoration: none; color: inherit; }
 .pill-yellow { background: var(--yellow-dim); color: var(--yellow); }
 .pill-gray { background: var(--surface3); color: var(--text2); }
 
+/* Shortcut bar */
+.shortcut-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.shortcut-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px; border-radius: 8px; font-size: 11px; font-weight: 600;
+  font-family: var(--display); cursor: pointer; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text2); transition: all .15s ease;
+  white-space: nowrap;
+}
+.shortcut-btn:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+.shortcut-btn svg { flex-shrink: 0; }
+
 .table-wrap { overflow-x: auto; border-radius: var(--r); border: 1px solid var(--border); }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface2); }
