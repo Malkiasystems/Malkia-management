@@ -255,18 +255,18 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'investors-portfolio': ['reports.view'],
   'investors-reports': ['reports.view'],
   'bundles': ['sales.view'],
-  // HRM Module
-  'hrm': ['hrm.view'],
-  'hrm-employees': ['hrm.view'],
-  'hrm-assets': ['hrm.view'],
-  'hrm-payroll': ['hrm.payroll'],
-  'hrm-payslips': ['hrm.payroll'],
-  'hrm-leave': ['hrm.view'],
-  'hrm-attendance': ['hrm.view'],
-  'hrm-performance': ['hrm.view'],
-  'hrm-recruitment': ['hrm.recruit'],
-  'hrm-events': ['hrm.view'],
-  'hrm-settings': ['settings.edit'],
+  // HRM Module — view_own gives self-service access, view_all/manage gives company mode
+  'hrm': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
+  'hrm-employees': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
+  'hrm-assets': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
+  'hrm-payroll': ['hrm.payroll', 'hrm.view_own'],
+  'hrm-payslips': ['hrm.payroll', 'hrm.view_own'],
+  'hrm-leave': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
+  'hrm-attendance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
+  'hrm-performance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
+  'hrm-recruitment': ['hrm.recruit', 'hrm.manage'],
+  'hrm-events': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
+  'hrm-settings': ['settings.edit', 'hrm.manage'],
 }
 
 export function canAccessPage(page: string, permissions: string[]): boolean {
