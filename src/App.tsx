@@ -1,8 +1,10 @@
-import { useState, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
+import { useState, useEffect, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
 import { useInactivityLogout } from './lib/useInactivityLogout'
+import { supabase } from './lib/supabase'
+import type { HRMViewMode } from './pages/hrm/hrmTypes'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
@@ -278,8 +280,38 @@ function AppContent() {
   const [page, setPage] = useState<Page>('dashboard')
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
-  const { permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
+  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, canAny, isSuperAdmin } = useAuth()
   useInactivityLogout()
+
+  // ── HRM Mode: Self vs Company ──────────────────────────
+  const [hrmMode, setHrmMode] = useState<HRMViewMode>('self')
+  const [linkedEmployeeId, setLinkedEmployeeId] = useState<string | null>(null)
+  const [hrmLinked, setHrmLinked] = useState(false)
+
+  // Determine HRM access level
+  const hrmCanManage = isSuperAdmin() || canAny(['hrm.manage', 'hrm.view_all', 'hrm.view', 'hrm.payroll'])
+  const hrmSelfOnly = !hrmCanManage && can('hrm.view_own')
+
+  // Link logged-in user to their employee record (by email)
+  useEffect(() => {
+    if (!user?.email) return
+    const linkEmployee = async () => {
+      const { data } = await supabase
+        .from('hrm_employees')
+        .select('id')
+        .eq('email', user.email.toLowerCase())
+        .eq('is_active', true)
+        .single()
+      setLinkedEmployeeId(data?.id || null)
+      setHrmLinked(true)
+      // Self-only users always stay in self mode
+      if (hrmSelfOnly) setHrmMode('self')
+    }
+    linkEmployee()
+  }, [user?.email])
+
+  // For self-only users, force self mode
+  const effectiveHrmMode = hrmSelfOnly ? 'self' : hrmMode
 
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
@@ -395,24 +427,25 @@ function AppContent() {
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
       case 'crm-customers':     return <Customers onNav={navigate} />
       
-      // HRM Module Routes
-      case 'hrm':               return <HRMDashboard onNav={navigate} />
-      case 'hrm-employees':     return <HRMEmployees onNav={navigate} />
-      case 'hrm-assets':        return <HRMAssets onNav={navigate} />
-      case 'hrm-payroll':       return <HRMPayroll onNav={navigate} />
-      case 'hrm-payslips':      return <HRMPayslips onNav={navigate} />
-      case 'hrm-leave':         return <HRMLeave onNav={navigate} />
-      case 'hrm-attendance':    return <HRMAttendance onNav={navigate} />
-      case 'hrm-performance':   return <HRMPerformance onNav={navigate} />
-      case 'hrm-recruitment':   return <HRMRecruitment onNav={navigate} />
-      case 'hrm-events':        return <HRMEvents onNav={navigate} />
-      case 'hrm-settings':      return <HRMSettings onNav={navigate} />
+      // HRM Module Routes — pass mode, linked employee, and manage permission
+      case 'hrm':               return <HRMDashboard onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-employees':     return <HRMEmployees onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-assets':        return <HRMAssets onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-payroll':       return <HRMPayroll onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-payslips':      return <HRMPayslips onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-leave':         return <HRMLeave onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-attendance':    return <HRMAttendance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-performance':   return <HRMPerformance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-recruitment':   return <HRMRecruitment onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-events':        return <HRMEvents onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-settings':      return <HRMSettings onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       
       default:                  return <ComingSoon module={BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || page} />
     }
   }
 
   const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
+  const isHrmPage = page === 'hrm' || page.startsWith('hrm-')
 
   return (
       <CacheProvider>
@@ -421,6 +454,41 @@ function AppContent() {
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
             <Sidebar current={page} onNav={navigate} />
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {/* HRM Mode Toggle Bar — only for managers/HR with dual access */}
+              {isHrmPage && hrmCanManage && hrmLinked && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px', background: effectiveHrmMode === 'self' ? '#6366f10d' : '#22c55e0d', borderBottom: `2px solid ${effectiveHrmMode === 'self' ? '#6366f1' : '#22c55e'}`, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={effectiveHrmMode === 'self' ? '#6366f1' : '#22c55e'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      {effectiveHrmMode === 'self'
+                        ? <><circle cx="12" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></>
+                        : <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>
+                      }
+                    </svg>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: effectiveHrmMode === 'self' ? '#6366f1' : '#22c55e' }}>
+                      {effectiveHrmMode === 'self' ? 'My Profile' : 'Company HRM'}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--text3)' }}>
+                      {effectiveHrmMode === 'self' ? 'Viewing your own HR data' : 'Managing all employees'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                    <button
+                      onClick={() => setHrmMode('self')}
+                      style={{ padding: '5px 14px', fontSize: 11, fontWeight: effectiveHrmMode === 'self' ? 800 : 500, background: effectiveHrmMode === 'self' ? '#6366f1' : 'transparent', color: effectiveHrmMode === 'self' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}
+                    >My Profile</button>
+                    <button
+                      onClick={() => setHrmMode('company')}
+                      style={{ padding: '5px 14px', fontSize: 11, fontWeight: effectiveHrmMode === 'company' ? 800 : 500, background: effectiveHrmMode === 'company' ? '#22c55e' : 'transparent', color: effectiveHrmMode === 'company' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}
+                    >Company</button>
+                  </div>
+                </div>
+              )}
+              {/* Not-linked warning for self-only users */}
+              {isHrmPage && hrmSelfOnly && hrmLinked && !linkedEmployeeId && (
+                <div style={{ padding: '12px 20px', background: '#f59e0b11', borderBottom: '2px solid #f59e0b', fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>
+                  Your account is not linked to an employee profile. Please ask an administrator to set your email address on your employee record.
+                </div>
+              )}
               <Suspense fallback={<PageLoader />}>
                 {renderPage()}
               </Suspense>
