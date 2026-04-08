@@ -154,10 +154,13 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
     icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2',
     color: '#6366f1',
     permissions: [
-      { key: 'hrm.view_own', label: 'View Own Profile' },
+      { key: 'hrm.view_own', label: 'Self-Service (own profile, payslip, leave)' },
+      { key: 'hrm.view', label: 'View HRM (read-only all staff)' },
       { key: 'hrm.view_team', label: 'View Team' },
       { key: 'hrm.view_all', label: 'View All Staff' },
-      { key: 'hrm.manage', label: 'Manage HRM' },
+      { key: 'hrm.manage', label: 'Manage HRM (read & write all)' },
+      { key: 'hrm.payroll', label: 'Payroll (run & post payroll)' },
+      { key: 'hrm.recruit', label: 'Recruitment' },
     ]
   },
   {
