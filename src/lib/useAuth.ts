@@ -259,7 +259,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'hrm': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
   'hrm-employees': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
   'hrm-assets': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-payroll': ['hrm.payroll', 'hrm.view_own'],
+  'hrm-payroll': ['hrm.payroll', 'hrm.manage'],
   'hrm-payslips': ['hrm.payroll', 'hrm.view_own'],
   'hrm-leave': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
   'hrm-attendance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
