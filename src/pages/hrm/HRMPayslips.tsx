@@ -285,7 +285,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
             <span>Month</span>
             <input type="month" value={period} onChange={e => setPeriod(e.target.value)} style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontSize: 11, fontFamily: 'var(--mono)', cursor: 'pointer', outline: 'none' }} />
           </div>
-          {lines.length > 0 && (
+          {lines.length > 0 && !isSelfMode && (
             <button className="btn btn-primary btn-sm" onClick={downloadAll} disabled={generating === 'all'}>
               {generating === 'all' ? 'Generating...' : `Download All (${lines.length})`}
             </button>
@@ -294,7 +294,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
       </div>
 
       {/* KPI strip */}
-      {lines.length > 0 && (
+      {lines.length > 0 && !isSelfMode && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
           <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #6366f1' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#6366f1' }}>{fmt(totals.gross)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Total Gross</div></div>
           <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #ef4444' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#ef4444' }}>{fmt(totals.paye)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Total PAYE</div></div>
@@ -308,9 +308,9 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
       ) : lines.length === 0 ? (
         <div style={{ padding: 60, textAlign: 'center', color: 'var(--text3)' }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>---</div>
-          <div style={{ fontSize: 14 }}>No payroll run found for {period}</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>Process payroll first in the Payroll page</div>
-          <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => onNav('hrm-payroll')}>Go to Payroll</button>
+          <div style={{ fontSize: 14 }}>No payslip found for {period}</div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>{isSelfMode ? 'Payroll has not been processed for this period yet' : 'Process payroll first in the Payroll page'}</div>
+          {!isSelfMode && <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => onNav('hrm-payroll')}>Go to Payroll</button>}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
