@@ -5,7 +5,23 @@
 
 import type { Page } from '../../lib/types'
 
-export interface HRMProps { onNav: (p: Page) => void }
+export interface HRMProps {
+  onNav: (p: Page) => void
+  hrmMode?: HRMViewMode
+  linkedEmployeeId?: string | null
+  canManage?: boolean
+}
+
+// ── Emergency Contact (structured) ────────────────────────
+export interface EmergencyContact {
+  name: string
+  relationship: string
+  phone: string
+  alt_phone?: string
+  address?: string
+  email?: string
+  notes?: string
+}
 
 // ── Employee ──────────────────────────────────────────────
 export interface Employee {
@@ -27,12 +43,19 @@ export interface Employee {
   paye_enabled: boolean
   sdl_enabled: boolean
   tin_number: string | null
+  nida_number: string | null
+  profile_picture_url: string | null
   date_of_birth: string | null
-  emergency_contact: string | null
+  emergency_contact: string | null          // legacy plain text
+  emergency_contacts: EmergencyContact[] | null  // structured
+  email: string | null
   is_active: boolean
   notes: string | null
   created_at: string
 }
+
+// ── HRM View Mode ────────────────────────────────────────
+export type HRMViewMode = 'self' | 'company'
 
 // ── Payroll ───────────────────────────────────────────────
 export interface PayrollRun {

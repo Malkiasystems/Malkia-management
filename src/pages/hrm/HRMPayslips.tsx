@@ -47,7 +47,8 @@ interface PayslipData {
   }
 }
 
-export default function HRMPayslips({ onNav }: HRMProps) {
+export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployeeId }: HRMProps) {
+  const isSelfMode = hrmMode === 'self'
   const [lines, setLines] = useState<PayslipData[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7))
@@ -61,9 +62,13 @@ export default function HRMPayslips({ onNav }: HRMProps) {
     setLoading(true)
     const { data: runs } = await supabase.from('hrm_payroll_runs').select('id').eq('period', period).order('created_at', { ascending: false }).limit(1)
     if (!runs || runs.length === 0) { setLines([]); setLoading(false); return }
-    const { data } = await supabase.from('hrm_payroll_lines')
+    let query = supabase.from('hrm_payroll_lines')
       .select('*, employee:hrm_employees(id, full_name, initials, emp_code, job_title, department, contract_type, bank_name, bank_account, nssf_number, tin_number)')
       .eq('payroll_run_id', runs[0].id)
+    if (isSelfMode && linkedEmployeeId) {
+      query = query.eq('employee_id', linkedEmployeeId)
+    }
+    const { data } = await query
     setLines((data || []) as PayslipData[])
     setLoading(false)
   }
@@ -274,7 +279,7 @@ export default function HRMPayslips({ onNav }: HRMProps) {
   return (
     <div className="page">
       <div className="page-header">
-        <div><div className="page-title">Payslips</div><div className="page-sub">Auto-generated from payroll run · PDF download per employee or bulk</div></div>
+        <div><div className="page-title">{isSelfMode ? 'My Payslips' : 'Payslips'}</div><div className="page-sub">{isSelfMode ? 'Your monthly payslip PDFs' : 'Auto-generated from payroll run · PDF download per employee or bulk'}</div></div>
         <div className="page-actions">
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 11 }}>
             <span>Month</span>

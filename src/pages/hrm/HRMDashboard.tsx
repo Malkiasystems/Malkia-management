@@ -3,7 +3,8 @@ import { supabase } from '../../lib/supabase'
 import type { HRMProps, Employee } from './hrmTypes'
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS } from './hrmTypes'
 
-export default function HRMDashboard({ onNav }: HRMProps) {
+export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
+  const isSelfMode = hrmMode === 'self'
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({ total: 0, fullTime: 0, contract: 0, intern: 0, payroll: 0, onLeave: 0, assetsOut: 0 })
@@ -51,6 +52,38 @@ export default function HRMDashboard({ onNav }: HRMProps) {
     { label: 'Assets Out', value: stats.assetsOut, color: '#3b82f6' },
   ]
 
+  // In self mode, redirect to own profile page
+  if (isSelfMode) {
+    return (
+      <div className="page">
+        <div className="page-header">
+          <div>
+            <div className="page-title">My HR Portal</div>
+            <div className="page-sub">Quick access to your HR information</div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 8 }}>
+          {[
+            { label: 'My Profile', desc: 'Personal details, bank info, documents', page: 'hrm-employees' as const, color: '#6366f1', icon: '👤' },
+            { label: 'My Leave', desc: 'Balance, requests, history', page: 'hrm-leave' as const, color: '#22c55e', icon: '🏖️' },
+            { label: 'My Payslips', desc: 'Monthly salary breakdown & PDFs', page: 'hrm-payslips' as const, color: '#f59e0b', icon: '💰' },
+            { label: 'My Attendance', desc: 'Clock in/out records', page: 'hrm-attendance' as const, color: '#3b82f6', icon: '⏰' },
+            { label: 'My Assets', desc: 'Equipment assigned to you', page: 'hrm-assets' as const, color: '#a78bfa', icon: '💻' },
+            { label: 'Events', desc: 'Upcoming company events', page: 'hrm-events' as const, color: '#f7a6ad', icon: '📅' },
+          ].map(item => (
+            <div key={item.page} className="card" onClick={() => onNav(item.page)} style={{ cursor: 'pointer', borderLeft: `3px solid ${item.color}`, padding: 20 }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
+              onMouseLeave={e => (e.currentTarget.style.background = '')}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{item.icon}</div>
+              <div style={{ fontWeight: 800, fontSize: 14 }}>{item.label}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>{item.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -61,7 +94,7 @@ export default function HRMDashboard({ onNav }: HRMProps) {
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" onClick={() => onNav('hrm-employees')}>Employees</button>
           <button className="btn btn-ghost btn-sm" onClick={() => onNav('hrm-payroll')}>Payroll</button>
-          <button className="btn btn-primary btn-sm" onClick={() => onNav('hrm-employees')}>+ New Employee</button>
+          {canManage && <button className="btn btn-primary btn-sm" onClick={() => onNav('hrm-employees')}>+ New Employee</button>}
         </div>
       </div>
 

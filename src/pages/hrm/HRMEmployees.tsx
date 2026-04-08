@@ -3,11 +3,15 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
 import { tzs } from '../../lib/utils'
 import Toast from '../../components/Toast'
-import type { HRMProps, Employee, EmployeeLetter, HRMAsset, SalaryAdvance } from './hrmTypes'
+import type { HRMProps, Employee, EmployeeLetter, HRMAsset, SalaryAdvance, EmergencyContact } from './hrmTypes'
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS, getInitials, DEFAULT_HR_SETTINGS } from './hrmTypes'
 
-export default function HRMEmployees({ onNav }: HRMProps) {
+const EMPTY_EC: EmergencyContact = { name: '', relationship: '', phone: '', alt_phone: '', address: '', email: '', notes: '' }
+
+export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
   const { user } = useAuth()
+  const isSelfMode = hrmMode === 'self'
+  const readOnly = isSelfMode
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [filterDept, setFilterDept] = useState('all')
@@ -18,7 +22,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
 
   // Drawer
   const [drawerEmp, setDrawerEmp] = useState<Employee | null>(null)
-  const [drawerTab, setDrawerTab] = useState<'profile' | 'letters' | 'assets' | 'advances' | 'salary_history'>('profile')
+  const [drawerTab, setDrawerTab] = useState<'profile' | 'emergency' | 'letters' | 'assets' | 'advances' | 'salary_history'>('profile')
   const [letters, setLetters] = useState<EmployeeLetter[]>([])
   const [empAssets, setEmpAssets] = useState<HRMAsset[]>([])
   const [advances, setAdvances] = useState<SalaryAdvance[]>([])
@@ -28,7 +32,10 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   const [form, setForm] = useState({
     full_name: '', job_title: '', department: 'Management', contract_type: 'full_time',
     start_date: '', end_date: '', gross_salary: '', whatsapp: '', bank_name: '', bank_account: '',
-    nssf_number: '', nssf_enabled: false, paye_enabled: true, sdl_enabled: true, tin_number: '', date_of_birth: '', emergency_contact: '', notes: '',
+    nssf_number: '', nssf_enabled: false, paye_enabled: true, sdl_enabled: true,
+    tin_number: '', nida_number: '', email: '', date_of_birth: '',
+    emergency_contacts: [{ ...EMPTY_EC }] as EmergencyContact[],
+    notes: '',
   })
 
   // Letter modal
@@ -45,12 +52,26 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   const [editForm, setEditForm] = useState<Record<string, any>>({})
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false)
 
-  useEffect(() => { load(); loadSettings() }, [])
+  useEffect(() => { load(); loadSettings() }, [hrmMode, linkedEmployeeId])
+
+  // Self mode: auto-open own profile
+  useEffect(() => {
+    if (isSelfMode && linkedEmployeeId && employees.length > 0) {
+      const me = employees.find(e => e.id === linkedEmployeeId)
+      if (me) openDrawer(me)
+    }
+  }, [isSelfMode, linkedEmployeeId, employees])
 
   const load = async () => {
     setLoading(true)
-    const { data } = await supabase.from('hrm_employees').select('*').eq('is_active', true).order('full_name')
-    if (data) setEmployees(data)
+    if (isSelfMode && linkedEmployeeId) {
+      const { data } = await supabase.from('hrm_employees').select('*').eq('id', linkedEmployeeId).single()
+      if (data) setEmployees([data])
+      else setEmployees([])
+    } else {
+      const { data } = await supabase.from('hrm_employees').select('*').eq('is_active', true).order('full_name')
+      if (data) setEmployees(data)
+    }
     setLoading(false)
   }
 
@@ -71,6 +92,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   const openDrawer = async (emp: Employee) => {
     setDrawerEmp(emp)
     setDrawerTab('profile')
+    setEditing(false)
     const [letRes, assetRes, advRes, salRes] = await Promise.all([
       supabase.from('hrm_letters').select('*').eq('employee_id', emp.id).order('issued_date', { ascending: false }),
       supabase.from('hrm_assets').select('*').eq('employee_id', emp.id),
@@ -115,8 +137,11 @@ export default function HRMEmployees({ onNav }: HRMProps) {
       paye_enabled: form.paye_enabled,
       sdl_enabled: form.sdl_enabled,
       tin_number: form.tin_number || null,
+      nida_number: form.nida_number || null,
+      email: form.email || null,
       date_of_birth: form.date_of_birth || null,
-      emergency_contact: form.emergency_contact || null,
+      emergency_contact: form.emergency_contacts?.[0]?.name ? `${form.emergency_contacts[0].name} - ${form.emergency_contacts[0].phone}` : null,
+      emergency_contacts: form.emergency_contacts.filter(ec => ec.name.trim()) || null,
       notes: form.notes || null,
       is_active: true,
     })
@@ -133,7 +158,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
     setToast(`${form.full_name} added as ${empCode}`)
     setToastType('success')
     setShowModal(false)
-    setForm({ full_name: '', job_title: '', department: 'Management', contract_type: 'full_time', start_date: '', end_date: '', gross_salary: '', whatsapp: '', bank_name: '', bank_account: '', nssf_number: '', nssf_enabled: false, paye_enabled: true, sdl_enabled: true, tin_number: '', date_of_birth: '', emergency_contact: '', notes: '' })
+    setForm({ full_name: '', job_title: '', department: 'Management', contract_type: 'full_time', start_date: '', end_date: '', gross_salary: '', whatsapp: '', bank_name: '', bank_account: '', nssf_number: '', nssf_enabled: false, paye_enabled: true, sdl_enabled: true, tin_number: '', nida_number: '', date_of_birth: '', email: '', emergency_contacts: [{ ...EMPTY_EC }], notes: '' })
     load()
   }
 
@@ -221,15 +246,21 @@ export default function HRMEmployees({ onNav }: HRMProps) {
 
   const startEdit = () => {
     if (!drawerEmp) return
+    const ecs: EmergencyContact[] = drawerEmp.emergency_contacts && Array.isArray(drawerEmp.emergency_contacts) && drawerEmp.emergency_contacts.length > 0
+      ? drawerEmp.emergency_contacts
+      : [{ ...EMPTY_EC, name: drawerEmp.emergency_contact?.split(' - ')?.[0] || '', phone: drawerEmp.emergency_contact?.split(' - ')?.[1] || '' }]
     setEditForm({
       full_name: drawerEmp.full_name, job_title: drawerEmp.job_title, department: drawerEmp.department,
-      contract_type: drawerEmp.contract_type, end_date: drawerEmp.end_date || '',
+      contract_type: drawerEmp.contract_type, start_date: drawerEmp.start_date || '', end_date: drawerEmp.end_date || '',
       gross_salary: String(drawerEmp.gross_salary || 0), whatsapp: drawerEmp.whatsapp || '',
       bank_name: drawerEmp.bank_name || '', bank_account: drawerEmp.bank_account || '',
       nssf_number: drawerEmp.nssf_number || '', nssf_enabled: drawerEmp.nssf_enabled,
       paye_enabled: drawerEmp.paye_enabled !== false, sdl_enabled: drawerEmp.sdl_enabled !== false,
-      tin_number: drawerEmp.tin_number || '', date_of_birth: drawerEmp.date_of_birth || '',
-      emergency_contact: drawerEmp.emergency_contact || '', notes: drawerEmp.notes || '',
+      tin_number: drawerEmp.tin_number || '', nida_number: drawerEmp.nida_number || '',
+      email: drawerEmp.email || '',
+      date_of_birth: drawerEmp.date_of_birth || '',
+      emergency_contacts: ecs,
+      notes: drawerEmp.notes || '',
     })
     setEditing(true)
   }
@@ -243,13 +274,20 @@ export default function HRMEmployees({ onNav }: HRMProps) {
     const { error } = await supabase.from('hrm_employees').update({
       full_name: editForm.full_name.trim(), initials,
       job_title: editForm.job_title.trim(), department: editForm.department,
-      contract_type: editForm.contract_type, end_date: editForm.end_date || null,
+      contract_type: editForm.contract_type,
+      start_date: editForm.start_date || drawerEmp.start_date,
+      end_date: editForm.end_date || null,
       gross_salary: newGross, whatsapp: editForm.whatsapp || null,
       bank_name: editForm.bank_name || null, bank_account: editForm.bank_account || null,
       nssf_number: editForm.nssf_number || null, nssf_enabled: editForm.nssf_enabled,
       paye_enabled: editForm.paye_enabled, sdl_enabled: editForm.sdl_enabled,
-      tin_number: editForm.tin_number || null, date_of_birth: editForm.date_of_birth || null,
-      emergency_contact: editForm.emergency_contact || null, notes: editForm.notes || null,
+      tin_number: editForm.tin_number || null,
+      nida_number: editForm.nida_number || null,
+      email: editForm.email || null,
+      date_of_birth: editForm.date_of_birth || null,
+      emergency_contact: (editForm.emergency_contacts || []).filter((ec: EmergencyContact) => ec.name.trim()).length > 0 ? `${editForm.emergency_contacts[0].name} - ${editForm.emergency_contacts[0].phone}` : null,
+      emergency_contacts: (editForm.emergency_contacts || []).filter((ec: EmergencyContact) => ec.name.trim()).length > 0 ? editForm.emergency_contacts.filter((ec: EmergencyContact) => ec.name.trim()) : null,
+      notes: editForm.notes || null,
     }).eq('id', drawerEmp.id)
 
     if (error) { setToast(error.message); setToastType('error'); return }
@@ -286,23 +324,38 @@ export default function HRMEmployees({ onNav }: HRMProps) {
   const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }
   const labelStyle: React.CSSProperties = { fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }
 
+  // Self mode: show not-linked message
+  if (isSelfMode && !linkedEmployeeId) {
+    return (
+      <div className="page">
+        <div style={{ padding: 60, textAlign: 'center', color: 'var(--text3)' }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>👤</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Profile Not Linked</div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>Your account email is not linked to an employee profile. Please contact your HR administrator.</div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">Employees</div>
-          <div className="page-sub">Profiles, letters, assets, contract details</div>
+          <div className="page-title">{isSelfMode ? 'My Profile' : 'Employees'}</div>
+          <div className="page-sub">{isSelfMode ? 'Your personal HR profile' : 'Profiles, letters, assets, contract details'}</div>
         </div>
-        <div className="page-actions">
-          <select style={{ ...inputStyle, width: 'auto', padding: '6px 10px' }} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
-            <option value="all">All Departments</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Employee</button>
-        </div>
+        {!isSelfMode && (
+          <div className="page-actions">
+            <select style={{ ...inputStyle, width: 'auto', padding: '6px 10px' }} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
+              <option value="all">All Departments</option>
+              {departments.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            {canManage && <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Employee</button>}
+          </div>
+        )}
       </div>
 
-      {loading ? (
+      {!isSelfMode && (loading ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading employees...</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
@@ -342,22 +395,29 @@ export default function HRMEmployees({ onNav }: HRMProps) {
           })}
 
           {/* Add Employee card */}
-          <div className="card" onClick={() => setShowModal(true)} style={{ padding: 0, border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 160, cursor: 'pointer', background: 'var(--surface2)' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>+</div>
-              <div style={{ fontWeight: 700, fontSize: 12 }}>Add Employee</div>
+          {canManage && (
+            <div className="card" onClick={() => setShowModal(true)} style={{ padding: 0, border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 160, cursor: 'pointer', background: 'var(--surface2)' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>+</div>
+                <div style={{ fontWeight: 700, fontSize: 12 }}>Add Employee</div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
+      ))}
+
+      {/* Self mode loading */}
+      {isSelfMode && loading && (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading your profile...</div>
       )}
 
       {/* ── EMPLOYEE DRAWER ──────────────────── */}
       {drawerEmp && (
-        <div style={{ position: 'fixed', top: 0, right: 0, width: 500, height: '100vh', background: 'var(--surface)', borderLeft: '1px solid var(--border)', zIndex: 200, overflowY: 'auto', boxShadow: '-4px 0 24px rgba(0,0,0,.4)' }}>
-          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 14 }}>Employee Profile</div>
+        <div style={{ position: isSelfMode ? 'relative' : 'fixed', top: isSelfMode ? undefined : 0, right: isSelfMode ? undefined : 0, width: isSelfMode ? '100%' : 500, height: isSelfMode ? undefined : '100vh', background: 'var(--surface)', borderLeft: isSelfMode ? 'none' : '1px solid var(--border)', zIndex: isSelfMode ? 0 : 200, overflowY: 'auto', boxShadow: isSelfMode ? 'none' : '-4px 0 24px rgba(0,0,0,.4)', maxWidth: isSelfMode ? 700 : undefined, margin: isSelfMode ? '0 auto' : undefined }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: isSelfMode ? undefined : 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>{isSelfMode ? 'My Profile' : 'Employee Profile'}</div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {!editing ? (
+              {!editing && canManage && !readOnly ? (
                 <>
                   <button onClick={startEdit} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Edit</button>
                   <button onClick={() => setShowDeactivateConfirm(true)} style={{ background: '#ef444422', border: '1px solid #ef444444', color: '#ef4444', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Deactivate</button>
@@ -368,7 +428,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                   <button onClick={() => setEditing(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 10px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Cancel</button>
                 </>
               )}
-              <button onClick={() => { setDrawerEmp(null); setEditing(false) }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text)' }}>x</button>
+              {!isSelfMode && <button onClick={() => { setDrawerEmp(null); setEditing(false) }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text)' }}>x</button>}
             </div>
           </div>
           <div style={{ padding: '16px 20px' }}>
@@ -383,9 +443,9 @@ export default function HRMEmployees({ onNav }: HRMProps) {
 
             {/* Tabs */}
             <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
-              {(['profile', 'letters', 'assets', 'advances', 'salary_history'] as const).map(tab => (
+              {(['profile', 'emergency', 'letters', 'assets', 'advances', 'salary_history'] as const).map(tab => (
                 <button key={tab} onClick={() => setDrawerTab(tab)} style={{ flex: 1, padding: 8, fontSize: 10, fontWeight: drawerTab === tab ? 700 : 600, background: drawerTab === tab ? 'var(--accent)' : 'var(--surface2)', color: drawerTab === tab ? '#000' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: tab !== 'profile' ? '1px solid var(--border)' : 'none' }}>
-                  {tab === 'profile' ? 'Profile' : tab === 'letters' ? 'Letters' : tab === 'assets' ? 'Assets' : tab === 'advances' ? 'Advances' : 'Salary'}
+                  {tab === 'profile' ? 'Profile' : tab === 'emergency' ? 'Emergency' : tab === 'letters' ? 'Letters' : tab === 'assets' ? 'Assets' : tab === 'advances' ? 'Advances' : 'Salary'}
                 </button>
               ))}
             </div>
@@ -400,19 +460,20 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                     ['Contract', CONTRACT_LABELS[drawerEmp.contract_type]],
                     ['Start Date', drawerEmp.start_date],
                     ['End Date', drawerEmp.end_date || 'N/A'],
-                    ['Gross Salary', `TZS ${(drawerEmp.gross_salary || 0).toLocaleString()}`],
+                    ['Email', (drawerEmp as any).email || 'N/A'],
+                    ...(isSelfMode ? [] : [['Gross Salary', `TZS ${(drawerEmp.gross_salary || 0).toLocaleString()}`]]),
                     ['Bank', `${drawerEmp.bank_name || ''} ${drawerEmp.bank_account || ''}`],
                     ['NSSF', drawerEmp.nssf_enabled ? (drawerEmp.nssf_number || 'Enabled') : 'Not enrolled'],
-                    ['PAYE', drawerEmp.paye_enabled !== false ? 'Subject to PAYE' : 'Exempt'],
-                    ['SDL', drawerEmp.sdl_enabled !== false ? 'Subject to SDL' : 'Exempt'],
+                    ...(isSelfMode ? [] : [['PAYE', drawerEmp.paye_enabled !== false ? 'Subject to PAYE' : 'Exempt']]),
+                    ...(isSelfMode ? [] : [['SDL', drawerEmp.sdl_enabled !== false ? 'Subject to SDL' : 'Exempt']]),
                     ['TIN', drawerEmp.tin_number || 'N/A'],
+                    ['NIDA', (drawerEmp as any).nida_number || 'N/A'],
                     ['WhatsApp', drawerEmp.whatsapp || 'N/A'],
                     ['DOB', drawerEmp.date_of_birth || 'N/A'],
-                    ['Emergency', drawerEmp.emergency_contact || 'N/A'],
                   ].map(([label, val], i) => (
                     <div key={i} style={{ background: 'var(--surface2)', padding: 9, borderRadius: 6 }}>
                       <div style={{ color: 'var(--text3)', marginBottom: 2 }}>{label}</div>
-                      <div style={{ fontWeight: 700, fontFamily: ['Employee ID', 'Gross Salary', 'Bank', 'NSSF', 'TIN'].includes(label as string) ? 'var(--mono)' : undefined }}>{val}</div>
+                      <div style={{ fontWeight: 700, fontFamily: ['Employee ID', 'Gross Salary', 'Bank', 'NSSF', 'TIN', 'NIDA'].includes(label as string) ? 'var(--mono)' : undefined }}>{val}</div>
                     </div>
                   ))}
                 </div>
@@ -426,14 +487,16 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                 <div><label style={labelStyle}>Job Title</label><input style={inputStyle} value={editForm.job_title} onChange={e => setEditForm({ ...editForm, job_title: e.target.value })} /></div>
                 <div><label style={labelStyle}>Department</label><select style={inputStyle} value={editForm.department} onChange={e => setEditForm({ ...editForm, department: e.target.value })}>{departments.map(d => <option key={d}>{d}</option>)}</select></div>
                 <div><label style={labelStyle}>Contract Type</label><select style={inputStyle} value={editForm.contract_type} onChange={e => setEditForm({ ...editForm, contract_type: e.target.value })}><option value="full_time">Full-time</option><option value="fixed_term">Fixed-term</option><option value="part_time">Part-time</option><option value="intern">Intern</option><option value="consultant">Consultant</option></select></div>
+                <div><label style={labelStyle}>Start Date</label><input type="date" style={inputStyle} value={editForm.start_date} onChange={e => setEditForm({ ...editForm, start_date: e.target.value })} /></div>
                 <div><label style={labelStyle}>End Date</label><input type="date" style={inputStyle} value={editForm.end_date} onChange={e => setEditForm({ ...editForm, end_date: e.target.value })} /></div>
                 <div><label style={labelStyle}>Gross Salary (TZS)</label><input type="number" style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.gross_salary} onChange={e => setEditForm({ ...editForm, gross_salary: e.target.value })} /></div>
+                <div><label style={labelStyle}>Email (self-service link)</label><input type="email" style={inputStyle} value={editForm.email || ''} onChange={e => setEditForm({ ...editForm, email: e.target.value })} placeholder="Links employee to login" /></div>
                 <div><label style={labelStyle}>WhatsApp</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.whatsapp} onChange={e => setEditForm({ ...editForm, whatsapp: e.target.value })} /></div>
                 <div><label style={labelStyle}>Bank Name</label><input style={inputStyle} value={editForm.bank_name} onChange={e => setEditForm({ ...editForm, bank_name: e.target.value })} /></div>
                 <div><label style={labelStyle}>Bank Account</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.bank_account} onChange={e => setEditForm({ ...editForm, bank_account: e.target.value })} /></div>
                 <div><label style={labelStyle}>TIN Number</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.tin_number} onChange={e => setEditForm({ ...editForm, tin_number: e.target.value })} /></div>
+                <div><label style={labelStyle}>NIDA Number</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.nida_number || ''} onChange={e => setEditForm({ ...editForm, nida_number: e.target.value })} placeholder="National ID (NIDA)" /></div>
                 <div><label style={labelStyle}>Date of Birth</label><input type="date" style={inputStyle} value={editForm.date_of_birth} onChange={e => setEditForm({ ...editForm, date_of_birth: e.target.value })} /></div>
-                <div><label style={labelStyle}>Emergency Contact</label><input style={inputStyle} value={editForm.emergency_contact} onChange={e => setEditForm({ ...editForm, emergency_contact: e.target.value })} /></div>
                 <div style={{ gridColumn: '1/-1' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
                     <input type="checkbox" checked={editForm.nssf_enabled} onChange={e => setEditForm({ ...editForm, nssf_enabled: e.target.checked })} style={{ accentColor: 'var(--accent)' }} />
@@ -460,12 +523,40 @@ export default function HRMEmployees({ onNav }: HRMProps) {
               </div>
             )}
 
+            {/* EMERGENCY CONTACTS TAB */}
+            {drawerTab === 'emergency' && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.5px' }}>EMERGENCY CONTACTS</div>
+                {(() => {
+                  const ecs = (drawerEmp as any).emergency_contacts && Array.isArray((drawerEmp as any).emergency_contacts) && (drawerEmp as any).emergency_contacts.length > 0
+                    ? (drawerEmp as any).emergency_contacts as EmergencyContact[]
+                    : drawerEmp.emergency_contact ? [{ name: drawerEmp.emergency_contact.split(' - ')[0] || drawerEmp.emergency_contact, phone: drawerEmp.emergency_contact.split(' - ')[1] || '', relationship: '', address: '' } as EmergencyContact] : []
+                  if (ecs.length === 0) return <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No emergency contacts on file</div>
+                  return ecs.map((ec: EmergencyContact, i: number) => (
+                    <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>{ec.name || 'Unnamed'}</div>
+                        {ec.relationship && <span style={{ fontSize: 10, background: '#6366f122', color: '#6366f1', padding: '2px 8px', borderRadius: 4 }}>{ec.relationship}</span>}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11 }}>
+                        {ec.phone && <div><span style={{ color: 'var(--text3)' }}>Phone: </span><span style={{ fontFamily: 'var(--mono)' }}>{ec.phone}</span></div>}
+                        {ec.alt_phone && <div><span style={{ color: 'var(--text3)' }}>Alt Phone: </span><span style={{ fontFamily: 'var(--mono)' }}>{ec.alt_phone}</span></div>}
+                        {ec.email && <div><span style={{ color: 'var(--text3)' }}>Email: </span>{ec.email}</div>}
+                        {ec.address && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text3)' }}>Address: </span>{ec.address}</div>}
+                        {ec.notes && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text3)' }}>Notes: </span>{ec.notes}</div>}
+                      </div>
+                    </div>
+                  ))
+                })()}
+              </div>
+            )}
+
             {/* LETTERS TAB */}
             {drawerTab === 'letters' && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>COMPANY LETTERS</div>
-                  <button onClick={() => { setLetterForm({ letter_type: 'Offer Letter', issued_date: new Date().toISOString().split('T')[0], issued_by: '', notes: '' }); setShowLetterModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Letter</button>
+                  {canManage && !readOnly && <button onClick={() => { setLetterForm({ letter_type: 'Offer Letter', issued_date: new Date().toISOString().split('T')[0], issued_by: '', notes: '' }); setShowLetterModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Letter</button>}
                 </div>
                 {letters.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No letters issued yet</div>
@@ -505,7 +596,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>SALARY ADVANCES / LOANS</div>
-                  <button onClick={() => { setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: new Date().toISOString().split('T')[0], source_account: cashAccounts[0]?.id || '', notes: '' }); setShowAdvanceModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Advance</button>
+                  {canManage && !readOnly && <button onClick={() => { setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: new Date().toISOString().split('T')[0], source_account: cashAccounts[0]?.id || '', notes: '' }); setShowAdvanceModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Advance</button>}
                 </div>
                 {advances.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No advances on record</div>
@@ -570,12 +661,33 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                 <div><label style={labelStyle}>Start Date *</label><input type="date" style={inputStyle} value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} /></div>
                 <div><label style={labelStyle}>End Date (if fixed-term)</label><input type="date" style={inputStyle} value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} /></div>
                 <div><label style={labelStyle}>Gross Salary (TZS/month) *</label><input type="number" style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={form.gross_salary} onChange={e => setForm({ ...form, gross_salary: e.target.value })} placeholder="e.g. 900000" /></div>
+                <div><label style={labelStyle}>Email (self-service)</label><input type="email" style={inputStyle} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="Links to login for self-service" /></div>
                 <div><label style={labelStyle}>WhatsApp Number</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={form.whatsapp} onChange={e => setForm({ ...form, whatsapp: e.target.value })} placeholder="+255 7XX XXX XXX" /></div>
+                <div><label style={labelStyle}>NIDA Number</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={form.nida_number} onChange={e => setForm({ ...form, nida_number: e.target.value })} placeholder="National ID" /></div>
                 <div><label style={labelStyle}>Bank Name</label><input style={inputStyle} value={form.bank_name} onChange={e => setForm({ ...form, bank_name: e.target.value })} placeholder="e.g. NMB Bank" /></div>
                 <div><label style={labelStyle}>Bank Account No.</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={form.bank_account} onChange={e => setForm({ ...form, bank_account: e.target.value })} placeholder="For payroll transfer" /></div>
                 <div><label style={labelStyle}>TIN Number</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={form.tin_number} onChange={e => setForm({ ...form, tin_number: e.target.value })} placeholder="TIN-XXX-XXX" /></div>
                 <div><label style={labelStyle}>Date of Birth</label><input type="date" style={inputStyle} value={form.date_of_birth} onChange={e => setForm({ ...form, date_of_birth: e.target.value })} /></div>
-                <div><label style={labelStyle}>Emergency Contact</label><input style={inputStyle} value={form.emergency_contact} onChange={e => setForm({ ...form, emergency_contact: e.target.value })} placeholder="Name & phone" /></div>
+              </div>
+              {/* Emergency Contacts */}
+              <div style={{ marginTop: 14, padding: 12, background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>Emergency Contacts</div>
+                  <button onClick={() => setForm({ ...form, emergency_contacts: [...form.emergency_contacts, { ...EMPTY_EC }] })} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Add</button>
+                </div>
+                {form.emergency_contacts.map((ec, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr 20px', gap: 6, marginBottom: 6, alignItems: 'end' }}>
+                    <div><label style={labelStyle}>Name</label><input style={inputStyle} value={ec.name} onChange={e => { const ecs = [...form.emergency_contacts]; ecs[i] = { ...ecs[i], name: e.target.value }; setForm({ ...form, emergency_contacts: ecs }) }} /></div>
+                    <div><label style={labelStyle}>Relationship</label><select style={inputStyle} value={ec.relationship} onChange={e => { const ecs = [...form.emergency_contacts]; ecs[i] = { ...ecs[i], relationship: e.target.value }; setForm({ ...form, emergency_contacts: ecs }) }}>
+                      <option value="">-</option>
+                      {['Spouse', 'Parent', 'Sibling', 'Child', 'Friend', 'Relative', 'Other'].map(r => <option key={r} value={r}>{r}</option>)}
+                    </select></div>
+                    <div><label style={labelStyle}>Phone</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={ec.phone} onChange={e => { const ecs = [...form.emergency_contacts]; ecs[i] = { ...ecs[i], phone: e.target.value }; setForm({ ...form, emergency_contacts: ecs }) }} placeholder="+255..." /></div>
+                    <button onClick={() => { const ecs = form.emergency_contacts.filter((_, j) => j !== i); setForm({ ...form, emergency_contacts: ecs.length ? ecs : [{ ...EMPTY_EC }] }) }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 12 }}>x</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
                     <input type="checkbox" checked={form.nssf_enabled} onChange={e => setForm({ ...form, nssf_enabled: e.target.checked })} style={{ accentColor: 'var(--accent)' }} />
@@ -599,7 +711,7 @@ export default function HRMEmployees({ onNav }: HRMProps) {
                 <textarea style={{ ...inputStyle, resize: 'none', height: 60 }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Any additional notes..." />
               </div>
               <div style={{ marginTop: 10, padding: '8px 12px', background: '#6366f111', border: '1px solid #6366f133', borderRadius: 6, fontSize: 10, color: '#6366f1' }}>
-                Employee will be added to payroll from next cycle. NSSF, PAYE, and SDL are optional per employee.
+                Employee will be added to payroll from next cycle. Set their <strong>email</strong> to link them for self-service HRM access.
               </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>

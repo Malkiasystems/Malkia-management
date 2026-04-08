@@ -11,7 +11,8 @@ const TYPE_COLORS: Record<string, string> = { office: '#6366f1', field: '#f59e0b
 
 type EmpPartial = { id: string; full_name: string; initials: string; department: string; job_title: string }
 
-export default function HRMAttendance({ onNav: _onNav }: HRMProps) {
+export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId }: HRMProps) {
+  const isSelfMode = hrmMode === 'self'
   const [employees, setEmployees] = useState<EmpPartial[]>([])
   const [entries, setEntries] = useState<AttendanceEntry[]>([])
   const [todayStatus, setTodayStatus] = useState<Record<string, AttendanceEntry>>({})
@@ -48,8 +49,12 @@ export default function HRMAttendance({ onNav: _onNav }: HRMProps) {
   const load = async () => {
     setLoading(true)
     const [empRes, todayRes] = await Promise.all([
-      supabase.from('hrm_employees').select('id, full_name, initials, department, job_title').eq('is_active', true).order('full_name'),
-      supabase.from('hrm_attendance').select('*').eq('date', today),
+      isSelfMode && linkedEmployeeId
+        ? supabase.from('hrm_employees').select('id, full_name, initials, department, job_title').eq('id', linkedEmployeeId)
+        : supabase.from('hrm_employees').select('id, full_name, initials, department, job_title').eq('is_active', true).order('full_name'),
+      isSelfMode && linkedEmployeeId
+        ? supabase.from('hrm_attendance').select('*').eq('date', today).eq('employee_id', linkedEmployeeId)
+        : supabase.from('hrm_attendance').select('*').eq('date', today),
     ])
     setEmployees(empRes.data || [])
     const statusMap: Record<string, AttendanceEntry> = {}

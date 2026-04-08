@@ -12,8 +12,9 @@ interface PayLine {
   paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string
 }
 
-export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
+export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
   const { user } = useAuth()
+  const isSelfMode = hrmMode === 'self'
   const [_employees, setEmployees] = useState<Employee[]>([])
   const [lines, setLines] = useState<PayLine[]>([])
   const [loading, setLoading] = useState(true)
@@ -255,15 +256,27 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
     setPosting(false)
   }
 
+  // Self mode: show only own line
+  const displayLines = isSelfMode && linkedEmployeeId
+    ? lines.filter(l => l.empId === linkedEmployeeId)
+    : lines
+
   const bandColor = (b: string) => b === '30%' ? '#ef4444' : b === '25%' ? '#f59e0b' : b === '20%' ? '#3b82f6' : b === '8%' ? '#22c55e' : 'var(--text3)'
   const fmt = (n: number) => n.toLocaleString()
+
+  const displayTotals = displayLines.reduce((acc, l) => ({
+    gross: acc.gross + l.gross, paye: acc.paye + l.paye,
+    nssfEe: acc.nssfEe + l.nssfEe, nssfEr: acc.nssfEr + l.nssfEr,
+    sdl: acc.sdl + l.sdl, net: acc.net + l.net,
+    advDed: acc.advDed + l.advanceDeduction,
+  }), { gross: 0, paye: 0, nssfEe: 0, nssfEr: 0, sdl: 0, net: 0, advDed: 0 })
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">Payroll Run</div>
-          <div className="page-sub">TRA 2024 PAYE bands · NSSF optional per employee · SDL {settings.sdl_rate}% · Posts to accounts: 6010, 2030, 2040, 2050, 2060</div>
+          <div className="page-title">{isSelfMode ? 'My Payroll' : 'Payroll Run'}</div>
+          <div className="page-sub">{isSelfMode ? 'Your salary breakdown' : `TRA 2024 PAYE bands · NSSF optional per employee · SDL ${settings.sdl_rate}% · Posts to accounts: 6010, 2030, 2040, 2050, 2060`}</div>
         </div>
         <div className="page-actions">
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 11 }}>
@@ -271,7 +284,7 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
             <input type="month" value={period} onChange={e => setPeriod(e.target.value)} style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontSize: 11, fontFamily: 'var(--mono)', cursor: 'pointer', outline: 'none' }} />
           </div>
           <button className="btn btn-ghost btn-sm" onClick={load}>Recompute</button>
-          <button className="btn btn-primary btn-sm" onClick={postPayroll} disabled={posting}>{posting ? 'Posting...' : 'Post Journal'}</button>
+          {canManage && <button className="btn btn-primary btn-sm" onClick={postPayroll} disabled={posting}>{posting ? 'Posting...' : 'Post Journal'}</button>}
         </div>
       </div>
 
@@ -290,11 +303,11 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
 
       {/* KPI Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 18 }}>
-        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #6366f1' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#6366f1' }}>{loading ? '...' : fmt(totals.gross)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Gross (TZS)</div></div>
-        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #ef4444' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#ef4444' }}>{loading ? '...' : fmt(totals.paye)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>PAYE</div></div>
-        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #f59e0b' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#f59e0b' }}>{loading ? '...' : fmt(totals.nssfEe)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Ee NSSF</div></div>
-        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid var(--accent)' }}><div style={{ fontSize: 18, fontWeight: 900, color: 'var(--accent)' }}>{loading ? '...' : fmt(totals.net)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Net Pay</div></div>
-        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #a78bfa' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#a78bfa' }}>{loading ? '...' : fmt(totals.nssfEr + totals.sdl)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Er Costs</div></div>
+        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #6366f1' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#6366f1' }}>{loading ? '...' : fmt(displayTotals.gross)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Gross (TZS)</div></div>
+        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #ef4444' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#ef4444' }}>{loading ? '...' : fmt(displayTotals.paye)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>PAYE</div></div>
+        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #f59e0b' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#f59e0b' }}>{loading ? '...' : fmt(displayTotals.nssfEe)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Ee NSSF</div></div>
+        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid var(--accent)' }}><div style={{ fontSize: 18, fontWeight: 900, color: 'var(--accent)' }}>{loading ? '...' : fmt(displayTotals.net)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Net Pay</div></div>
+        <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #a78bfa' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#a78bfa' }}>{loading ? '...' : fmt(displayTotals.nssfEr + displayTotals.sdl)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Er Costs</div></div>
       </div>
 
       {/* Payroll Table */}
@@ -320,7 +333,7 @@ export default function HRMPayroll({ onNav: _onNav }: HRMProps) {
                 <th style={{ padding: '10px 14px', textAlign: 'center', fontSize: 10, color: 'var(--text3)' }}>BAND</th>
               </tr></thead>
               <tbody>
-                {lines.map((l, i) => (
+                {displayLines.map((l, i) => (
                   <tr key={l.empId} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '10px 14px' }}><div style={{ fontWeight: 700 }}>{l.name}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>{l.title} · {l.code}{!l.nssfEnabled ? ' · No NSSF' : ''}{!l.payeEnabled ? ' · No PAYE' : ''}{!l.sdlEnabled ? ' · No SDL' : ''}</div></td>
                     <td style={{ padding: '8px 14px', textAlign: 'right' }}>

@@ -5,8 +5,9 @@ import { useAuth } from '../../lib/useAuth'
 import type { HRMProps, LeaveRequest, LeaveBalance } from './hrmTypes'
 import { LEAVE_LABELS } from './hrmTypes'
 
-export default function HRMLeave({ onNav: _onNav }: HRMProps) {
+export default function HRMLeave({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
   const { user } = useAuth()
+  const isSelfMode = hrmMode === 'self'
   const [tab, setTab] = useState<'balances' | 'pending' | 'history'>('balances')
   const [balances, setBalances] = useState<LeaveBalance[]>([])
   const [pending, setPending] = useState<LeaveRequest[]>([])
@@ -22,16 +23,29 @@ export default function HRMLeave({ onNav: _onNav }: HRMProps) {
 
   const load = async () => {
     setLoading(true)
-    const [empRes, balRes, pendRes, histRes] = await Promise.all([
-      supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
-      supabase.from('hrm_leave_balances').select('*, employee:hrm_employees(id, full_name)').order('employee_id'),
-      supabase.from('hrm_leave_requests').select('*, employee:hrm_employees(id, full_name)').eq('status', 'pending').order('created_at', { ascending: false }),
-      supabase.from('hrm_leave_requests').select('*, employee:hrm_employees(id, full_name)').neq('status', 'pending').order('start_date', { ascending: false }).limit(20),
-    ])
-    setEmployees(empRes.data || [])
-    setBalances(balRes.data || [])
-    setPending(pendRes.data || [])
-    setHistory(histRes.data || [])
+    if (isSelfMode && linkedEmployeeId) {
+      // Self mode: only own data
+      const [balRes, pendRes, histRes] = await Promise.all([
+        supabase.from('hrm_leave_balances').select('*, employee:hrm_employees(id, full_name)').eq('employee_id', linkedEmployeeId),
+        supabase.from('hrm_leave_requests').select('*, employee:hrm_employees(id, full_name)').eq('employee_id', linkedEmployeeId).eq('status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('hrm_leave_requests').select('*, employee:hrm_employees(id, full_name)').eq('employee_id', linkedEmployeeId).neq('status', 'pending').order('start_date', { ascending: false }).limit(20),
+      ])
+      setEmployees([])
+      setBalances(balRes.data || [])
+      setPending(pendRes.data || [])
+      setHistory(histRes.data || [])
+    } else {
+      const [empRes, balRes, pendRes, histRes] = await Promise.all([
+        supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
+        supabase.from('hrm_leave_balances').select('*, employee:hrm_employees(id, full_name)').order('employee_id'),
+        supabase.from('hrm_leave_requests').select('*, employee:hrm_employees(id, full_name)').eq('status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('hrm_leave_requests').select('*, employee:hrm_employees(id, full_name)').neq('status', 'pending').order('start_date', { ascending: false }).limit(20),
+      ])
+      setEmployees(empRes.data || [])
+      setBalances(balRes.data || [])
+      setPending(pendRes.data || [])
+      setHistory(histRes.data || [])
+    }
     setLoading(false)
   }
 
@@ -70,12 +84,12 @@ export default function HRMLeave({ onNav: _onNav }: HRMProps) {
   return (
     <div className="page">
       <div className="page-header">
-        <div><div className="page-title">Leave Management</div><div className="page-sub">Annual, Sick, Maternity (84d), Paternity, Emergency</div></div>
+        <div><div className="page-title">{isSelfMode ? 'My Leave' : 'Leave Management'}</div><div className="page-sub">{isSelfMode ? 'Your leave balance and requests' : 'Annual, Sick, Maternity (84d), Paternity, Emergency'}</div></div>
         <div className="page-actions">
           {tabBtn('balances', 'Balances')}
           {tabBtn('pending', 'Pending', pending.length || undefined)}
           {tabBtn('history', 'History')}
-          <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Request</button>
+          <button className="btn btn-primary btn-sm" onClick={() => { setForm({ ...form, employee_id: isSelfMode && linkedEmployeeId ? linkedEmployeeId : '' }); setShowModal(true) }}>+ New Request</button>
         </div>
       </div>
 
@@ -123,8 +137,10 @@ export default function HRMLeave({ onNav: _onNav }: HRMProps) {
                 <span style={{ fontSize: 10, background: '#f59e0b22', color: '#f59e0b', padding: '3px 10px', borderRadius: 6, fontWeight: 700 }}>Pending</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                {canManage && <>
                 <button onClick={() => approve(r.id)} style={{ background: '#22c55e', color: '#000', border: 'none', padding: '6px 16px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Approve</button>
                 <button onClick={() => reject(r.id)} style={{ background: '#ef444422', border: '1px solid #ef444444', color: '#ef4444', padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Reject</button>
+                </>}
               </div>
             </div>
           ))}

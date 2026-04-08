@@ -4,7 +4,7 @@ import Toast from '../../components/Toast'
 import type { HRMProps, HRMEvent } from './hrmTypes'
 import { EVENT_COLORS, EVENT_LABELS } from './hrmTypes'
 
-export default function HRMEvents({ onNav: _onNav }: HRMProps) {
+export default function HRMEvents({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId }: HRMProps) {
   const [events, setEvents] = useState<HRMEvent[]>([])
   const [employees, setEmployees] = useState<{ id: string; full_name: string; date_of_birth: string | null }[]>([])
   const [loading, setLoading] = useState(true)
