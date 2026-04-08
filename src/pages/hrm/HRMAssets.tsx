@@ -5,8 +5,9 @@ import { tzs } from '../../lib/utils'
 import Toast from '../../components/Toast'
 import type { HRMProps, HRMAsset } from './hrmTypes'
 
-export default function HRMAssets({ onNav: _onNav, hrmMode: _hrmMode = 'company', linkedEmployeeId: _linkedEmployeeId }: HRMProps) {
+export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
   const { user } = useAuth()
+  const isSelfMode = hrmMode === 'self'
   const [assets, setAssets] = useState<HRMAsset[]>([])
   const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
   const [assetAccounts, setAssetAccounts] = useState<{ id: string; code: string; name: string }[]>([])
@@ -29,7 +30,9 @@ export default function HRMAssets({ onNav: _onNav, hrmMode: _hrmMode = 'company'
   const load = async () => {
     setLoading(true)
     const [assetRes, empRes, assetAccRes, cashRes] = await Promise.all([
-      supabase.from('hrm_assets').select('*, employee:hrm_employees(id, full_name, initials)').order('asset_name'),
+      isSelfMode && linkedEmployeeId
+        ? supabase.from('hrm_assets').select('*, employee:hrm_employees(id, full_name, initials)').eq('employee_id', linkedEmployeeId).order('asset_name')
+        : supabase.from('hrm_assets').select('*, employee:hrm_employees(id, full_name, initials)').order('asset_name'),
       supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
       supabase.from('accounts').select('id, code, name').eq('type', 'asset').in('category', ['Fixed Assets', 'Equipment', 'Property & Equipment', 'Current Assets']).eq('is_active', true).order('code'),
       supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
@@ -156,9 +159,9 @@ export default function HRMAssets({ onNav: _onNav, hrmMode: _hrmMode = 'company'
   return (
     <div className="page">
       <div className="page-header">
-        <div><div className="page-title">Asset Register</div><div className="page-sub">Company assets · Wired to Fixed Assets in Chart of Accounts · Assign, return, dispose</div></div>
+        <div><div className="page-title">{isSelfMode ? 'My Assets' : 'Asset Register'}</div><div className="page-sub">{isSelfMode ? 'Equipment and items assigned to you' : 'Company assets · Wired to Fixed Assets in Chart of Accounts · Assign, return, dispose'}</div></div>
         <div className="page-actions">
-          <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Asset</button>
+          {canManage && !isSelfMode && <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Asset</button>}
         </div>
       </div>
 

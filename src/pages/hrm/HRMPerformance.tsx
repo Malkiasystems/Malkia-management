@@ -4,7 +4,8 @@ import Toast from '../../components/Toast'
 import type { HRMProps, Appraisal } from './hrmTypes'
 import { DEPT_COLORS } from './hrmTypes'
 
-export default function HRMPerformance({ onNav: _onNav, hrmMode: _hrmMode = 'company', linkedEmployeeId: _linkedEmployeeId }: HRMProps) {
+export default function HRMPerformance({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
+  const isSelfMode = hrmMode === 'self'
   const [tab, setTab] = useState<'appraisals' | 'policies' | 'sops'>('appraisals')
   const [appraisals, setAppraisals] = useState<Appraisal[]>([])
   const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
@@ -19,7 +20,9 @@ export default function HRMPerformance({ onNav: _onNav, hrmMode: _hrmMode = 'com
   const load = async () => {
     setLoading(true)
     const [appRes, empRes] = await Promise.all([
-      supabase.from('hrm_appraisals').select('*, employee:hrm_employees(id, full_name, initials, job_title, department)').order('created_at', { ascending: false }),
+      isSelfMode && linkedEmployeeId
+        ? supabase.from('hrm_appraisals').select('*, employee:hrm_employees(id, full_name, initials, job_title, department)').eq('employee_id', linkedEmployeeId).order('created_at', { ascending: false })
+        : supabase.from('hrm_appraisals').select('*, employee:hrm_employees(id, full_name, initials, job_title, department)').order('created_at', { ascending: false }),
       supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
     ])
     setAppraisals(appRes.data || [])
@@ -54,12 +57,12 @@ export default function HRMPerformance({ onNav: _onNav, hrmMode: _hrmMode = 'com
   return (
     <div className="page">
       <div className="page-header">
-        <div><div className="page-title">Standards & Performance</div><div className="page-sub">KPI appraisals, policies, SOPs</div></div>
+        <div><div className="page-title">{isSelfMode ? 'My Performance' : 'Standards & Performance'}</div><div className="page-sub">{isSelfMode ? 'Your KPI appraisals and scores' : 'KPI appraisals, policies, SOPs'}</div></div>
         <div className="page-actions">
           <button onClick={() => setTab('appraisals')} className={tab === 'appraisals' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>Appraisals</button>
           <button onClick={() => setTab('policies')} className={tab === 'policies' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>Policies</button>
           <button onClick={() => setTab('sops')} className={tab === 'sops' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>SOPs</button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Appraisal</button>
+          {canManage && <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Appraisal</button>}
         </div>
       </div>
 

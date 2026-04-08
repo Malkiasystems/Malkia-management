@@ -288,7 +288,8 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
         </div>
       </div>
 
-      {/* PAYE Reference */}
+      {/* PAYE Reference — hide in self mode */}
+      {!isSelfMode && (
       <div className="card" style={{ marginBottom: 16, padding: '12px 16px', background: '#6366f108', border: '1px solid #6366f133' }}>
         <div style={{ fontSize: 10, fontWeight: 800, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8 }}>Tanzania PAYE Bands 2024 (TRA) - Monthly</div>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11 }}>
@@ -300,8 +301,10 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
           <span style={{ marginLeft: 'auto', color: 'var(--text3)' }}>NSSF: Ee {settings.nssf_ee_rate}% + Er {settings.nssf_er_rate}% (when enrolled) · SDL: {settings.sdl_rate}%</span>
         </div>
       </div>
+      )}
 
-      {/* KPI Strip */}
+      {/* KPI Strip — hide in self mode */}
+      {!isSelfMode && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 18 }}>
         <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #6366f1' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#6366f1' }}>{loading ? '...' : fmt(displayTotals.gross)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Gross (TZS)</div></div>
         <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #ef4444' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#ef4444' }}>{loading ? '...' : fmt(displayTotals.paye)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>PAYE</div></div>
@@ -309,12 +312,13 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
         <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid var(--accent)' }}><div style={{ fontSize: 18, fontWeight: 900, color: 'var(--accent)' }}>{loading ? '...' : fmt(displayTotals.net)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Net Pay</div></div>
         <div className="card" style={{ padding: 14, textAlign: 'center', borderLeft: '3px solid #a78bfa' }}><div style={{ fontSize: 18, fontWeight: 900, color: '#a78bfa' }}>{loading ? '...' : fmt(displayTotals.nssfEr + displayTotals.sdl)}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>Er Costs</div></div>
       </div>
+      )}
 
       {/* Payroll Table */}
       <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
         <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Employee Payroll - {period}</div>
-          <div style={{ fontSize: 10, color: 'var(--text3)' }}>Edit gross to recalculate live</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{isSelfMode ? `My Salary — ${period}` : `Employee Payroll - ${period}`}</div>
+          {!isSelfMode && <div style={{ fontSize: 10, color: 'var(--text3)' }}>Edit gross to recalculate live</div>}
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)' }}>Loading...</div>
@@ -337,7 +341,10 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
                   <tr key={l.empId} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '10px 14px' }}><div style={{ fontWeight: 700 }}>{l.name}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>{l.title} · {l.code}{!l.nssfEnabled ? ' · No NSSF' : ''}{!l.payeEnabled ? ' · No PAYE' : ''}{!l.sdlEnabled ? ' · No SDL' : ''}</div></td>
                     <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                      <input type="number" value={l.gross} onChange={e => recalcLine(i, parseFloat(e.target.value) || 0)} style={{ width: 110, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 8px', borderRadius: 5, fontSize: 12, fontFamily: 'var(--mono)', textAlign: 'right' }} />
+                      {isSelfMode
+                        ? <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700 }}>{fmt(l.gross)}</span>
+                        : <input type="number" value={l.gross} onChange={e => recalcLine(i, parseFloat(e.target.value) || 0)} style={{ width: 110, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 8px', borderRadius: 5, fontSize: 12, fontFamily: 'var(--mono)', textAlign: 'right' }} />
+                      }
                     </td>
                     <td className="td-right td-mono" style={{ padding: '10px 14px', color: '#ef4444' }}>{fmt(l.paye)}</td>
                     <td className="td-right td-mono" style={{ padding: '10px 14px', color: l.nssfEe > 0 ? '#f59e0b' : 'var(--text3)' }}>{l.nssfEe > 0 ? fmt(l.nssfEe) : '---'}</td>
@@ -349,6 +356,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
                   </tr>
                 ))}
               </tbody>
+              {!isSelfMode && (
               <tfoot>
                 <tr style={{ background: 'var(--surface2)', borderTop: '2px solid var(--border)' }}>
                   <td style={{ padding: '10px 14px', fontWeight: 800, fontSize: 12 }}>TOTALS</td>
@@ -362,6 +370,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
                   <td></td>
                 </tr>
               </tfoot>
+              )}
             </table>
           </div>
         )}

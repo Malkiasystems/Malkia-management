@@ -11,7 +11,7 @@ const TYPE_COLORS: Record<string, string> = { office: '#6366f1', field: '#f59e0b
 
 type EmpPartial = { id: string; full_name: string; initials: string; department: string; job_title: string }
 
-export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId }: HRMProps) {
+export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
   const isSelfMode = hrmMode === 'self'
   const [employees, setEmployees] = useState<EmpPartial[]>([])
   const [entries, setEntries] = useState<AttendanceEntry[]>([])
@@ -46,13 +46,15 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
   useEffect(() => { if (tab === 'log') loadLog() }, [logDate])
   useEffect(() => { if (tab === 'weekly') loadWeekly() }, [weekStart])
 
+  const selfFilter = isSelfMode && linkedEmployeeId
+
   const load = async () => {
     setLoading(true)
     const [empRes, todayRes] = await Promise.all([
-      isSelfMode && linkedEmployeeId
+      selfFilter
         ? supabase.from('hrm_employees').select('id, full_name, initials, department, job_title').eq('id', linkedEmployeeId)
         : supabase.from('hrm_employees').select('id, full_name, initials, department, job_title').eq('is_active', true).order('full_name'),
-      isSelfMode && linkedEmployeeId
+      selfFilter
         ? supabase.from('hrm_attendance').select('*').eq('date', today).eq('employee_id', linkedEmployeeId)
         : supabase.from('hrm_attendance').select('*').eq('date', today),
     ])
@@ -65,7 +67,9 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
 
   const loadLog = async () => {
     setLoading(true)
-    const { data } = await supabase.from('hrm_attendance').select('*, employee:hrm_employees(id, full_name, department)').eq('date', logDate).order('clock_in')
+    let query = supabase.from('hrm_attendance').select('*, employee:hrm_employees(id, full_name, department)').eq('date', logDate).order('clock_in')
+    if (selfFilter) query = query.eq('employee_id', linkedEmployeeId)
+    const { data } = await query
     setEntries(data || [])
     setLoading(false)
   }
@@ -75,8 +79,10 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
     setLoading(true)
     const end = new Date(weekStart)
     end.setDate(end.getDate() + 6)
-    const { data } = await supabase.from('hrm_attendance').select('*, employee:hrm_employees(id, full_name, department)')
+    let query = supabase.from('hrm_attendance').select('*, employee:hrm_employees(id, full_name, department)')
       .gte('date', weekStart).lte('date', end.toISOString().split('T')[0]).order('date')
+    if (selfFilter) query = query.eq('employee_id', linkedEmployeeId)
+    const { data } = await query
     setWeeklyData(data || [])
     setLoading(false)
   }
@@ -202,22 +208,25 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
     <div className="page">
       <div className="page-header">
         <div>
-          <div className="page-title">Attendance Tracker</div>
-          <div className="page-sub">Live clock-in/out · Late detection ({OFFICE_START} cutoff) · Weekly summaries</div>
+          <div className="page-title">{isSelfMode ? 'My Attendance' : 'Attendance Tracker'}</div>
+          <div className="page-sub">{isSelfMode ? 'Your clock-in/out records and weekly summary' : `Live clock-in/out · Late detection (${OFFICE_START} cutoff) · Weekly summaries`}</div>
         </div>
         <div className="page-actions">
-          <select style={{ ...inputStyle, width: 'auto', padding: '6px 10px' }} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
-            <option value="all">All Departments</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
+          {!isSelfMode && (
+            <select style={{ ...inputStyle, width: 'auto', padding: '6px 10px' }} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
+              <option value="all">All Departments</option>
+              {departments.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          )}
           <button onClick={() => setTab('today')} className={tab === 'today' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>Today</button>
           <button onClick={() => { setTab('log'); loadLog() }} className={tab === 'log' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>Daily Log</button>
           <button onClick={() => { setTab('weekly'); loadWeekly() }} className={tab === 'weekly' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}>Weekly</button>
-          <button className="btn btn-ghost btn-sm" onClick={openNew}>+ Log Entry</button>
+          {canManage && <button className="btn btn-ghost btn-sm" onClick={openNew}>+ Log Entry</button>}
         </div>
       </div>
 
-      {/* KPI Strip */}
+      {/* KPI Strip — hide team KPIs in self mode */}
+      {!isSelfMode && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 10, marginBottom: 18 }}>
         {[
           { label: 'Team Size', value: kpis.total, color: '#6366f1' },
@@ -233,17 +242,18 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
           </div>
         ))}
       </div>
+      )}
 
       {/* TODAY TAB */}
       {tab === 'today' && (
         <div className="card" style={{ marginBottom: 16, padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>Today - Live Status</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{isSelfMode ? 'Today' : 'Today - Live Status'}</div>
               <div style={{ fontSize: 11, color: 'var(--text3)' }}>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={bulkClockIn} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Bulk Clock-In All</button>
+              {canManage && !isSelfMode && <button onClick={bulkClockIn} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Bulk Clock-In All</button>}
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 30, fontWeight: 900, fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{clock || '--:--:--'}</div>
                 <div style={{ fontSize: 10, color: 'var(--text3)' }}>EAT (UTC+3) · Late after {OFFICE_START}</div>
@@ -292,7 +302,7 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
                         <div style={{ display: 'flex', gap: 3 }}>
                           <button onClick={() => clockIn(emp.id, 'field')} style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: 4, borderRadius: 4, fontSize: 9, cursor: 'pointer' }}>Field</button>
                           <button onClick={() => clockIn(emp.id, 'remote')} style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: 4, borderRadius: 4, fontSize: 9, cursor: 'pointer' }}>Remote</button>
-                          <button onClick={() => markAbsent(emp.id)} style={{ flex: 1, background: '#ef444411', border: '1px solid #ef444433', color: '#ef4444', padding: 4, borderRadius: 4, fontSize: 9, cursor: 'pointer' }}>Absent</button>
+                          {canManage && <button onClick={() => markAbsent(emp.id)} style={{ flex: 1, background: '#ef444411', border: '1px solid #ef444433', color: '#ef4444', padding: 4, borderRadius: 4, fontSize: 9, cursor: 'pointer' }}>Absent</button>}
                         </div>
                       </>
                     )}
@@ -337,7 +347,7 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
                       <td style={{ textAlign: 'center' }}><span style={{ fontSize: 10, background: `${TYPE_COLORS[e.entry_type] || '#aaa'}22`, color: TYPE_COLORS[e.entry_type] || '#aaa', padding: '2px 7px', borderRadius: 4 }}>{TYPE_LABELS[e.entry_type] || e.entry_type}</span></td>
                       <td style={{ textAlign: 'center' }}><span style={{ fontSize: 10, background: `${STATUS_COLORS[e.status] || '#aaa'}22`, color: STATUS_COLORS[e.status] || '#aaa', padding: '2px 7px', borderRadius: 4 }}>{e.status}</span></td>
                       <td style={{ fontSize: 11, color: 'var(--text3)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || ''}</td>
-                      <td><button onClick={() => openEdit(e)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '3px 8px', borderRadius: 4, fontSize: 10, cursor: 'pointer' }}>Edit</button></td>
+                      {canManage && <td><button onClick={() => openEdit(e)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '3px 8px', borderRadius: 4, fontSize: 10, cursor: 'pointer' }}>Edit</button></td>}
                     </tr>
                   ))}
                   {entries.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: 'var(--text3)' }}>No entries for {logDate}</td></tr>}
