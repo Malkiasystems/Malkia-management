@@ -4,7 +4,7 @@ import Toast from '../../components/Toast'
 import type { HRMProps, HRSettings } from './hrmTypes'
 import { DEFAULT_HR_SETTINGS } from './hrmTypes'
 
-export default function HRMSettings({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId }: HRMProps) {
+export default function HRMSettings({ onNav: _onNav, hrmMode: _hrmMode = 'company', linkedEmployeeId: _linkedEmployeeId }: HRMProps) {
   const [settings, setSettings] = useState<HRSettings>(DEFAULT_HR_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')

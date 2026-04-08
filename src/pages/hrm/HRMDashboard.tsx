@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import type { HRMProps, Employee } from './hrmTypes'
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS } from './hrmTypes'
 
-export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
+export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmployeeId: _linkedEmployeeId, canManage }: HRMProps) {
   const isSelfMode = hrmMode === 'self'
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)

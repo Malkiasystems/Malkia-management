@@ -5,7 +5,7 @@ import { tzs } from '../../lib/utils'
 import Toast from '../../components/Toast'
 import type { HRMProps, HRMAsset } from './hrmTypes'
 
-export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId }: HRMProps) {
+export default function HRMAssets({ onNav: _onNav, hrmMode: _hrmMode = 'company', linkedEmployeeId: _linkedEmployeeId }: HRMProps) {
   const { user } = useAuth()
   const [assets, setAssets] = useState<HRMAsset[]>([])
   const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])

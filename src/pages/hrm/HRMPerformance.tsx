@@ -4,7 +4,7 @@ import Toast from '../../components/Toast'
 import type { HRMProps, Appraisal } from './hrmTypes'
 import { DEPT_COLORS } from './hrmTypes'
 
-export default function HRMPerformance({ onNav: _onNav, hrmMode = 'company', linkedEmployeeId }: HRMProps) {
+export default function HRMPerformance({ onNav: _onNav, hrmMode: _hrmMode = 'company', linkedEmployeeId: _linkedEmployeeId }: HRMProps) {
   const [tab, setTab] = useState<'appraisals' | 'policies' | 'sops'>('appraisals')
   const [appraisals, setAppraisals] = useState<Appraisal[]>([])
   const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
