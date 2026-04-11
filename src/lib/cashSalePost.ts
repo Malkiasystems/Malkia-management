@@ -236,17 +236,29 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     }).select('id').single()
     if (vErr) throw new Error('Voucher: ' + vErr.message)
 
-    // Voucher lines + stock
+    // Voucher lines + stock (atomic deduction prevents overselling)
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]; if (!line.productId) continue
       const prod = dbProducts.find(p => p.id === line.productId); if (!prod) continue
       await supabase.from('voucher_lines').insert({ voucher_id: voucher.id, line_number: i + 1, product_id: line.productId, description: line.name, qty: line.qty, unit_cost: prod.cost_price, unit_price: line.price, subtotal: line.amount, total: line.amount })
-      await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand - line.qty }).eq('id', line.productId)
+      
+      // Atomic stock deduction — if another cashier grabbed the last unit, this fails safely
+      if (invSettings?.block_negative_stock) {
+        const { error: stockErr } = await supabase.rpc('deduct_stock', { p_product_id: line.productId, p_qty: line.qty })
+        if (stockErr) throw new Error(`Insufficient stock for ${prod.name}. Another sale may have just taken the last unit(s).`)
+      } else {
+        // Allow negative stock — just deduct
+        await supabase.rpc('deduct_stock_allow_negative', { p_product_id: line.productId, p_qty: line.qty })
+      }
+
       await supabase.from('item_ledger_entries').insert({ product_id: line.productId, entry_type: 'sale', document_type: 'cash_sale', document_ref: ref, posting_date: postingDate, qty: -line.qty, cost_amount: prod.cost_price * line.qty, location_code: locationCode })
       const locObj = locations.find(l => l.code === locationCode)
       if (locObj) {
+        // Refresh actual qty from DB after atomic deduction
+        const { data: freshProd } = await supabase.from('products').select('qty_on_hand').eq('id', line.productId).single()
+        const actualQty = freshProd?.qty_on_hand ?? Math.max(0, (prod.qty_on_hand || 0) - line.qty)
         await supabase.from('product_locations').upsert(
-          { product_id: line.productId, location_id: locObj.id, location_code: locationCode, qty_on_hand: Math.max(0, (prod.qty_on_hand || 0) - line.qty), last_updated: new Date().toISOString() },
+          { product_id: line.productId, location_id: locObj.id, location_code: locationCode, qty_on_hand: actualQty, last_updated: new Date().toISOString() },
           { onConflict: 'product_id,location_id' }
         )
       }
