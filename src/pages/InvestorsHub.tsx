@@ -211,7 +211,7 @@ export default function InvestorsHub() {
         posted_by: 'Joe Gembe',
         status: 'posted',
       })  
-      if (jErr) throw new Error('Journal: ' + jErr.message)
+      if (jErr || !journal) throw new Error(jErr?.message || "Journal insert failed")
 
       // Journal lines
       const { error: jlErr } = await supabase.from('journal_lines').insert([
