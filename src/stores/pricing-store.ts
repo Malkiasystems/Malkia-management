@@ -122,20 +122,20 @@ export const usePricingStore = create<PricingState>((set, get) => ({
     categories: ['breast_care', 'belly_care', 'comfort', 'skincare', 'nutrition', 'kits', 'accessories'],
   },
 
-  setActiveSection: (section) => set({ activeSection: section }),
+  setActiveSection: (section: PricingState['activeSection']) => set({ activeSection: section }),
 
-  updateProduct: (id, updates) => set(state => ({
-    products: state.products.map(p => p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p)
+  updateProduct: (id: string, updates: Partial<Product>) => set((state: PricingState) => ({
+    products: state.products.map((p: Product) => p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p)
   })),
 
-  updatePrice: (id, field, value) => {
+  updatePrice: (id: string, field: 'retail_price' | 'wholesale_price', value: number) => {
     const state = get()
-    const product = state.products.find(p => p.id === id)
+    const product = state.products.find((p: Product) => p.id === id)
     if (!product) return
     const oldValue = product[field]
     
-    set(state => ({
-      products: state.products.map(p => p.id === id ? { ...p, [field]: value, updated_at: new Date().toISOString() } : p),
+    set((state: PricingState) => ({
+      products: state.products.map((p: Product) => p.id === id ? { ...p, [field]: value, updated_at: new Date().toISOString() } : p),
       priceHistory: [
         ...state.priceHistory,
         {
@@ -151,25 +151,25 @@ export const usePricingStore = create<PricingState>((set, get) => ({
     }))
   },
 
-  addProduct: (product) => set(state => ({ products: [...state.products, product] })),
-  setEditingProduct: (id) => set({ editingProductId: id }),
+  addProduct: (product: Product) => set((state: PricingState) => ({ products: [...state.products, product] })),
+  setEditingProduct: (id: string | null) => set({ editingProductId: id }),
 
-  updateBundle: (id, updates) => set(state => ({
-    bundles: state.bundles.map(b => b.id === id ? { ...b, ...updates, updated_at: new Date().toISOString() } : b)
+  updateBundle: (id: string, updates: Partial<Bundle>) => set((state: PricingState) => ({
+    bundles: state.bundles.map((b: Bundle) => b.id === id ? { ...b, ...updates, updated_at: new Date().toISOString() } : b)
   })),
-  addBundle: (bundle) => set(state => ({ bundles: [...state.bundles, bundle] })),
-  removeBundle: (id) => set(state => ({ bundles: state.bundles.filter(b => b.id !== id) })),
-  setEditingBundle: (id) => set({ editingBundleId: id }),
+  addBundle: (bundle: Bundle) => set((state: PricingState) => ({ bundles: [...state.bundles, bundle] })),
+  removeBundle: (id: string) => set((state: PricingState) => ({ bundles: state.bundles.filter((b: Bundle) => b.id !== id) })),
+  setEditingBundle: (id: string | null) => set({ editingBundleId: id }),
 
-  updateCustomerTier: (customerId, tier) => set(state => ({
-    customers: state.customers.map(c => c.customer_id === customerId ? { ...c, tier } : c)
+  updateCustomerTier: (customerId: string, tier: PriceTier) => set((state: PricingState) => ({
+    customers: state.customers.map((c: CustomerPriceTier) => c.customer_id === customerId ? { ...c, tier } : c)
   })),
-  addCustomer: (customer) => set(state => ({ customers: [...state.customers, customer] })),
-  removeCustomer: (customerId) => set(state => ({
-    customers: state.customers.filter(c => c.customer_id !== customerId)
+  addCustomer: (customer: CustomerPriceTier) => set((state: PricingState) => ({ customers: [...state.customers, customer] })),
+  removeCustomer: (customerId: string) => set((state: PricingState) => ({
+    customers: state.customers.filter((c: CustomerPriceTier) => c.customer_id !== customerId)
   })),
 
-  updatePricelistConfig: (updates) => set(state => ({
+  updatePricelistConfig: (updates: Partial<PricelistConfig>) => set((state: PricingState) => ({
     pricelistConfig: { ...state.pricelistConfig, ...updates }
   })),
 }))
