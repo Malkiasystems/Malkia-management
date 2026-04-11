@@ -1,3 +1,4 @@
+import { insertJournalWithRetry } from '../../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
@@ -195,19 +196,19 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
         const { data: created, error: createErr } = await supabase.from('accounts').insert({
           code: '1060', name: 'Salary Advance Receivable', type: 'asset',
           category: 'Current Assets', balance: 0, is_active: true, is_default: true,
-        }).select('id').single()
+        })  
         if (createErr) throw new Error(createErr.message)
         advAcct = created
       }
 
       // Create journal: Dr Salary Advance Receivable (1060) / Cr Cash/Bank
       const ref = `ADV-${drawerEmp.emp_code}-${advanceForm.issued_date.replace(/-/g, '')}`
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + ref, posting_date: advanceForm.issued_date,
         description: `Salary Advance — ${drawerEmp.full_name} — ${ref}`,
         journal_type: 'salary_advance', source_type: 'salary_advance', source_ref: ref,
         posted_by: user?.full_name || 'System', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines = [

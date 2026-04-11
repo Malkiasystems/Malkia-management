@@ -1,3 +1,4 @@
+import { insertJournalWithRetry } from '../../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
@@ -74,18 +75,18 @@ export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEm
           const { data: created } = await supabase.from('accounts').insert({
             code: '1200', name: 'Fixed Assets - Equipment', type: 'asset',
             category: 'Fixed Assets', balance: 0, is_active: true, is_default: true,
-          }).select('id').single()
+          })  
           if (created) assetAccountId = created.id
           else { setToast('Failed to create Fixed Asset account'); setToastType('error'); return }
         }
 
         const ref = `FA-${form.asset_tag}`
-        const { data: journal, error: jErr } = await supabase.from('journals').insert({
+        const { data: journal, error: jErr } = await insertJournalWithRetry({
           ref: 'JV-' + ref, posting_date: form.issued_date || new Date().toISOString().split('T')[0],
           description: `Asset Purchase — ${form.asset_name} — ${form.asset_tag}`,
           journal_type: 'asset_purchase', source_type: 'asset_purchase', source_ref: ref,
           posted_by: userName, status: 'posted',
-        }).select('id').single()
+        })  
         if (jErr) throw new Error(jErr.message)
         const jLines = [
           { journal_id: journal.id, line_number: 1, account_id: assetAccountId, description: `Fixed Asset — ${form.asset_name}`, debit: value, credit: 0 },

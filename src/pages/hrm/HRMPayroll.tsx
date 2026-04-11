@@ -1,3 +1,4 @@
+import { insertJournalWithRetry } from '../../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
@@ -127,7 +128,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       const { data: run, error: runErr } = await supabase.from('hrm_payroll_runs').insert({
         period, status: 'posted', journal_ref: ref,
         posted_by: userName, posted_at: new Date().toISOString(),
-      }).select('id').single()
+      })  
       if (runErr) throw new Error(runErr.message)
 
       // ── 3. Insert payroll lines ───────────────────────
@@ -142,12 +143,12 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       if (lineErr) throw new Error(lineErr.message)
 
       // ── 4. Create accounting journal ──────────────────
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + ref, posting_date: `${period}-28`,
         description: `Payroll — ${period} — ${lines.length} employees`,
         journal_type: 'payroll', source_type: 'payroll', source_ref: ref,
         posted_by: userName, status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       // ── 5. Build journal lines ────────────────────────
@@ -201,7 +202,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
           const { data: created } = await supabase.from('accounts').insert({
             code: '1060', name: 'Salary Advance Receivable', type: 'asset',
             category: 'Current Assets', balance: 0, is_active: true, is_default: true,
-          }).select('id').single()
+          })  
           advAcct = created
         }
         if (advAcct) {
