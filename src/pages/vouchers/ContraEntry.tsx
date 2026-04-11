@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -39,12 +39,12 @@ export default function ContraEntry({ onNav }: Props) {
     const fromAcct = accounts.find(a => a.id === form.fromId)
     const toAcct = accounts.find(a => a.id === form.toId)
     try {
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Contra — ${fromAcct?.name} → ${toAcct?.name} — ${form.ref}`,
         journal_type: 'contra', source_type: 'contra', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines = [

@@ -1,3 +1,4 @@
+import { insertJournalWithRetry } from '../../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
@@ -50,12 +51,12 @@ export default function OpeningStock({ onNav }: Props) {
       const equityId = acctData?.find(a => a.code === '3040')?.id
       if (!inventoryId || !equityId) throw new Error('Inventory (1110) or Opening Stock Equity (3040) account not found')
 
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Opening Stock — ${form.ref} — Total: ${tzs(total)}`,
         journal_type: 'opening_stock', source_type: 'opening_stock', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines = [

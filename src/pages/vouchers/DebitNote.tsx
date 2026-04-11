@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -47,12 +47,12 @@ export default function DebitNote({ onNav }: Props) {
       const arId = acctData?.find(a => a.code === '1050')?.id
       if (!revenueId || !arId) throw new Error('Revenue (4010) or AR (1050) account not found')
 
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Debit Note — ${form.customer} — ${form.ref}`,
         journal_type: 'debit_note', source_type: 'debit_note', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines = [

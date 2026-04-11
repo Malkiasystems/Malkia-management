@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
@@ -95,7 +95,7 @@ export default function CashPayment({ onNav }: Props) {
       if (!cashAcct || !expAcct) throw new Error('Accounts not found')
 
       // Create journal
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref,
         posting_date: form.date,
         description: `Cash Payment — ${form.payTo} — ${form.ref}`,
@@ -105,7 +105,7 @@ export default function CashPayment({ onNav }: Props) {
         posted_by: 'Joe Gembe',
         status: 'posted',
         branch: form.branch,
-      }).select('id').single()
+      })  
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
       // Journal lines: Dr Expense / Cr Cash

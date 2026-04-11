@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -74,7 +74,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
       const supplier = suppliers.find(s => s.id === form.supplier)
 
       // Create journal: Dr GRN Interim / Cr AP
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref,
         posting_date: form.date,
         description: `Purchase Invoice — ${supplier?.name} — ${form.ref}`,
@@ -83,7 +83,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
         source_ref: form.ref,
         posted_by: 'Joe Gembe',
         status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
       // Journal lines
@@ -112,7 +112,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
         journal_id: journal.id,
         notes: form.notes,
         posted_by: 'Joe Gembe',
-      }).select('id').single()
+      })  
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
       // Save voucher lines

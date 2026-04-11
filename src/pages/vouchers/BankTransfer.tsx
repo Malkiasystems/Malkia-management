@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
@@ -49,12 +49,12 @@ export default function BankTransfer({ onNav }: Props) {
     const amount = parseFloat(form.amount)
 
     try {
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Bank Transfer — ${accounts.find(a => a.id === form.fromAccount)?.code} to ${accounts.find(a => a.id === form.toAccount)?.code} — ${form.ref}`,
         journal_type: 'bank_transfer', source_type: 'bank_transfer',
         source_ref: form.ref, posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
       const { error: jlErr } = await supabase.from('journal_lines').insert([

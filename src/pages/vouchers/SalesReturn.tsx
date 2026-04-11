@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
@@ -75,12 +75,12 @@ export default function SalesReturn({ onNav }: Props) {
       const vat = Math.round(total * 18 / 118)
       const netReturn = total - vat
 
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Sales Return — ${form.customer} — ${form.ref}`,
         journal_type: 'sales_return', source_type: 'sales_return', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines: any[] = [

@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -62,12 +62,12 @@ export default function StockTransfer({ onNav }: Props) {
     try {
       const fromLabel = `${fromLoc.code} — ${fromLoc.name}`
       const toLabel = `${toLoc.code} — ${toLoc.name}`
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Stock Transfer — ${fromLabel} → ${toLabel} — ${form.ref}`,
         journal_type: 'stock_transfer', source_type: 'stock_transfer', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       await supabase.from('vouchers').insert({

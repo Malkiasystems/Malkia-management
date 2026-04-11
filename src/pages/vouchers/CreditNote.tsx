@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
@@ -208,12 +208,12 @@ export default function CreditNote({ onNav }: Props) {
       if (!revenueId || !arId) throw new Error('Revenue (4010) or AR (1050) account not found in Chart of Accounts')
 
       // ── CREATE JOURNAL ───────────────────
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Credit Note — ${customerName} — ${form.ref}`,
         journal_type: 'credit_note', source_type: 'credit_note', source_ref: form.ref,
         posted_by: userName, status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       // ── JOURNAL LINES ────────────────────
@@ -248,7 +248,7 @@ export default function CreditNote({ onNav }: Props) {
         customer_id: customerId,
         notes: [form.reason, original?.ref ? `Orig: ${original.ref}` : '', form.notes].filter(Boolean).join(' · '),
         posted_by: userName,
-      }).select('id').single()
+      })  
       if (vErr) throw new Error(vErr.message)
 
       // ── VOUCHER LINES ────────────────────

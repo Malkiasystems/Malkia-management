@@ -1,3 +1,4 @@
+import { insertJournalWithRetry } from '../../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
@@ -56,12 +57,12 @@ export default function PurchaseReturn({ onNav }: Props) {
       if (!apId || !inventoryId) throw new Error('AP (2010) or Inventory (1110) account not found')
 
       const supplier = suppliers.find(s => s.id === form.supplierId)
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Purchase Return — ${supplier?.name} — ${form.ref}`,
         journal_type: 'purchase_return', source_type: 'purchase_return', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines = [

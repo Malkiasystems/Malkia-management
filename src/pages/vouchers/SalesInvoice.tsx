@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs, getPostedBy } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
@@ -153,12 +153,12 @@ export default function SalesInvoice({ onNav }: Props) {
       const inventoryId = acct('1110'); const vatId = acct('2020'); const arId = acct('1050')
       if (!revenueId || !cogsId || !inventoryId || !arId) throw new Error('Required GL accounts not found')
 
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name} — ${form.ref}`,
         journal_type: 'sales_invoice', source_type: 'sales_invoice', source_ref: form.ref,
         posted_by: getPostedBy(), status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines = [
@@ -194,7 +194,7 @@ export default function SalesInvoice({ onNav }: Props) {
           unit_price: line.price, subtotal: line.amount, discount_pct: line.discount,
           vat_amount: Math.round(line.amount * 18 / 118), total: line.amount,
         })
-        await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand - line.qty }).eq('id', prod.id)
+        await supabase.rpc('deduct_stock_allow_negative', { p_product_id: prod.id, p_qty: line.qty })
         await supabase.from('item_ledger_entries').insert({
           product_id: line.productId, entry_type: 'sale', location_code: locationCode,
           document_type: 'sales_invoice', document_ref: form.ref,

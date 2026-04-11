@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
@@ -55,11 +55,11 @@ export default function JournalEntry({ onNav }: Props) {
     setPosting(true)
 
     try {
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: form.ref, posting_date: form.date, description: form.narration,
         journal_type: form.type, source_type: 'manual',
         posted_by: 'Joe Gembe', status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
       const linesToInsert = jLines.filter(l => l.account && (l.dr > 0 || l.cr > 0)).map((l, i) => ({

@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -53,7 +53,7 @@ export default function StockAdjustment({ onNav }: Props) {
         ref: form.ref, type: 'stock_adjustment', posting_date: form.date,
         description: `Stock Adjustment — ${form.type} — ${form.reason}`,
         status: 'posted', posted_by: form.approvedBy, notes: form.notes,
-      }).select('id').single()
+      })  
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
       for (const line of lines) {
@@ -76,11 +76,11 @@ export default function StockAdjustment({ onNav }: Props) {
 
         // Journal for write-offs
         if (form.type === 'writeoff' && writeoffId) {
-          const { data: j } = await supabase.from('journals').insert({
+          const { data: j } = await insertJournalWithRetry({
             ref: 'JV-' + form.ref + '-' + lines.indexOf(line),
             posting_date: form.date, description: `Stock Write-off — ${prod.name}`,
             journal_type: 'stock_adjustment', posted_by: form.approvedBy, status: 'posted',
-          }).select('id').single()
+          })  
           if (j) {
             await supabase.from('journal_lines').insert([
               { journal_id: j.id, line_number: 1, account_id: writeoffId, description: `Write-off — ${prod.name}`, debit: costAmount, credit: 0 },

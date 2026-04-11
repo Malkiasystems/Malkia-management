@@ -6,7 +6,7 @@ import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -53,12 +53,12 @@ export default function PettyCash({ onNav }: Props) {
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
     setPosting(true)
     try {
-      const { data: j, error: jErr } = await supabase.from('journals').insert({
+      const { data: j, error: jErr } = await insertJournalWithRetry({
         ref: form.ref, posting_date: form.date,
         description: `Petty Cash — ${form.paidTo}`,
         journal_type: 'petty_cash', source_type: 'petty_cash', source_ref: form.ref,
         posted_by: form.approvedBy, status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error(jErr.message)
 
       const jLines: any[] = []

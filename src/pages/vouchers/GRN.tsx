@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef } from '../../lib/refs'
+import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
@@ -72,7 +72,7 @@ export default function GRN({ onNav }: Props) {
       if (!inventoryAcctId || !grnInterimAcctId) throw new Error('Inventory accounts not found. Check Chart of Accounts.')
 
       // Create journal: Dr Inventory / Cr GRN Interim
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref,
         posting_date: form.date,
         description: `GRN — ${suppliers.find(s => s.id === form.supplier)?.name} — ${form.ref}`,
@@ -81,7 +81,7 @@ export default function GRN({ onNav }: Props) {
         source_ref: form.ref,
         posted_by: form.receivedBy,
         status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
       const { error: jlErr } = await supabase.from('journal_lines').insert([
@@ -108,7 +108,7 @@ export default function GRN({ onNav }: Props) {
         journal_id: journal.id,
         notes: form.notes,
         posted_by: form.receivedBy,
-      }).select('id').single()
+      })  
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
       // Update stock quantities and item ledger
