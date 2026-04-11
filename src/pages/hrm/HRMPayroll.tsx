@@ -128,8 +128,8 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       const { data: run, error: runErr } = await supabase.from('hrm_payroll_runs').insert({
         period, status: 'posted', journal_ref: ref,
         posted_by: userName, posted_at: new Date().toISOString(),
-      })  
-      if (runErr) throw new Error(runErr.message)
+      }).select('id').single()
+      if (runErr || !run) throw new Error(runErr?.message || 'Payroll run insert failed')
 
       // ── 3. Insert payroll lines ───────────────────────
       const payLines = lines.map(l => ({
@@ -203,7 +203,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
           const { data: created } = await supabase.from('accounts').insert({
             code: '1060', name: 'Salary Advance Receivable', type: 'asset',
             category: 'Current Assets', balance: 0, is_active: true, is_default: true,
-          })  
+          }).select('id').single()
           advAcct = created
         }
         if (advAcct) {

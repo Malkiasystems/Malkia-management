@@ -75,8 +75,8 @@ export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEm
           const { data: created } = await supabase.from('accounts').insert({
             code: '1200', name: 'Fixed Assets - Equipment', type: 'asset',
             category: 'Fixed Assets', balance: 0, is_active: true, is_default: true,
-          })  
-          if (created) assetAccountId = created.id
+          }).select('id').single()
+          if (created) assetAccountId = (created as any).id
           else { setToast('Failed to create Fixed Asset account'); setToastType('error'); return }
         }
 
