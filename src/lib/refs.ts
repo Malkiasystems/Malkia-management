@@ -111,7 +111,6 @@ export const insertJournalWithRetry = async (
 
       // Extract the voucher type from the ref to regenerate
       // ref format is 'JV-CS-10-0165', source_ref is 'CS-10-0165'
-      const currentRef = journalData.ref as string
       const sourceRef = journalData.source_ref as string
 
       if (sourceRef) {
