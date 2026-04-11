@@ -151,9 +151,6 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     if (jErr) throw new Error('Journal: ' + jErr.message)
     if (!journal) throw new Error('Journal: insert returned no data')
 
-    // Update ref in case it was bumped during retry
-    const actualRef = ref // ref stays the same; journal.ref may differ but source_ref matches
-
     const cogsTotal = lines.reduce((s, l) => {
       const p = dbProducts.find(p => p.id === l.productId)
       return s + (p ? p.cost_price * l.qty : 0)
