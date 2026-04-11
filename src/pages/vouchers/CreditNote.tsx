@@ -249,7 +249,7 @@ export default function CreditNote({ onNav }: Props) {
         customer_id: customerId,
         notes: [form.reason, original?.ref ? `Orig: ${original.ref}` : '', form.notes].filter(Boolean).join(' · '),
         posted_by: userName,
-      })  
+      }).select('id').single()
       if (vErr) throw new Error(vErr.message)
 
       // ── VOUCHER LINES ────────────────────

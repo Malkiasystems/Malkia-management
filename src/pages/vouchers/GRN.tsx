@@ -109,8 +109,8 @@ export default function GRN({ onNav }: Props) {
         journal_id: journal.id,
         notes: form.notes,
         posted_by: form.receivedBy,
-      })  
-      if (vErr) throw new Error('Voucher: ' + vErr.message)
+      }).select('id').single()
+      if (vErr || !voucher) throw new Error(vErr?.message || 'Voucher insert failed')
 
       // Update stock quantities and item ledger
       for (const line of lines) {

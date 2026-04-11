@@ -113,8 +113,8 @@ export default function PurchaseInvoice({ onNav }: Props) {
         journal_id: journal.id,
         notes: form.notes,
         posted_by: 'Joe Gembe',
-      })  
-      if (vErr) throw new Error('Voucher: ' + vErr.message)
+      }).select('id').single()
+      if (vErr || !voucher) throw new Error(vErr?.message || 'Voucher insert failed')
 
       // Save voucher lines
       for (let i = 0; i < lines.length; i++) {
