@@ -87,7 +87,7 @@ export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEm
           journal_type: 'asset_purchase', source_type: 'asset_purchase', source_ref: ref,
           posted_by: userName, status: 'posted',
         })  
-        if (jErr) throw new Error(jErr.message)
+        if (jErr || !journal) throw new Error(jErr?.message || "Journal insert failed")
         const jLines = [
           { journal_id: journal.id, line_number: 1, account_id: assetAccountId, description: `Fixed Asset — ${form.asset_name}`, debit: value, credit: 0 },
           { journal_id: journal.id, line_number: 2, account_id: form.source_account_id, description: `Asset purchase — ${form.asset_tag}`, debit: 0, credit: value },

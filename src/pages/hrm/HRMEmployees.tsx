@@ -209,7 +209,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
         journal_type: 'salary_advance', source_type: 'salary_advance', source_ref: ref,
         posted_by: user?.full_name || 'System', status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !journal) throw new Error(jErr?.message || "Journal insert failed")
 
       const jLines = [
         { journal_id: journal.id, line_number: 1, account_id: advAcct!.id, description: `Advance to ${drawerEmp.full_name}`, debit: amount, credit: 0 },
