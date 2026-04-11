@@ -1,3 +1,4 @@
+import { insertJournalWithRetry } from '../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
@@ -200,7 +201,7 @@ export default function InvestorsHub() {
       const jRef = `${refPrefix}-${Date.now().toString(36).toUpperCase()}`
 
       // Create journal
-      const { data: journal, error: jErr } = await supabase.from('journals').insert({
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
         ref: jRef,
         posting_date: eqForm.date,
         description: desc,
@@ -209,7 +210,7 @@ export default function InvestorsHub() {
         source_ref: jRef,
         posted_by: 'Joe Gembe',
         status: 'posted',
-      }).select('id').single()
+      })  
       if (jErr) throw new Error('Journal: ' + jErr.message)
 
       // Journal lines
