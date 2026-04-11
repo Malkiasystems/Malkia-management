@@ -201,7 +201,7 @@ export default function InvestorsHub() {
       const jRef = `${refPrefix}-${Date.now().toString(36).toUpperCase()}`
 
       // Create journal
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: jRef,
         posting_date: eqForm.date,
         description: desc,
@@ -211,7 +211,8 @@ export default function InvestorsHub() {
         posted_by: 'Joe Gembe',
         status: 'posted',
       })  
-      if (jErr || !journal) throw new Error(jErr?.message || "Journal insert failed")
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       // Journal lines
       const { error: jlErr } = await supabase.from('journal_lines').insert([
