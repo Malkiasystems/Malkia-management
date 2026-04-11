@@ -81,13 +81,14 @@ export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEm
         }
 
         const ref = `FA-${form.asset_tag}`
-        const { data: journal, error: jErr } = await insertJournalWithRetry({
+        const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
           ref: 'JV-' + ref, posting_date: form.issued_date || new Date().toISOString().split('T')[0],
           description: `Asset Purchase — ${form.asset_name} — ${form.asset_tag}`,
           journal_type: 'asset_purchase', source_type: 'asset_purchase', source_ref: ref,
           posted_by: userName, status: 'posted',
         })  
-        if (jErr || !journal) throw new Error(jErr?.message || "Journal insert failed")
+        if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
         const jLines = [
           { journal_id: journal.id, line_number: 1, account_id: assetAccountId, description: `Fixed Asset — ${form.asset_name}`, debit: value, credit: 0 },
           { journal_id: journal.id, line_number: 2, account_id: form.source_account_id, description: `Asset purchase — ${form.asset_tag}`, debit: 0, credit: value },

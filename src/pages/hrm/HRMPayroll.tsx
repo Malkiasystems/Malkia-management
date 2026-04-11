@@ -143,13 +143,14 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       if (lineErr) throw new Error(lineErr.message)
 
       // ── 4. Create accounting journal ──────────────────
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + ref, posting_date: `${period}-28`,
         description: `Payroll — ${period} — ${lines.length} employees`,
         journal_type: 'payroll', source_type: 'payroll', source_ref: ref,
         posted_by: userName, status: 'posted',
       })  
-      if (jErr || !journal) throw new Error(jErr?.message || "Journal insert failed")
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       // ── 5. Build journal lines ────────────────────────
       const jLines: { journal_id: string; line_number: number; account_id: string; description: string; debit: number; credit: number }[] = []

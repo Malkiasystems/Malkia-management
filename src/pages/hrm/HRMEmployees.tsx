@@ -203,13 +203,14 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
 
       // Create journal: Dr Salary Advance Receivable (1060) / Cr Cash/Bank
       const ref = `ADV-${drawerEmp.emp_code}-${advanceForm.issued_date.replace(/-/g, '')}`
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + ref, posting_date: advanceForm.issued_date,
         description: `Salary Advance — ${drawerEmp.full_name} — ${ref}`,
         journal_type: 'salary_advance', source_type: 'salary_advance', source_ref: ref,
         posted_by: user?.full_name || 'System', status: 'posted',
       })  
-      if (jErr || !journal) throw new Error(jErr?.message || "Journal insert failed")
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       const jLines = [
         { journal_id: journal.id, line_number: 1, account_id: advAcct!.id, description: `Advance to ${drawerEmp.full_name}`, debit: amount, credit: 0 },
