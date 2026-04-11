@@ -5,7 +5,7 @@
  */
 
 import { supabase } from './supabase'
-import { nextRef } from './refs'
+import { nextRef, insertJournalWithRetry } from './refs'
 import { today } from './utils'
 import { PAYMENT_METHODS } from './cashSaleTypes'
 import type { DBProduct, SaleLine, SplitLine, PaymentMethod } from './cashSaleTypes'
@@ -141,14 +141,18 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       ? splitLines.map(l => PAYMENT_METHODS.find(m => m.id === l.methodId)?.label || l.methodId).join(' + ') + ' + ' + currentMethod.label
       : currentMethod.label
 
-    // Create journal
-    const { data: journal, error: jErr } = await supabase.from('journals').insert({
+    // Create journal (with retry to handle ref collisions)
+    const { data: journal, error: jErr } = await insertJournalWithRetry({
       ref: 'JV-' + ref, posting_date: postingDate,
       description: `Cash Sale — ${newCustName} — ${ref}`,
       journal_type: 'cash_sale', source_type: 'cash_sale', source_ref: ref,
       posted_by: userName, status: 'posted',
-    }).select('id').single()
+    })
     if (jErr) throw new Error('Journal: ' + jErr.message)
+    if (!journal) throw new Error('Journal: insert returned no data')
+
+    // Update ref in case it was bumped during retry
+    const actualRef = ref // ref stays the same; journal.ref may differ but source_ref matches
 
     const cogsTotal = lines.reduce((s, l) => {
       const p = dbProducts.find(p => p.id === l.productId)
@@ -265,12 +269,12 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
           bankAccountId = bankAcct?.id
         }
         if (bankAccountId) {
-          const { data: receiptJournal, error: rjErr } = await supabase.from('journals').insert({
+          const { data: receiptJournal, error: rjErr } = await insertJournalWithRetry({
             ref: 'JV-' + receiptRef, posting_date: postingDate,
             description: `Auto Bank Receipt — ${currentMethod.label} — ${ref}`,
             journal_type: 'cash_receipt', source_type: 'cash_sale', source_ref: ref,
             posted_by: userName, status: 'posted',
-          }).select('id').single()
+          })
 
           if (rjErr) {
             console.error('Receipt journal error:', rjErr)
