@@ -95,7 +95,7 @@ export default function CashPayment({ onNav }: Props) {
       if (!cashAcct || !expAcct) throw new Error('Accounts not found')
 
       // Create journal
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref,
         posting_date: form.date,
         description: `Cash Payment — ${form.payTo} — ${form.ref}`,
@@ -106,7 +106,8 @@ export default function CashPayment({ onNav }: Props) {
         status: 'posted',
         branch: form.branch,
       })  
-      if (jErr) throw new Error('Journal: ' + jErr.message)
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       // Journal lines: Dr Expense / Cr Cash
       const { error: jlErr } = await supabase.from('journal_lines').insert([

@@ -51,13 +51,14 @@ export default function CashReceipt({ onNav }: Props) {
     const amount = parseFloat(form.amount)
 
     try {
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Cash Receipt — ${form.receivedFrom} — ${form.ref}`,
         journal_type: 'cash_receipt', source_type: 'cash_receipt',
         source_ref: form.ref, posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error('Journal: ' + jErr.message)
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       const { error: jlErr } = await supabase.from('journal_lines').insert([
         { journal_id: journal.id, line_number: 1, account_id: form.cashAccount, description: `Received from ${form.receivedFrom}`, debit: amount, credit: 0 },

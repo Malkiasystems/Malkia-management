@@ -153,13 +153,14 @@ export default function SalesInvoice({ onNav }: Props) {
       const inventoryId = acct('1110'); const vatId = acct('2020'); const arId = acct('1050')
       if (!revenueId || !cogsId || !inventoryId || !arId) throw new Error('Required GL accounts not found')
 
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name} — ${form.ref}`,
         journal_type: 'sales_invoice', source_type: 'sales_invoice', source_ref: form.ref,
         posted_by: getPostedBy(), status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       const jLines = [
         { journal_id: journal.id, line_number: 1, account_id: arId, description: `AR — ${selectedCust.company || selectedCust.name} — ${form.ref}`, debit: subtotal, credit: 0 },

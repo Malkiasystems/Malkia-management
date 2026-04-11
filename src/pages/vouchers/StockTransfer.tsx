@@ -62,13 +62,14 @@ export default function StockTransfer({ onNav }: Props) {
     try {
       const fromLabel = `${fromLoc.code} — ${fromLoc.name}`
       const toLabel = `${toLoc.code} — ${toLoc.name}`
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Stock Transfer — ${fromLabel} → ${toLabel} — ${form.ref}`,
         journal_type: 'stock_transfer', source_type: 'stock_transfer', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       await supabase.from('vouchers').insert({
         ref: form.ref, type: 'stock_transfer', posting_date: form.date,

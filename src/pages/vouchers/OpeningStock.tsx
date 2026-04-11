@@ -51,13 +51,14 @@ export default function OpeningStock({ onNav }: Props) {
       const equityId = acctData?.find(a => a.code === '3040')?.id
       if (!inventoryId || !equityId) throw new Error('Inventory (1110) or Opening Stock Equity (3040) account not found')
 
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Opening Stock — ${form.ref} — Total: ${tzs(total)}`,
         journal_type: 'opening_stock', source_type: 'opening_stock', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       const jLines = [
         { journal_id: j.id, line_number: 1, account_id: inventoryId, description: `Opening inventory — ${form.ref}`, debit: total, credit: 0 },

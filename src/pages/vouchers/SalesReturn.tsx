@@ -75,13 +75,14 @@ export default function SalesReturn({ onNav }: Props) {
       const vat = Math.round(total * 18 / 118)
       const netReturn = total - vat
 
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Sales Return — ${form.customer} — ${form.ref}`,
         journal_type: 'sales_return', source_type: 'sales_return', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       const jLines: any[] = [
         { journal_id: j.id, line_number: 1, account_id: returnsId, description: `Sales return — ${form.customer}`, debit: netReturn, credit: 0 },

@@ -39,13 +39,14 @@ export default function ContraEntry({ onNav }: Props) {
     const fromAcct = accounts.find(a => a.id === form.fromId)
     const toAcct = accounts.find(a => a.id === form.toId)
     try {
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Contra — ${fromAcct?.name} → ${toAcct?.name} — ${form.ref}`,
         journal_type: 'contra', source_type: 'contra', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       const jLines = [
         { journal_id: j.id, line_number: 1, account_id: form.toId, description: `Contra in — ${form.notes || form.ref}`, debit: amount, credit: 0 },

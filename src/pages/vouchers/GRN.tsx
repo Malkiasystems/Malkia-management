@@ -72,7 +72,7 @@ export default function GRN({ onNav }: Props) {
       if (!inventoryAcctId || !grnInterimAcctId) throw new Error('Inventory accounts not found. Check Chart of Accounts.')
 
       // Create journal: Dr Inventory / Cr GRN Interim
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref,
         posting_date: form.date,
         description: `GRN — ${suppliers.find(s => s.id === form.supplier)?.name} — ${form.ref}`,
@@ -82,7 +82,8 @@ export default function GRN({ onNav }: Props) {
         posted_by: form.receivedBy,
         status: 'posted',
       })  
-      if (jErr) throw new Error('Journal: ' + jErr.message)
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       const { error: jlErr } = await supabase.from('journal_lines').insert([
         { journal_id: journal.id, line_number: 1, account_id: inventoryAcctId, description: `Stock received — ${form.ref}`, debit: totalCost, credit: 0 },

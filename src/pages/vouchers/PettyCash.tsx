@@ -53,13 +53,14 @@ export default function PettyCash({ onNav }: Props) {
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
     setPosting(true)
     try {
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: form.ref, posting_date: form.date,
         description: `Petty Cash — ${form.paidTo}`,
         journal_type: 'petty_cash', source_type: 'petty_cash', source_ref: form.ref,
         posted_by: form.approvedBy, status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       const jLines: any[] = []
       let ln = 1

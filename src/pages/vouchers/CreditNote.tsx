@@ -208,13 +208,14 @@ export default function CreditNote({ onNav }: Props) {
       if (!revenueId || !arId) throw new Error('Revenue (4010) or AR (1050) account not found in Chart of Accounts')
 
       // ── CREATE JOURNAL ───────────────────
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Credit Note — ${customerName} — ${form.ref}`,
         journal_type: 'credit_note', source_type: 'credit_note', source_ref: form.ref,
         posted_by: userName, status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       // ── JOURNAL LINES ────────────────────
       const jLines: { journal_id: string; line_number: number; account_id: string; description: string; debit: number; credit: number }[] = []

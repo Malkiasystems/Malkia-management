@@ -55,12 +55,13 @@ export default function JournalEntry({ onNav }: Props) {
     setPosting(true)
 
     try {
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: form.ref, posting_date: form.date, description: form.narration,
         journal_type: form.type, source_type: 'manual',
         posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error('Journal: ' + jErr.message)
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       const linesToInsert = jLines.filter(l => l.account && (l.dr > 0 || l.cr > 0)).map((l, i) => ({
         journal_id: journal.id, line_number: i + 1,

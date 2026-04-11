@@ -74,7 +74,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
       const supplier = suppliers.find(s => s.id === form.supplier)
 
       // Create journal: Dr GRN Interim / Cr AP
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref,
         posting_date: form.date,
         description: `Purchase Invoice — ${supplier?.name} — ${form.ref}`,
@@ -84,7 +84,8 @@ export default function PurchaseInvoice({ onNav }: Props) {
         posted_by: 'Joe Gembe',
         status: 'posted',
       })  
-      if (jErr) throw new Error('Journal: ' + jErr.message)
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       // Journal lines
       const { error: jlErr } = await supabase.from('journal_lines').insert([

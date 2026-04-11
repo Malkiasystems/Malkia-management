@@ -49,13 +49,14 @@ export default function BankTransfer({ onNav }: Props) {
     const amount = parseFloat(form.amount)
 
     try {
-      const { data: journal, error: jErr } = await insertJournalWithRetry({
+      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Bank Transfer — ${accounts.find(a => a.id === form.fromAccount)?.code} to ${accounts.find(a => a.id === form.toAccount)?.code} — ${form.ref}`,
         journal_type: 'bank_transfer', source_type: 'bank_transfer',
         source_ref: form.ref, posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error('Journal: ' + jErr.message)
+      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const journal = journalRaw
 
       const { error: jlErr } = await supabase.from('journal_lines').insert([
         { journal_id: journal.id, line_number: 1, account_id: form.toAccount, description: `Transfer in — ${form.narration || form.ref}`, debit: amount, credit: 0 },

@@ -47,13 +47,14 @@ export default function DebitNote({ onNav }: Props) {
       const arId = acctData?.find(a => a.code === '1050')?.id
       if (!revenueId || !arId) throw new Error('Revenue (4010) or AR (1050) account not found')
 
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Debit Note — ${form.customer} — ${form.ref}`,
         journal_type: 'debit_note', source_type: 'debit_note', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       const jLines = [
         { journal_id: j.id, line_number: 1, account_id: arId, description: `AR increased — ${form.customer} — ${form.ref}`, debit: amount, credit: 0 },

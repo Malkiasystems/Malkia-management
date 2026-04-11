@@ -57,13 +57,14 @@ export default function PurchaseReturn({ onNav }: Props) {
       if (!apId || !inventoryId) throw new Error('AP (2010) or Inventory (1110) account not found')
 
       const supplier = suppliers.find(s => s.id === form.supplierId)
-      const { data: j, error: jErr } = await insertJournalWithRetry({
+      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Purchase Return — ${supplier?.name} — ${form.ref}`,
         journal_type: 'purchase_return', source_type: 'purchase_return', source_ref: form.ref,
         posted_by: 'Joe Gembe', status: 'posted',
       })  
-      if (jErr) throw new Error(jErr.message)
+      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+      const j = jRaw
 
       const jLines = [
         { journal_id: j.id, line_number: 1, account_id: apId, description: `AP reduced — ${supplier?.name}`, debit: total, credit: 0 },
