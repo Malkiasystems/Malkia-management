@@ -60,6 +60,9 @@ const ApprovalWorkflows = lazy(() => import('./pages/ApprovalWorkflows'))
 // Bundles
 const Bundles = lazy(() => import('./pages/Bundles'))
 
+// Pricing
+const PricingPage = lazy(() => import('./pages/PricingPage'))
+
 // Investors
 const InvestorsHub = lazy(() => import('./pages/InvestorsHub'))
 
@@ -373,7 +376,7 @@ function AppContent() {
       case 'whatsapp-settings': return <WhatsAppSettings />
       case 'location-settings': return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
-      case 'pricelist-template': return <div className="page"><div className="page-title">Price List</div><div className="page-sub">Coming soon</div></div>
+      case 'pricelist-template': return <PricingPage onNav={navigate} />
       case 'banks':             return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
