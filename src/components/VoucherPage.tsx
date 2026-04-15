@@ -32,8 +32,8 @@ export default function VoucherPage({
           <div style={{
             width: 48, height: 48, borderRadius: 14, background: color,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 24, flexShrink: 0
-          }}>{icon}</div>
+            flexShrink: 0
+          }}><svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={icon}/></svg></div>
           <div>
             <div className="page-title">{title}</div>
             <div className="page-sub">{subtitle}</div>
@@ -49,7 +49,7 @@ export default function VoucherPage({
         <div className="shortcut-bar">
           {shortcuts.map((s, i) => (
             <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
-              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path d={s.icon}/></svg>
               {s.label}
               <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
             </button>

@@ -197,14 +197,15 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
     }
   }
 
+  const typeIconPath: Record<string, string> = {
+    page: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6',
+    voucher: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
+    product: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z',
+    customer: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  }
   const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'page': return '📄'
-      case 'voucher': return '🧾'
-      case 'product': return '📦'
-      case 'customer': return '👤'
-      default: return '🔍'
-    }
+    const d = typeIconPath[type] || 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35'
+    return <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={d}/></svg>
   }
 
   return (
