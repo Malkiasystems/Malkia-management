@@ -341,14 +341,14 @@ export default function ImportOrder({ onNav }: Props) {
     <button className="btn btn-primary btn-sm" onClick={()=>{setForm({supplier:'',orderDate:today(),expectedReady:'',currency:'USD',fxRate:'2500',notes:''});setLines([{...EMPTY_LINE}]);setView('create')}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="plus" s={13}/> New Import Order</button></div></div>
     <div className="shortcut-bar">
       {[
-        { icon: '🏢', label: 'Suppliers', page: 'suppliers' as Page },
-        { icon: '🚚', label: 'GRN', page: 'grn' as Page },
-        { icon: '📦', label: 'Inventory', page: 'inventory' as Page },
-        { icon: '🧾', label: 'Purchase Invoice', page: 'purchase-invoice' as Page },
-        { icon: '📋', label: 'Purchase Register', page: 'purchase-register' as Page },
+        { icon: 'M3 21h18M3 7v1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7H3l2-4h14l2 4 M5 21V10.7 M19 21V10.7', label: 'Suppliers', page: 'suppliers' as Page },
+        { icon: 'M1 3h15v13H1zM16 8h7v13H8v-5', label: 'GRN', page: 'grn' as Page },
+        { icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z', label: 'Inventory', page: 'inventory' as Page },
+        { icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8', label: 'Purchase Invoice', page: 'purchase-invoice' as Page },
+        { icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', label: 'Purchase Register', page: 'purchase-register' as Page },
       ].map((s, i) => (
         <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
-          <span style={{ fontSize: 13 }}>{s.icon}</span>
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path d={s.icon}/></svg>
           {s.label}
           <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
         </button>

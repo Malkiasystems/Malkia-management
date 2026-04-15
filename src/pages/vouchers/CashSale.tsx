@@ -452,15 +452,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       {onNav && (
         <div className="shortcut-bar">
           {[
-            { icon: '📦', label: 'Inventory', page: 'inventory' as Page },
-            { icon: '👥', label: 'Customers', page: 'customers' as Page },
-            { icon: '📊', label: 'Sales Register', page: 'sales-register' as Page },
-            { icon: '📋', label: 'Sales Day Book', page: 'sales-day-book' as Page },
-            { icon: '🔄', label: 'Sales Return', page: 'sales-return' as Page },
-            { icon: '🧾', label: 'Sales Invoice', page: 'sales-invoice' as Page },
+            { icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z', label: 'Inventory', page: 'inventory' as Page },
+            { icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75', label: 'Customers', page: 'customers' as Page },
+            { icon: 'M18 20V10M12 20V4M6 20v-6', label: 'Sales Register', page: 'sales-register' as Page },
+            { icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', label: 'Sales Day Book', page: 'sales-day-book' as Page },
+            { icon: 'M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15', label: 'Sales Return', page: 'sales-return' as Page },
+            { icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8', label: 'Sales Invoice', page: 'sales-invoice' as Page },
           ].map((s, i) => (
             <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
-              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path d={s.icon}/></svg>
               {s.label}
               <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
