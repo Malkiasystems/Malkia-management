@@ -64,17 +64,17 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 8 }}>
           {[
-            { label: 'My Profile', desc: 'Personal details, bank info, documents', page: 'hrm-employees' as const, color: '#6366f1', icon: '👤' },
-            { label: 'My Leave', desc: 'Balance, requests, history', page: 'hrm-leave' as const, color: '#22c55e', icon: '🏖️' },
-            { label: 'My Payslips', desc: 'Monthly salary breakdown & PDFs', page: 'hrm-payslips' as const, color: '#f59e0b', icon: '💰' },
-            { label: 'My Attendance', desc: 'Clock in/out records', page: 'hrm-attendance' as const, color: '#3b82f6', icon: '⏰' },
-            { label: 'My Assets', desc: 'Equipment assigned to you', page: 'hrm-assets' as const, color: '#a78bfa', icon: '💻' },
-            { label: 'Events', desc: 'Upcoming company events', page: 'hrm-events' as const, color: '#f7a6ad', icon: '📅' },
+            { label: 'My Profile', desc: 'Personal details, bank info, documents', page: 'hrm-employees' as const, color: '#6366f1', icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
+            { label: 'My Leave', desc: 'Balance, requests, history', page: 'hrm-leave' as const, color: '#22c55e', icon: 'M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z' },
+            { label: 'My Payslips', desc: 'Monthly salary breakdown & PDFs', page: 'hrm-payslips' as const, color: '#f59e0b', icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
+            { label: 'My Attendance', desc: 'Clock in/out records', page: 'hrm-attendance' as const, color: '#3b82f6', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2' },
+            { label: 'My Assets', desc: 'Equipment assigned to you', page: 'hrm-assets' as const, color: '#a78bfa', icon: 'M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0l1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16' },
+            { label: 'Events', desc: 'Upcoming company events', page: 'hrm-events' as const, color: '#f7a6ad', icon: 'M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z M16 2v4 M8 2v4 M3 10h18' },
           ].map(item => (
             <div key={item.page} className="card" onClick={() => onNav(item.page)} style={{ cursor: 'pointer', borderLeft: `3px solid ${item.color}`, padding: 20 }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
               onMouseLeave={e => (e.currentTarget.style.background = '')}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>{item.icon}</div>
+              <div style={{ marginBottom: 8 }}><svg width="24" height="24" fill="none" stroke={item.color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={item.icon}/></svg></div>
               <div style={{ fontWeight: 800, fontSize: 14 }}>{item.label}</div>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>{item.desc}</div>
             </div>
