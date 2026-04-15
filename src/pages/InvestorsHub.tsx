@@ -517,14 +517,14 @@ export default function InvestorsHub() {
           {/* Quick-post buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
             {([
-              { action: 'share_payment' as EqAction, label: 'Record Share Payment', icon: '💰', color: 'rgba(26,122,74,.1)', border: 'rgba(26,122,74,.3)' },
-              { action: 'ip_contribution' as EqAction, label: 'IP/Non-Cash Contribution', icon: '🏗️', color: 'rgba(37,99,235,.1)', border: 'rgba(37,99,235,.3)' },
-              { action: 'dividend' as EqAction, label: 'Record Dividend', icon: '💸', color: 'rgba(212,135,68,.1)', border: 'rgba(212,135,68,.3)' },
-              { action: 'drawing' as EqAction, label: 'Owner Drawing', icon: '📤', color: 'rgba(192,57,43,.1)', border: 'rgba(192,57,43,.3)' },
+              { action: 'share_payment' as EqAction, label: 'Record Share Payment', icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', color: 'rgba(26,122,74,.1)', border: 'rgba(26,122,74,.3)' },
+              { action: 'ip_contribution' as EqAction, label: 'IP/Non-Cash Contribution', icon: 'M2 20h20 M5 20V9l7-6 7 6v11 M10 20v-6h4v6', color: 'rgba(37,99,235,.1)', border: 'rgba(37,99,235,.3)' },
+              { action: 'dividend' as EqAction, label: 'Record Dividend', icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6 M2 8l4-4 4 4', color: 'rgba(212,135,68,.1)', border: 'rgba(212,135,68,.3)' },
+              { action: 'drawing' as EqAction, label: 'Owner Drawing', icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12', color: 'rgba(192,57,43,.1)', border: 'rgba(192,57,43,.3)' },
             ]).map(item => (
               <button key={item.action} onClick={() => { setEqAction(item.action); setEqForm({ shareholderId: '', amount: '', bankAccount: '', assetDesc: '', date: today() }) }}
                 style={{ background: item.color, border: `1px solid ${item.border}`, borderRadius: 12, padding: '16px', cursor: 'pointer', textAlign: 'left', transition: 'all .15s' }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>{item.icon}</div>
+                <div style={{ marginBottom: 8 }}><svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={item.icon}/></svg></div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{item.label}</div>
               </button>
             ))}

@@ -530,7 +530,7 @@ export default function PnL() {
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '60px 0' }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
+              <div style={{ marginBottom: 12 }}><svg width="40" height="40" fill="none" stroke="var(--text3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></div>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>No budgets set for this month</div>
               <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 20 }}>Set expense budgets to track spending against your plan.</div>
               <button className="btn btn-primary" onClick={openBudgetSetup}>Set Budgets</button>

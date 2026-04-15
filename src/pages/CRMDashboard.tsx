@@ -233,7 +233,7 @@ export default function CRMDashboard({ onNav }: Props) {
       {/* Crown Loyalty Row */}
       <div style={s.grid3}>
         <div style={s.statCard('#fbbf24')}>
-          <div style={s.statLabel}>👑 Crown Members</div>
+          <div style={s.statLabel}>Crown Members</div>
           <div style={{ ...s.statValue, color: '#fbbf24' }}>{stats.crownMembers}</div>
           <div style={s.statChange}>{stats.crownMamaPlus} Plus · {stats.crownMamaCrown} Crown</div>
         </div>
@@ -322,7 +322,7 @@ export default function CRMDashboard({ onNav }: Props) {
                 onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
                 onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
               >
-                <span style={{ fontSize: 20 }}>📦</span>
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>Create Pre-Order</div>
                   <div style={{ fontSize: 11, color: 'var(--text3)' }}>Reserve for customer</div>
@@ -335,7 +335,7 @@ export default function CRMDashboard({ onNav }: Props) {
                 onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
                 onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
               >
-                <span style={{ fontSize: 20 }}>💬</span>
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>View Feedback</div>
                   <div style={{ fontSize: 11, color: 'var(--text3)' }}>Reviews and complaints</div>
@@ -348,7 +348,7 @@ export default function CRMDashboard({ onNav }: Props) {
                 onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
                 onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
               >
-                <span style={{ fontSize: 20 }}>⚙️</span>
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>CRM Settings</div>
                   <div style={{ fontSize: 11, color: 'var(--text3)' }}>Configure loyalty & automation</div>
@@ -359,7 +359,7 @@ export default function CRMDashboard({ onNav }: Props) {
 
           {/* Tier Breakdown */}
           <div style={{ ...s.card, marginTop: 16 }}>
-            <div style={s.cardTitle}>👑 Crown Tiers</div>
+            <div style={s.cardTitle}>Crown Tiers</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

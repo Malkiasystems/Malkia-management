@@ -17,13 +17,13 @@ interface TierConfig {
 }
 
 const TABS = [
-  { id: 'crown', label: 'Crown Loyalty', icon: '👑' },
-  { id: 'referral', label: 'Referrals', icon: '🔗' },
-  { id: 'preorder', label: 'Pre-Orders', icon: '📦' },
-  { id: 'leads', label: 'Leads', icon: '🎯' },
-  { id: 'automation', label: 'Automation', icon: '⚡' },
-  { id: 'scheduling', label: 'Scheduling', icon: '🕐' },
-  { id: 'feedback', label: 'Feedback', icon: '💬' },
+  { id: 'crown', label: 'Crown Loyalty', icon: 'M2 4l3 12h14l3-12-5.5 7L12 3 7.5 11z' },
+  { id: 'referral', label: 'Referrals', icon: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71' },
+  { id: 'preorder', label: 'Pre-Orders', icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },
+  { id: 'leads', label: 'Leads', icon: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
+  { id: 'automation', label: 'Automation', icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' },
+  { id: 'scheduling', label: 'Scheduling', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2' },
+  { id: 'feedback', label: 'Feedback', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
 ]
 
 export default function CRMSettings() {
@@ -823,7 +823,7 @@ export default function CRMSettings() {
             style={s.tab(activeTab === tab.id)}
             onClick={() => setActiveTab(tab.id)}
           >
-            <span>{tab.icon}</span>
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={tab.icon}/></svg>
             {tab.label}
           </button>
         ))}

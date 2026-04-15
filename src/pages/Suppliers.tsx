@@ -537,15 +537,15 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
       {onNav && (
         <div className="shortcut-bar">
           {[
-            { icon: '📋', label: 'Purchase Order', page: 'purchase-order' as Page },
-            { icon: '🚚', label: 'GRN', page: 'grn' as Page },
-            { icon: '🧾', label: 'Purchase Invoice', page: 'purchase-invoice' as Page },
-            { icon: '📊', label: 'AP Aging', page: 'ap-aging' as Page },
-            { icon: '💸', label: 'Cash Payment', page: 'cash-payment' as Page },
-            { icon: '🚢', label: 'Import Order', page: 'import-order' as Page },
+            { icon: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2 M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z M9 12h6 M9 16h6', label: 'Purchase Order', page: 'purchase-order' as Page },
+            { icon: 'M1 3h15v13H1zM16 8h7v13H8v-5', label: 'GRN', page: 'grn' as Page },
+            { icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8', label: 'Purchase Invoice', page: 'purchase-invoice' as Page },
+            { icon: 'M18 20V10M12 20V4M6 20v-6', label: 'AP Aging', page: 'ap-aging' as Page },
+            { icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6', label: 'Cash Payment', page: 'cash-payment' as Page },
+            { icon: 'M2 20h20 M5 20V9l7-6 7 6v11 M10 20v-6h4v6', label: 'Import Order', page: 'import-order' as Page },
           ].map((s, i) => (
             <button key={i} className="shortcut-btn" onClick={() => onNav(s.page)}>
-              <span style={{ fontSize: 13 }}>{s.icon}</span>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path d={s.icon}/></svg>
               {s.label}
               <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
