@@ -12,7 +12,7 @@ export type Page =
   | 'purchase-register' | 'payment-register' | 'stock-transfer-register' | 'customers'
   | 'receipt-template' | 'invoice-template'
   | 'whatsapp-settings' | 'location-settings'
-  | 'inventory-settings' | 'pricelist-template'
+  | 'inventory-settings' | 'pricelist-template' | 'proforma-template'
   | 'banks' | 'settings' | 'data-import' | 'coming-soon' | 'bundles'
   | 'stock-levels' | 'suppliers' | 'stock-movements'
   // CRM Module Pages
