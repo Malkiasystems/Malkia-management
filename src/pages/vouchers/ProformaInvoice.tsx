@@ -333,11 +333,29 @@ export default function ProformaInvoice({ onNav }: Props) {
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Proforma ${lastVoucher?.ref}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;700&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-      <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0;font-family:'Instrument Sans',sans-serif}@media print{body{background:#fff;padding:0}}</style>
-      </head><body>${el.outerHTML}</body></html>`)
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600;700&display=block" rel="stylesheet">
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important}
+        html,body{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+        body{display:flex;justify-content:center;padding:20px;background:#f0f0f0;font-family:'Instrument Sans',sans-serif}
+        @page{size:A4 portrait;margin:0}
+        @media print{
+          body{background:#fff !important;padding:0 !important;margin:0 !important}
+          #malkia-proforma{box-shadow:none !important;border-radius:0 !important;width:100% !important}
+        }
+      </style>
+      </head><body>${el.outerHTML}
+      <script>
+        // Wait for fonts to load before printing — prevents Times New Roman fallback
+        Promise.all([
+          document.fonts ? document.fonts.ready : Promise.resolve(),
+          new Promise(r => setTimeout(r, 1200))
+        ]).then(() => { window.focus(); window.print(); });
+      </script>
+      </body></html>`)
     win.document.close()
-    setTimeout(() => win.print(), 700)
   }
 
   const copyShareLink = () => {
