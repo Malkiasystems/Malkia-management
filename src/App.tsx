@@ -46,6 +46,7 @@ const StockTransferRegister = lazy(() => import('./pages/StockTransferRegister')
 // Settings Pages
 const ReceiptTemplatePage = lazy(() => import('./pages/ReceiptTemplate'))
 const InvoiceTemplatePage = lazy(() => import('./pages/InvoiceTemplate'))
+const ProformaTemplatePage = lazy(() => import('./pages/ProformaTemplate'))
 const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
 const LocationSettings = lazy(() => import('./pages/LocationSettings'))
 const InventorySettings = lazy(() => import('./pages/InventorySettings'))
@@ -75,6 +76,7 @@ const ContraEntry = lazy(() => import('./pages/vouchers/ContraEntry'))
 const PettyCash = lazy(() => import('./pages/vouchers/PettyCash'))
 const CashSale = lazy(() => import('./pages/vouchers/CashSale'))
 const SalesInvoice = lazy(() => import('./pages/vouchers/SalesInvoice'))
+const ProformaInvoice = lazy(() => import('./pages/vouchers/ProformaInvoice'))
 const SalesReturn = lazy(() => import('./pages/vouchers/SalesReturn'))
 const DebitNote = lazy(() => import('./pages/vouchers/DebitNote'))
 const CreditNote = lazy(() => import('./pages/vouchers/CreditNote'))
@@ -373,6 +375,7 @@ function AppContent() {
       case 'payment-register':  return <PaymentRegister />
       case 'receipt-template':  return <ReceiptTemplatePage />
       case 'invoice-template':  return <InvoiceTemplatePage />
+      case 'proforma-template': return <ProformaTemplatePage />
       case 'whatsapp-settings': return <WhatsAppSettings />
       case 'location-settings': return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
@@ -389,6 +392,7 @@ function AppContent() {
       case 'cash-sale':         return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} onNav={navigate} />
       case 'sales':             return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} onNav={navigate} />
       case 'sales-invoice':     return <SalesInvoice onNav={navigate} />
+      case 'proforma':          return <ProformaInvoice onNav={navigate} />
       case 'sales-return':      return <SalesReturn onNav={navigate} />
       case 'debit-note':        return <DebitNote onNav={navigate} />
       case 'credit-note':       return <CreditNote onNav={navigate} />
