@@ -7,6 +7,7 @@
 import { supabase } from './supabase'
 import { nextRef, insertJournalWithRetry } from './refs'
 import { today } from './utils'
+import { postLedgerEntry } from './itemLedger'
 import { PAYMENT_METHODS } from './cashSaleTypes'
 import type { DBProduct, SaleLine, SplitLine, PaymentMethod } from './cashSaleTypes'
 import { logBundleSale } from './useBundles'
@@ -251,8 +252,18 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         await supabase.rpc('deduct_stock_allow_negative', { p_product_id: line.productId, p_qty: line.qty })
       }
 
-      await supabase.from('item_ledger_entries').insert({ product_id: line.productId, entry_type: 'sale', document_type: 'cash_sale', document_ref: ref, posting_date: postingDate, qty: -line.qty, cost_amount: prod.cost_price * line.qty, location_code: locationCode })
       const locObj = locations.find(l => l.code === locationCode)
+      await postLedgerEntry({
+        product_id: line.productId, entry_type: 'sale',
+        document_type: 'cash_sale', document_ref: ref,
+        posting_date: postingDate, qty: -line.qty,
+        cost_amount: prod.cost_price * line.qty,
+        // If locObj is found, helper normalizes both code+id. If not (rare,
+        // stock_locations misconfigured), fall back to code-only so the
+        // entry still writes — helper will warn about partial location.
+        location: locObj || null,
+        location_code: locObj ? undefined : locationCode,
+      })
       if (locObj) {
         // Refresh actual qty from DB after atomic deduction
         const { data: freshProd } = await supabase.from('products').select('qty_on_hand').eq('id', line.productId).single()
