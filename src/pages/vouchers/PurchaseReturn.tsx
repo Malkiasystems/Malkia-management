@@ -5,10 +5,12 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface ReturnLine { productId: string; qty: number; costPrice: number; amount: number }
+interface StockLoc { id: string; code: string; name: string }
 
 export default function PurchaseReturn({ onNav }: Props) {
   const [toast, setToast] = useState('')
@@ -16,21 +18,26 @@ export default function PurchaseReturn({ onNav }: Props) {
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<{id:string;name:string;cost_price:number;qty_on_hand:number}[]>([])
   const [suppliers, setSuppliers] = useState<{id:string;name:string}[]>([])
+  const [locations, setLocations] = useState<StockLoc[]>([])
   const [lines, setLines] = useState<ReturnLine[]>([{ productId: '', qty: 1, costPrice: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: '', supplierId: '', originalGrn: '', reason: 'defective' })
+  const [form, setForm] = useState({ date: today(), ref: '', supplierId: '', originalGrn: '', reason: 'defective', locationCode: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { data: sups }] = await Promise.all([
+    const [{ data: prods }, { data: sups }, { data: locs }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
       supabase.from('suppliers').select('id, name').eq('is_active', true).order('name'),
-      supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'purchase_return'),
+      supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code'),
     ])
     if (prods) setProducts(prods)
     if (sups) setSuppliers(sups)
-
+    if (locs && locs.length > 0) {
+      setLocations(locs)
+      const defaultLoc = locs.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || locs[0]
+      setForm(f => ({ ...f, locationCode: defaultLoc.code }))
+    }
   }
 
   const updateLine = (i: number, field: keyof ReturnLine, val: string | number) => {
@@ -87,16 +94,28 @@ export default function PurchaseReturn({ onNav }: Props) {
       })
 
       // Reduce stock
+      const selectedLoc = locations.find(l => l.code === form.locationCode)
       for (const line of lines) {
         if (!line.productId || !line.qty) continue
         const prod = products.find(p => p.id === line.productId)
         if (!prod) continue
         await supabase.from('products').update({ qty_on_hand: Math.max(0, prod.qty_on_hand - line.qty) }).eq('id', line.productId)
-        await supabase.from('item_ledger_entries').insert({
+        await postLedgerEntry({
           product_id: line.productId, entry_type: 'purchase_return',
           document_type: 'purchase_return', document_ref: form.ref,
           posting_date: form.date, qty: -line.qty, cost_amount: line.costPrice * line.qty,
+          location: selectedLoc || null,
         })
+        // Mirror the outbound return into product_locations
+        if (selectedLoc) {
+          const { data: pl } = await supabase.from('product_locations')
+            .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+          const newLocQty = Math.max(0, (pl?.qty_on_hand ?? 0) - line.qty)
+          await supabase.from('product_locations').upsert(
+            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
+        }
       }
 
       showToast(`${form.ref} posted · Dr AP (2010) / Cr Inventory (1110) · ${tzs(total)}`)
@@ -123,6 +142,12 @@ export default function PurchaseReturn({ onNav }: Props) {
             </select>
           </FG>
           <FG label="Original GRN Ref"><input className="form-input" value={form.originalGrn} onChange={e => set('originalGrn', e.target.value)} placeholder="GRN-0019" /></FG>
+          <FG label="Source Location" req>
+            <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)}>
+              {locations.length === 0 && <option value="">— Loading —</option>}
+              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+            </select>
+          </FG>
         </div>
         <FG label="Return Reason">
           <select className="form-input" value={form.reason} onChange={e => set('reason', e.target.value)}>

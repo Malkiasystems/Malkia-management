@@ -5,10 +5,12 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface OSLine { productId: string; name: string; qty: number; cost: number; amount: number }
+interface StockLocation { id: string; code: string; name: string; branch_code: string }
 
 export default function OpeningStock({ onNav }: Props) {
   const [toast, setToast] = useState('')
@@ -17,19 +19,27 @@ export default function OpeningStock({ onNav }: Props) {
   const [, setProducts] = useState<{id:string;sku:string;name:string;cost_price:number;qty_on_hand:number}[]>([])
   const [alreadyPosted, setAlreadyPosted] = useState(false)
   const [lines, setLines] = useState<OSLine[]>([{ productId: '', name: '', qty: 0, cost: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: 'OST-10-????', notes: '' })
+  const [form, setForm] = useState({ date: today(), ref: 'OST-10-????', notes: '', locationCode: '' })
+  const [locations, setLocations] = useState<StockLocation[]>([])
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { count }] = await Promise.all([
+    const [{ data: prods }, { count }, { data: locs }] = await Promise.all([
       supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
       supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'opening_stock'),
+      supabase.from('stock_locations').select('id, code, name, branch_code').order('code'),
     ])
     if (prods) {
       setProducts(prods)
       setLines(prods.map(p => ({ productId: p.id, name: p.name, qty: p.qty_on_hand || 0, cost: p.cost_price, amount: (p.qty_on_hand || 0) * p.cost_price })))
+    }
+    if (locs && locs.length > 0) {
+      setLocations(locs)
+      // Default to warehouse (1002) if present, otherwise first location
+      const defaultLoc = locs.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || locs[0]
+      setForm(f => ({ ...f, locationCode: defaultLoc.code }))
     }
     if ((count || 0) > 0) setAlreadyPosted(true)
   }
@@ -79,15 +89,24 @@ export default function OpeningStock({ onNav }: Props) {
         notes: form.notes, posted_by: 'Joe Gembe',
       })
 
-      // Update product quantities + item ledger
+      // Update product quantities + item ledger + per-location stock
+      const selectedLoc = locations.find(l => l.code === form.locationCode)
       for (const line of lines) {
         if (!line.productId || !line.qty) continue
         await supabase.from('products').update({ qty_on_hand: line.qty, cost_price: line.cost }).eq('id', line.productId)
-        await supabase.from('item_ledger_entries').insert({
+        await postLedgerEntry({
           product_id: line.productId, entry_type: 'opening_stock',
           document_type: 'opening_stock', document_ref: form.ref,
           posting_date: form.date, qty: line.qty, cost_amount: line.amount,
+          location: selectedLoc || null,
         })
+        // Mirror the opening stock into product_locations so location filters work
+        if (selectedLoc) {
+          await supabase.from('product_locations').upsert(
+            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: line.qty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
+        }
       }
 
       showToast(`${form.ref} posted · ${lines.filter(l=>l.qty>0).length} products · Total value: ${tzs(total)}`)
@@ -114,6 +133,12 @@ export default function OpeningStock({ onNav }: Props) {
         <div className="form-row">
           <FG label="Ref"><input className="form-input" value={form.ref} readOnly  /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
+          <FG label="Location" req>
+            <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)} disabled={alreadyPosted}>
+              {locations.length === 0 && <option value="">— Loading —</option>}
+              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+            </select>
+          </FG>
         </div>
         <FG label="Notes"><input className="form-input" placeholder="e.g. Opening stock as at 1 July 2025" value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>
       </div>

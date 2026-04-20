@@ -4,6 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs, getPostedBy } from '../../lib/utils'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
 import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/whatsapp'
@@ -196,10 +197,12 @@ export default function SalesInvoice({ onNav }: Props) {
           vat_amount: Math.round(line.amount * 18 / 118), total: line.amount,
         })
         await supabase.rpc('deduct_stock_allow_negative', { p_product_id: prod.id, p_qty: line.qty })
-        await supabase.from('item_ledger_entries').insert({
-          product_id: line.productId, entry_type: 'sale', location_code: locationCode,
+        const selectedLoc = locations.find(l => l.code === locationCode)
+        await postLedgerEntry({
+          product_id: line.productId, entry_type: 'sale',
           document_type: 'sales_invoice', document_ref: form.ref,
           posting_date: form.date, qty: -line.qty, cost_amount: prod.cost_price * line.qty,
+          location: selectedLoc || null,
         })
       }
 

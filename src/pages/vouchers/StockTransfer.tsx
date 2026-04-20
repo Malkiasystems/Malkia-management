@@ -5,6 +5,7 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
+import { postLedgerEntries } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -88,11 +89,23 @@ export default function StockTransfer({ onNav }: Props) {
           showToast(`Insufficient stock: ${freshProd.name} · Available: ${freshProd.qty_on_hand}`, 'error')
           setPosting(false); return
         }
-        const { error: leErr } = await supabase.from('item_ledger_entries').insert([
-          { product_id: line.productId, entry_type: 'transfer_out', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: -line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: fromLoc.code },
-          { product_id: line.productId, entry_type: 'transfer_in', document_type: 'stock_transfer', document_ref: form.ref, posting_date: form.date, qty: line.qty, cost_amount: (freshProd.cost_price || 0) * line.qty, location_code: toLoc.code },
+        const result = await postLedgerEntries([
+          {
+            product_id: line.productId, entry_type: 'transfer_out',
+            document_type: 'stock_transfer', document_ref: form.ref,
+            posting_date: form.date, qty: -line.qty,
+            cost_amount: (freshProd.cost_price || 0) * line.qty,
+            location: fromLoc,
+          },
+          {
+            product_id: line.productId, entry_type: 'transfer_in',
+            document_type: 'stock_transfer', document_ref: form.ref,
+            posting_date: form.date, qty: line.qty,
+            cost_amount: (freshProd.cost_price || 0) * line.qty,
+            location: toLoc,
+          },
         ])
-        if (leErr) console.error('item_ledger_entries error:', leErr.message)
+        if (!result.success) console.error('item_ledger_entries error:', result.error)
         // Update product_locations with fresh qty
         const { data: fromPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', fromLoc.code).single()
         const { data: toPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', toLoc.code).single()

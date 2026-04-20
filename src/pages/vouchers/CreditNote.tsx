@@ -7,6 +7,7 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -59,7 +60,20 @@ export default function CreditNote({ onNav }: Props) {
   // Existing credit notes against this invoice (duplicate check)
   const [existingCredits, setExistingCredits] = useState<{ ref: string; total_amount: number }[]>([])
 
-  useEffect(() => { loadNextRef() }, [])
+  // Location — where the returned stock goes back to
+  const [locations, setLocations] = useState<{ id: string; code: string; name: string }[]>([])
+  const [locationCode, setLocationCode] = useState('')
+
+  useEffect(() => { loadNextRef(); loadLocations() }, [])
+
+  const loadLocations = async () => {
+    const { data } = await supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code')
+    if (data && data.length > 0) {
+      setLocations(data)
+      const defaultLoc = data.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || data[0]
+      setLocationCode(defaultLoc.code)
+    }
+  }
 
   const loadNextRef = async () => {
     const ref = await nextRef('credit_note')
@@ -274,17 +288,29 @@ export default function CreditNote({ onNav }: Props) {
 
       // ── RESTORE STOCK (if goods returned) ─
       if (hasInventory && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back')) {
+        const selectedLoc = locations.find(l => l.code === locationCode)
         for (const line of selectedLines) {
           if (!line.productId || line.creditQty <= 0) continue
           // Get current stock
           const { data: prod } = await supabase.from('products').select('qty_on_hand').eq('id', line.productId).single()
           if (prod) {
             await supabase.from('products').update({ qty_on_hand: (prod.qty_on_hand || 0) + line.creditQty }).eq('id', line.productId)
-            await supabase.from('item_ledger_entries').insert({
+            await postLedgerEntry({
               product_id: line.productId, entry_type: 'return',
               document_type: 'credit_note', document_ref: form.ref,
               posting_date: form.date, qty: line.creditQty, cost_amount: line.unitCost * line.creditQty,
+              location: selectedLoc || null,
             })
+            // Mirror back into product_locations so the return lands in the right warehouse
+            if (selectedLoc) {
+              const { data: pl } = await supabase.from('product_locations')
+                .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+              const newLocQty = (pl?.qty_on_hand ?? 0) + line.creditQty
+              await supabase.from('product_locations').upsert(
+                { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+                { onConflict: 'product_id,location_id' }
+              )
+            }
           }
         }
       }
@@ -475,6 +501,16 @@ export default function CreditNote({ onNav }: Props) {
         )}
         {form.reason !== 'Other' && (
           <FG label="Notes"><textarea className="form-input" rows={2} style={{ resize: 'none' }} value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>
+        )}
+
+        {/* Return Location — only relevant when stock is actually coming back */}
+        {hasInventory && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back') && (
+          <FG label="Return Location" req>
+            <select className="form-input" value={locationCode} onChange={e => setLocationCode(e.target.value)}>
+              {locations.length === 0 && <option value="">— Loading —</option>}
+              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+            </select>
+          </FG>
         )}
 
         {/* Inventory Restoration Indicator */}

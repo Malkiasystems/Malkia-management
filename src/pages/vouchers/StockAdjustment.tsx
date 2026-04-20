@@ -5,26 +5,38 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; qty_on_hand: number; cost_price: number }
 interface AdjLine { productId: string; qty: number; reason: string }
+interface StockLocation { id: string; code: string; name: string; branch_code: string }
 
 export default function StockAdjustment({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
+  const [locations, setLocations] = useState<StockLocation[]>([])
   const [lines, setLines] = useState<AdjLine[]>([{ productId: '', qty: 1, reason: '' }])
-  const [form, setForm] = useState({ date: today(), ref: '', type: 'increase', reason: 'count', approvedBy: 'Joe Gembe', notes: '' })
+  const [form, setForm] = useState({ date: today(), ref: '', type: 'increase', reason: 'count', approvedBy: 'Joe Gembe', notes: '', locationCode: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  useEffect(() => { loadProducts(); loadNextRef() }, [])
+  useEffect(() => { loadProducts(); loadLocations(); loadNextRef() }, [])
 
   const loadProducts = async () => {
     const { data } = await supabase.from('products').select('id, sku, name, qty_on_hand, cost_price').eq('is_active', true).order('name')
     if (data) setProducts(data)
+  }
+
+  const loadLocations = async () => {
+    const { data } = await supabase.from('stock_locations').select('id, code, name, branch_code').order('code')
+    if (data && data.length > 0) {
+      setLocations(data)
+      const defaultLoc = data.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || data[0]
+      setForm(f => ({ ...f, locationCode: defaultLoc.code }))
+    }
   }
 
   const loadNextRef = async () => {
@@ -56,6 +68,8 @@ export default function StockAdjustment({ onNav }: Props) {
       })  
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
+      const selectedLoc = locations.find(l => l.code === form.locationCode)
+
       for (const line of lines) {
         if (!line.productId || !line.qty) continue
         const prod = products.find(p => p.id === line.productId)
@@ -67,12 +81,25 @@ export default function StockAdjustment({ onNav }: Props) {
 
         await supabase.from('products').update({ qty_on_hand: newQty }).eq('id', line.productId)
 
-        await supabase.from('item_ledger_entries').insert({
+        await postLedgerEntry({
           product_id: line.productId,
           entry_type: form.type === 'writeoff' ? 'write_off' : form.type === 'increase' ? 'positive_adjustment' : 'negative_adjustment',
           document_type: 'stock_adjustment', document_ref: form.ref,
           posting_date: form.date, qty: qtyChange, cost_amount: costAmount,
+          location: selectedLoc || null,
         })
+
+        // Mirror the adjustment into product_locations so location balances stay accurate
+        if (selectedLoc) {
+          const { data: pl } = await supabase.from('product_locations')
+            .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+          const currentLocQty = pl?.qty_on_hand ?? 0
+          const newLocQty = Math.max(0, currentLocQty + qtyChange)
+          await supabase.from('product_locations').upsert(
+            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
+        }
 
         // Journal for write-offs
         if (form.type === 'writeoff' && writeoffId) {
@@ -128,6 +155,12 @@ export default function StockAdjustment({ onNav }: Props) {
         </div>
         <div className="form-row">
           <FG label="Approved By"><select className="form-input" value={form.approvedBy} onChange={e => set('approvedBy', e.target.value)}><option>Joe Gembe</option><option>Jane Mwatonoka</option></select></FG>
+          <FG label="Location" req>
+            <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)}>
+              {locations.length === 0 && <option value="">— Loading —</option>}
+              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+            </select>
+          </FG>
           <FG label="Notes"><input className="form-input" placeholder="Reason for adjustment" value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>
         </div>
       </div>

@@ -7,10 +7,12 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface ReturnLine { productId: string; name: string; qty: number; salePrice: number; costPrice: number; amount: number }
+interface StockLoc { id: string; code: string; name: string }
 
 export default function SalesReturn({ onNav }: Props) {
   const { isSuperAdmin } = useAuth()
@@ -19,24 +21,29 @@ export default function SalesReturn({ onNav }: Props) {
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<{id:string;name:string;cost_price:number;selling_price:number;qty_on_hand:number}[]>([])
   const [cashAccounts, setCashAccounts] = useState<{id:string;code:string;name:string}[]>([])
+  const [locations, setLocations] = useState<StockLoc[]>([])
   const [lines, setLines] = useState<ReturnLine[]>([{ productId: '', name: '', qty: 1, salePrice: 0, costPrice: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: '', customer: '', wa: '', originalRef: '', reason: 'defective', refundMethod: 'cash', refundAccountId: '' })
+  const [form, setForm] = useState({ date: today(), ref: '', customer: '', wa: '', originalRef: '', reason: 'defective', refundMethod: 'cash', refundAccountId: '', locationCode: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: prods }, { data: cash }] = await Promise.all([
+    const [{ data: prods }, { data: cash }, { data: locs }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name'),
       supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
-      supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'sales_return'),
+      supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code'),
     ])
     if (prods) setProducts(prods)
     if (cash) {
       setCashAccounts(cash)
-      // default to Cash till
       const cashTill = cash.find(a => a.code === '1010')
       if (cashTill) set('refundAccountId', cashTill.id)
+    }
+    if (locs && locs.length > 0) {
+      setLocations(locs)
+      const defaultLoc = locs.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || locs[0]
+      setForm(f => ({ ...f, locationCode: defaultLoc.code }))
     }
     const ref = await nextRef('sales_return')
     setForm(f => ({ ...f, ref }))
@@ -110,16 +117,28 @@ export default function SalesReturn({ onNav }: Props) {
       })
 
       // Restore stock
+      const selectedLoc = locations.find(l => l.code === form.locationCode)
       for (const line of lines) {
         if (!line.productId) continue
         const prod = products.find(p => p.id === line.productId)
         if (!prod) continue
         await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand + line.qty }).eq('id', line.productId)
-        await supabase.from('item_ledger_entries').insert({
+        await postLedgerEntry({
           product_id: line.productId, entry_type: 'return',
           document_type: 'sales_return', document_ref: form.ref,
           posting_date: form.date, qty: line.qty, cost_amount: line.costPrice * line.qty,
+          location: selectedLoc || null,
         })
+        // Mirror the return back into the destination location
+        if (selectedLoc) {
+          const { data: pl } = await supabase.from('product_locations')
+            .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+          const newLocQty = (pl?.qty_on_hand ?? 0) + line.qty
+          await supabase.from('product_locations').upsert(
+            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
+        }
       }
 
       showToast(`${form.ref} posted · Dr Sales Returns / Cr Cash · Stock restored · ${tzs(total)}`)
@@ -158,6 +177,12 @@ export default function SalesReturn({ onNav }: Props) {
               <option value="mpesa">M-Pesa Refund</option>
               <option value="credit">Store Credit</option>
               <option value="exchange">Exchange Only</option>
+            </select>
+          </FG>
+          <FG label="Return Location" req>
+            <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)}>
+              {locations.length === 0 && <option value="">— Loading —</option>}
+              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
             </select>
           </FG>
         </div>

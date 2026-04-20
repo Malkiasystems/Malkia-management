@@ -5,6 +5,7 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -113,6 +114,7 @@ export default function GRN({ onNav }: Props) {
       if (vErr || !voucher) throw new Error(vErr?.message || 'Voucher insert failed')
 
       // Update stock quantities and item ledger
+      const selectedLoc = locations.find(l => l.code === form.location_code)
       for (const line of lines) {
         if (!line.productId) continue
         const prod = products.find(p => p.id === line.productId)
@@ -124,16 +126,27 @@ export default function GRN({ onNav }: Props) {
 
         await supabase.from('products').update({ qty_on_hand: newQty, cost_price: newAvgCost }).eq('id', line.productId)
 
-        await supabase.from('item_ledger_entries').insert({
+        await postLedgerEntry({
           product_id: line.productId,
           entry_type: 'purchase',
           document_type: 'grn',
           document_ref: form.ref,
           posting_date: form.date,
-          location_code: form.location_code,
           qty: line.qty,
           cost_amount: line.amount,
+          location: selectedLoc || null,
         })
+
+        // Mirror the receipt into product_locations so the warehouse balance reflects GRN
+        if (selectedLoc) {
+          const { data: pl } = await supabase.from('product_locations')
+            .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+          const newLocQty = (pl?.qty_on_hand ?? 0) + line.qty
+          await supabase.from('product_locations').upsert(
+            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
+        }
 
         await supabase.from('voucher_lines').insert({
           voucher_id: voucher.id,
