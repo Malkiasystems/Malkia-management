@@ -150,7 +150,7 @@ export default function ChartOfAccounts() {
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
       <title>Account Ledger — ${acct.code} ${acct.name}</title>
       <style>
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap');
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Instrument Sans', sans-serif; background: #fff; color: #1a1a1a; padding: 40px; }
         .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 3px solid #0a0a0a; }
