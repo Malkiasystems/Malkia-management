@@ -64,7 +64,19 @@ export default function CreditNote({ onNav }: Props) {
   const [locations, setLocations] = useState<{ id: string; code: string; name: string }[]>([])
   const [locationCode, setLocationCode] = useState('')
 
-  useEffect(() => { loadNextRef(); loadLocations() }, [])
+  // Recent voucher picker — shows cash sales + invoices for dropdown selection
+  interface RecentVoucher {
+    ref: string
+    type: string
+    posting_date: string
+    total_amount: number
+    customer_name: string
+  }
+  const [recentVouchers, setRecentVouchers] = useState<RecentVoucher[]>([])
+  const [showPicker, setShowPicker] = useState(false)
+  const [pickerSearch, setPickerSearch] = useState('')
+
+  useEffect(() => { loadNextRef(); loadLocations(); loadRecentVouchers() }, [])
 
   const loadLocations = async () => {
     const { data } = await supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code')
@@ -73,6 +85,43 @@ export default function CreditNote({ onNav }: Props) {
       const defaultLoc = data.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || data[0]
       setLocationCode(defaultLoc.code)
     }
+  }
+
+  const loadRecentVouchers = async () => {
+    // Fetch the 50 most recent cash sales + invoices. Adjust the limit up
+    // if power users regularly credit older refs — 50 is a reasonable default.
+    const { data: vs } = await supabase.from('vouchers')
+      .select('ref, type, posting_date, total_amount, customer_id, description')
+      .in('type', ['cash_sale', 'sales_invoice'])
+      .eq('status', 'posted')
+      .order('posting_date', { ascending: false })
+      .limit(50)
+    if (!vs) return
+
+    // Batch-load customer names for any voucher that has a customer_id
+    const custIds = [...new Set(vs.map(v => v.customer_id).filter(Boolean))] as string[]
+    const custMap: Record<string, string> = {}
+    if (custIds.length > 0) {
+      const { data: custs } = await supabase.from('customers').select('id, name').in('id', custIds)
+      custs?.forEach(c => { custMap[c.id] = c.name })
+    }
+
+    const mapped: RecentVoucher[] = vs.map(v => ({
+      ref: v.ref,
+      type: v.type,
+      posting_date: v.posting_date,
+      total_amount: v.total_amount || 0,
+      customer_name: v.customer_id
+        ? (custMap[v.customer_id] || 'Unknown customer')
+        : (v.description?.replace(/^(Cash Sale|Sales Invoice)\s*[—–-]\s*/i, '') || 'Walk-in'),
+    }))
+    setRecentVouchers(mapped)
+  }
+
+  const pickRecentVoucher = async (ref: string) => {
+    setShowPicker(false)
+    setPickerSearch('')
+    await lookupOriginal(ref)
   }
 
   const loadNextRef = async () => {
@@ -340,11 +389,67 @@ export default function CreditNote({ onNav }: Props) {
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
         </div>
 
-        <FG label="Original Sale / Invoice Ref" req>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="form-input" value={form.originalRef} onChange={e => lookupOriginal(e.target.value)}
-              placeholder="e.g. CS-10-0042 or SI-10-0015" style={{ flex: 1 }} />
-            {lookupLoading && <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text3)', fontSize: 11 }}>Searching...</div>}
+        <FG label="Original Sale / Invoice" req>
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                className="form-input"
+                value={form.originalRef}
+                onChange={e => { lookupOriginal(e.target.value); setPickerSearch(e.target.value) }}
+                onFocus={() => setShowPicker(true)}
+                placeholder="Pick from recent sales or type a ref (e.g. CS-10-0042)"
+                style={{ flex: 1, fontFamily: 'var(--mono)' }}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowPicker(!showPicker)}
+                style={{ padding: '0 14px', fontSize: 11 }}
+              >
+                {showPicker ? 'Hide' : 'Browse'}
+              </button>
+              {lookupLoading && <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text3)', fontSize: 11 }}>Searching...</div>}
+            </div>
+
+            {/* Dropdown of recent vouchers, filtered by the search text */}
+            {showPicker && (
+              <>
+                {/* Click-outside backdrop */}
+                <div
+                  onClick={() => setShowPicker(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+                />
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', maxHeight: 320, overflowY: 'auto', zIndex: 50 }}>
+                {(() => {
+                  const q = pickerSearch.trim().toLowerCase()
+                  const filtered = q
+                    ? recentVouchers.filter(v =>
+                        v.ref.toLowerCase().includes(q) ||
+                        v.customer_name.toLowerCase().includes(q)
+                      )
+                    : recentVouchers
+                  if (filtered.length === 0) {
+                    return <div style={{ padding: 14, fontSize: 12, color: 'var(--text3)', textAlign: 'center' }}>No matching vouchers. You can still type the ref manually.</div>
+                  }
+                  return filtered.slice(0, 20).map(v => (
+                    <button
+                      key={v.ref}
+                      type="button"
+                      onClick={() => pickRecentVoucher(v.ref)}
+                      style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto 110px', gap: 10, padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', width: '100%', textAlign: 'left', fontSize: 12, alignItems: 'center' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)' }}>{v.ref}</span>
+                      <span style={{ color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.customer_name}</span>
+                      <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{v.type === 'cash_sale' ? 'CASH' : 'INVOICE'}</span>
+                      <span style={{ fontFamily: 'var(--mono)', textAlign: 'right', color: 'var(--green)', fontWeight: 600 }}>{tzs(v.total_amount)}</span>
+                    </button>
+                  ))
+                })()}
+                </div>
+              </>
+            )}
           </div>
         </FG>
 
