@@ -198,7 +198,7 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
     const win = window.open('', '_blank')
     if (!win) { showToast('Pop-up blocked', 'error'); return }
     win.document.write(`<!DOCTYPE html><html><head><title>Vendor Statement - ${selected.name}</title>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500&family=DM+Sans:wght@500;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box} body{font-family:'DM Sans',sans-serif;color:#222;background:#fff}
       .page{max-width:900px;margin:0 auto}
