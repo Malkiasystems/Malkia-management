@@ -282,11 +282,45 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 // ============================================================================
 
 function AppContent() {
-  const [page, setPage] = useState<Page>('dashboard')
+  // ── URL-based routing helpers ───────────────────────────────────
+  // Pages use window.location.hash as a URL so browser back/forward and
+  // page reload preserve the current view. e.g. .../#/inventory
+  // Nothing about component signatures changed — navigate() still takes
+  // a Page string, it just also updates the hash now.
+  const hashToPage = (): Page => {
+    const raw = window.location.hash.replace(/^#\/?/, '').trim()
+    // Empty hash → dashboard. Any non-empty value is trusted as a Page
+    // because canAccessPage() below will reject invalid/forbidden routes
+    // and fall through to a ComingSoon/access-denied render.
+    return (raw || 'dashboard') as Page
+  }
+  const pageToHash = (p: Page) => {
+    const target = `#/${p}`
+    if (window.location.hash !== target) window.location.hash = target
+  }
+
+  const [page, setPage] = useState<Page>(() => hashToPage())
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
   const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, canAny, isSuperAdmin } = useAuth()
   useInactivityLogout()
+
+  // Keep internal page state in sync with browser back/forward buttons
+  // and manual URL edits. The hashchange event fires for both.
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = hashToPage()
+      setPage(prev => (prev === next ? prev : next))
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  // On first render, if the hash is empty, write the default into it
+  // so reload stays on dashboard rather than "no hash" ambiguity.
+  useEffect(() => {
+    if (!window.location.hash) pageToHash(page)
+  }, [])
 
   // ── HRM Mode: Self vs Company ──────────────────────────
   const [hrmMode, setHrmMode] = useState<HRMViewMode>('self')
@@ -321,6 +355,7 @@ function AppContent() {
   const navigate = (p: Page) => {
     setHistory(h => [...h.slice(-19), page])
     setPage(p)
+    pageToHash(p)
   }
 
   const navigateToEdit = (p: Page, voucherId: string) => {
@@ -333,6 +368,7 @@ function AppContent() {
     const prev = history[history.length - 1]
     setHistory(h => h.slice(0, -1))
     setPage(prev)
+    pageToHash(prev)
   }
 
   // Show loading while checking auth
