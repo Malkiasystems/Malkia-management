@@ -61,7 +61,7 @@ export default function VATReport() {
     const rows = lines.map(l => `<tr><td>${l.posting_date}</td><td style="font-family:'DM Mono',monospace;color:#D48744">${l.ref}</td><td>${l.type.replace(/_/g,' ')}</td><td>${l.description}</td><td class="num">${l.gross.toLocaleString()}</td><td class="num" style="color:#c0392b">${l.vat.toLocaleString()}</td><td class="num">${l.net.toLocaleString()}</td></tr>`).join('')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>VAT Report</title>
       <style>
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap');
         *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Instrument Sans',sans-serif;color:#1a1a1a;padding:40px;font-size:11px}
         .header{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #0a0a0a}
         .logo-area{display:flex;align-items:center;gap:12px}.logo-mark{width:44px;height:44px;background:#0a0a0a;border-radius:10px;display:flex;align-items:center;justify-content:center}.logo-inner{width:24px;height:24px;background:#D48744;border-radius:5px}
