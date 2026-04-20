@@ -1,11 +1,8 @@
 // ─── Item Ledger Helper ────────────────────────────────────────────────────
 // Single source of truth for writing to item_ledger_entries.
 //
-// Why this exists: before this helper, 11 places in the codebase inserted
-// into item_ledger_entries independently. Each one had slightly different
-// field sets — some skipped location_code, some skipped location_id. That
-// inconsistency is what caused the "168 pieces but 0 movements" bug on the
-// U-Shape Pillow (see: DataImport + OpeningStock + StockAdjustment).
+// The ledger table stores location by UUID (location_id). For display,
+// callers join stock_locations to resolve the code and name.
 //
 // Rule: NEVER call supabase.from('item_ledger_entries').insert(...) directly.
 // Always go through postLedgerEntry() or postLedgerEntries() in this file.
@@ -46,18 +43,12 @@ export interface LedgerEntryInput {
   document_ref: string
   posting_date: string        // YYYY-MM-DD
   qty: number                 // positive = stock in, negative = stock out
-  cost_amount: number         // always positive (absolute value of the cost moved)
+  cost_amount: number         // always stored positive
 
-  // Location is STRONGLY RECOMMENDED. Omit only for legacy-compatible calls
-  // that genuinely have no location context (there should be none of these
-  // in a healthy codebase).
-  location_code?: string | null
+  // Location by UUID. Either pass location_id directly, or pass a
+  // { id, code? } object via `location` — both reach the same place.
   location_id?: string | null
-
-  // Optional resolver: if you only have one of (code, id), pass the locations
-  // array and the helper will fill in the other field for you. This is the
-  // preferred way to call from a voucher — pass the loc object once, done.
-  location?: { id: string; code: string } | null
+  location?: { id: string; code?: string } | null
 }
 
 export interface LedgerPostResult {
@@ -68,16 +59,11 @@ export interface LedgerPostResult {
 /**
  * Post a single item ledger entry.
  *
- * Enforces:
- *   - Required fields are present.
- *   - location_code and location_id stay in sync when a `location` object
- *     is provided (prevents the "one but not the other" class of bug).
- *   - cost_amount is non-negative.
- *   - posting_date looks like a date.
+ * Enforces: required fields present, cost_amount non-negative, posting_date
+ * looks like YYYY-MM-DD, qty non-zero.
  *
- * Logs warnings (not throws) when location is omitted entirely, so you
- * can see in the console which call sites still need fixing without
- * breaking production.
+ * Warns (does not throw) when location is omitted — some edge cases like
+ * pure journal reversals may genuinely lack location context.
  */
 export async function postLedgerEntry(input: LedgerEntryInput): Promise<LedgerPostResult> {
   const row = normalize(input)
@@ -129,16 +115,13 @@ interface NormalizedRow {
   posting_date: string
   qty: number
   cost_amount: number
-  location_code: string | null
   location_id: string | null
 }
 
 function normalize(input: LedgerEntryInput): NormalizedRow {
-  // Resolve location: if caller passed a `location` object, use it as the
-  // source of truth. Otherwise fall back to whatever they passed directly.
-  // This is the layer that prevents "code set but id null" drift.
-  const locCode = input.location?.code ?? input.location_code ?? null
-  const locId   = input.location?.id   ?? input.location_id   ?? null
+  // Source of truth for location: prefer the `location` object if provided,
+  // fall back to location_id passed directly.
+  const locId = input.location?.id ?? input.location_id ?? null
 
   return {
     product_id:    input.product_id,
@@ -147,8 +130,7 @@ function normalize(input: LedgerEntryInput): NormalizedRow {
     document_ref:  input.document_ref,
     posting_date:  input.posting_date,
     qty:           input.qty,
-    cost_amount:   Math.abs(input.cost_amount),  // always stored positive
-    location_code: locCode,
+    cost_amount:   Math.abs(input.cost_amount),
     location_id:   locId,
   }
 }
@@ -168,25 +150,13 @@ function validate(row: NormalizedRow): string | null {
     return 'cost_amount must be a non-negative number'
   }
 
-  // Soft warning: if location is entirely missing. Don't block the post —
-  // there may be legitimate edge cases (e.g. pure journal reversals) — but
-  // make it loud enough to notice in dev tools.
-  if (!row.location_code && !row.location_id) {
+  // Soft warning — entry will still post but won't appear under any
+  // location filter. Watch your console in dev.
+  if (!row.location_id) {
     console.warn(
-      '[ledger] posting entry without location. ' +
+      '[ledger] posting entry without location_id. ' +
       `product=${row.product_id} type=${row.entry_type} ref=${row.document_ref}. ` +
       'This entry will not appear under any location filter.'
-    )
-  }
-
-  // Hard rule: if one of (code, id) is set, the other should be too.
-  // Otherwise downstream queries that join on location_id will miss rows
-  // that only have location_code, and vice versa.
-  if (Boolean(row.location_code) !== Boolean(row.location_id)) {
-    console.warn(
-      '[ledger] partial location: one of (code, id) is set but not the other. ' +
-      `code=${row.location_code} id=${row.location_id}. ` +
-      'Pass a full {id, code} object via the `location` param to avoid this.'
     )
   }
 
