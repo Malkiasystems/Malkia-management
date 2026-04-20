@@ -19,7 +19,9 @@ interface StockLocation { id: string; code: string; name: string; branch_code: s
 interface ItemLedgerEntry {
   id: string; entry_type: string; document_type: string; document_ref: string
   posting_date: string; qty: number; cost_amount: number
-  location_code: string; location?: string
+  location_id: string | null
+  location_code: string    // derived from stock_locations join
+  location?: string
   debit_account?: string; credit_account?: string
 }
 
@@ -114,10 +116,21 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
     setView('ledger')
     setLoadingLedger(true)
     const { data } = await supabase.from('item_ledger_entries')
-      .select('id, entry_type, document_type, document_ref, posting_date, qty, cost_amount, location_code, location_id')
+      .select('id, entry_type, document_type, document_ref, posting_date, qty, cost_amount, location_id, stock_locations(code)')
       .eq('product_id', p.id)
       .order('posting_date', { ascending: false })
-    if (data) setLedgerEntries(data.map(e => ({ ...e, location: e.location_code || '' })) as ItemLedgerEntry[])
+    if (data) {
+      const mapped = data.map((e: any) => {
+        const code = e.stock_locations?.code || ''
+        return {
+          id: e.id, entry_type: e.entry_type, document_type: e.document_type,
+          document_ref: e.document_ref, posting_date: e.posting_date,
+          qty: e.qty, cost_amount: e.cost_amount, location_id: e.location_id,
+          location_code: code, location: code,
+        } as ItemLedgerEntry
+      })
+      setLedgerEntries(mapped)
+    }
     setLoadingLedger(false)
   }
 
