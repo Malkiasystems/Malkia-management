@@ -33,7 +33,7 @@ const MALKIA_PDF_HEADER = (title: string, subtitle: string, date: string) => `
 </div>`
 
 const PDF_BASE_STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap');
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Instrument Sans', sans-serif; background: #fff; color: #1a1a1a; padding: 40px; font-size: 12px; }
 .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; padding-bottom: 18px; border-bottom: 3px solid #0a0a0a; }
