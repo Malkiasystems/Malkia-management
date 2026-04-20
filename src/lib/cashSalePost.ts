@@ -258,11 +258,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         document_type: 'cash_sale', document_ref: ref,
         posting_date: postingDate, qty: -line.qty,
         cost_amount: prod.cost_price * line.qty,
-        // If locObj is found, helper normalizes both code+id. If not (rare,
-        // stock_locations misconfigured), fall back to code-only so the
-        // entry still writes — helper will warn about partial location.
         location: locObj || null,
-        location_code: locObj ? undefined : locationCode,
       })
       if (locObj) {
         // Refresh actual qty from DB after atomic deduction
