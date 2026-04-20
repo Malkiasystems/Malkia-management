@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
+import { postLedgerEntry } from '../lib/itemLedger'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -391,6 +392,10 @@ async function writeCustomers(rows: MappedRow[]): Promise<{ ok: number; failed: 
 
 async function writeProducts(rows: MappedRow[], locations: StockLocation[]): Promise<{ ok: number; failed: number; errors: string[] }> {
   let ok = 0; let failed = 0; const errors: string[] = []
+  // One shared import ref per batch so the audit trail groups entries together
+  const importRef = `IMPORT-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '').slice(0, 12)}`
+  const importDate = new Date().toISOString().slice(0, 10)
+
   for (const row of rows) {
     const coerced = coerceRow(row, 'products', locations)
 
@@ -412,13 +417,14 @@ async function writeProducts(rows: MappedRow[], locations: StockLocation[]): Pro
       if (qty > 0) { locEntries.push({ loc, qty }); locTotal += qty }
     }
     const totalQty = locTotal > 0 ? locTotal : ((coerced['qty_on_hand'] as number) || 0)
+    const costPrice = (coerced['cost_price'] as number) ?? 0
 
     const payload: Record<string, unknown> = {
       is_active: true, sku,
       name:          coerced['name'] || '',
       category:      coerced['category'] || 'General',
       unit:          coerced['unit'] || 'Piece',
-      cost_price:    coerced['cost_price'] ?? 0,
+      cost_price:    costPrice,
       selling_price: coerced['selling_price'] ?? 0,
       reorder_point: coerced['reorder_point'] ?? 5,
       qty_on_hand:   totalQty,
@@ -426,24 +432,59 @@ async function writeProducts(rows: MappedRow[], locations: StockLocation[]): Pro
     if (coerced['barcode']) payload['barcode'] = coerced['barcode']
     if (coerced['brand'])   payload['brand']   = coerced['brand']
 
+    // Check if product existed before (to detect newly-created vs updated)
+    const { data: existing } = await supabase
+      .from('products').select('id, qty_on_hand').eq('sku', sku).maybeSingle()
+    const isNewProduct = !existing
+
     const { data: prod, error: pe } = await supabase
       .from('products').upsert(payload, { onConflict: 'sku' }).select('id').single()
 
     if (pe) { failed++; errors.push(`${sku}: ${pe.message}`); continue }
 
-    // Write per-location stock
+    // Write per-location stock AND item ledger entries for audit trail
     if (prod) {
+      // Only write opening-stock ledger entries for brand-new products with qty.
+      // Existing products' ledger history should not be touched by re-imports.
+      const writeLedger = isNewProduct && totalQty > 0
+
       if (locEntries.length > 0) {
         for (const { loc, qty } of locEntries) {
           await supabase.from('product_locations').upsert({
             product_id: prod.id, location_id: loc.id, location_code: loc.code, qty_on_hand: qty,
           }, { onConflict: 'product_id,location_id' })
+
+          if (writeLedger) {
+            await postLedgerEntry({
+              product_id: prod.id,
+              entry_type: 'opening_stock',
+              document_type: 'data_import',
+              document_ref: importRef,
+              posting_date: importDate,
+              qty,
+              cost_amount: qty * costPrice,
+              location: { id: loc.id, code: loc.code },
+            })
+          }
         }
       } else if (totalQty > 0 && locations.length > 0) {
         const defLoc = locations.find(l => l.code.includes('FO') || l.code.endsWith('01')) || locations[0]
         await supabase.from('product_locations').upsert({
           product_id: prod.id, location_id: defLoc.id, location_code: defLoc.code, qty_on_hand: totalQty,
         }, { onConflict: 'product_id,location_id' })
+
+        if (writeLedger) {
+          await postLedgerEntry({
+            product_id: prod.id,
+            entry_type: 'opening_stock',
+            document_type: 'data_import',
+            document_ref: importRef,
+            posting_date: importDate,
+            qty: totalQty,
+            cost_amount: totalQty * costPrice,
+            location: { id: defLoc.id, code: defLoc.code },
+          })
+        }
       }
     }
     ok++
