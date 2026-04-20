@@ -335,7 +335,7 @@ export default function ProformaInvoice({ onNav }: Props) {
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Proforma ${lastVoucher?.ref}</title>
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600;700&display=block" rel="stylesheet">
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600;700&display=block" rel="stylesheet">
       <style>
         *{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important}
         html,body{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
@@ -410,10 +410,11 @@ _Malkia Wellness Group Ltd_`
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'
     script.onload = () => {
       // @ts-expect-error html2canvas loaded via CDN
-      window.html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' }).then((canvas: HTMLCanvasElement) => {
+      window.html2canvas(el, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff' }).then((canvas: HTMLCanvasElement) => {
         const link = document.createElement('a')
-        link.download = `Proforma-${lastVoucher?.ref}.png`
-        link.href = canvas.toDataURL('image/png')
+        link.download = `Proforma-${lastVoucher?.ref}.jpg`
+        // JPEG at 0.85 quality — ~80% smaller than lossless PNG, visually identical for business docs
+        link.href = canvas.toDataURL('image/jpeg', 0.85)
         link.click()
         showToast('Image downloaded')
       })
