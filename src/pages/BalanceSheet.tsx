@@ -13,7 +13,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 }
 
 const PDF_STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Instrument Sans',sans-serif;color:#1a1a1a;padding:40px;font-size:12px}
 .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:18px;border-bottom:3px solid #0a0a0a}
 .logo-area{display:flex;align-items:center;gap:14px}.logo-mark{width:48px;height:48px;background:#0a0a0a;border-radius:12px;display:flex;align-items:center;justify-content:center}.logo-inner{width:26px;height:26px;background:#D48744;border-radius:6px}
