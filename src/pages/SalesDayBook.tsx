@@ -52,7 +52,7 @@ export default function SalesDayBook({ onEdit }: Props) {
     let query = supabase
       .from('vouchers')
       .select(`
-        id, ref, posting_date, description, total_amount, subtotal,
+        id, ref, type, posting_date, description, total_amount, subtotal,
         payment_method, payment_split, status, notes, posted_by,
         customers (name, whatsapp, pregnancy_stage, crown_points),
         voucher_lines (
@@ -351,7 +351,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                 </thead>
                 <tbody>
                   {filtered.map((s, i) => (
-                    <tr key={i} onClick={() => onEdit?.('cash-sale', s.id)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                    <tr key={i} onClick={() => onEdit?.(s.type === 'sales_invoice' ? 'sales-invoice' : 'cash-sale', s.id)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
                       <td className="td-mono" style={{ color: 'var(--text3)', fontSize: 11 }}>{s.posting_date}</td>
                       <td className="td-mono td-amber">{s.ref}</td>
                       <td className="td-bold">{(s.customers as any)?.name || '—'}</td>
