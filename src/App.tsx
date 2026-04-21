@@ -79,6 +79,7 @@ const InvestorsHub = lazy(() => import('./pages/InvestorsHub'))
 const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
 const CashPayment = lazy(() => import('./pages/vouchers/CashPayment'))
 const CashReceipt = lazy(() => import('./pages/vouchers/CashReceipt'))
+const BankReceipt = lazy(() => import('./pages/vouchers/BankReceipt'))
 const BankTransfer = lazy(() => import('./pages/vouchers/BankTransfer'))
 const ContraEntry = lazy(() => import('./pages/vouchers/ContraEntry'))
 const PettyCash = lazy(() => import('./pages/vouchers/PettyCash'))
@@ -430,7 +431,7 @@ function AppContent() {
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'bank-payment':      return <CashPayment onNav={navigate} />
       case 'cash-receipt':      return <CashReceipt onNav={navigate} />
-      case 'bank-receipt':      return <CashReceipt onNav={navigate} />
+      case 'bank-receipt':      return <BankReceipt onNav={navigate} />
       case 'bank-transfer':     return <BankTransfer onNav={navigate} />
       case 'petty-cash':        return <PettyCash onNav={navigate} />
       case 'contra':            return <ContraEntry onNav={navigate} />
