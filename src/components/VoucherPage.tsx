@@ -15,6 +15,11 @@ interface VoucherPageProps {
   onPost: () => void
   onDraft?: () => void
   postLabel?: string
+  // When true, the Post button is shown but cannot be clicked. The voucher
+  // uses this to block posting until required fields (e.g. customer) are set.
+  postDisabled?: boolean
+  // Optional tooltip shown on the disabled button so the user understands why.
+  postDisabledReason?: string
   journalNote?: string
   shortcuts?: Shortcut[]
   onNav?: (p: Page) => void
@@ -22,7 +27,9 @@ interface VoucherPageProps {
 
 export default function VoucherPage({
   title, icon, subtitle, color, children,
-  onPost, onDraft, postLabel = 'Post Voucher', journalNote,
+  onPost, onDraft, postLabel = 'Post Voucher',
+  postDisabled = false, postDisabledReason,
+  journalNote,
   shortcuts, onNav
 }: VoucherPageProps) {
   return (
@@ -41,7 +48,13 @@ export default function VoucherPage({
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" onClick={onDraft} style={{ display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>Save Draft</button>
-          <button className="btn btn-primary" onClick={onPost}>{postLabel}</button>
+          <button
+            className="btn btn-primary"
+            onClick={onPost}
+            disabled={postDisabled}
+            title={postDisabled ? postDisabledReason : undefined}
+            style={postDisabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+          >{postLabel}</button>
         </div>
       </div>
 
