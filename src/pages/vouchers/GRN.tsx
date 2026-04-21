@@ -3,9 +3,11 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
+import DraftBanner from '../../components/DraftBanner'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -24,11 +26,37 @@ export default function GRN({ onNav }: Props) {
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
+  // ─── Draft persistence ─────────────────────────────────────────────────
+  type GRNDraft = { form: typeof form; lines: GRNLine[] }
+  const {
+    availableDraft, draftAgeMs,
+    saveDraft, clearDraft, acknowledgeResume, discardDraft,
+  } = useVoucherDraft<GRNDraft>('grn', false)
+
+  const resumeDraft = () => {
+    if (!availableDraft) return
+    setForm(availableDraft.form)
+    setLines(availableDraft.lines)
+    acknowledgeResume()
+  }
+
   useEffect(() => {
     loadProducts(); loadSuppliers(); loadNextRef()
     supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code')
       .then(({data}) => { if(data) { setLocations(data); const wh = data.find((l:any) => l.code === '1002'); if(wh) set('location_code', wh.code) } })
   }, [])
+
+  // Auto-save — skip while ref is still initializing and while truly empty
+  useEffect(() => {
+    if (!form.ref || form.ref.includes('????')) return
+    const hasAnything =
+      form.supplier.trim().length > 0 ||
+      form.poRef.trim().length > 0 ||
+      form.notes.trim().length > 0 ||
+      lines.some(l => l.productId || l.qty !== 1 || l.unitCost > 0)
+    if (!hasAnything) return
+    saveDraft({ form, lines })
+  }, [form, lines, saveDraft])
 
   const loadProducts = async () => {
     const { data } = await supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).order('name')
@@ -160,6 +188,7 @@ export default function GRN({ onNav }: Props) {
       }
 
       showToast(`${form.ref} posted · Dr Inventory / Cr GRN Interim · Stock updated · Avg cost recalculated`)
+      clearDraft()
       onNav('vouchers')
 
     } catch (err: any) {
@@ -173,6 +202,10 @@ export default function GRN({ onNav }: Props) {
     <VoucherPage title="Goods Received Note (GRN)" icon="" subtitle="Record goods received — updates stock and average cost" color="rgba(251,146,60,.12)"
       onPost={post} postLabel={posting ? 'Posting…' : 'Confirm GRN & Update Stock'}
       journalNote="Dr Inventory (1110) · Cr GRN Interim (1121) · Stock qty increases · Weighted avg cost recalculates">
+
+      {availableDraft && draftAgeMs !== null && (
+        <DraftBanner draftAgeMs={draftAgeMs} onResume={resumeDraft} onDiscard={discardDraft} />
+      )}
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
