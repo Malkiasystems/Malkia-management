@@ -39,7 +39,7 @@ const PAYMENT_METHODS_BANK = [
   { value: 'swift',   label: 'SWIFT (International)' },
 ]
 
-export default function CashReceipt({ onNav, variant = 'cash' }: Props) {
+export default function CashReceipt({ onNav: _onNav, variant = 'cash' }: Props) {
   const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -95,6 +95,24 @@ export default function CashReceipt({ onNav, variant = 'cash' }: Props) {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const paymentMethods = variant === 'bank' ? PAYMENT_METHODS_BANK : PAYMENT_METHODS_CASH
+
+  // Reset the form after a successful post. Keeps the user on the same page
+  // with a clean slate — no page reload, no scroll jump, no lost toast.
+  const resetFormAfterPost = async () => {
+    const newRef = await nextRef('cash_receipt')
+    setReceiptType('customer')
+    setForm(f => ({
+      ...f,
+      ref: newRef,
+      amount: '',
+      transactionId: '',
+      narration: '',
+      otherReceivedFrom: '',
+      otherIncomeAccountId: '',
+      // keep: date, method, depositAccountId — likely reused for next receipt
+    }))
+    setPaymentState({ selectedCustomer: null, allocatedTotal: 0, unallocatedCredit: 0, allocations: [] })
+  }
 
   const post = async () => {
     const amount = parseFloat(form.amount) || 0
@@ -174,7 +192,7 @@ export default function CashReceipt({ onNav, variant = 'cash' }: Props) {
           ? `${form.ref} posted · ${allocCount} invoice${allocCount > 1 ? 's' : ''} settled · TZS ${paymentState.allocatedTotal.toLocaleString()}`
           : `${form.ref} posted · TZS ${amount.toLocaleString()} credit on account`
       )
-      setTimeout(() => { onNav(variant === 'bank' ? 'bank-receipt' : 'cash-receipt'); window.location.reload() }, 900)
+      await resetFormAfterPost()
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
@@ -213,7 +231,7 @@ export default function CashReceipt({ onNav, variant = 'cash' }: Props) {
       })
 
       showToast(`${form.ref} posted · Dr ${variant === 'bank' ? 'Bank' : 'Cash'} · Cr Income`)
-      setTimeout(() => { onNav(variant === 'bank' ? 'bank-receipt' : 'cash-receipt'); window.location.reload() }, 900)
+      await resetFormAfterPost()
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
