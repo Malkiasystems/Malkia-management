@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react'
 import Toast from '../components/Toast'
+import {
+  useSettings, applyTheme as applyThemeGlobal,
+  applyFontSize as applyFontSizeGlobal,
+  applyBorderRadius as applyBorderRadiusGlobal,
+  cacheDisplayLocally,
+} from '../lib/settingsLoader'
+import { DEFAULT_DISPLAY } from '../lib/settingsDefaults'
 
 // Theme definitions
 const THEMES = {
@@ -175,69 +182,81 @@ const RADIUS_OPTIONS = [
 ]
 
 export default function DisplaySettings() {
+  const { settings, updateSlice } = useSettings()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
-  const [currentTheme, setCurrentTheme] = useState<ThemeKey>('midnight')
-  const [fontSize, setFontSize] = useState(14)
-  const [borderRadius, setBorderRadius] = useState(10)
-  const [animationsEnabled, setAnimationsEnabled] = useState(true)
-  const [compactMode, setCompactMode] = useState(false)
-  const [showGridLines, setShowGridLines] = useState(true)
-  const [highlightOnHover, setHighlightOnHover] = useState(true)
-  const [monoNumbers, setMonoNumbers] = useState(true)
-  const [stickyHeaders, setStickyHeaders] = useState(true)
+  const [saving, setSaving] = useState(false)
 
+  // Local draft state — initialized from the shared settings, updated as
+  // the user tweaks controls. Saved back via updateSlice().
+  const [currentTheme, setCurrentTheme] = useState<ThemeKey>(settings.display.theme as ThemeKey)
+  const [fontSize, setFontSize] = useState(settings.display.font_size)
+  const [borderRadius, setBorderRadius] = useState(settings.display.border_radius)
+  const [animationsEnabled, setAnimationsEnabled] = useState(settings.display.animations_enabled)
+  const [compactMode, setCompactMode] = useState(settings.display.compact_mode)
+  const [showGridLines, setShowGridLines] = useState(settings.display.show_grid_lines)
+  const [highlightOnHover, setHighlightOnHover] = useState(settings.display.highlight_on_hover)
+  const [monoNumbers, setMonoNumbers] = useState(settings.display.mono_numbers)
+  const [stickyHeaders, setStickyHeaders] = useState(settings.display.sticky_headers)
+
+  // Keep local draft in sync when global settings change (e.g. another tab
+  // saves, or useSettings() hydrates after initial load)
   useEffect(() => {
-    const saved = localStorage.getItem('malkia_display_settings')
-    if (saved) {
-      try {
-        const s = JSON.parse(saved)
-        if (s.theme) { setCurrentTheme(s.theme); applyTheme(s.theme) }
-        if (s.fontSize) { setFontSize(s.fontSize); applyFontSize(s.fontSize) }
-        if (s.borderRadius !== undefined) { setBorderRadius(s.borderRadius); applyBorderRadius(s.borderRadius) }
-        if (s.animationsEnabled !== undefined) setAnimationsEnabled(s.animationsEnabled)
-        if (s.compactMode !== undefined) setCompactMode(s.compactMode)
-        if (s.showGridLines !== undefined) setShowGridLines(s.showGridLines)
-        if (s.highlightOnHover !== undefined) setHighlightOnHover(s.highlightOnHover)
-        if (s.monoNumbers !== undefined) setMonoNumbers(s.monoNumbers)
-        if (s.stickyHeaders !== undefined) setStickyHeaders(s.stickyHeaders)
-      } catch {}
-    }
-  }, [])
+    setCurrentTheme(settings.display.theme as ThemeKey)
+    setFontSize(settings.display.font_size)
+    setBorderRadius(settings.display.border_radius)
+    setAnimationsEnabled(settings.display.animations_enabled)
+    setCompactMode(settings.display.compact_mode)
+    setShowGridLines(settings.display.show_grid_lines)
+    setHighlightOnHover(settings.display.highlight_on_hover)
+    setMonoNumbers(settings.display.mono_numbers)
+    setStickyHeaders(settings.display.sticky_headers)
+  }, [settings.display])
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
-  const applyTheme = (themeKey: ThemeKey) => {
-    const theme = THEMES[themeKey]
-    if (!theme) return
-    Object.entries(theme.vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
+  // Live preview — apply to DOM while user is still tweaking controls.
+  // Saving persists; previewing does not.
+  const handleThemeChange = (k: ThemeKey) => { setCurrentTheme(k); applyThemeGlobal(k) }
+  const handleFontSizeChange = (s: number) => { setFontSize(s); applyFontSizeGlobal(s) }
+  const handleRadiusChange = (r: number) => { setBorderRadius(r); applyBorderRadiusGlobal(r) }
+
+  const saveSettings = async () => {
+    setSaving(true)
+    const next = {
+      theme: currentTheme, font_size: fontSize, border_radius: borderRadius,
+      animations_enabled: animationsEnabled, compact_mode: compactMode,
+      show_grid_lines: showGridLines, highlight_on_hover: highlightOnHover,
+      mono_numbers: monoNumbers, sticky_headers: stickyHeaders,
+    }
+    const ok = await updateSlice('display', next)
+    if (ok) {
+      cacheDisplayLocally(next)   // fast-boot cache for the next reload
+      showToast('Display settings saved · Changes apply across all devices')
+    } else {
+      showToast('Save failed — changes may not persist', 'error')
+    }
+    setSaving(false)
   }
 
-  const applyFontSize = (size: number) => { document.documentElement.style.fontSize = `${size}px` }
-  const applyBorderRadius = (r: number) => {
-    document.documentElement.style.setProperty('--r', `${r}px`)
-    document.documentElement.style.setProperty('--rl', `${r + 6}px`)
-  }
-
-  const handleThemeChange = (k: ThemeKey) => { setCurrentTheme(k); applyTheme(k) }
-  const handleFontSizeChange = (s: number) => { setFontSize(s); applyFontSize(s) }
-  const handleRadiusChange = (r: number) => { setBorderRadius(r); applyBorderRadius(r) }
-
-  const saveSettings = () => {
-    localStorage.setItem('malkia_display_settings', JSON.stringify({
-      theme: currentTheme, fontSize, borderRadius, animationsEnabled, compactMode,
-      showGridLines, highlightOnHover, monoNumbers, stickyHeaders,
-    }))
-    showToast('Display settings saved')
-  }
-
-  const resetDefaults = () => {
-    setCurrentTheme('midnight'); setFontSize(14); setBorderRadius(10)
-    setAnimationsEnabled(true); setCompactMode(false); setShowGridLines(true)
-    setHighlightOnHover(true); setMonoNumbers(true); setStickyHeaders(true)
-    applyTheme('midnight'); applyFontSize(14); applyBorderRadius(10)
-    localStorage.removeItem('malkia_display_settings')
-    showToast('Settings reset to defaults')
+  const resetDefaults = async () => {
+    setCurrentTheme(DEFAULT_DISPLAY.theme as ThemeKey)
+    setFontSize(DEFAULT_DISPLAY.font_size)
+    setBorderRadius(DEFAULT_DISPLAY.border_radius)
+    setAnimationsEnabled(DEFAULT_DISPLAY.animations_enabled)
+    setCompactMode(DEFAULT_DISPLAY.compact_mode)
+    setShowGridLines(DEFAULT_DISPLAY.show_grid_lines)
+    setHighlightOnHover(DEFAULT_DISPLAY.highlight_on_hover)
+    setMonoNumbers(DEFAULT_DISPLAY.mono_numbers)
+    setStickyHeaders(DEFAULT_DISPLAY.sticky_headers)
+    applyThemeGlobal(DEFAULT_DISPLAY.theme)
+    applyFontSizeGlobal(DEFAULT_DISPLAY.font_size)
+    applyBorderRadiusGlobal(DEFAULT_DISPLAY.border_radius)
+    const ok = await updateSlice('display', DEFAULT_DISPLAY)
+    if (ok) {
+      cacheDisplayLocally(DEFAULT_DISPLAY)
+      showToast('Settings reset to defaults')
+    }
   }
 
   const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
@@ -255,7 +274,7 @@ export default function DisplaySettings() {
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn btn-ghost" onClick={resetDefaults}>Reset Defaults</button>
-          <button className="btn btn-primary" onClick={saveSettings}>Save Settings</button>
+          <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>{saving ? 'Saving…' : 'Save Settings'}</button>
         </div>
       </div>
 
