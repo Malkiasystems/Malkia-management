@@ -11,7 +11,7 @@ const VOUCHER_PAGES: Page[] = [
   'stock-adjustment', 'stock-transfer', 'journal-entry'
 ]
 
-const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note']
+const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-invoices-list', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note']
 
 const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers']
 
@@ -37,10 +37,11 @@ const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
 ]
 
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
-  { label: 'Cash Sale',     page: 'cash-sale',      icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
-  { label: 'Sales Invoice', page: 'sales-invoice',   icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
-  { label: 'Day Book',      page: 'sales-day-book',  icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
-  { label: 'Register',      page: 'sales-register',  icon: 'M18 20V10M12 20V4M6 20v-6' },
+  { label: 'Cash Sale',     page: 'cash-sale',           icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
+  { label: 'Sales Invoice', page: 'sales-invoice',        icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
+  { label: 'Invoices',      page: 'sales-invoices-list',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13h6 M9 17h6' },
+  { label: 'Day Book',      page: 'sales-day-book',       icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
+  { label: 'Register',      page: 'sales-register',       icon: 'M18 20V10M12 20V4M6 20v-6' },
 ]
 
 const CRM_SUB: { label: string; page: Page; icon: string }[] = [
