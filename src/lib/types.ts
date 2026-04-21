@@ -7,7 +7,7 @@ export type Page =
   | 'purchase-order' | 'grn' | 'purchase-invoice' | 'purchase-return'
   | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry' | 'import-order'
   | 'sales' | 'inventory' | 'reports' | 'pnl'
-  | 'sales-register' | 'sales-day-book' | 'trial-balance' | 'balance-sheet'
+  | 'sales-register' | 'sales-day-book' | 'sales-invoices-list' | 'trial-balance' | 'balance-sheet'
   | 'ar-aging' | 'ap-aging' | 'stock-valuation'
   | 'purchase-register' | 'payment-register' | 'stock-transfer-register' | 'customers'
   | 'receipt-template' | 'invoice-template'
