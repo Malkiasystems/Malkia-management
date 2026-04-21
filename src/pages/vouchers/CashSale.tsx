@@ -17,6 +17,8 @@ import { PAYMENT_METHODS } from '../../lib/cashSaleTypes'
 import type { DBProduct, DBCustomer, SaleLine, SplitLine, PaymentMethod } from '../../lib/cashSaleTypes'
 import type { Page } from '../../lib/types'
 import { postCashSale, updateCashSale } from '../../lib/cashSalePost'
+import { useVoucherDraft } from '../../lib/useVoucherDraft'
+import DraftBanner from '../../components/DraftBanner'
 
 interface Props {
   editVoucherId?: string | null
@@ -84,6 +86,48 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [pageLoading, setPageLoading] = useState(true)
   const { getCache, setCache, isStale } = useDataCache()
 
+  // ─── Draft persistence ──────────────────────────────────────────────────
+  type CashSaleDraft = {
+    waInput: string
+    newCustName: string
+    selectedCust: DBCustomer | null
+    lines: SaleLine[]
+    selectedMethod: string
+    isSplit: boolean
+    splitLines: SplitLine[]
+    tendered: string
+    paymentRef: string
+    isPOD: boolean
+    showDelivery: boolean
+    townDelivery: string
+    upcountryShipping: string
+    locationCode: string
+  }
+  const {
+    availableDraft, draftAgeMs,
+    saveDraft, clearDraft, acknowledgeResume, discardDraft,
+  } = useVoucherDraft<CashSaleDraft>('cash-sale', !!editVoucherId)
+
+  const resumeDraft = () => {
+    if (!availableDraft) return
+    setWaInput(availableDraft.waInput)
+    setNewCustName(availableDraft.newCustName)
+    setSelectedCust(availableDraft.selectedCust)
+    setLines(availableDraft.lines)
+    setSelectedMethod(availableDraft.selectedMethod)
+    setIsSplit(availableDraft.isSplit)
+    setSplitLines(availableDraft.splitLines)
+    setTendered(availableDraft.tendered)
+    setPaymentRef(availableDraft.paymentRef)
+    setIsPOD(availableDraft.isPOD)
+    setShowDelivery(availableDraft.showDelivery)
+    setTownDelivery(availableDraft.townDelivery)
+    setUpcountryShipping(availableDraft.upcountryShipping)
+    setLocationCode(availableDraft.locationCode)
+    acknowledgeResume()
+    setShowModal(true)  // auto-open the modal so the user sees the restored form
+  }
+
   useEffect(() => {
     const loadInitialData = async () => {
       setPageLoading(true)
@@ -130,6 +174,30 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [editVoucherId])
+
+  // Auto-save draft. Debounced internally by the hook. Skip while loading
+  // or in edit mode, and skip when form is truly empty (no customer, no
+  // meaningful lines).
+  useEffect(() => {
+    if (editVoucherId) return
+    if (pageLoading) return
+    const hasAnything =
+      !!selectedCust ||
+      waInput.trim().length > 0 ||
+      newCustName.trim().length > 0 ||
+      lines.some(l => l.productId || l.qty !== 1 || l.price > 0)
+    if (!hasAnything) return
+    saveDraft({
+      waInput, newCustName, selectedCust, lines,
+      selectedMethod, isSplit, splitLines, tendered, paymentRef, isPOD,
+      showDelivery, townDelivery, upcountryShipping, locationCode,
+    })
+  }, [
+    waInput, newCustName, selectedCust, lines,
+    selectedMethod, isSplit, splitLines, tendered, paymentRef, isPOD,
+    showDelivery, townDelivery, upcountryShipping, locationCode,
+    editVoucherId, pageLoading, saveDraft,
+  ])
 
   // Load existing voucher for editing
   const loadExistingVoucher = async (voucherId: string) => {
@@ -351,6 +419,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     }
 
     showToast(`${result.ref} posted · ${result.isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
+    clearDraft()  // posted successfully — no draft to recover
 
     if (!result.isPOD && result.receiptData) {
       setLastVoucher(result.receiptData)
@@ -447,6 +516,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
           <button className="btn btn-primary" onClick={openNewSale} style={{ padding: '10px 20px', fontSize: 14, fontWeight: 700 }}>+ New Cash Sale</button>
         </div>
       </div>
+
+      {/* Draft resume banner — auto-opens the sale modal if user clicks Resume */}
+      {availableDraft && draftAgeMs !== null && (
+        <DraftBanner
+          draftAgeMs={draftAgeMs}
+          onResume={resumeDraft}
+          onDiscard={discardDraft}
+        />
+      )}
 
       {/* SHORTCUTS */}
       {onNav && (
