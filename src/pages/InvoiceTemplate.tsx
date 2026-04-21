@@ -213,12 +213,6 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
             <span style={{ fontFamily: display, fontSize: 13, fontWeight: 800, color: '#1a1a1a' }}>Invoice Total</span>
             <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800, color: '#1a1a1a' }}>TZS {total.toLocaleString()}</span>
           </div>
-          {cust && s.show_outstanding_balance && prevBalance > 0 && (
-            <div style={{ marginTop: 8, padding: '7px 12px', background: '#fff3f3', borderRadius: 6, border: '1px solid #f5c0c0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 10, color: '#c0392b' }}>+ Prior outstanding balance</span>
-              <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: '#c0392b' }}>TZS {prevBalance.toLocaleString()}</span>
-            </div>
-          )}
         </div>
       </div>
 
