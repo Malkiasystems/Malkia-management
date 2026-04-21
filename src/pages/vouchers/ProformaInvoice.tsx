@@ -3,10 +3,12 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
+import DraftBanner from '../../components/DraftBanner'
 import { nextRef } from '../../lib/refs'
 import { today, tzs, getPostedBy } from '../../lib/utils'
 import { loadWAConfig, sendWhatsApp } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
+import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
 import { MalkiaProforma, DEFAULT_PROFORMA } from '../ProformaTemplate'
 import type { ProformaSettings, ProformaVoucher } from '../ProformaTemplate'
@@ -94,6 +96,33 @@ export default function ProformaInvoice({ onNav }: Props) {
   })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
   const showToast = (m: string, t: 'success' | 'error' = 'success') => { setToast(m); setToastType(t) }
+
+  // ─── Draft persistence ─────────────────────────────────────────────────
+  type PFDraft = { form: typeof form; lines: PFLine[]; selectedCust: DBCustomer | null }
+  const {
+    availableDraft, draftAgeMs,
+    saveDraft, clearDraft, acknowledgeResume, discardDraft,
+  } = useVoucherDraft<PFDraft>('proforma', false)
+
+  const resumeDraft = () => {
+    if (!availableDraft) return
+    setForm(availableDraft.form)
+    setLines(availableDraft.lines)
+    setSelectedCust(availableDraft.selectedCust)
+    acknowledgeResume()
+  }
+
+  // Auto-save
+  useEffect(() => {
+    if (!form.ref) return
+    const hasAnything =
+      !!selectedCust ||
+      form.customer.trim().length > 0 ||
+      form.notes.trim().length > 0 ||
+      lines.some(l => l.productId || l.qty !== 1 || l.price > 0)
+    if (!hasAnything) return
+    saveDraft({ form, lines, selectedCust })
+  }, [form, lines, selectedCust, saveDraft])
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -291,6 +320,7 @@ export default function ProformaInvoice({ onNav }: Props) {
       setLastVoucher(built)
       setShowPreview(true)
       showToast(`${form.ref} saved — no GL or stock impact`)
+      clearDraft()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Save failed'
       showToast(msg, 'error')
@@ -438,6 +468,10 @@ _Malkia Wellness Group Ltd_`
         shortcuts={SHORTCUTS}
         onNav={onNav}
       >
+
+        {availableDraft && draftAgeMs !== null && (
+          <DraftBanner draftAgeMs={draftAgeMs} onResume={resumeDraft} onDiscard={discardDraft} />
+        )}
 
         {/* ── Header / meta ────────────────────────────────────────────── */}
         <div className="card" style={{ marginBottom: 14 }}>
