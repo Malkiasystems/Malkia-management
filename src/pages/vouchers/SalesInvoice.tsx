@@ -90,14 +90,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       .from('vouchers')
       .select(`
         *,
-        customers (id, name, company, contact_person, tin, whatsapp, physical_address, balance, credit_limit, credit_period, payment_terms, customer_number),
+        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_period, payment_terms, customer_number),
         voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category))
       `)
       .eq('id', voucherId)
       .single()
 
     if (error || !voucher) {
-      showToast('Failed to load invoice', 'error')
+      console.error('[sales-invoice] view-mode load failed:', error?.message, error?.details)
+      showToast(`Failed to load invoice${error?.message ? ': ' + error.message : ''}`, 'error')
       return
     }
 
