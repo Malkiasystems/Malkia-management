@@ -475,16 +475,42 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             </div>
 
             <div style={{ position: 'relative' }}>
-              <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
-                width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-              </svg>
-              <input className="form-input" style={{ paddingLeft: 36, fontSize: 14, height: 48 }}
-                placeholder="Click to browse all debtors, or type to filter by name / company / DEB number…"
+              {/* Clickable person icon — opens the full debtor list on click.
+                  Keeps focus from auto-opening so clicking near the input or
+                  tabbing in doesn't trigger an unwanted dropdown. */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (showDrop) {
+                    // Already open — treat click as a close toggle
+                    setShowDrop(false)
+                  } else {
+                    searchCustomer(form.customer)  // shows all or current filter
+                  }
+                }}
+                title={showDrop ? 'Close list' : 'Browse all debtors'}
+                style={{
+                  position: 'absolute', left: 6, top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: showDrop ? 'var(--accent-dim)' : 'transparent',
+                  border: 'none', borderRadius: 6,
+                  width: 32, height: 32,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', zIndex: 2,
+                  color: showDrop ? 'var(--accent)' : 'var(--text3)',
+                  transition: 'background .15s, color .15s',
+                }}
+                onMouseEnter={e => { if (!showDrop) (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
+                onMouseLeave={e => { if (!showDrop) (e.currentTarget as HTMLElement).style.color = 'var(--text3)' }}
+              >
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+              </button>
+              <input className="form-input" style={{ paddingLeft: 44, fontSize: 14, height: 48 }}
+                placeholder="Click the person icon to browse, or type to filter by name / company / DEB number…"
                 value={form.customer}
                 onChange={e => searchCustomer(e.target.value)}
-                onFocus={() => searchCustomer(form.customer)}
-                autoFocus
               />
             </div>
             {showDrop && custResults.length > 0 && (
