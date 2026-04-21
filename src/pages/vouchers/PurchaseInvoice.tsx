@@ -3,8 +3,10 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
+import DraftBanner from '../../components/DraftBanner'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
+import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -25,7 +27,33 @@ export default function PurchaseInvoice({ onNav }: Props) {
   })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
+  // ─── Draft persistence ─────────────────────────────────────────────────
+  type PIDraft = { form: typeof form; lines: InvLine[] }
+  const {
+    availableDraft, draftAgeMs,
+    saveDraft, clearDraft, acknowledgeResume, discardDraft,
+  } = useVoucherDraft<PIDraft>('purchase-invoice', false)
+
+  const resumeDraft = () => {
+    if (!availableDraft) return
+    setForm(availableDraft.form)
+    setLines(availableDraft.lines)
+    acknowledgeResume()
+  }
+
   useEffect(() => { loadSuppliers(); loadProducts(); loadNextRef() }, [])
+
+  // Auto-save once the user types anything meaningful
+  useEffect(() => {
+    if (!form.ref) return
+    const hasAnything =
+      form.supplier.trim().length > 0 ||
+      form.supplierRef.trim().length > 0 ||
+      form.notes.trim().length > 0 ||
+      lines.some(l => l.productId || l.desc || l.qty !== 1 || l.unitCost > 0)
+    if (!hasAnything) return
+    saveDraft({ form, lines })
+  }, [form, lines, saveDraft])
 
   const loadSuppliers = async () => {
     const { data } = await supabase.from('suppliers').select('id, name, balance_tzs, currency').eq('is_active', true).order('name')
@@ -152,6 +180,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
       })
 
       showToast(`${form.ref} posted · Dr GRN Interim (1121) / Cr AP (2010) · 1121 cleared · Supplier balance updated`)
+      clearDraft()  // posted successfully
       onNav('vouchers')
 
     } catch (err: any) {
@@ -165,6 +194,10 @@ export default function PurchaseInvoice({ onNav }: Props) {
     <VoucherPage title="Purchase Invoice" icon="" subtitle="Match supplier invoice to GRN — clears 1121, creates AP entry" color="rgba(168,85,247,.12)"
       onPost={post} postLabel={posting ? 'Posting…' : 'Post Invoice'}
       journalNote="Dr GRN Interim (1121) · Cr Accounts Payable (2010) · Clears the GRN interim balance · Creates open AP entry">
+
+      {availableDraft && draftAgeMs !== null && (
+        <DraftBanner draftAgeMs={draftAgeMs} onResume={resumeDraft} onDiscard={discardDraft} />
+      )}
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
