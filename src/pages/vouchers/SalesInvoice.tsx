@@ -254,6 +254,8 @@ export default function SalesInvoice({ onNav }: Props) {
     <VoucherPage title="Sales Invoice" icon="" subtitle="Credit sale — creates open AR · Stock deducted · Customer ledger updated"
       color="rgba(0,229,160,.12)" onPost={post}
       postLabel={posting ? 'Posting…' : 'Post Invoice'}
+      postDisabled={!selectedCust || posting}
+      postDisabledReason={!selectedCust ? 'Select a registered customer before posting. Walk-in or typed names are not accepted on credit invoices.' : undefined}
       journalNote="Dr AR (1050) · Cr Revenue (4011) · Cr VAT (2020) · Dr COGS (5010) · Cr Inventory (1110)">
 
       {/* ── CUSTOMER SELECTION (full width hero) ─────────────────────────── */}
@@ -271,6 +273,19 @@ export default function SalesInvoice({ onNav }: Props) {
         {!selectedCust ? (
           /* Customer search */
           <div ref={dropRef} style={{ position: 'relative' }}>
+            {/* Requirement notice — explains why free-text won't work */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+              padding: '8px 12px', background: 'var(--accent-dim)',
+              border: '1px solid var(--accent)', borderRadius: 8,
+              fontSize: 12, color: 'var(--text2)',
+            }}>
+              <svg width="14" height="14" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>Sales invoices require a <strong>registered customer</strong>. Walk-ins and typed names are not accepted — use Cash Sale for walk-ins.</span>
+            </div>
+
             <div style={{ position: 'relative' }}>
               <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
                 width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
@@ -315,6 +330,29 @@ export default function SalesInvoice({ onNav }: Props) {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            {/* No-results hint — only show if the user has actually typed something */}
+            {showDrop && custResults.length === 0 && form.customer.trim().length > 0 && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 10, zIndex: 50, boxShadow: '0 12px 40px rgba(0,0,0,.4)',
+                padding: '16px 18px',
+              }}>
+                <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 8 }}>
+                  No customer matches <strong>"{form.customer}"</strong>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>
+                  This customer is not registered in your debtor list. You must register them first before posting an invoice.
+                </div>
+                <button
+                  onClick={() => onNav('customers')}
+                  className="btn btn-primary btn-sm"
+                  style={{ background: 'var(--accent)' }}
+                >
+                  + Register New Customer
+                </button>
               </div>
             )}
           </div>
