@@ -56,13 +56,13 @@ export function setActiveCompany(companyId: string) {
 
 // ── SUPABASE CLIENT ─────────────────────────────────────────
 function buildClient(company: Company): SupabaseClient {
+  // IMPORTANT: Do NOT set `global.headers.Authorization` here.
+  // Supabase's auth system automatically injects the authenticated user's
+  // JWT into the Authorization header once they log in. If we override it
+  // with the anon key, every request goes out as anonymous — which breaks
+  // RLS policies that grant the `authenticated` role access.
+  // The apikey header is set automatically from the 2nd argument to createClient.
   return createClient(company.url, company.key, {
-    global: {
-      headers: {
-        apikey: company.key,
-        Authorization: `Bearer ${company.key}`,
-      }
-    },
     auth: {
       persistSession: true,
       autoRefreshToken: true,
