@@ -77,6 +77,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const [filterCat, setFilterCat] = useState('all')
   const { groups, catsByGroup } = useCategories()
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
+  const [allCustomers, setAllCustomers] = useState<DBCustomer[]>([])  // full cached list for instant browse
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
   const [showDrop, setShowDrop] = useState(false)
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
@@ -121,7 +122,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   useEffect(() => {
-    loadProducts(); loadSettings()
+    loadProducts(); loadSettings(); loadAllCustomers()
     supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
       .then(({ data }) => { if (data) { setLocations(data); if (data[0]) setLocationCode(data[0].code) } })
     const close = (e: MouseEvent) => {
@@ -214,21 +215,46 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       .eq('is_active', true).order('name').then(({ data }) => { if (data) setProducts(data) })
   }
 
+  // Pull the full list of active debtors once on mount. This lets the user
+  // browse without typing, and filter instantly client-side as they type
+  // (faster than a round-trip to Supabase on every keystroke).
+  const loadAllCustomers = () => {
+    supabase.from('customers')
+      .select('*')
+      .eq('customer_type', 'debtor')
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => { if (data) setAllCustomers(data) })
+  }
+
   const loadNextRef = async () => {
     const ref = await nextRef('sales_invoice')
     setForm(f => ({ ...f, ref }))
   }
 
-  const searchCustomer = async (val: string) => {
+  // Filter the cached customer list by the search string. Matches against
+  // company, name, contact person, or customer number (case-insensitive).
+  // An empty query returns the full list, so focusing the input immediately
+  // shows everyone.
+  const searchCustomer = (val: string) => {
     set('customer', val)
     setSelectedCust(null)
-    if (val.length < 1) { setCustResults([]); setShowDrop(false); return }
-    const { data } = await supabase.from('customers')
-      .select('*').eq('customer_type', 'debtor').eq('is_active', true)
-      .or(`name.ilike.%${val}%,company.ilike.%${val}%,contact_person.ilike.%${val}%,customer_number.ilike.%${val}%`)
-      .order('name').limit(8)
-    setCustResults(data || [])
-    setShowDrop((data || []).length > 0)
+    const q = val.trim().toLowerCase()
+    if (!q) {
+      // Empty query: show everyone. Show up to 50 rows; user can scroll the
+      // dropdown. If they have more than 50 debtors, typing narrows it down.
+      setCustResults(allCustomers.slice(0, 50))
+      setShowDrop(allCustomers.length > 0)
+      return
+    }
+    const filtered = allCustomers.filter(c =>
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.company || '').toLowerCase().includes(q) ||
+      (c.contact_person || '').toLowerCase().includes(q) ||
+      (c.customer_number || '').toLowerCase().includes(q)
+    ).slice(0, 50)
+    setCustResults(filtered)
+    setShowDrop(true)  // always open dropdown while searching, even if no matches (to show "no results" panel)
   }
 
   const selectCust = (c: DBCustomer) => {
@@ -454,10 +480,10 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
               </svg>
               <input className="form-input" style={{ paddingLeft: 36, fontSize: 14, height: 48 }}
-                placeholder="Search debtors by company, name, contact person, or DEB number…"
+                placeholder="Click to browse all debtors, or type to filter by name / company / DEB number…"
                 value={form.customer}
                 onChange={e => searchCustomer(e.target.value)}
-                onFocus={() => { if (!form.customer) searchCustomer(' ') }}
+                onFocus={() => searchCustomer(form.customer)}
                 autoFocus
               />
             </div>
@@ -466,8 +492,26 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                 position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
                 background: 'var(--surface)', border: '1px solid var(--accent)',
                 borderRadius: 10, zIndex: 50, boxShadow: '0 12px 40px rgba(0,0,0,.4)',
-                overflow: 'hidden', maxHeight: 320, overflowY: 'auto'
+                overflow: 'hidden', maxHeight: 420, overflowY: 'auto'
               }}>
+                {/* Dropdown header — tells the user what they're seeing */}
+                <div style={{
+                  padding: '8px 16px', background: 'var(--surface2)',
+                  borderBottom: '1px solid var(--border)',
+                  fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)',
+                  textTransform: 'uppercase', letterSpacing: 0.5,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  position: 'sticky', top: 0, zIndex: 1,
+                }}>
+                  <span>
+                    {form.customer.trim().length > 0
+                      ? `${custResults.length} match${custResults.length === 1 ? '' : 'es'}`
+                      : `All registered debtors${allCustomers.length > 50 ? ` (showing 50 of ${allCustomers.length})` : ` (${allCustomers.length})`}`}
+                  </span>
+                  <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text3)' }}>
+                    {form.customer.trim().length === 0 && allCustomers.length > 50 && 'Type to filter…'}
+                  </span>
+                </div>
                 {custResults.map((c, i) => (
                   <div key={i} onClick={() => selectCust(c)}
                     style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
