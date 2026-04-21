@@ -15,7 +15,7 @@ const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-day-book', 'sa
 
 const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers']
 
-const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates']
+const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
 const HRM_PAGES: Page[] = ['hrm', 'hrm-employees', 'hrm-assets', 'hrm-payroll', 'hrm-payslips', 'hrm-leave', 'hrm-attendance', 'hrm-performance', 'hrm-recruitment', 'hrm-events', 'hrm-settings']
 
