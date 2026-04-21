@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense, createContext, useContext, useCall
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
+import { SettingsProvider } from './lib/settingsLoader'
 import { useInactivityLogout } from './lib/useInactivityLogout'
 import { supabase } from './lib/supabase'
 import type { HRMViewMode } from './pages/hrm/hrmTypes'
@@ -545,7 +546,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <SettingsProvider>
+        <AppContent />
+      </SettingsProvider>
     </AuthProvider>
   )
 }
