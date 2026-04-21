@@ -10,10 +10,14 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { today } from '../lib/utils'
 import type { Page } from '../lib/types'
+import { MalkiaInvoice } from './InvoiceTemplate'
+import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../lib/whatsapp'
+import type { WAConfig } from '../lib/whatsapp'
+import Toast from '../components/Toast'
 
 interface Props {
   onNav: (p: Page) => void
-  onEdit: (p: Page, voucherId: string) => void
+  onEdit?: (p: Page, voucherId: string) => void  // kept for back-compat but unused
 }
 
 interface InvoiceRow {
@@ -44,7 +48,7 @@ interface InvoiceRow {
 
 type StatusFilter = 'all' | 'paid' | 'partial' | 'open' | 'overdue'
 
-export default function SalesInvoicesList({ onEdit }: Props) {
+export default function SalesInvoicesList({ onNav: _onNav }: Props) {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -54,7 +58,94 @@ export default function SalesInvoicesList({ onEdit }: Props) {
   const [toDate, setToDate] = useState(today())
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
+  // Preview modal state — lets users view/reprint an invoice without leaving this page
+  const [previewVoucher, setPreviewVoucher] = useState<any>(null)
+  const [invoiceSettings, setInvoiceSettings] = useState<any>(null)
+  const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
+  const [sending, setSending] = useState(false)
+  const [waSent, setWaSent] = useState(false)
+  const [toast, setToast] = useState('')
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+
   useEffect(() => { loadInvoices() }, [fromDate, toDate])
+
+  // Load template settings + WhatsApp config once, used for the preview modal
+  useEffect(() => {
+    supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
+      .then(({ data }) => { if (data?.value) try { setInvoiceSettings(JSON.parse(data.value)) } catch {} })
+    loadWAConfig().then(setWaConfig)
+  }, [])
+
+  // Open preview modal by loading the full voucher with lines + customer
+  const openPreview = async (voucherId: string) => {
+    const { data: voucher, error } = await supabase
+      .from('vouchers')
+      .select(`
+        *,
+        customers (id, name, company, contact_person, tin, whatsapp, physical_address, balance, credit_limit, credit_period, payment_terms, customer_number),
+        voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category))
+      `)
+      .eq('id', voucherId)
+      .single()
+
+    if (error || !voucher) {
+      setToast('Failed to load invoice'); setToastType('error')
+      return
+    }
+
+    setPreviewVoucher(voucher)
+    setWaSent(false)
+  }
+
+  const closePreview = () => {
+    setPreviewVoucher(null)
+    setWaSent(false)
+  }
+
+  const printPreview = () => {
+    const el = document.getElementById('invoice-preview')
+    if (!el) return
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${previewVoucher.ref}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
+      <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
+    </head><body>${el.outerHTML}</body></html>`)
+    win.document.close()
+    setTimeout(() => win.print(), 600)
+  }
+
+  const sendViaWhatsApp = async () => {
+    if (!waConfig || !previewVoucher?.customers?.whatsapp) return
+    setSending(true)
+    const msg = formatInvoiceMessage(waConfig.template_invoice || '', {
+      customer_name: previewVoucher.customers?.name || 'Customer',
+      ref: previewVoucher.ref,
+      date: previewVoucher.posting_date,
+      due_date: previewVoucher.due_date || '',
+      payment_terms: previewVoucher.payment_terms || '',
+      items: previewVoucher.voucher_lines?.map((l: any) => ({
+        name: l.products?.name || l.description || '—',
+        qty: l.qty,
+        amount: l.total,
+      })) || [],
+      total: previewVoucher.total_amount,
+      outstanding: previewVoucher.customers?.balance || 0,
+      bank_account: '22510074972 (NMB)',
+    })
+    const result = await sendWhatsApp(waConfig, {
+      to: previewVoucher.customers.whatsapp, message: msg,
+      type: 'invoice', ref: previewVoucher.ref,
+      customer_name: previewVoucher.customers?.name,
+    })
+    setSending(false)
+    if (result.success) {
+      setWaSent(true)
+      setToast('Invoice sent via WhatsApp'); setToastType('success')
+    } else {
+      setToast('WhatsApp send failed'); setToastType('error')
+    }
+  }
 
   const loadInvoices = async () => {
     setLoading(true)
@@ -267,7 +358,7 @@ export default function SalesInvoicesList({ onEdit }: Props) {
               )}
               {!loading && filtered.map((inv, i) => (
                 <tr key={i}
-                  onClick={() => onEdit('sales-invoice', inv.id)}
+                  onClick={() => openPreview(inv.id)}
                   style={{ cursor: 'pointer' }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
                   onMouseLeave={e => (e.currentTarget.style.background = '')}
@@ -301,7 +392,7 @@ export default function SalesInvoicesList({ onEdit }: Props) {
                     {/* Row-level quick actions — stop propagation so they don't trigger the row click */}
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                       <button
-                        onClick={() => onEdit('sales-invoice', inv.id)}
+                        onClick={() => openPreview(inv.id)}
                         title="View & Reprint"
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', padding: 4 }}
                       >
@@ -315,6 +406,63 @@ export default function SalesInvoicesList({ onEdit }: Props) {
           </table>
         </div>
       </div>
+
+      {/* ── PREVIEW MODAL ─────────────────────────────────────────────────── */}
+      {previewVoucher && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)',
+          display: 'flex', flexDirection: 'column', zIndex: 9999,
+        }}>
+          <div style={{
+            background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+            padding: '12px 24px', display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', flexShrink: 0,
+          }}>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700 }}>
+              Invoice — {previewVoucher.ref}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-primary" onClick={printPreview} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <polyline points="6 9 6 2 18 2 18 9"/>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                  <rect x="6" y="14" width="12" height="8"/>
+                </svg>
+                Print / PDF
+              </button>
+              {waConfig?.enabled && waConfig?.api_key && previewVoucher.customers?.whatsapp && (
+                <button className="btn btn-ghost btn-sm" disabled={sending || waSent}
+                  onClick={sendViaWhatsApp}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#25D366', border: '1px solid rgba(37,211,102,.3)' }}>
+                  <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                  </svg>
+                  {sending ? 'Sending…' : waSent ? 'Sent ✓' : 'WhatsApp'}
+                </button>
+              )}
+              <button className="btn btn-ghost" onClick={closePreview}>Close</button>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
+            <div id="invoice-preview">
+              <MalkiaInvoice voucher={previewVoucher} settings={invoiceSettings || {
+                company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
+                address: 'Dar es Salaam, Tanzania', city: 'Dar es Salaam',
+                phone: '+255 700 000 000', email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz',
+                tin: '—', vrn: '—', primary_color: '#85c2be',
+                bank_name: 'NMB Bank', bank_account_name: 'Malkia Wellness Group Ltd',
+                bank_account_number: '22510074972', bank_branch: 'Dar es Salaam Branch',
+                show_bank_details: true, show_salesperson: true, show_vat_breakdown: true,
+                show_outstanding_balance: true, show_payment_terms: true, show_notes: true,
+                footer_note: 'Thank you for your business. Payment is due by the date shown above.',
+                payment_note: 'Please quote the invoice number as payment reference.',
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
   )
 }
