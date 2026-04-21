@@ -37,9 +37,31 @@ interface DBProduct {
 interface InvLine {
   productId: string; name: string; qty: number
   price: number; discount: number; amount: number
+  // How to interpret `discount`: 'percent' means 0-100 %, 'absolute' means TZS
+  // off per line (before qty). Defaults to 'percent' for backward compat.
+  discountMode?: 'percent' | 'absolute'
 }
 
 const TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET45', 'NET60', 'NET90']
+
+// Small section-header used above each step in the new SI layout. Provides
+// a visual progress cue (numbered circle) + title + optional helper text.
+function StepHeader({ num, title, helper }: { num: number; title: string; helper?: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+      <div style={{
+        width: 30, height: 30, borderRadius: '50%',
+        background: 'var(--accent)', color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 14, fontWeight: 800, flexShrink: 0,
+      }}>{num}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontFamily: 'var(--display)', fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</div>
+        {helper && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{helper}</div>}
+      </div>
+    </div>
+  )
+}
 
 export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
   const [toast, setToast] = useState('')
@@ -60,8 +82,16 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const [locationCode, setLocationCode] = useState('1001')
   const [invSettings, setInvSettings] = useState<any>(null)
-  const [lines, setLines] = useState<InvLine[]>([{ productId: '', name: '', qty: 1, price: 0, discount: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), dueDate: '', ref: '', customer: '', wa: '', paymentTerms: 'NET30', notes: '', salesperson: 'Joe Gembe' })
+  // Per-line search query for the inline searchable product picker. Keyed
+  // by line index. `null` = picker closed, string = picker open with query.
+  const [productSearch, setProductSearch] = useState<Record<number, string | null>>({})
+  const [lines, setLines] = useState<InvLine[]>([{ productId: '', name: '', qty: 1, price: 0, discount: 0, amount: 0, discountMode: 'percent' }])
+  const [form, setForm] = useState({
+    date: today(), dueDate: '', ref: '',
+    customer: '', wa: '', paymentTerms: 'NET30', notes: '', salesperson: 'Joe Gembe',
+    poRef: '',                // Customer's PO number (B2B)
+    deliveryAddress: '',      // If blank, use customer registered address
+  })
   const dropRef = useRef<HTMLDivElement>(null)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
@@ -126,6 +156,26 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     if (!hasAnything) return
     saveDraft({ form, lines, selectedCust, locationCode })
   }, [form, lines, selectedCust, locationCode, editVoucherId, saveDraft])
+
+  // Ctrl+Enter (or Cmd+Enter on Mac) posts the invoice from anywhere on the
+  // page. Escape closes the product-search dropdowns if any are open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        // Only fire when we're on this page — if a modal is open (showInvoice),
+        // leave that in charge of its own key handling.
+        if (showInvoice) return
+        e.preventDefault()
+        post()
+      }
+      if (e.key === 'Escape') {
+        setProductSearch({})
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCust, lines, form, showInvoice])
 
   // Load a previously posted sales invoice into the preview modal for
   // reprint. Does NOT populate the form — posted invoices are read-only
@@ -194,7 +244,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   const updateLine = (i: number, field: keyof InvLine, val: string | number) => {
-    const nl = [...lines]; nl[i] = { ...nl[i], [field]: val }
+    const nl = [...lines]; nl[i] = { ...nl[i], [field]: val } as InvLine
     if (field === 'productId') {
       const p = products.find(p => p.id === val)
       if (p) { nl[i].name = p.name; nl[i].price = p.selling_price }
@@ -202,7 +252,13 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     const price = field === 'price' ? Number(val) : nl[i].price
     const qty = field === 'qty' ? Number(val) : nl[i].qty
     const disc = field === 'discount' ? Number(val) : nl[i].discount
-    nl[i].amount = Math.round(price * qty * (1 - disc / 100))
+    const mode = field === 'discountMode' ? (val as 'percent' | 'absolute') : (nl[i].discountMode || 'percent')
+    // Discount: percent = % off unit price, absolute = TZS off per unit
+    const lineGross = price * qty
+    const lineDiscount = mode === 'percent'
+      ? lineGross * (disc / 100)
+      : disc * qty
+    nl[i].amount = Math.max(0, Math.round(lineGross - lineDiscount))
     setLines(nl)
   }
 
@@ -268,6 +324,11 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       }
       if (form.dueDate) voucherPayload.due_date = form.dueDate
       if (form.paymentTerms) voucherPayload.payment_terms = form.paymentTerms
+      // New fields — requires migration add_sales_invoice_fields.sql to have run.
+      // If the columns don't exist yet, Supabase will return an error; the
+      // try/catch path already surfaces that to the user.
+      if (form.poRef.trim()) voucherPayload.po_reference = form.poRef.trim()
+      if (form.deliveryAddress.trim()) voucherPayload.delivery_address = form.deliveryAddress.trim()
 
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert(voucherPayload).select('id').single()
       if (vErr) throw new Error(vErr.message)
@@ -275,10 +336,16 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]; if (!line.productId) continue
         const prod = products.find(p => p.id === line.productId); if (!prod) continue
+        // When discountMode === 'absolute', convert to equivalent % for
+        // backward-compat with discount_pct column, so reporting continues
+        // to show a meaningful discount figure.
+        const discPctEquiv = (line.discountMode === 'absolute' && line.price > 0)
+          ? Math.round((line.discount / line.price) * 100 * 100) / 100
+          : line.discount
         await supabase.from('voucher_lines').insert({
           voucher_id: voucher.id, line_number: i + 1, product_id: line.productId,
           description: line.name, qty: line.qty, unit_cost: prod.cost_price,
-          unit_price: line.price, subtotal: line.amount, discount_pct: line.discount,
+          unit_price: line.price, subtotal: line.amount, discount_pct: discPctEquiv,
           vat_amount: Math.round(line.amount * 18 / 118), total: line.amount,
         })
         await supabase.rpc('deduct_stock_allow_negative', { p_product_id: prod.id, p_qty: line.qty })
@@ -499,140 +566,371 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         )}
       </div>
 
-      {/* ── INVOICE METADATA STRIP ───────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
-        {[
-          { label: 'Invoice No', content: <input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)', background: 'var(--surface2)', cursor: 'default' }} /> },
-          { label: 'Date', content: <input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /> },
-          { label: 'Due Date', content: <input type="date" className="form-input" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} /> },
-          { label: 'Payment Terms', content: (
-            <select className="form-input" value={form.paymentTerms} onChange={e => set('paymentTerms', e.target.value)}>
-              {TERMS.map(t => <option key={t}>{t}</option>)}
-            </select>
-          )},
-          { label: 'Salesperson', content: (
-            <select className="form-input" value={form.salesperson} onChange={e => set('salesperson', e.target.value)}>
-              <option>Joe Gembe</option><option>Jane Mwatonoka</option>
-              <option>Lilian Mallya</option><option>Barbra Kabendera</option>
-            </select>
-          )},
-        ].map(item => (
-          <div key={item.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
-            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</div>
-            {item.content}
-          </div>
-        ))}
-      </div>
+      {/* ═══ STEP 1: INVOICE LINES ══════════════════════════════════════════ */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <StepHeader num={1} title="Add Products" helper={
+          lines.filter(l => l.productId).length === 0
+            ? 'Search a product below, click to add. You can add as many as you need.'
+            : `${lines.filter(l => l.productId).length} product${lines.filter(l => l.productId).length === 1 ? '' : 's'} in this invoice`
+        } />
 
-      {/* ── STOCK LOCATION ───────────────────────────────────────────────── */}
-      {locations.length > 0 && (
-        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Deduct from:</span>
-          {locations.map(loc => (
-            <button key={loc.id} onClick={() => setLocationCode(loc.code)}
-              style={{ padding: '5px 12px', border: `1.5px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface)', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)', transition: 'all .15s' }}>
-              {loc.code} — {loc.name}
-            </button>
+        {/* Category filter pills */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+          <button onClick={() => setFilterCat('all')} style={{
+            fontSize: 10, padding: '4px 10px', borderRadius: 12,
+            border: `1px solid ${filterCat === 'all' ? 'var(--accent)' : 'var(--border)'}`,
+            background: filterCat === 'all' ? 'var(--accent)' : 'transparent',
+            color: filterCat === 'all' ? '#fff' : 'var(--text3)',
+            cursor: 'pointer', fontWeight: 600,
+          }}>All</button>
+          {groups.map((g: string) => (
+            <button key={g} onClick={() => setFilterCat(`group:${g}`)} style={{
+              fontSize: 10, padding: '4px 10px', borderRadius: 12,
+              border: `1px solid ${filterCat === `group:${g}` ? 'var(--accent)' : 'var(--border)'}`,
+              background: filterCat === `group:${g}` ? 'var(--accent-dim)' : 'transparent',
+              color: filterCat === `group:${g}` ? 'var(--accent)' : 'var(--text3)',
+              cursor: 'pointer', fontWeight: 600,
+            }}>{g}</button>
           ))}
         </div>
-      )}
 
-      {/* ── LINE ITEMS ───────────────────────────────────────────────────── */}
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div className="card-title" style={{ margin: 0 }}>Invoice Lines</div>
-          {/* Category filter strip */}
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            <button onClick={() => setFilterCat('all')} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === 'all' ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === 'all' ? 'var(--accent)' : 'transparent', color: filterCat === 'all' ? '#fff' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>All</button>
-            {groups.map((g: string) => (
-              <button key={g} onClick={() => setFilterCat(`group:${g}`)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, border: `1px solid ${filterCat === `group:${g}` ? 'var(--accent)' : 'var(--border)'}`, background: filterCat === `group:${g}` ? 'var(--accent-dim)' : 'transparent', color: filterCat === `group:${g}` ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: 600 }}>{g}</button>
-            ))}
-          </div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: 'var(--surface2)' }}>
-                {['Product', 'Qty', 'Unit Price', 'Disc %', 'Line Total', ''].map(h => (
-                  <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Line Total' ? 'right' : 'left', fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line, i) => {
-                const visibleProducts = filterCat === 'all' ? products
-                  : filterCat.startsWith('group:') ? products.filter(p => {
-                      const grp = filterCat.slice(6)
-                      return (catsByGroup[grp] || []).some((c: {name:string}) => c.name === p.category)
-                    })
-                  : products.filter(p => p.category === filterCat)
-                return (
-                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '6px 4px', minWidth: 200 }}>
-                    <select className="form-input" style={{ fontSize: 12 }} value={line.productId}
-                      onChange={e => updateLine(i, 'productId', e.target.value)}>
-                      <option value="">— Select product —</option>
-                      {visibleProducts.map(p => <option key={p.id} value={p.id}>{p.name} · {p.sku} · Stock: {p.qty_on_hand}</option>)}
-                    </select>
-                  </td>
-                  <td style={{ padding: '6px 4px', width: 70 }}>
-                    <input type="number" className="form-input" style={{ textAlign: 'center', fontSize: 13 }} min={1} value={line.qty}
-                      onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
-                  </td>
-                  <td style={{ padding: '6px 4px', width: 130 }}>
-                    <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'right' }} value={line.price}
-                      onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)} />
-                  </td>
-                  <td style={{ padding: '6px 4px', width: 80 }}>
-                    <input type="number" className="form-input" style={{ textAlign: 'center', fontSize: 12 }} min={0} max={100} value={line.discount}
-                      onChange={e => updateLine(i, 'discount', parseFloat(e.target.value) || 0)} />
-                  </td>
-                  <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, color: 'var(--green)', whiteSpace: 'nowrap' }}>
-                    {line.amount.toLocaleString()}
-                  </td>
-                  <td style={{ padding: '6px 4px', width: 32 }}>
-                    {lines.length > 1 && (
-                      <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16, lineHeight: 1 }}>×</button>
+        {/* Line item rows */}
+        <div>
+          {lines.map((line, i) => {
+            const visibleProducts = filterCat === 'all' ? products
+              : filterCat.startsWith('group:') ? products.filter(p => {
+                  const grp = filterCat.slice(6)
+                  return (catsByGroup[grp] || []).some((c: {name:string}) => c.name === p.category)
+                })
+              : products.filter(p => p.category === filterCat)
+            const selectedProd = products.find(p => p.id === line.productId)
+            const search = productSearch[i] ?? null
+            const searchMatches = search !== null && search.length > 0
+              ? visibleProducts.filter(p =>
+                  p.name.toLowerCase().includes(search.toLowerCase()) ||
+                  p.sku.toLowerCase().includes(search.toLowerCase())
+                ).slice(0, 8)
+              : []
+            const lowStock = selectedProd && selectedProd.qty_on_hand < line.qty
+            const discountMode = line.discountMode || 'percent'
+            return (
+              <div key={i} style={{
+                background: 'var(--surface2)', border: `1px solid ${lowStock ? 'var(--red)' : 'var(--border)'}`,
+                borderRadius: 10, padding: 12, marginBottom: 8,
+                position: 'relative',
+              }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  {/* Line number */}
+                  <div style={{
+                    width: 22, height: 22, borderRadius: '50%',
+                    background: line.productId ? 'var(--accent)' : 'var(--surface3)',
+                    color: line.productId ? '#fff' : 'var(--text3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 4,
+                  }}>{i + 1}</div>
+
+                  {/* Product picker / selected display */}
+                  <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                    {!selectedProd ? (
+                      <>
+                        <input
+                          className="form-input"
+                          placeholder="Type to search product by name or SKU…"
+                          value={search ?? ''}
+                          onChange={e => setProductSearch(s => ({ ...s, [i]: e.target.value }))}
+                          onFocus={() => setProductSearch(s => ({ ...s, [i]: s[i] ?? '' }))}
+                          style={{ fontSize: 13 }}
+                        />
+                        {searchMatches.length > 0 && (
+                          <div style={{
+                            position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                            background: 'var(--surface)', border: '1px solid var(--accent)',
+                            borderRadius: 8, zIndex: 40, maxHeight: 260, overflowY: 'auto',
+                            boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+                          }}>
+                            {searchMatches.map(p => (
+                              <div key={p.id}
+                                onClick={() => {
+                                  updateLine(i, 'productId', p.id)
+                                  setProductSearch(s => ({ ...s, [i]: null }))
+                                }}
+                                onMouseDown={e => e.preventDefault()}
+                                style={{
+                                  padding: '8px 12px', cursor: 'pointer',
+                                  borderBottom: '1px solid var(--border)',
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface2)'}
+                                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
+                                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>
+                                    {p.sku} · Stock: <span style={{ color: p.qty_on_hand > 0 ? 'var(--green)' : 'var(--red)' }}>{p.qty_on_hand}</span>
+                                  </div>
+                                </div>
+                                <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginLeft: 12 }}>
+                                  {tzs(p.selling_price)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {search !== null && search.length > 0 && searchMatches.length === 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, fontStyle: 'italic' }}>
+                            No products match "{search}"
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{selectedProd.name}</div>
+                          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2, display: 'flex', gap: 10 }}>
+                            <span>{selectedProd.sku}</span>
+                            <span style={{ color: lowStock ? 'var(--red)' : 'var(--text3)' }}>
+                              Stock: {selectedProd.qty_on_hand} {lowStock && '⚠'}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const nl = [...lines]
+                            nl[i] = { productId: '', name: '', qty: 1, price: 0, discount: 0, amount: 0, discountMode: 'percent' }
+                            setLines(nl)
+                            setProductSearch(s => ({ ...s, [i]: '' }))
+                          }}
+                          style={{ fontSize: 10, color: 'var(--text3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                          Change
+                        </button>
+                      </div>
                     )}
-                  </td>
-                </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                  </div>
+
+                  {/* Line delete */}
+                  {lines.length > 1 && (
+                    <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 18, lineHeight: 1, marginTop: 2, flexShrink: 0 }}>×</button>
+                  )}
+                </div>
+
+                {/* Qty / price / discount row — only when a product is picked */}
+                {selectedProd && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr auto auto', gap: 10, marginTop: 10, alignItems: 'end' }}>
+                    <div>
+                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Qty</div>
+                      <input type="number" className="form-input" min={1}
+                        value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)}
+                        style={{ width: 72, textAlign: 'center', fontSize: 14, fontWeight: 700 }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Unit Price</div>
+                      <input type="number" className="form-input"
+                        value={line.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)}
+                        style={{ fontFamily: 'var(--mono)', fontSize: 13, textAlign: 'right' }} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                        <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase' }}>Discount</div>
+                        {/* % / TZS toggle */}
+                        <button
+                          onClick={() => updateLine(i, 'discountMode', discountMode === 'percent' ? 'absolute' : 'percent')}
+                          style={{
+                            fontSize: 9, padding: '0 6px', borderRadius: 4,
+                            background: 'var(--surface3)', border: '1px solid var(--border)',
+                            color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--mono)',
+                          }}>
+                          {discountMode === 'percent' ? '%' : 'TZS'}
+                        </button>
+                      </div>
+                      <input type="number" className="form-input" min={0}
+                        value={line.discount} onChange={e => updateLine(i, 'discount', parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        style={{ fontFamily: 'var(--mono)', fontSize: 13, textAlign: 'right' }} />
+                    </div>
+                    <div style={{ alignSelf: 'end', marginBottom: 10, fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>=</div>
+                    <div style={{ alignSelf: 'end', textAlign: 'right', paddingBottom: 8 }}>
+                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 2 }}>Line Total</div>
+                      <div style={{ fontFamily: 'var(--mono)', fontSize: 15, fontWeight: 700, color: 'var(--green)' }}>
+                        {tzs(line.amount)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {lowStock && (
+                  <div style={{ marginTop: 8, padding: '6px 10px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, fontSize: 11, color: 'var(--red)' }}>
+                    Requested qty exceeds stock. {invSettings?.block_negative_stock ? 'Posting will be blocked.' : 'Stock will go negative.'}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
 
-        <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }}
-          onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, discount: 0, amount: 0 }])}>
-          + Add line
+        <button className="btn btn-ghost btn-sm" style={{ marginTop: 6 }}
+          onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, discount: 0, amount: 0, discountMode: 'percent' }])}>
+          + Add another product
         </button>
+      </div>
 
-        {/* Totals */}
-        <div style={{ maxWidth: 340, marginLeft: 'auto', marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+      {/* ═══ STEP 2: TERMS & EXTRAS ═════════════════════════════════════════ */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <StepHeader num={2} title="Invoice Terms" helper="Dates, payment terms, PO reference, delivery" />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 14 }}>
           {[
-            { label: 'Subtotal (incl. VAT)', val: subtotal.toLocaleString() },
-            { label: 'VAT (18% incl.)', val: vat.toLocaleString(), color: 'var(--text3)' },
-            { label: 'Net Revenue', val: netRevenue.toLocaleString(), color: 'var(--text3)' },
+            { label: 'Invoice No', content: <input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)', background: 'var(--surface2)', cursor: 'default' }} /> },
+            { label: 'Date', content: <input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /> },
+            { label: 'Due Date', content: <input type="date" className="form-input" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} /> },
+            { label: 'Payment Terms', content: (
+              <select className="form-input" value={form.paymentTerms} onChange={e => set('paymentTerms', e.target.value)}>
+                {TERMS.map(t => <option key={t}>{t}</option>)}
+              </select>
+            )},
+            { label: 'Salesperson', content: (
+              <select className="form-input" value={form.salesperson} onChange={e => set('salesperson', e.target.value)}>
+                <option>Joe Gembe</option><option>Jane Mwatonoka</option>
+                <option>Lilian Mallya</option><option>Barbra Kabendera</option>
+              </select>
+            )},
           ].map(item => (
-            <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: item.color || 'var(--text)' }}>
-              <span>{item.label}</span>
-              <span style={{ fontFamily: 'var(--mono)' }}>{item.val}</span>
+            <div key={item.label} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</div>
+              {item.content}
             </div>
           ))}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10, paddingTop: 10, borderTop: '2px solid var(--accent)' }}>
-            <span style={{ fontSize: 14, fontWeight: 800 }}>INVOICE TOTAL</span>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>TZS {subtotal.toLocaleString()}</span>
+        </div>
+
+        {/* PO Ref + Stock Location strip */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: 12 }}>
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              Customer PO Reference <span style={{ color: 'var(--text3)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+            </div>
+            <input className="form-input" placeholder="e.g. PO-2026-0044"
+              value={form.poRef} onChange={e => set('poRef', e.target.value)}
+              style={{ fontFamily: 'var(--mono)' }} />
           </div>
+          {locations.length > 0 && (
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Deduct Stock From</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {locations.map(loc => (
+                  <button key={loc.id} onClick={() => setLocationCode(loc.code)}
+                    style={{
+                      padding: '5px 12px',
+                      border: `1.5px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 6,
+                      background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface)',
+                      cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                      color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)',
+                    }}>
+                    {loc.code} — {loc.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Delivery Address override */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+            <span>Delivery Address <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text3)' }}>(leave blank to use customer registered address)</span></span>
+          </div>
+          <input className="form-input" placeholder="e.g. Deliver to site office, Plot 45, Masaki"
+            value={form.deliveryAddress} onChange={e => set('deliveryAddress', e.target.value)} />
+        </div>
+
+        {/* Notes */}
+        <div>
+          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes / Payment Instructions</div>
+          <textarea className="form-input" rows={2} style={{ resize: 'none', fontSize: 12 }}
+            placeholder="Bank details, delivery instructions, payment reference…"
+            value={form.notes} onChange={e => set('notes', e.target.value)} />
         </div>
       </div>
 
-      {/* ── NOTES ───────────────────────────────────────────────────────── */}
-      <div className="card">
-        <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes / Payment Instructions</div>
-        <textarea className="form-input" rows={2} style={{ resize: 'none', fontSize: 12 }}
-          placeholder="Bank details, delivery instructions, payment reference…"
-          value={form.notes} onChange={e => set('notes', e.target.value)} />
+      {/* ═══ STEP 3: REVIEW & POST ══════════════════════════════════════════ */}
+      <div className="card" style={{ marginBottom: 100 /* space for sticky footer */ }}>
+        <StepHeader num={3} title="Review & Post" helper="Check totals, then post to create the invoice, update AR, and deduct stock" />
+
+        {/* Totals — right-aligned block */}
+        <div style={{ maxWidth: 420, marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', color: 'var(--text2)' }}>
+            <span>Subtotal (ex VAT)</span>
+            <span style={{ fontFamily: 'var(--mono)' }}>{netRevenue.toLocaleString()}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', color: 'var(--text2)' }}>
+            <span>VAT 18%</span>
+            <span style={{ fontFamily: 'var(--mono)' }}>{vat.toLocaleString()}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8, paddingTop: 10, borderTop: '2px solid var(--accent)' }}>
+            <span style={{ fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Due</span>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 24, fontWeight: 800, color: 'var(--green)' }}>TZS {subtotal.toLocaleString()}</span>
+          </div>
+
+          {/* Credit impact warning if applicable */}
+          {selectedCust && selectedCust.credit_limit > 0 && availableCredit !== null && subtotal > availableCredit && (
+            <div style={{ marginTop: 12, padding: '10px 12px', background: 'rgba(239,68,68,.08)', border: '1px solid var(--red)', borderRadius: 8, fontSize: 12 }}>
+              <div style={{ fontWeight: 700, color: 'var(--red)', marginBottom: 4 }}>⚠ Credit limit exceeded</div>
+              <div style={{ color: 'var(--text2)' }}>
+                This invoice is {tzs(subtotal - availableCredit)} over the available credit. Posting will still succeed, but consider collecting an upfront payment or raising the credit limit first.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ═══ STICKY FOOTER — always visible action bar ══════════════════════ */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 'var(--sidebar-w, 240px)', right: 0,
+        background: 'var(--surface)',
+        borderTop: '1px solid var(--border)',
+        padding: '12px 24px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 16, zIndex: 30,
+        boxShadow: '0 -8px 24px rgba(0,0,0,.25)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+          <div>
+            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Invoice Total</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 800, color: 'var(--green)' }}>
+              TZS {subtotal.toLocaleString()}
+            </div>
+          </div>
+          <div style={{ width: 1, height: 36, background: 'var(--border)' }} />
+          <div style={{ fontSize: 11, color: 'var(--text3)', minWidth: 0 }}>
+            {!selectedCust ? (
+              <span style={{ color: 'var(--yellow)' }}>⚠ Pick a customer first</span>
+            ) : lines.every(l => !l.productId) ? (
+              <span style={{ color: 'var(--yellow)' }}>⚠ Add at least one product</span>
+            ) : subtotal <= 0 ? (
+              <span style={{ color: 'var(--yellow)' }}>⚠ Invoice total must be &gt; 0</span>
+            ) : (
+              <>
+                <span style={{ color: 'var(--green)' }}>✓ Ready to post</span>
+                <span style={{ color: 'var(--text3)', marginLeft: 8 }}>· {lines.filter(l => l.productId).length} line{lines.filter(l => l.productId).length === 1 ? '' : 's'}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', display: 'none' }} className="kbd-hint">
+            Ctrl+Enter
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={post}
+            disabled={!selectedCust || posting}
+            style={{
+              padding: '12px 24px', fontSize: 14, fontWeight: 800,
+              opacity: (!selectedCust || posting) ? 0.5 : 1,
+              cursor: (!selectedCust || posting) ? 'not-allowed' : 'pointer',
+            }}>
+            {posting ? 'Posting…' : 'Post Invoice'}
+          </button>
+        </div>
       </div>
 
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
