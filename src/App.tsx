@@ -35,6 +35,7 @@ const DataImport = lazy(() => import('./pages/DataImport'))
 const PnL = lazy(() => import('./pages/PnL'))
 const SalesRegister = lazy(() => import('./pages/SalesRegister'))
 const SalesDayBook = lazy(() => import('./pages/SalesDayBook'))
+const SalesInvoicesList = lazy(() => import('./pages/SalesInvoicesList'))
 const TrialBalance = lazy(() => import('./pages/TrialBalance'))
 const BalanceSheet = lazy(() => import('./pages/BalanceSheet'))
 const ARAgingReport = lazy(() => import('./pages/ARAgingReport'))
@@ -409,6 +410,7 @@ function AppContent() {
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister />
       case 'sales-day-book':    return <SalesDayBook onNav={navigate} onEdit={navigateToEdit} />
+      case 'sales-invoices-list': return <SalesInvoicesList onNav={navigate} onEdit={navigateToEdit} />
       case 'trial-balance':     return <TrialBalance />
       case 'balance-sheet':     return <BalanceSheet />
       case 'ar-aging':          return <ARAgingReport />
@@ -434,7 +436,7 @@ function AppContent() {
       case 'contra':            return <ContraEntry onNav={navigate} />
       case 'cash-sale':         return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} onNav={navigate} />
       case 'sales':             return <CashSale editVoucherId={editVoucherId} onClearEdit={() => setEditVoucherId(null)} onNav={navigate} />
-      case 'sales-invoice':     return <SalesInvoice onNav={navigate} />
+      case 'sales-invoice':     return <SalesInvoice onNav={navigate} editVoucherId={editVoucherId || undefined} onClearEdit={() => setEditVoucherId(null)} />
       case 'proforma':          return <ProformaInvoice onNav={navigate} />
       case 'sales-return':      return <SalesReturn onNav={navigate} />
       case 'debit-note':        return <DebitNote onNav={navigate} />
