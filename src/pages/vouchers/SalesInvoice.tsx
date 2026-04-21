@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import Toast from '../../components/Toast'
+import DraftBanner from '../../components/DraftBanner'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs, getPostedBy } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
 import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/whatsapp'
@@ -63,6 +65,31 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const dropRef = useRef<HTMLDivElement>(null)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
+  // ─── Draft persistence ──────────────────────────────────────────────────
+  // Snapshot of everything the user typed, so we can restore it after a
+  // navigation accident or refresh. Disabled in view mode — we don't want
+  // to draft while someone is just reprinting an existing invoice.
+  type DraftSnapshot = {
+    form: typeof form
+    lines: InvLine[]
+    selectedCust: DBCustomer | null
+    locationCode: string
+  }
+  const {
+    availableDraft, draftAgeMs,
+    saveDraft, clearDraft, acknowledgeResume, discardDraft,
+  } = useVoucherDraft<DraftSnapshot>('sales-invoice', !!editVoucherId)
+
+  const resumeDraft = () => {
+    if (!availableDraft) return
+    // Apply each slice back into its respective state
+    setForm(availableDraft.form)
+    setLines(availableDraft.lines)
+    setSelectedCust(availableDraft.selectedCust)
+    setLocationCode(availableDraft.locationCode)
+    acknowledgeResume()
+  }
+
   useEffect(() => {
     loadProducts(); loadSettings()
     supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
@@ -81,6 +108,24 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
 
     return () => document.removeEventListener('mousedown', close)
   }, [editVoucherId])
+
+  // Auto-save draft on any meaningful form change. Hook debounces internally
+  // so this is cheap — effectively one localStorage write per ~0.5s of typing.
+  useEffect(() => {
+    if (editVoucherId) return    // view mode: never draft
+    // Skip while form is still initializing (no ref yet)
+    if (!form.ref) return
+    // Skip if the form looks truly empty (only the default single blank line,
+    // no customer, no meaningful input). Avoids creating a "draft" for a
+    // page the user just opened and never touched.
+    const hasAnything =
+      !!selectedCust ||
+      form.customer.trim().length > 0 ||
+      form.notes.trim().length > 0 ||
+      lines.some(l => l.productId || l.qty !== 1 || l.price > 0)
+    if (!hasAnything) return
+    saveDraft({ form, lines, selectedCust, locationCode })
+  }, [form, lines, selectedCust, locationCode, editVoucherId, saveDraft])
 
   // Load a previously posted sales invoice into the preview modal for
   // reprint. Does NOT populate the form — posted invoices are read-only
@@ -279,6 +324,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       setLastInvoice(invoiceData)
       setShowInvoice(true)
       showToast(`${form.ref} posted · TZS ${subtotal.toLocaleString()}`)
+      clearDraft()  // posted successfully — no draft to recover
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }
@@ -297,6 +343,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       postDisabled={!selectedCust || posting}
       postDisabledReason={!selectedCust ? 'Select a registered customer before posting. Walk-in or typed names are not accepted on credit invoices.' : undefined}
       journalNote="Dr AR (1050) · Cr Revenue (4011) · Cr VAT (2020) · Dr COGS (5010) · Cr Inventory (1110)">
+
+      {/* Draft resume banner — only shows if we found a saved draft on mount */}
+      {availableDraft && draftAgeMs !== null && (
+        <DraftBanner
+          draftAgeMs={draftAgeMs}
+          onResume={resumeDraft}
+          onDiscard={discardDraft}
+        />
+      )}
 
       {/* ── CUSTOMER SELECTION (full width hero) ─────────────────────────── */}
       <div className="card" style={{ marginBottom: 12 }}>
