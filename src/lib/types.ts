@@ -21,6 +21,8 @@ export type Page =
   | 'crm-customers'
   // Settings Pages
   | 'accounting-settings' | 'display-settings' | 'report-templates'
+  | 'company-finance-settings' | 'users-access-settings' | 'sales-inventory-settings'
+  | 'templates-hub' | 'integrations-settings' | 'regional-backup-settings'
   // User Management & Approvals
   | 'users' | 'approvals'
   // Investors Module
