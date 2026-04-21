@@ -11,7 +11,15 @@ import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 
-interface Props { onNav: (p: Page) => void }
+interface Props {
+  onNav: (p: Page) => void
+  // When set, the page loads this voucher in read-only view/reprint mode.
+  // Used when coming from Sales Day Book or Invoices List.
+  editVoucherId?: string
+  // Callback to clear the edit ID in App state when the user closes
+  // the view modal. Prevents the same invoice from re-opening on next nav.
+  onClearEdit?: () => void
+}
 
 interface DBCustomer {
   id: string; name: string; company: string; contact_person: string
@@ -31,7 +39,7 @@ interface InvLine {
 
 const TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET45', 'NET60', 'NET90']
 
-export default function SalesInvoice({ onNav }: Props) {
+export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -56,15 +64,46 @@ export default function SalesInvoice({ onNav }: Props) {
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => {
-    loadProducts(); loadNextRef(); loadSettings()
+    loadProducts(); loadSettings()
     supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
       .then(({ data }) => { if (data) { setLocations(data); if (data[0]) setLocationCode(data[0].code) } })
     const close = (e: MouseEvent) => {
       if (dropRef.current && !dropRef.current.contains(e.target as Node)) setShowDrop(false)
     }
     document.addEventListener('mousedown', close)
+
+    // View mode: load existing invoice for reprint. Otherwise: fresh form.
+    if (editVoucherId) {
+      loadExistingInvoice(editVoucherId)
+    } else {
+      loadNextRef()
+    }
+
     return () => document.removeEventListener('mousedown', close)
-  }, [])
+  }, [editVoucherId])
+
+  // Load a previously posted sales invoice into the preview modal for
+  // reprint. Does NOT populate the form — posted invoices are read-only
+  // by design (edit them by issuing a Credit Note then a new Invoice).
+  const loadExistingInvoice = async (voucherId: string) => {
+    const { data: voucher, error } = await supabase
+      .from('vouchers')
+      .select(`
+        *,
+        customers (id, name, company, contact_person, tin, whatsapp, physical_address, balance, credit_limit, credit_period, payment_terms, customer_number),
+        voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category))
+      `)
+      .eq('id', voucherId)
+      .single()
+
+    if (error || !voucher) {
+      showToast('Failed to load invoice', 'error')
+      return
+    }
+
+    setLastInvoice(voucher)
+    setShowInvoice(true)
+  }
 
   const loadSettings = () => {
     supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
@@ -587,7 +626,18 @@ export default function SalesInvoice({ onNav }: Props) {
                 {sending ? 'Sending…' : waSent ? 'Sent ✓' : 'WhatsApp'}
               </button>
             )}
-            <button className="btn btn-ghost" onClick={() => { setShowInvoice(false); onNav('vouchers'); setWaSent(false) }}>Close</button>
+            <button className="btn btn-ghost" onClick={() => {
+              setShowInvoice(false)
+              setWaSent(false)
+              // If we loaded this invoice in view mode, go back to the list we came from.
+              // Otherwise (post-success modal), go to the vouchers hub.
+              if (editVoucherId) {
+                onClearEdit?.()
+                onNav('sales-day-book')
+              } else {
+                onNav('vouchers')
+              }
+            }}>Close</button>
           </div>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
