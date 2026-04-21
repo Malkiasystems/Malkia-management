@@ -54,6 +54,12 @@ const InventorySettings = lazy(() => import('./pages/InventorySettings'))
 const AccountingSettings = lazy(() => import('./pages/AccountingSettings'))
 const DisplaySettings = lazy(() => import('./pages/DisplaySettings'))
 const ReportTemplates = lazy(() => import('./pages/ReportTemplates'))
+const CompanyFinanceSettings = lazy(() => import('./pages/CompanyFinanceSettings'))
+const UsersAccessSettings = lazy(() => import('./pages/UsersAccessSettings'))
+const SalesInventorySettings = lazy(() => import('./pages/SalesInventorySettings'))
+const TemplatesHub = lazy(() => import('./pages/TemplatesHub'))
+const IntegrationsSettings = lazy(() => import('./pages/IntegrationsSettings'))
+const RegionalBackupSettings = lazy(() => import('./pages/RegionalBackupSettings'))
 
 // User Management & Approvals
 const UserManagement = lazy(() => import('./pages/UserManagement'))
@@ -454,6 +460,12 @@ function AppContent() {
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />
+      case 'company-finance-settings':  return <CompanyFinanceSettings onNav={navigate} />
+      case 'users-access-settings':     return <UsersAccessSettings onNav={navigate} />
+      case 'sales-inventory-settings':  return <SalesInventorySettings onNav={navigate} />
+      case 'templates-hub':             return <TemplatesHub onNav={navigate} />
+      case 'integrations-settings':     return <IntegrationsSettings onNav={navigate} />
+      case 'regional-backup-settings':  return <RegionalBackupSettings onNav={navigate} />
 
       // Investors
       case 'investors':
