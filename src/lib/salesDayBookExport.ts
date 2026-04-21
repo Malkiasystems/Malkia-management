@@ -4,7 +4,7 @@
  */
 
 export interface SDBSale {
-  id: string; ref: string; posting_date: string; description: string
+  id: string; ref: string; type?: string; posting_date: string; description: string
   total_amount: number; subtotal: number; payment_method: string
   payment_split?: Record<string, number> | null
   status: string; notes: string; posted_by: string
