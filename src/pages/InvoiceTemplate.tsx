@@ -56,6 +56,15 @@ interface Voucher {
     discount_pct?: number; description: string
     products: { name: string; sku: string } | null
   }[]
+  // Optional view-mode fields — set by callers (SalesInvoicesList,
+  // SalesInvoice view-mode loader) when previewing an existing invoice.
+  // When present, the Account Statement panel shows LIVE figures as of
+  // _statementDate rather than the posting-time "prev + this = now owed"
+  // math. Omitting these renders the old posting-time layout.
+  _viewMode?: boolean
+  _invoiceRemaining?: number    // TZS still owed on THIS specific invoice
+  _invoicePaid?: number         // TZS already collected against THIS invoice
+  _statementDate?: string       // YYYY-MM-DD, today when loading in view mode
 }
 
 // ── MalkiaInvoice Component ───────────────────────────────────────────────────
@@ -64,8 +73,22 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
   const p = s.primary_color   // brand teal
   const cust = voucher.customers
   const total = voucher.total_amount || 0
-  const prevBalance = cust?.balance || 0
-  const totalNowOwed = prevBalance + total
+  // View mode: use CURRENT customer balance (live figure) as the displayed
+  // outstanding, and compute the status of THIS invoice from ledger data.
+  // Posting mode: use classic "prev + this = now owed" math.
+  const isViewMode = voucher._viewMode === true
+  const currentBalance = cust?.balance || 0
+  const prevBalance = isViewMode
+    ? currentBalance                       // label becomes "Current Balance"
+    : currentBalance                       // posting mode: balance before this invoice was added (rows not yet written in UI)
+  const totalNowOwed = isViewMode
+    ? currentBalance                       // view mode: today's actual AR
+    : prevBalance + total                  // posting mode: running total after this invoice
+  const thisInvoiceRemaining = voucher._invoiceRemaining ?? total
+  const thisInvoicePaid = voucher._invoicePaid ?? 0
+  const isPaid = isViewMode && thisInvoiceRemaining <= 0.5
+  const isPartial = isViewMode && thisInvoicePaid > 0.5 && thisInvoiceRemaining > 0.5
+  const statementDate = voucher._statementDate || new Date().toISOString().split('T')[0]
   const mono = "'DM Mono', 'Courier New', monospace"
   const display = "'Syne', 'Georgia', serif"
   const body = "'Instrument Sans', 'Helvetica Neue', sans-serif"
@@ -132,7 +155,7 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
       </div>
 
       {/* ── BILL TO + ACCOUNT SUMMARY ───────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: cust && s.show_outstanding_balance && prevBalance > 0 ? '1fr 1fr' : '1fr', borderBottom: '1px solid #f0f0f0' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: cust && s.show_outstanding_balance && (isViewMode || prevBalance > 0) ? '1fr 1fr' : '1fr', borderBottom: '1px solid #f0f0f0' }}>
         <div style={{ padding: '22px 40px' }}>
           <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_bill_to}</div>
           <div style={{ fontFamily: display, fontSize: 16, fontWeight: 800, color: '#1a1a1a', marginBottom: 3 }}>{cust?.company || cust?.name || '—'}</div>
@@ -141,23 +164,65 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
           {cust?.whatsapp && <div style={{ fontSize: 10, color: '#aaa', fontFamily: mono, marginTop: 6 }}>{cust.whatsapp}</div>}
         </div>
 
-        {cust && s.show_outstanding_balance && prevBalance > 0 && (
-          <div style={{ padding: '22px 40px', background: '#fff8f4', borderLeft: '1px solid #f0f0f0' }}>
-            <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_account_statement}</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
-              <span>Previous Outstanding</span>
-              <span style={{ fontFamily: mono }}>{prevBalance.toLocaleString()}</span>
+        {cust && s.show_outstanding_balance && (isViewMode || prevBalance > 0) && (
+          <div style={{ padding: '22px 40px', background: isPaid ? '#f4fbf7' : '#fff8f4', borderLeft: '1px solid #f0f0f0' }}>
+            <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>
+              {isViewMode
+                ? `Account Statement — as of ${statementDate}`
+                : s.label_account_statement}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
-              <span>+ This Invoice</span>
-              <span style={{ fontFamily: mono }}>{total.toLocaleString()}</span>
-            </div>
-            <div style={{ height: 1, background: '#f0d0c0', margin: '8px 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#c0392b' }}>Total Now Owed</span>
-              <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 800, color: '#c0392b' }}>TZS {totalNowOwed.toLocaleString()}</span>
-            </div>
-            <div style={{ fontSize: 9, color: '#aaa', marginTop: 5, fontStyle: 'italic' }}>Includes this invoice + unpaid prior balance</div>
+
+            {isViewMode ? (
+              <>
+                {/* View mode: status of THIS invoice + live customer balance */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#666' }}>
+                  <span>This Invoice ({voucher.ref})</span>
+                  <span style={{ fontFamily: mono }}>{total.toLocaleString()}</span>
+                </div>
+                {thisInvoicePaid > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#2d7a4f' }}>
+                    <span>Paid</span>
+                    <span style={{ fontFamily: mono }}>({thisInvoicePaid.toLocaleString()})</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', fontWeight: 700, color: isPaid ? '#2d7a4f' : isPartial ? '#b8860b' : '#c0392b' }}>
+                  <span>{isPaid ? 'Status' : 'Outstanding on this invoice'}</span>
+                  <span style={{ fontFamily: mono }}>
+                    {isPaid ? 'PAID IN FULL' : thisInvoiceRemaining.toLocaleString()}
+                  </span>
+                </div>
+                <div style={{ height: 1, background: '#f0d0c0', margin: '8px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: currentBalance > 0 ? '#c0392b' : '#2d7a4f' }}>
+                    {currentBalance > 0 ? 'Current Total Owed' : 'Account Balance'}
+                  </span>
+                  <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 800, color: currentBalance > 0 ? '#c0392b' : '#2d7a4f' }}>
+                    TZS {currentBalance.toLocaleString()}
+                  </span>
+                </div>
+                <div style={{ fontSize: 9, color: '#aaa', marginTop: 5, fontStyle: 'italic' }}>
+                  Reflects all invoices and payments as of {statementDate}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Posting mode (fresh invoice): prev + this = now owed */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
+                  <span>Previous Outstanding</span>
+                  <span style={{ fontFamily: mono }}>{prevBalance.toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
+                  <span>+ This Invoice</span>
+                  <span style={{ fontFamily: mono }}>{total.toLocaleString()}</span>
+                </div>
+                <div style={{ height: 1, background: '#f0d0c0', margin: '8px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#c0392b' }}>Total Now Owed</span>
+                  <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 800, color: '#c0392b' }}>TZS {totalNowOwed.toLocaleString()}</span>
+                </div>
+                <div style={{ fontSize: 9, color: '#aaa', marginTop: 5, fontStyle: 'italic' }}>Includes this invoice + unpaid prior balance</div>
+              </>
+            )}
           </div>
         )}
       </div>
