@@ -29,6 +29,7 @@ import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import { useCategories } from '../../lib/useCategories'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { checkApprovalRequired, submitForApproval, type ApprovalTypeCode } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props {
@@ -99,7 +100,7 @@ const STAFF = ['Joe Gembe', 'Jane Mwatonoka', 'Lilian Mallya', 'Barbra Kabendera
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function InternalUse({ onNav }: Props) {
-  const { isSuperAdmin } = useAuth()
+  const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -216,6 +217,78 @@ export default function InternalUse({ onNav }: Props) {
   })()
   const canPost = !postDisabledReason
 
+  // ─── Approval submission ───────────────────────────────────────────────
+  // When an internal use voucher needs approval, we create a 'pending_approval'
+  // voucher row (no journal, no stock deduction) and an approval_request with
+  // the full snapshot. When the approver clicks Approve, the executor reads
+  // this payload and posts everything atomically.
+
+  const submitInternalUseForApproval = async (approvalTypeCode: ApprovalTypeCode, reason: string) => {
+    if (!user) { showToast('You must be signed in to submit for approval', 'error'); return }
+
+    setPosting(true)
+    try {
+      // 1. Create pending_approval voucher
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref,
+        type: 'internal_use',
+        posting_date: form.date,
+        description: `Internal Use — ${activeCategory.label} — ${resolvedTakenBy}` + (form.recipient ? ` · ${form.recipient}` : ''),
+        total_amount: total,
+        subtotal: total,
+        status: 'pending_approval',
+        notes: form.notes || null,
+        posted_by: user.full_name,
+      }).select('id').single()
+      if (vErr) throw new Error('Pending voucher insert: ' + vErr.message)
+
+      // 2. Create approval request with the full snapshot
+      const snapshot = {
+        form: {
+          date: form.date,
+          ref: form.ref,
+          category: form.category,
+          takenBy: form.takenBy,
+          takenByOther: form.takenByOther,
+          recipient: form.recipient,
+          locationCode: form.locationCode,
+          notes: form.notes,
+        },
+        lines: lines
+          .filter(l => l.productId && l.qty > 0)
+          .map(l => ({ productId: l.productId, name: l.name, qty: l.qty, unitCost: l.unitCost, amount: l.amount })),
+        accountCode: activeCategory.accountCode,
+        categoryLabel: activeCategory.label,
+        total,
+      }
+
+      const res = await submitForApproval({
+        typeCode: approvalTypeCode,
+        referenceType: 'voucher',
+        referenceId: voucher!.id,
+        referenceNumber: form.ref,
+        summary: `Internal Use · ${activeCategory.label} · ${resolvedTakenBy}${form.recipient ? ' · ' + form.recipient : ''}`,
+        requestedValue: total,
+        payload: snapshot,
+        requestedBy: user.id,
+      })
+
+      if (!res.success) {
+        // Roll back the voucher row since we couldn't create the approval
+        await supabase.from('vouchers').delete().eq('id', voucher!.id)
+        throw new Error(res.error || 'Failed to submit for approval')
+      }
+
+      clearDraft()
+      showToast(`Submitted for approval · ${reason}`, 'success')
+      setTimeout(() => resetForm(), 1200)
+    } catch (e: any) {
+      showToast(e.message || 'Submission failed', 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
+
   // ─── Post ──────────────────────────────────────────────────────────────
 
   const post = async () => {
@@ -233,6 +306,29 @@ export default function InternalUse({ onNav }: Props) {
           return
         }
       }
+    }
+
+    // ─── Approval gate ─────────────────────────────────────────────────
+    // Internal Use has category-specific approval rules:
+    //   - 'own_use'  → approval_type 'internal_use_own'    (always approve by default)
+    //   - 'damage'   → approval_type 'internal_use_damage' (amount threshold)
+    //   - other      → approval_type 'internal_use'        (off by default unless Joe turns on)
+    // Super admin can bypass per setting.
+    const approvalTypeCode: ApprovalTypeCode =
+      form.category === 'own_use'  ? 'internal_use_own' :
+      form.category === 'damage'   ? 'internal_use_damage' :
+      'internal_use'
+
+    const check = await checkApprovalRequired(approvalTypeCode, {
+      value: total,
+      meta: { category: form.category, takenBy: resolvedTakenBy },
+    })
+
+    const canBypass = check.superAdminBypass && isSuperAdmin()
+    if (check.requiresApproval && check.blockPosting && !canBypass) {
+      // Create a 'pending_approval' voucher and an approval_request, then stop.
+      await submitInternalUseForApproval(approvalTypeCode, check.reason || 'Approval required')
+      return
     }
 
     setPosting(true)
