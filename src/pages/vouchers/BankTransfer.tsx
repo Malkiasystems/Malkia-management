@@ -7,16 +7,17 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface DBAccount { id: string; code: string; name: string }
 
 export default function BankTransfer({ onNav }: Props) {
-  const { isSuperAdmin } = useAuth()
+  const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
-  const [, setPosting] = useState(false)
+  const [posting, setPosting] = useState(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [form, setForm] = useState({
     date: today(), ref: '', fromAccount: '', toAccount: '',
@@ -43,17 +44,28 @@ export default function BankTransfer({ onNav }: Props) {
     if (!form.fromAccount || !form.toAccount) { showToast('Please select both accounts', 'error'); return }
     if (form.fromAccount === form.toAccount) { showToast('From and To accounts cannot be the same', 'error'); return }
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
+    if (!user) { showToast('You must be signed in', 'error'); return }
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
-    setPosting(true)
     const amount = parseFloat(form.amount)
+
+    // ─── Approval gate ─────────────────────────────────────────────────
+    // Large transfers (default > 1M TZS) require super admin approval.
+    const check = await checkApprovalRequired('bank_transfer', { value: amount })
+    const canBypass = check.superAdminBypass && isSuperAdmin()
+    if (check.requiresApproval && check.blockPosting && !canBypass) {
+      await submitBankTransferForApproval(amount, check.reason || 'Approval required')
+      return
+    }
+
+    setPosting(true)
 
     try {
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Bank Transfer — ${accounts.find(a => a.id === form.fromAccount)?.code} to ${accounts.find(a => a.id === form.toAccount)?.code} — ${form.ref}`,
         journal_type: 'bank_transfer', source_type: 'bank_transfer',
-        source_ref: form.ref, posted_by: 'Joe Gembe', status: 'posted',
+        source_ref: form.ref, posted_by: user.full_name, status: 'posted',
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
@@ -72,7 +84,7 @@ export default function BankTransfer({ onNav }: Props) {
       await supabase.from('vouchers').insert({
         ref: form.ref, type: 'bank_transfer', posting_date: form.date,
         description: `Bank Transfer — ${form.ref}`, total_amount: amount,
-        status: 'posted', journal_id: journal.id, posted_by: 'Joe Gembe', notes: form.narration,
+        status: 'posted', journal_id: journal.id, posted_by: user.full_name, notes: form.narration,
       })
 
       showToast(`${form.ref} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
@@ -84,9 +96,58 @@ export default function BankTransfer({ onNav }: Props) {
     }
   }
 
+  // ─── Approval submission ───────────────────────────────────────────────
+  const submitBankTransferForApproval = async (amount: number, reason: string) => {
+    if (!user) return
+    setPosting(true)
+    try {
+      const fromAcc = accounts.find(a => a.id === form.fromAccount)
+      const toAcc = accounts.find(a => a.id === form.toAccount)
+
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'bank_transfer', posting_date: form.date,
+        description: `Bank Transfer — ${fromAcc?.code} to ${toAcc?.code} — ${form.ref}`,
+        total_amount: amount, status: 'pending_approval',
+        posted_by: user.full_name, notes: form.narration,
+      }).select('id').single()
+      if (vErr) throw new Error('Pending voucher: ' + vErr.message)
+
+      const snapshot = {
+        form: {
+          date: form.date, ref: form.ref,
+          fromAccount: form.fromAccount, toAccount: form.toAccount,
+          amount, narration: form.narration,
+        },
+      }
+
+      const res = await submitForApproval({
+        typeCode: 'bank_transfer',
+        referenceType: 'voucher',
+        referenceId: voucher!.id,
+        referenceNumber: form.ref,
+        summary: `Bank transfer ${fromAcc?.code} → ${toAcc?.code}${form.narration ? ' · ' + form.narration : ''}`,
+        requestedValue: amount,
+        payload: snapshot,
+        requestedBy: user.id,
+      })
+      if (!res.success) {
+        await supabase.from('vouchers').delete().eq('id', voucher!.id)
+        throw new Error(res.error || 'Submission failed')
+      }
+
+      showToast(`Submitted for approval · ${reason}`, 'success')
+      setTimeout(() => onNav('approvals'), 1200)
+    } catch (e: any) {
+      showToast(e.message || 'Submission failed', 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
+
   return (
     <VoucherPage title="Bank Transfer" icon="" subtitle="Move funds between your own bank accounts" color="rgba(61,139,255,.12)"
-      onPost={post} journalNote="Dr Target Account · Cr Source Account · FX difference to 7010/7011 if cross-currency">
+      onPost={post} postLabel={posting ? 'Posting…' : 'Post Transfer'}
+      journalNote="Dr Target Account · Cr Source Account · FX difference to 7010/7011 if cross-currency">
       <div className="grid g2" style={{ gap: 20 }}>
         <div className="card">
           <div className="card-title" style={{ marginBottom: 16 }}>Transfer Details</div>
