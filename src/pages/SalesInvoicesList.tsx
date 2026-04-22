@@ -134,7 +134,22 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     setToast('Generating image…'); setToastType('success')
     const existing = (window as any).html2canvas
     const generate = () => {
-      (window as any).html2canvas(el, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff' })
+      // Pass explicit width/height to capture the FULL invoice even when
+      // the modal's scroll container has clipped it. Without these options
+      // html2canvas captures only the viewport-visible portion.
+      const fullWidth = el.scrollWidth || el.offsetWidth
+      const fullHeight = el.scrollHeight || el.offsetHeight
+      ;(window as any).html2canvas(el, {
+        scale: 1.5,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        width: fullWidth,
+        height: fullHeight,
+        windowWidth: fullWidth,
+        windowHeight: fullHeight,
+        scrollX: 0,
+        scrollY: 0,
+      })
         .then((canvas: HTMLCanvasElement) => {
           const link = document.createElement('a')
           link.download = `Invoice-${previewVoucher.ref}.png`
