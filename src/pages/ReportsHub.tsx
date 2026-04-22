@@ -40,6 +40,7 @@ export default function ReportsHub({ onNav }: Props) {
       title: 'Inventory', reports: [
         { name: 'Stock Valuation', icon: 'stock', page: 'stock-valuation' as Page, desc: 'Inventory at cost · Margin analysis' },
         { name: 'Stock Transfer Register', icon: 'register', page: 'stock-transfer-register' as Page, desc: 'All location transfers · PDF · CSV' },
+        { name: 'Internal Use Report', icon: 'register', page: 'internal-use-report' as Page, desc: 'Samples · own use · damage · training' },
       ]
     },
     {
