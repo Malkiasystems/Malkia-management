@@ -328,16 +328,15 @@ export async function approveRequest(
   })
 
   if (error) return { success: false, error: error.message }
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row) return { success: false, error: 'No response from approve_request RPC' }
-  // RPC uses out_ prefixed column names to avoid PL/pgSQL scoping issues
-  if (!row.out_success) return { success: false, error: row.out_error }
+  // RPC returns a JSONB object directly (not an array of rows)
+  if (!data) return { success: false, error: 'No response from approve_request RPC' }
+  if (!data.success) return { success: false, error: data.error }
 
   return {
     success: true,
-    payload: row.out_payload,
-    referenceType: row.out_reference_type,
-    referenceId: row.out_reference_id,
+    payload: data.payload,
+    referenceType: data.reference_type,
+    referenceId: data.reference_id,
   }
 }
 
@@ -359,8 +358,7 @@ export async function rejectRequest(
   })
 
   if (error) return { success: false, error: error.message }
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row?.out_success) return { success: false, error: row?.out_error || 'Reject failed' }
+  if (!data?.success) return { success: false, error: data?.error || 'Reject failed' }
   return { success: true }
 }
 
