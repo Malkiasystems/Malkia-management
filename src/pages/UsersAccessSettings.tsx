@@ -45,9 +45,15 @@ export default function UsersAccessSettings({ onNav }: Props) {
           />
           <ShortcutCard
             title="Approval Workflows"
-            description="Define who approves what — voids, discounts, high-value vouchers"
+            description="Review pending approval requests — approve, reject, or view history"
             onClick={() => onNav('approvals')}
             color="#d4874a"
+          />
+          <ShortcutCard
+            title="Approval Rules"
+            description="Configure when approvals are required, thresholds, and who approves each type"
+            onClick={() => onNav('approvals-settings')}
+            color="#8b5cf6"
           />
         </div>
       </SettingsSection>
