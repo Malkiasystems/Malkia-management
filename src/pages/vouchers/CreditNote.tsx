@@ -8,6 +8,7 @@ import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -246,6 +247,65 @@ export default function CreditNote({ onNav }: Props) {
   // ── POST ─────────────────────────────────────────────────
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
+  // ─── Approval submission ───────────────────────────────────────────────
+  const submitCreditNoteForApproval = async (amount: number, reason: string) => {
+    if (!user) return
+    setPosting(true)
+    try {
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'credit_note', posting_date: form.date,
+        description: `Credit Note — ${customerName}`,
+        total_amount: amount, status: 'pending_approval',
+        customer_id: customerId, posted_by: user.full_name,
+        notes: [form.reason, original?.ref ? `Orig: ${original.ref}` : '', form.notes].filter(Boolean).join(' · '),
+      }).select('id').single()
+      if (vErr) throw new Error('Pending voucher: ' + vErr.message)
+
+      const snapshot = {
+        form: {
+          date: form.date, ref: form.ref, reason: form.reason,
+          notes: form.notes, creditType: form.creditType,
+        },
+        customerId,
+        customerName,
+        amount,
+        creditCOGS,
+        hasInventory,
+        restoreStock: hasInventory && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back'),
+        lines: selectedLines
+          .filter(l => l.productId && l.creditQty > 0)
+          .map(l => ({
+            productId: l.productId, name: l.name, creditQty: l.creditQty,
+            unitPrice: l.unitPrice, unitCost: l.unitCost, amount: l.amount,
+          })),
+        locationCode,
+        originalRef: original?.ref,
+      }
+
+      const res = await submitForApproval({
+        typeCode: 'credit_note',
+        referenceType: 'voucher',
+        referenceId: voucher!.id,
+        referenceNumber: form.ref,
+        summary: `Credit note for ${customerName} · ${form.reason}${original?.ref ? ' · orig ' + original.ref : ''}`,
+        requestedValue: amount,
+        payload: snapshot,
+        requestedBy: user.id,
+      })
+      if (!res.success) {
+        await supabase.from('vouchers').delete().eq('id', voucher!.id)
+        throw new Error(res.error || 'Submission failed')
+      }
+
+      showToast(`Submitted for approval · ${reason}`, 'success')
+      setTimeout(() => onNav('approvals'), 1200)
+    } catch (e: any) {
+      showToast(e.message || 'Submission failed', 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
+
   const post = async () => {
     if (!customerName.trim()) { showToast('Customer name required', 'error'); return }
     if (creditSubtotal <= 0) { showToast('Credit amount must be greater than zero', 'error'); return }
@@ -254,6 +314,17 @@ export default function CreditNote({ onNav }: Props) {
 
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
+
+    // ─── Approval gate ─────────────────────────────────────────────────
+    // All credit notes need approval by default (refunds are risky and
+    // should have a second pair of eyes). Super admin can bypass per setting.
+    if (!user) { showToast('You must be signed in', 'error'); return }
+    const check = await checkApprovalRequired('credit_note', { value: creditSubtotal })
+    const canBypass = check.superAdminBypass && isSuperAdmin()
+    if (check.requiresApproval && check.blockPosting && !canBypass) {
+      await submitCreditNoteForApproval(creditSubtotal, check.reason || 'Approval required')
+      return
+    }
 
     setPosting(true)
     const amount = creditSubtotal
