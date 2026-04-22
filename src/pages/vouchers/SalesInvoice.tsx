@@ -198,7 +198,25 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       return
     }
 
-    setLastInvoice(voucher)
+    // Pull live figures: the ledger remaining_amount for THIS invoice and
+    // the customer's current balance. This lets the template show the
+    // account state "as of today" instead of frozen at posting time.
+    const { data: ledger } = await supabase
+      .from('customer_ledger_entries')
+      .select('remaining_amount, is_open')
+      .eq('document_ref', voucher.ref)
+      .eq('document_type', 'invoice')
+      .maybeSingle()
+
+    const enriched = {
+      ...voucher,
+      _viewMode: true,
+      _invoiceRemaining: ledger?.remaining_amount ?? voucher.total_amount,
+      _invoicePaid: (voucher.total_amount || 0) - (ledger?.remaining_amount ?? voucher.total_amount),
+      _statementDate: new Date().toISOString().split('T')[0],
+    }
+
+    setLastInvoice(enriched)
     setShowInvoice(true)
   }
 
@@ -1019,7 +1037,29 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               if (!win) return
               win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${lastInvoice.ref}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
-                <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
+                <style>
+                  /* Core reset */
+                  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+                  body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}
+
+                  /* Force background colors to print in Chrome/Edge/Safari.
+                     Without these, the teal hero banner and cream Account
+                     Statement panel would render as plain white in the PDF. */
+                  *{
+                    -webkit-print-color-adjust:exact !important;
+                    print-color-adjust:exact !important;
+                    color-adjust:exact !important;
+                  }
+
+                  @media print{
+                    body{background:#fff;padding:0;display:block}
+
+                    /* Remove Chrome's browser-inserted URL / date / page-number
+                       headers and footers by zeroing page margin. The invoice
+                       has its own internal padding so this still looks good. */
+                    @page{size:A4;margin:0}
+                  }
+                </style>
               </head><body>${el.outerHTML}</body></html>`)
               win.document.close()
               setTimeout(() => win.print(), 600)
