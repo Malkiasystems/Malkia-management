@@ -174,35 +174,67 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
 
             {isViewMode ? (
               <>
-                {/* View mode: status of THIS invoice + live customer balance */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#666' }}>
-                  <span>This Invoice ({voucher.ref})</span>
-                  <span style={{ fontFamily: mono }}>{total.toLocaleString()}</span>
-                </div>
-                {thisInvoicePaid > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#2d7a4f' }}>
-                    <span>Paid</span>
-                    <span style={{ fontFamily: mono }}>({thisInvoicePaid.toLocaleString()})</span>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', fontWeight: 700, color: isPaid ? '#2d7a4f' : isPartial ? '#b8860b' : '#c0392b' }}>
-                  <span>{isPaid ? 'Status' : 'Outstanding on this invoice'}</span>
-                  <span style={{ fontFamily: mono }}>
-                    {isPaid ? 'PAID IN FULL' : thisInvoiceRemaining.toLocaleString()}
-                  </span>
-                </div>
-                <div style={{ height: 1, background: '#f0d0c0', margin: '8px 0' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: currentBalance > 0 ? '#c0392b' : '#2d7a4f' }}>
-                    {currentBalance > 0 ? 'Current Total Owed' : 'Account Balance'}
-                  </span>
-                  <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 800, color: currentBalance > 0 ? '#c0392b' : '#2d7a4f' }}>
-                    TZS {currentBalance.toLocaleString()}
-                  </span>
-                </div>
-                <div style={{ fontSize: 9, color: '#aaa', marginTop: 5, fontStyle: 'italic' }}>
-                  Reflects all invoices and payments as of {statementDate}
-                </div>
+                {/* View mode:
+                    1) Running math at top: prior debt + this invoice = current total owed
+                       (what the customer's account looks like right now).
+                    2) A separate status line for THIS invoice specifically:
+                       paid in full / partial / outstanding.
+                    Keeps the big picture at the top and the invoice-specific
+                    detail close to where the invoice total is shown below. */}
+                {(() => {
+                  // Prior debt = what the customer owed BEFORE this invoice was raised.
+                  // Since the current balance already includes this invoice's outstanding
+                  // amount, subtract what's still owed on this invoice to get
+                  // the prior debt figure. Clamp to 0 for safety.
+                  const priorDebt = Math.max(0, currentBalance - thisInvoiceRemaining)
+                  return (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
+                        <span>Prior Balance (before this invoice)</span>
+                        <span style={{ fontFamily: mono }}>{priorDebt.toLocaleString()}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
+                        <span>+ This Invoice ({voucher.ref})</span>
+                        <span style={{ fontFamily: mono }}>{total.toLocaleString()}</span>
+                      </div>
+                      <div style={{ height: 1, background: '#f0d0c0', margin: '8px 0' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: currentBalance > 0 ? '#c0392b' : '#2d7a4f' }}>
+                          {currentBalance > 0 ? 'Total Now Owed' : 'Account Balance'}
+                        </span>
+                        <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 800, color: currentBalance > 0 ? '#c0392b' : '#2d7a4f' }}>
+                          TZS {currentBalance.toLocaleString()}
+                        </span>
+                      </div>
+
+                      {/* Status of THIS specific invoice — separate micro-block
+                          so the reader doesn't confuse "paid in full" with the
+                          account-level balance above. */}
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e0d0c0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                          <span style={{ fontSize: 10, fontFamily: mono, color: '#888', textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Status of this invoice
+                          </span>
+                          <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700,
+                            color: isPaid ? '#2d7a4f' : isPartial ? '#b8860b' : '#c0392b' }}>
+                            {isPaid ? 'PAID IN FULL'
+                              : isPartial ? `PARTIAL · ${thisInvoiceRemaining.toLocaleString()} outstanding`
+                              : `OUTSTANDING · ${thisInvoiceRemaining.toLocaleString()}`}
+                          </span>
+                        </div>
+                        {thisInvoicePaid > 0 && !isPaid && (
+                          <div style={{ fontSize: 9, color: '#888', marginTop: 3, fontStyle: 'italic' }}>
+                            {thisInvoicePaid.toLocaleString()} already paid
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: 9, color: '#aaa', marginTop: 8, fontStyle: 'italic' }}>
+                        Reflects all invoices and payments as of {statementDate}
+                      </div>
+                    </>
+                  )
+                })()}
               </>
             ) : (
               <>
