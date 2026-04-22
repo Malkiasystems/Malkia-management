@@ -1095,7 +1095,24 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               showToast('Generating image…')
               const existing = (window as any).html2canvas
               const generate = () => {
-                (window as any).html2canvas(el, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff' })
+                // Scroll the container to the top and pass explicit width+height
+                // so html2canvas captures the ENTIRE invoice, not just the
+                // viewport-visible portion. Without these options, if the
+                // modal's scroll container has cropped the invoice, the
+                // captured image only contains the top ~800px.
+                const fullWidth = el.scrollWidth || el.offsetWidth
+                const fullHeight = el.scrollHeight || el.offsetHeight
+                ;(window as any).html2canvas(el, {
+                  scale: 1.5,
+                  useCORS: true,
+                  backgroundColor: '#ffffff',
+                  width: fullWidth,
+                  height: fullHeight,
+                  windowWidth: fullWidth,
+                  windowHeight: fullHeight,
+                  scrollX: 0,
+                  scrollY: 0,
+                })
                   .then((canvas: HTMLCanvasElement) => {
                     const link = document.createElement('a')
                     link.download = `Invoice-${lastInvoice.ref}.png`
