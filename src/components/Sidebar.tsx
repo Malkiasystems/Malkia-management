@@ -8,7 +8,7 @@ const VOUCHER_PAGES: Page[] = [
   'bank-receipt', 'bank-transfer', 'petty-cash', 'contra', 'sales-invoice',
   'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
   'grn', 'purchase-invoice', 'purchase-return', 'opening-stock',
-  'stock-adjustment', 'stock-transfer', 'journal-entry'
+  'stock-adjustment', 'stock-transfer', 'journal-entry', 'internal-use'
 ]
 
 const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-invoices-list', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note']
