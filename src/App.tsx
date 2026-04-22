@@ -66,6 +66,7 @@ const RegionalBackupSettings = lazy(() => import('./pages/RegionalBackupSettings
 // User Management & Approvals
 const UserManagement = lazy(() => import('./pages/UserManagement'))
 const ApprovalWorkflows = lazy(() => import('./pages/ApprovalWorkflows'))
+const ApprovalsSettings = lazy(() => import('./pages/ApprovalsSettings'))
 
 // Bundles
 const Bundles = lazy(() => import('./pages/Bundles'))
@@ -270,6 +271,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-upsell': 'CRM / Upsell Engine',
   'users': 'Settings / User Management',
   'approvals': 'Settings / Approval Workflows',
+  'approvals-settings': 'Settings / Approval Rules',
   'accounting-settings': 'Settings / Accounting',
   'display-settings': 'Settings / Display',
   'report-templates': 'Settings / Report Templates',
@@ -478,6 +480,7 @@ function AppContent() {
       // User Management & Approvals
       case 'users':             return <UserManagement onNav={navigate} />
       case 'approvals':         return <ApprovalWorkflows onNav={navigate} />
+      case 'approvals-settings':return <ApprovalsSettings onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />
