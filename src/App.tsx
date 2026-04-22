@@ -27,6 +27,7 @@ const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
 const Customers = lazy(() => import('./pages/Customers'))
+const CustomerStatement = lazy(() => import('./pages/CustomerStatement'))
 const Suppliers = lazy(() => import('./pages/Suppliers'))
 const Settings = lazy(() => import('./pages/Settings'))
 const DataImport = lazy(() => import('./pages/DataImport'))
@@ -311,6 +312,7 @@ function AppContent() {
   const [page, setPage] = useState<Page>(() => hashToPage())
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
+  const [statementCustomerId, setStatementCustomerId] = useState<string | null>(null)
   const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, canAny, isSuperAdmin } = useAuth()
   useInactivityLogout()
 
@@ -370,6 +372,11 @@ function AppContent() {
   const navigateToEdit = (p: Page, voucherId: string) => {
     setEditVoucherId(voucherId)
     navigate(p)
+  }
+
+  const navigateToStatement = (customerId: string) => {
+    setStatementCustomerId(customerId)
+    navigate('customer-statement')
   }
 
   const goBack = () => {
@@ -450,7 +457,10 @@ function AppContent() {
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-register': return <StockTransferRegister />
-      case 'customers':         return <Customers onNav={navigate} />
+      case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} />
+      case 'customer-statement':
+        if (!statementCustomerId) { navigate('customers'); return null }
+        return <CustomerStatement customerId={statementCustomerId} onNav={navigate} />
       case 'suppliers':         return <Suppliers onNav={navigate} />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'import-order':      return <ImportOrder onNav={navigate} />
@@ -484,7 +494,7 @@ function AppContent() {
       case 'crm-loyalty':       return <CRMLoyalty onNav={navigate} />
       case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
-      case 'crm-customers':     return <Customers onNav={navigate} />
+      case 'crm-customers':     return <Customers onNav={navigate} onViewStatement={navigateToStatement} />
       
       // HRM Module Routes — pass mode, linked employee, and manage permission
       case 'hrm':               return <HRMDashboard onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
