@@ -1085,6 +1085,43 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               Print / PDF
             </button>
+
+            {/* Save as PNG — generates a crisp image of the invoice for easy
+                sharing on WhatsApp, social, or slide decks. Uses html2canvas
+                loaded lazily from CDN (same pattern as ProformaInvoice). */}
+            <button className="btn btn-ghost btn-sm" onClick={() => {
+              const el = document.getElementById('malkia-invoice')
+              if (!el) return
+              showToast('Generating image…')
+              const existing = (window as any).html2canvas
+              const generate = () => {
+                (window as any).html2canvas(el, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff' })
+                  .then((canvas: HTMLCanvasElement) => {
+                    const link = document.createElement('a')
+                    link.download = `Invoice-${lastInvoice.ref}.png`
+                    link.href = canvas.toDataURL('image/png')
+                    link.click()
+                    showToast('Image downloaded')
+                  })
+                  .catch(() => showToast('Image generation failed', 'error'))
+              }
+              if (existing) {
+                generate()
+              } else {
+                const script = document.createElement('script')
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'
+                script.onload = generate
+                script.onerror = () => showToast('Could not load image library', 'error')
+                document.body.appendChild(script)
+              }
+            }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+              Save PNG
+            </button>
             {waConfig?.enabled && waConfig?.api_key && lastInvoice.customers?.whatsapp && (
               <button className="btn btn-ghost btn-sm" disabled={sending || waSent}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#25D366', border: '1px solid rgba(37,211,102,.3)' }}
