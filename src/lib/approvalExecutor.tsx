@@ -112,17 +112,31 @@ async function executeInternalUse(c: ExecuteContext): Promise<ExecutorResult> {
   if (vuErr) return { success: false, error: 'Voucher update: ' + vuErr.message }
 
   // 5. Ledger entries + stock decrement
+  // Resolve the location UUID for the ledger (table stores location_id)
+  const { data: locRow } = await supabase.from('stock_locations')
+    .select('id, code').eq('code', p.form.locationCode).maybeSingle()
+
   for (const ln of p.lines) {
     if (!ln.productId || ln.qty <= 0) continue
+
+    // Decrement stock on products table (internal_use = stock going out)
+    const { data: prod } = await supabase.from('products')
+      .select('qty_on_hand').eq('id', ln.productId).single()
+    if (prod) {
+      await supabase.from('products')
+        .update({ qty_on_hand: (prod.qty_on_hand || 0) - ln.qty })
+        .eq('id', ln.productId)
+    }
+
     await postLedgerEntry({
-      productId: ln.productId,
-      entryType: 'internal_use',
-      qtyChange: -ln.qty,
-      unitCost: ln.unitCost,
-      sourceRef: p.form.ref,
-      sourceDate: p.form.date,
-      locationCode: p.form.locationCode,
-      notes: `${p.categoryLabel} · ${resolvedTakenBy}`,
+      product_id: ln.productId,
+      entry_type: 'internal_use',
+      document_type: 'internal_use',
+      document_ref: p.form.ref,
+      posting_date: p.form.date,
+      qty: -ln.qty,                           // negative = stock out
+      cost_amount: ln.unitCost * ln.qty,      // always positive
+      location: locRow || null,
     })
   }
 
@@ -178,18 +192,31 @@ async function executeStockAdjustment(c: ExecuteContext): Promise<ExecutorResult
     .eq('id', c.referenceId)
 
   // Apply stock changes via ledger
+  const { data: locRow } = await supabase.from('stock_locations')
+    .select('id, code').eq('code', p.form.locationCode).maybeSingle()
+
   const sign = p.form.type === 'increase' ? 1 : -1
   for (const ln of p.lines) {
     if (!ln.productId) continue
+
+    // Update products.qty_on_hand
+    const { data: prod } = await supabase.from('products')
+      .select('qty_on_hand').eq('id', ln.productId).single()
+    if (prod) {
+      await supabase.from('products')
+        .update({ qty_on_hand: (prod.qty_on_hand || 0) + (sign * ln.qty) })
+        .eq('id', ln.productId)
+    }
+
     await postLedgerEntry({
-      productId: ln.productId,
-      entryType: 'adjustment',
-      qtyChange: sign * ln.qty,
-      unitCost: ln.unitCost,
-      sourceRef: p.form.ref,
-      sourceDate: p.form.date,
-      locationCode: p.form.locationCode,
-      notes: p.form.reason,
+      product_id: ln.productId,
+      entry_type: sign > 0 ? 'positive_adjustment' : 'negative_adjustment',
+      document_type: 'stock_adjustment',
+      document_ref: p.form.ref,
+      posting_date: p.form.date,
+      qty: sign * ln.qty,
+      cost_amount: ln.unitCost * ln.qty,
+      location: locRow || null,
     })
   }
 
@@ -412,6 +439,9 @@ async function executeCreditNote(c: ExecuteContext): Promise<ExecutorResult> {
 
   // Restore stock if returned
   if (doRestore && p.lines && p.locationCode) {
+    const { data: locRow } = await supabase.from('stock_locations')
+      .select('id, code').eq('code', p.locationCode).maybeSingle()
+
     for (const line of p.lines) {
       if (!line.productId || line.creditQty <= 0) continue
       const { data: prod } = await supabase.from('products')
@@ -424,7 +454,7 @@ async function executeCreditNote(c: ExecuteContext): Promise<ExecutorResult> {
           product_id: line.productId, entry_type: 'return',
           document_type: 'credit_note', document_ref: p.form.ref,
           posting_date: p.form.date, qty: line.creditQty, cost_amount: line.unitCost * line.creditQty,
-          location: null,
+          location: locRow || null,
         })
       }
     }
