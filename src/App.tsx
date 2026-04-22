@@ -99,6 +99,8 @@ const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
 const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
 const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
 const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
+const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
+const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
 
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
@@ -273,6 +275,8 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'suppliers': 'Suppliers',
   'investors-hub': 'Investors Hub',
   'import-order': 'Import Orders',
+  'internal-use': 'Internal Use',
+  'internal-use-report': 'Internal Use Report',
   // HRM Module
   'hrm': 'HR Dashboard',
   'hrm-employees': 'HRM / Employees',
@@ -464,6 +468,8 @@ function AppContent() {
       case 'suppliers':         return <Suppliers onNav={navigate} />
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'import-order':      return <ImportOrder onNav={navigate} />
+      case 'internal-use':      return <InternalUse onNav={navigate} />
+      case 'internal-use-report': return <InternalUseReport onNav={navigate} />
       case 'data-import':       return <DataImport />
       case 'bundles':           return <Bundles />
       
