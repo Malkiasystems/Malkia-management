@@ -130,6 +130,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     if (!el) return
     const win = window.open('', '_blank')
     if (!win) return
+    const brandColor = invoiceSettings?.primary_color || '#85c2be'
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${previewVoucher.ref}</title>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
       <style>
@@ -140,6 +141,11 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
         *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important}
         @media print{
           body{background:#fff;padding:0;display:block}
+          /* PDF size optimizations: strip decorative patterns/gradients so
+             Chrome keeps the vector path and the file stays small (~80KB
+             instead of ~500KB). */
+          .no-print{display:none !important}
+          .print-solid-bar{background:${brandColor} !important}
           /* Remove Chrome's URL / date / page-number header & footer */
           @page{size:A4;margin:0}
         }
