@@ -22,6 +22,7 @@ export type LedgerEntryType =
   | 'write_off'
   | 'transfer_in'
   | 'transfer_out'
+  | 'internal_use'          // product consumed internally (sample / own use / damage / training)
 
 export type LedgerDocumentType =
   | 'cash_sale'
@@ -35,6 +36,7 @@ export type LedgerDocumentType =
   | 'opening_stock'
   | 'data_import'
   | 'backfill'
+  | 'internal_use'          // matches the InternalUse voucher type
 
 export interface LedgerEntryInput {
   product_id: string
