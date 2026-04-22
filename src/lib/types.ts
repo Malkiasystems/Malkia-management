@@ -9,7 +9,7 @@ export type Page =
   | 'sales' | 'inventory' | 'reports' | 'pnl'
   | 'sales-register' | 'sales-day-book' | 'sales-invoices-list' | 'trial-balance' | 'balance-sheet'
   | 'ar-aging' | 'ap-aging' | 'stock-valuation'
-  | 'purchase-register' | 'payment-register' | 'stock-transfer-register' | 'customers'
+  | 'purchase-register' | 'payment-register' | 'stock-transfer-register' | 'customers' | 'customer-statement'
   | 'receipt-template' | 'invoice-template'
   | 'whatsapp-settings' | 'location-settings'
   | 'inventory-settings' | 'pricelist-template' | 'proforma-template'
