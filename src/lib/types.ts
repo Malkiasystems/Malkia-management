@@ -2,7 +2,7 @@ export type Page =
   | 'dashboard' | 'vouchers' | 'chart-of-accounts'
   | 'cash-sale' | 'cash-payment' | 'cash-receipt'
   | 'bank-payment' | 'bank-receipt' | 'bank-transfer'
-  | 'petty-cash' | 'contra' | 'sales-invoice' | 'proforma' | 'quotation'
+  | 'petty-cash' | 'contra' | 'sales-invoice' | 'proforma' | 'proformas-list' | 'quotation'
   | 'sales-return' | 'debit-note' | 'credit-note'
   | 'purchase-order' | 'grn' | 'purchase-invoice' | 'purchase-return'
   | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry' | 'import-order'
