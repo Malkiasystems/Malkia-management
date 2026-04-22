@@ -330,13 +330,14 @@ export async function approveRequest(
   if (error) return { success: false, error: error.message }
   const row = Array.isArray(data) ? data[0] : data
   if (!row) return { success: false, error: 'No response from approve_request RPC' }
-  if (!row.success) return { success: false, error: row.error }
+  // RPC uses out_ prefixed column names to avoid PL/pgSQL scoping issues
+  if (!row.out_success) return { success: false, error: row.out_error }
 
   return {
     success: true,
-    payload: row.payload,
-    referenceType: row.reference_type,
-    referenceId: row.reference_id,
+    payload: row.out_payload,
+    referenceType: row.out_reference_type,
+    referenceId: row.out_reference_id,
   }
 }
 
@@ -359,7 +360,7 @@ export async function rejectRequest(
 
   if (error) return { success: false, error: error.message }
   const row = Array.isArray(data) ? data[0] : data
-  if (!row?.success) return { success: false, error: row?.error || 'Reject failed' }
+  if (!row?.out_success) return { success: false, error: row?.out_error || 'Reject failed' }
   return { success: true }
 }
 
