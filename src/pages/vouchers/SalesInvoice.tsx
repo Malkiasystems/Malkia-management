@@ -1035,6 +1035,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               if (!el) return
               const win = window.open('', '_blank')
               if (!win) return
+              // Read the active brand color so print CSS can flatten the
+              // 3-color bottom gradient to this solid value.
+              const brandColor = invoiceSettings?.primary_color || '#85c2be'
               win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${lastInvoice.ref}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
                 <style>
@@ -1053,6 +1056,21 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
 
                   @media print{
                     body{background:#fff;padding:0;display:block}
+
+                    /* PDF SIZE OPTIMIZATIONS:
+                       Chrome rasterizes pages with complex patterns/gradients
+                       into images, which explodes the PDF size from ~80KB
+                       (vector) to ~500KB+ (raster). Stripping decorative
+                       non-essentials lets Chrome keep the vector path. */
+
+                    /* Hide the diagonal stripe overlay on the hero banner.
+                       It's a repeating-linear-gradient Chrome embeds as an
+                       image; invisible loss in PDF, major size drop. */
+                    .no-print{display:none !important}
+
+                    /* Flatten the 3-color gradient bottom bar to solid teal.
+                       Uses the current brand color from invoice settings. */
+                    .print-solid-bar{background:${brandColor} !important}
 
                     /* Remove Chrome's browser-inserted URL / date / page-number
                        headers and footers by zeroing page margin. The invoice
