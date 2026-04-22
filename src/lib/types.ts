@@ -25,7 +25,7 @@ export type Page =
   | 'company-finance-settings' | 'users-access-settings' | 'sales-inventory-settings'
   | 'templates-hub' | 'integrations-settings' | 'regional-backup-settings'
   // User Management & Approvals
-  | 'users' | 'approvals'
+  | 'users' | 'approvals' | 'approvals-settings'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles
