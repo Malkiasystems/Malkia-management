@@ -18,6 +18,7 @@ export type VoucherDraftType =
   | 'purchase-invoice'
   | 'grn'
   | 'proforma'
+  | 'internal-use'
 
 interface StoredDraft<T> {
   version: 1
