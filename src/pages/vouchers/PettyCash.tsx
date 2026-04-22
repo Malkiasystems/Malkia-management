@@ -7,13 +7,14 @@ import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
+import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface ExpLine { desc: string; amount: number; accountId: string }
 
 export default function PettyCash({ onNav }: Props) {
-  const { isSuperAdmin } = useAuth()
+  const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -21,7 +22,7 @@ export default function PettyCash({ onNav }: Props) {
   const [pettyCashId, setPettyCashId] = useState('')
   const [pettyCashBal, setPettyCashBal] = useState(0)
   const [lines, setLines] = useState<ExpLine[]>([{ desc: '', amount: 0, accountId: '' }])
-  const [form, setForm] = useState({ date: today(), ref: '', paidTo: '', approvedBy: 'Joe Gembe', notes: '' })
+  const [form, setForm] = useState({ date: today(), ref: '', paidTo: '', notes: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
@@ -49,15 +50,26 @@ export default function PettyCash({ onNav }: Props) {
     if (lines.some(l => l.amount > 0 && !l.accountId)) { showToast('Select expense account for each line', 'error'); return }
     if (!pettyCashId) { showToast('Petty Cash account (1040) not found', 'error'); return }
     if (!form.ref) { showToast('Reference number not generated', 'error'); return }
+    if (!user) { showToast('You must be signed in', 'error'); return }
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
+
+    // ─── Approval gate ─────────────────────────────────────────────────
+    // Petty cash runs above a configured threshold (default 50k) need approval.
+    const check = await checkApprovalRequired('petty_cash', { value: total })
+    const canBypass = check.superAdminBypass && isSuperAdmin()
+    if (check.requiresApproval && check.blockPosting && !canBypass) {
+      await submitPettyCashForApproval(check.reason || 'Approval required')
+      return
+    }
+
     setPosting(true)
     try {
       const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: form.ref, posting_date: form.date,
         description: `Petty Cash — ${form.paidTo}`,
         journal_type: 'petty_cash', source_type: 'petty_cash', source_ref: form.ref,
-        posted_by: form.approvedBy, status: 'posted',
+        posted_by: user.full_name, status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -78,7 +90,7 @@ export default function PettyCash({ onNav }: Props) {
       await supabase.from('vouchers').insert({
         ref: form.ref, type: 'petty_cash', posting_date: form.date,
         description: `Petty Cash — ${form.paidTo}`, total_amount: total,
-        status: 'posted', journal_id: j.id, posted_by: form.approvedBy, notes: form.notes,
+        status: 'posted', journal_id: j.id, posted_by: user.full_name, notes: form.notes,
       })
 
       showToast(`${form.ref} posted · Dr Expense / Cr Petty Cash (1040) · TZS ${total.toLocaleString()}`)
@@ -86,6 +98,50 @@ export default function PettyCash({ onNav }: Props) {
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }
+  }
+
+  // ─── Approval submission ───────────────────────────────────────────────
+  const submitPettyCashForApproval = async (reason: string) => {
+    if (!user) return
+    setPosting(true)
+    try {
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'petty_cash', posting_date: form.date,
+        description: `Petty Cash — ${form.paidTo}`, total_amount: total,
+        status: 'pending_approval', posted_by: user.full_name, notes: form.notes,
+      }).select('id').single()
+      if (vErr) throw new Error('Pending voucher: ' + vErr.message)
+
+      const snapshot = {
+        form: { date: form.date, ref: form.ref, paidTo: form.paidTo, notes: form.notes },
+        lines: lines
+          .filter(l => l.amount > 0 && l.accountId)
+          .map(l => ({ desc: l.desc, amount: l.amount, accountId: l.accountId })),
+        total,
+      }
+
+      const res = await submitForApproval({
+        typeCode: 'petty_cash',
+        referenceType: 'voucher',
+        referenceId: voucher!.id,
+        referenceNumber: form.ref,
+        summary: `Petty cash to ${form.paidTo} · ${snapshot.lines.length} line(s)`,
+        requestedValue: total,
+        payload: snapshot,
+        requestedBy: user.id,
+      })
+      if (!res.success) {
+        await supabase.from('vouchers').delete().eq('id', voucher!.id)
+        throw new Error(res.error || 'Submission failed')
+      }
+
+      showToast(`Submitted for approval · ${reason}`, 'success')
+      setTimeout(() => onNav('approvals'), 1200)
+    } catch (e: any) {
+      showToast(e.message || 'Submission failed', 'error')
+    } finally {
+      setPosting(false)
+    }
   }
 
   return (
@@ -99,7 +155,9 @@ export default function PettyCash({ onNav }: Props) {
         </div>
         <div className="form-row">
           <FG label="Paid To" req><input className="form-input" placeholder="e.g. Office supplies shop" value={form.paidTo} onChange={e => set('paidTo', e.target.value)} /></FG>
-          <FG label="Approved By"><select className="form-input" value={form.approvedBy} onChange={e => set('approvedBy', e.target.value)}><option>Joe Gembe</option><option>Jane Mwatonoka</option></select></FG>
+          <FG label="Submitted By">
+            <input className="form-input" readOnly value={user?.full_name || ''} style={{ background: 'var(--surface2)', cursor: 'default' }} />
+          </FG>
         </div>
         <FG label="Notes"><input className="form-input" placeholder="Purpose of expense" value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>
       </div>
