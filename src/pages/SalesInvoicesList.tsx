@@ -125,6 +125,36 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     setWaSent(false)
   }
 
+  // Generate and download a crisp PNG of the invoice preview. Loads
+  // html2canvas lazily from CDN the first time it's used; subsequent calls
+  // reuse the cached global. Used for easy sharing via WhatsApp/Slack/etc.
+  const downloadPNG = () => {
+    const el = document.getElementById('invoice-preview')
+    if (!el || !previewVoucher) return
+    setToast('Generating image…'); setToastType('success')
+    const existing = (window as any).html2canvas
+    const generate = () => {
+      (window as any).html2canvas(el, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff' })
+        .then((canvas: HTMLCanvasElement) => {
+          const link = document.createElement('a')
+          link.download = `Invoice-${previewVoucher.ref}.png`
+          link.href = canvas.toDataURL('image/png')
+          link.click()
+          setToast('Image downloaded'); setToastType('success')
+        })
+        .catch(() => { setToast('Image generation failed'); setToastType('error') })
+    }
+    if (existing) {
+      generate()
+    } else {
+      const script = document.createElement('script')
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'
+      script.onload = generate
+      script.onerror = () => { setToast('Could not load image library'); setToastType('error') }
+      document.body.appendChild(script)
+    }
+  }
+
   const printPreview = () => {
     const el = document.getElementById('invoice-preview')
     if (!el) return
@@ -469,6 +499,14 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
                   <rect x="6" y="14" width="12" height="8"/>
                 </svg>
                 Print / PDF
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={downloadPNG} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                Save PNG
               </button>
               {waConfig?.enabled && waConfig?.api_key && previewVoucher.customers?.whatsapp && (
                 <button className="btn btn-ghost btn-sm" disabled={sending || waSent}
