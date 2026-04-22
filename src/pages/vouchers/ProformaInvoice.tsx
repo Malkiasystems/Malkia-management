@@ -14,7 +14,11 @@ import { MalkiaProforma, DEFAULT_PROFORMA } from '../ProformaTemplate'
 import type { ProformaSettings, ProformaVoucher } from '../ProformaTemplate'
 
 // ─────────────────────────────────────────────────────────────────────────────
-interface Props { onNav: (p: Page) => void }
+interface Props {
+  onNav: (p: Page) => void
+  editVoucherId?: string
+  onClearEdit?: () => void
+}
 
 interface DBCustomer {
   id: string; name: string; company: string; contact_person: string
@@ -56,12 +60,14 @@ const SHORTCUTS: { icon: string; label: string; page: Page }[] = [
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function ProformaInvoice({ onNav }: Props) {
+export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [converting, setConverting] = useState(false)
+  const [loadingExisting, setLoadingExisting] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const [showPreview, setShowPreview] = useState(false)
   const [lastVoucher, setLastVoucher] = useState<ProformaVoucher | null>(null)
@@ -102,7 +108,7 @@ export default function ProformaInvoice({ onNav }: Props) {
   const {
     availableDraft, draftAgeMs,
     saveDraft, clearDraft, acknowledgeResume, discardDraft,
-  } = useVoucherDraft<PFDraft>('proforma', false)
+  } = useVoucherDraft<PFDraft>('proforma', !!editVoucherId)
 
   const resumeDraft = () => {
     if (!availableDraft) return
@@ -127,27 +133,36 @@ export default function ProformaInvoice({ onNav }: Props) {
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
     loadProducts()
-    loadNextRef()
+    if (editVoucherId) {
+      loadExistingProforma(editVoucherId)
+    } else {
+      loadNextRef()
+    }
     loadSettings()
     loadWAConfig().then(setWaConfig)
 
-    // Auto-calc validUntil from validity
-    const d = new Date(); d.setDate(d.getDate() + 7)
-    set('validUntil', d.toISOString().split('T')[0])
+    // Auto-calc validUntil from validity (only for new proformas)
+    if (!editVoucherId) {
+      const d = new Date(); d.setDate(d.getDate() + 7)
+      set('validUntil', d.toISOString().split('T')[0])
+    }
 
     const close = (e: MouseEvent) => {
       if (dropRef.current && !dropRef.current.contains(e.target as Node)) setShowDrop(false)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editVoucherId])
 
-  // Recalculate valid-until when validity days change
+  // Recalculate valid-until when validity days change — but NOT in edit mode
+  // (we want to preserve the stored date)
   useEffect(() => {
+    if (editingId) return
     const days = parseInt(form.validity) || 7
     const d = new Date(form.date); d.setDate(d.getDate() + days)
     set('validUntil', d.toISOString().split('T')[0])
-  }, [form.validity, form.date])
+  }, [form.validity, form.date, editingId])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
@@ -186,6 +201,71 @@ export default function ProformaInvoice({ onNav }: Props) {
   const loadNextRef = async () => {
     const ref = await nextRef('proforma')
     set('ref', ref)
+  }
+
+  // ── Edit-mode: fetch existing proforma with lines + customer ────────────
+  // Hydrates the form state so the user sees exactly what they saved earlier
+  // and can make corrections. Pulls the linked customer from the `customers`
+  // table by customer_id to keep the selector chip populated correctly.
+  const loadExistingProforma = async (voucherId: string) => {
+    setLoadingExisting(true)
+    try {
+      const { data: v, error } = await supabase.from('vouchers')
+        .select(`
+          id, ref, posting_date, due_date, description, subtotal, vat_amount,
+          total_amount, status, notes, payment_terms, customer_id, posted_by,
+          customers (
+            id, name, company, contact_person, whatsapp, address, email, customer_number,
+            balance, credit_limit, credit_period, payment_terms
+          ),
+          voucher_lines (
+            line_number, product_id, description, qty, unit_price, discount_pct,
+            subtotal, total, products ( id, name, sku )
+          )
+        `)
+        .eq('id', voucherId)
+        .eq('type', 'proforma')
+        .single()
+
+      if (error || !v) {
+        showToast('Could not load proforma: ' + (error?.message || 'not found'), 'error')
+        setLoadingExisting(false)
+        return
+      }
+
+      setEditingId(v.id)
+      const cust = (v.customers as any) || null
+      if (cust) setSelectedCust(cust)
+
+      setForm(f => ({
+        ...f,
+        ref: v.ref,
+        date: v.posting_date,
+        validUntil: v.due_date || '',
+        validity: '',  // leave blank; stored valid-until is the source of truth
+        customer: cust?.name || '',
+        wa: cust?.whatsapp || '',
+        paymentTerms: v.payment_terms || 'NET30',
+        notes: v.notes || '',
+        salesperson: v.posted_by || getPostedBy(),
+      }))
+
+      const sortedLines = ((v.voucher_lines as any[]) || [])
+        .sort((a, b) => (a.line_number || 0) - (b.line_number || 0))
+        .map(l => ({
+          productId: l.product_id || '',
+          desc: l.description || l.products?.name || '',
+          qty: l.qty || 1,
+          price: l.unit_price || 0,
+          discount: l.discount_pct || 0,
+          amount: l.total || 0,
+        }))
+      setLines(sortedLines.length > 0 ? sortedLines : [{ productId: '', desc: '', qty: 1, price: 0, discount: 0, amount: 0 }])
+    } catch (err: any) {
+      showToast('Load failed: ' + err.message, 'error')
+    } finally {
+      setLoadingExisting(false)
+    }
   }
 
   const loadSettings = () => {
@@ -285,6 +365,44 @@ export default function ProformaInvoice({ onNav }: Props) {
     if (lines.every(l => !l.productId && !l.desc)) { showToast('Add at least one line', 'error'); return }
     setPosting(true)
     try {
+      // ── Edit branch: update existing proforma in place ────────────────
+      if (editingId) {
+        const { error: upErr } = await supabase.from('vouchers').update({
+          posting_date: form.date,
+          description: `Proforma Invoice — ${form.customer} — ${form.ref}`,
+          subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
+          due_date: form.validUntil || null,
+          payment_terms: form.paymentTerms,
+          customer_id: selectedCust?.id || null,
+          notes: form.notes || null,
+          posted_by: form.salesperson,
+        }).eq('id', editingId)
+        if (upErr) throw new Error(upErr.message)
+
+        // Replace all lines — simpler than diffing
+        await supabase.from('voucher_lines').delete().eq('voucher_id', editingId)
+        const lineInserts = lines.filter(l => l.productId || l.desc).map((l, i) => ({
+          voucher_id: editingId, line_number: i + 1,
+          product_id: l.productId || null,
+          description: l.desc, qty: l.qty,
+          unit_price: l.price, discount_pct: l.discount,
+          subtotal: l.amount, vat_amount: Math.round(l.amount * 18 / 118),
+          total: l.amount,
+        }))
+        if (lineInserts.length) {
+          const { error: liErr } = await supabase.from('voucher_lines').insert(lineInserts)
+          if (liErr) throw new Error(liErr.message)
+        }
+
+        const built = buildVoucher(form.ref)
+        setLastVoucher(built)
+        setShowPreview(true)
+        showToast(`${form.ref} updated`)
+        // Stay in edit mode so further saves update again. User clicks back/close to exit.
+        return
+      }
+
+      // ── Insert branch: new proforma ──────────────────────────────────
       const { error } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'proforma', posting_date: form.date,
         description: `Proforma Invoice — ${form.customer} — ${form.ref}`,
@@ -471,6 +589,42 @@ _Malkia Wellness Group Ltd_`
 
         {availableDraft && draftAgeMs !== null && (
           <DraftBanner draftAgeMs={draftAgeMs} onResume={resumeDraft} onDiscard={discardDraft} />
+        )}
+
+        {/* Edit-mode banner — shown when we're editing an existing proforma.
+            Gives the user a clear way to bail out of editing and back to a
+            fresh proforma without losing the reference link. */}
+        {editingId && (
+          <div style={{
+            background: 'rgba(59,130,246,.08)', border: '1px solid rgba(59,130,246,.3)',
+            borderRadius: 10, padding: '10px 14px', marginBottom: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <svg width="16" height="16" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#3b82f6' }}>
+                  Editing {form.ref}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>
+                  {loadingExisting ? 'Loading…' : 'Changes overwrite the existing proforma. Save to confirm.'}
+                </div>
+              </div>
+            </div>
+            <button className="btn btn-ghost btn-sm"
+              onClick={() => {
+                if (onClearEdit) onClearEdit()
+                onNav('proformas-list')
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+              </svg>
+              Back to list
+            </button>
+          </div>
         )}
 
         {/* ── Header / meta ────────────────────────────────────────────── */}
