@@ -76,7 +76,10 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     loadWAConfig().then(setWaConfig)
   }, [])
 
-  // Open preview modal by loading the full voucher with lines + customer
+  // Open preview modal by loading the full voucher with lines + customer.
+  // Also fetches the ledger remaining_amount so we can show whether this
+  // specific invoice is paid/partial/outstanding, and re-reads the customer's
+  // CURRENT balance (not whatever was cached at posting time).
   const openPreview = async (voucherId: string) => {
     const { data: voucher, error } = await supabase
       .from('vouchers')
@@ -94,7 +97,26 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
       return
     }
 
-    setPreviewVoucher(voucher)
+    // Pull the ledger entry for this invoice so we know its current
+    // remaining_amount (what's still owed on THIS invoice specifically).
+    const { data: ledger } = await supabase
+      .from('customer_ledger_entries')
+      .select('remaining_amount, is_open')
+      .eq('document_ref', voucher.ref)
+      .eq('document_type', 'invoice')
+      .maybeSingle()
+
+    // Attach the live figures as extra properties on the voucher object so
+    // they flow through to the invoice template via the viewMode prop.
+    const enriched = {
+      ...voucher,
+      _viewMode: true,
+      _invoiceRemaining: ledger?.remaining_amount ?? voucher.total_amount,
+      _invoicePaid: (voucher.total_amount || 0) - (ledger?.remaining_amount ?? voucher.total_amount),
+      _statementDate: new Date().toISOString().split('T')[0],
+    }
+
+    setPreviewVoucher(enriched)
     setWaSent(false)
   }
 
@@ -110,7 +132,18 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     if (!win) return
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${previewVoucher.ref}</title>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
-      <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
+      <style>
+        *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+        body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}
+        /* Force Chrome/Edge/Safari to keep our teal + cream background panels
+           when printing to PDF. Without this, backgrounds strip to white. */
+        *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important}
+        @media print{
+          body{background:#fff;padding:0;display:block}
+          /* Remove Chrome's URL / date / page-number header & footer */
+          @page{size:A4;margin:0}
+        }
+      </style>
     </head><body>${el.outerHTML}</body></html>`)
     win.document.close()
     setTimeout(() => win.print(), 600)
