@@ -8,6 +8,7 @@ import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -15,7 +16,7 @@ interface ReturnLine { productId: string; name: string; qty: number; salePrice: 
 interface StockLoc { id: string; code: string; name: string }
 
 export default function SalesReturn({ onNav }: Props) {
-  const { isSuperAdmin } = useAuth()
+  const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -67,8 +68,20 @@ export default function SalesReturn({ onNav }: Props) {
     if (!form.customer.trim()) { showToast('Customer name required', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (form.refundMethod !== 'credit' && form.refundMethod !== 'exchange' && !form.refundAccountId) { showToast('Select refund account', 'error'); return }
+    if (!user) { showToast('You must be signed in', 'error'); return }
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
+
+    // ─── Approval gate ─────────────────────────────────────────────────
+    // All sales returns need approval by default (physical stock coming back
+    // needs verification). Super admin can bypass per setting.
+    const check = await checkApprovalRequired('sales_return', { value: total })
+    const canBypass = check.superAdminBypass && isSuperAdmin()
+    if (check.requiresApproval && check.blockPosting && !canBypass) {
+      await submitSalesReturnForApproval(check.reason || 'Approval required')
+      return
+    }
+
     setPosting(true)
     try {
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['4050', '5010', '1110', '2020'])
@@ -86,7 +99,7 @@ export default function SalesReturn({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Sales Return — ${form.customer} — ${form.ref}`,
         journal_type: 'sales_return', source_type: 'sales_return', source_ref: form.ref,
-        posted_by: 'Joe Gembe', status: 'posted',
+        posted_by: user.full_name, status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -113,7 +126,7 @@ export default function SalesReturn({ onNav }: Props) {
         description: `Sales Return — ${form.customer}`,
         total_amount: total, status: 'posted', journal_id: j.id,
         notes: `${form.reason}${form.originalRef ? ' · Orig: ' + form.originalRef : ''}`,
-        posted_by: 'Joe Gembe',
+        posted_by: user.full_name,
       })
 
       // Restore stock
@@ -146,6 +159,61 @@ export default function SalesReturn({ onNav }: Props) {
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }
+  }
+
+  // ─── Approval submission ───────────────────────────────────────────────
+  const submitSalesReturnForApproval = async (reason: string) => {
+    if (!user) return
+    setPosting(true)
+    try {
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'sales_return', posting_date: form.date,
+        description: `Sales Return — ${form.customer}`,
+        total_amount: total, status: 'pending_approval',
+        notes: `${form.reason}${form.originalRef ? ' · Orig: ' + form.originalRef : ''}`,
+        posted_by: user.full_name,
+      }).select('id').single()
+      if (vErr) throw new Error('Pending voucher: ' + vErr.message)
+
+      const snapshot = {
+        form: {
+          date: form.date, ref: form.ref, customer: form.customer, wa: form.wa,
+          originalRef: form.originalRef, reason: form.reason,
+          refundMethod: form.refundMethod, refundAccountId: form.refundAccountId,
+          locationCode: form.locationCode,
+        },
+        lines: lines
+          .filter(l => l.productId && l.qty > 0)
+          .map(l => ({
+            productId: l.productId, name: l.name, qty: l.qty,
+            salePrice: l.salePrice, costPrice: l.costPrice, amount: l.amount,
+          })),
+        total,
+        cogsReversal,
+      }
+
+      const res = await submitForApproval({
+        typeCode: 'sales_return',
+        referenceType: 'voucher',
+        referenceId: voucher!.id,
+        referenceNumber: form.ref,
+        summary: `Sales return from ${form.customer} · ${snapshot.lines.length} item(s) · ${form.reason}`,
+        requestedValue: total,
+        payload: snapshot,
+        requestedBy: user.id,
+      })
+      if (!res.success) {
+        await supabase.from('vouchers').delete().eq('id', voucher!.id)
+        throw new Error(res.error || 'Submission failed')
+      }
+
+      showToast(`Submitted for approval · ${reason}`, 'success')
+      setTimeout(() => onNav('approvals'), 1200)
+    } catch (e: any) {
+      showToast(e.message || 'Submission failed', 'error')
+    } finally {
+      setPosting(false)
+    }
   }
 
   return (
