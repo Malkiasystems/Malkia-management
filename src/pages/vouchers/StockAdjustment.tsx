@@ -6,6 +6,8 @@ import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { useAuth } from '../../lib/useAuth'
+import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -14,13 +16,14 @@ interface AdjLine { productId: string; qty: number; reason: string }
 interface StockLocation { id: string; code: string; name: string; branch_code: string }
 
 export default function StockAdjustment({ onNav }: Props) {
+  const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [lines, setLines] = useState<AdjLine[]>([{ productId: '', qty: 1, reason: '' }])
-  const [form, setForm] = useState({ date: today(), ref: '', type: 'increase', reason: 'count', approvedBy: 'Joe Gembe', notes: '', locationCode: '' })
+  const [form, setForm] = useState({ date: today(), ref: '', type: 'increase', reason: 'count', notes: '', locationCode: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadProducts(); loadLocations(); loadNextRef() }, [])
@@ -52,6 +55,28 @@ export default function StockAdjustment({ onNav }: Props) {
 
   const post = async () => {
     if (lines.every(l => !l.productId)) { showToast('Please select at least one product', 'error'); return }
+    if (!user) { showToast('You must be signed in', 'error'); return }
+
+    // ─── Approval gate ─────────────────────────────────────────────────
+    // Any stock adjustment is sensitive. Totals are computed from cost price ×
+    // qty for the approval threshold check.
+    const totalCost = lines.reduce((sum, l) => {
+      const prod = products.find(p => p.id === l.productId)
+      return sum + (prod ? l.qty * prod.cost_price : 0)
+    }, 0)
+
+    const check = await checkApprovalRequired('stock_adjustment', {
+      value: totalCost,
+      quantity: lines.reduce((s, l) => s + (l.qty || 0), 0),
+      meta: { type: form.type, reason: form.reason },
+    })
+
+    const canBypass = check.superAdminBypass && isSuperAdmin()
+    if (check.requiresApproval && check.blockPosting && !canBypass) {
+      await submitStockAdjustmentForApproval(totalCost, check.reason || 'Approval required')
+      return
+    }
+
     setPosting(true)
 
     try {
@@ -64,7 +89,7 @@ export default function StockAdjustment({ onNav }: Props) {
       const { error: vErr } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'stock_adjustment', posting_date: form.date,
         description: `Stock Adjustment — ${form.type} — ${form.reason}`,
-        status: 'posted', posted_by: form.approvedBy, notes: form.notes,
+        status: 'posted', posted_by: user.full_name, notes: form.notes,
       })  
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
@@ -106,7 +131,7 @@ export default function StockAdjustment({ onNav }: Props) {
           const { data: j } = await insertJournalWithRetry({
             ref: 'JV-' + form.ref + '-' + lines.indexOf(line),
             posting_date: form.date, description: `Stock Write-off — ${prod.name}`,
-            journal_type: 'stock_adjustment', posted_by: form.approvedBy, status: 'posted',
+            journal_type: 'stock_adjustment', posted_by: user.full_name, status: 'posted',
           })  
           if (j) {
             await supabase.from('journal_lines').insert([
@@ -123,6 +148,62 @@ export default function StockAdjustment({ onNav }: Props) {
       onNav('vouchers')
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  // ─── Approval submission ───────────────────────────────────────────────
+  const submitStockAdjustmentForApproval = async (totalCost: number, reason: string) => {
+    if (!user) return
+    setPosting(true)
+    try {
+      // Create the pending voucher row
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'stock_adjustment', posting_date: form.date,
+        description: `Stock Adjustment — ${form.type} — ${form.reason}`,
+        status: 'pending_approval', posted_by: user.full_name, notes: form.notes,
+        total_amount: totalCost, subtotal: totalCost,
+      }).select('id').single()
+      if (vErr) throw new Error('Pending voucher: ' + vErr.message)
+
+      // Build snapshot
+      const snapshot = {
+        form: {
+          date: form.date, ref: form.ref,
+          type: form.type as 'increase' | 'decrease',
+          reason: form.reason, notes: form.notes,
+          locationCode: form.locationCode,
+        },
+        lines: lines
+          .filter(l => l.productId && l.qty > 0)
+          .map(l => {
+            const prod = products.find(p => p.id === l.productId)
+            const unitCost = prod?.cost_price || 0
+            return { productId: l.productId, qty: l.qty, unitCost, amount: l.qty * unitCost }
+          }),
+        total: totalCost,
+      }
+
+      const res = await submitForApproval({
+        typeCode: 'stock_adjustment',
+        referenceType: 'voucher',
+        referenceId: voucher!.id,
+        referenceNumber: form.ref,
+        summary: `Stock ${form.type} · ${form.reason} · ${snapshot.lines.length} products`,
+        requestedValue: totalCost,
+        payload: snapshot,
+        requestedBy: user.id,
+      })
+      if (!res.success) {
+        await supabase.from('vouchers').delete().eq('id', voucher!.id)
+        throw new Error(res.error || 'Submission failed')
+      }
+
+      showToast(`Submitted for approval · ${reason}`, 'success')
+      setTimeout(() => onNav('approvals'), 1200)
+    } catch (e: any) {
+      showToast(e.message || 'Submission failed', 'error')
     } finally {
       setPosting(false)
     }
@@ -154,7 +235,9 @@ export default function StockAdjustment({ onNav }: Props) {
           </FG>
         </div>
         <div className="form-row">
-          <FG label="Approved By"><select className="form-input" value={form.approvedBy} onChange={e => set('approvedBy', e.target.value)}><option>Joe Gembe</option><option>Jane Mwatonoka</option></select></FG>
+          <FG label="Submitted By">
+            <input className="form-input" readOnly value={user?.full_name || ''} style={{ background: 'var(--surface2)', cursor: 'default' }} />
+          </FG>
           <FG label="Location" req>
             <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)}>
               {locations.length === 0 && <option value="">— Loading —</option>}
