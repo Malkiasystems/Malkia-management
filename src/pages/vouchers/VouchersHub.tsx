@@ -20,6 +20,7 @@ const SECTIONS = [
       { icon: 'cash-sale', name: 'Cash Sale', desc: 'Counter POS — WhatsApp receipt', color: 'rgba(212,135,74,.12)', page: 'cash-sale' as Page },
       { icon: 'invoice', name: 'Sales Invoice', desc: 'Credit sale — creates AR entry', color: 'rgba(0,229,160,.12)', page: 'sales-invoice' as Page },
       { icon: 'invoice', name: 'Proforma Invoice', desc: 'Quotation · Convert to Sales Invoice', color: 'rgba(94,168,162,.12)', page: 'proforma' as Page },
+      { icon: 'invoice', name: 'Proformas List', desc: 'Browse · Edit · Reprint · Convert', color: 'rgba(94,168,162,.12)', page: 'proformas-list' as Page },
       { icon: 'return', name: 'Sales Return', desc: 'Customer return / refund', color: 'rgba(255,71,87,.12)', page: 'sales-return' as Page },
       { icon: 'send', name: 'Debit Note', desc: 'Charge customer additional amount', color: 'rgba(255,71,87,.12)', page: 'debit-note' as Page },
       { icon: 'cash-in', name: 'Credit Note', desc: 'Credit customer — reduce balance', color: 'rgba(0,229,160,.12)', page: 'credit-note' as Page },
