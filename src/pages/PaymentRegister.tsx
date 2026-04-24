@@ -4,7 +4,7 @@ import { tzs, getPostedBy } from '../lib/utils'
 import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod, distributeAnnual, distributeQuarterly } from '../lib/useExpenseBudgets'
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import { useRecurringExpenses } from '../lib/useRecurringExpenses'
-import type { RecurringExpense } from '../lib/useRecurringExpenses'
+import type { RecurringExpense, UnpaidRecurring } from '../lib/useRecurringExpenses'
 import Toast from '../components/Toast'
 import type { Page } from '../lib/types'
 
@@ -775,12 +775,12 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
           </div>
 
           {/* Unpaid / due alerts */}
-          {unpaid.filter(u => u.is_due).length > 0 && (
+          {unpaid.filter((u: UnpaidRecurring) => u.is_due).length > 0 && (
             <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid var(--yellow)' }}>
               <div className="card-header" style={{ marginBottom: 12 }}>
                 <div>
                   <div className="card-title">Due This Period</div>
-                  <div className="card-sub">{unpaid.filter(u => u.is_due).length} recurring expense{unpaid.filter(u => u.is_due).length > 1 ? 's' : ''} not yet paid</div>
+                  <div className="card-sub">{unpaid.filter((u: UnpaidRecurring) => u.is_due).length} recurring expense{unpaid.filter((u: UnpaidRecurring) => u.is_due).length > 1 ? 's' : ''} not yet paid</div>
                 </div>
               </div>
               <div className="table-wrap">
@@ -791,7 +791,7 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
                     <th>Last Paid</th>
                   </tr></thead>
                   <tbody>
-                    {unpaid.filter(u => u.is_due).map(u => (
+                    {unpaid.filter((u: UnpaidRecurring) => u.is_due).map((u: UnpaidRecurring) => (
                       <tr key={u.id}>
                         <td className="td-bold">{u.name}{u.description && <div style={{ fontSize: 10, color: 'var(--text3)' }}>{u.description}</div>}</td>
                         <td style={{ fontSize: 11 }}>
@@ -818,7 +818,7 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
             <div className="card-header" style={{ marginBottom: 12 }}>
               <div>
                 <div className="card-title">All Recurring Expenses</div>
-                <div className="card-sub">{recurring.length} total · {recurring.filter(r => r.is_active).length} active</div>
+                <div className="card-sub">{recurring.length} total · {recurring.filter((r: RecurringExpense) => r.is_active).length} active</div>
               </div>
             </div>
             {recurring.length === 0 ? (
@@ -838,7 +838,7 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
                     <th></th>
                   </tr></thead>
                   <tbody>
-                    {recurring.map(r => (
+                    {recurring.map((r: RecurringExpense) => (
                       <tr key={r.id} style={{ opacity: r.is_active ? 1 : 0.5 }}>
                         <td>
                           <div className="td-bold">{r.name}</div>
@@ -870,8 +870,8 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
                       <td colSpan={3}>TOTAL MONTHLY COMMITMENT</td>
                       <td className="td-right td-mono" style={{ color: 'var(--red)' }}>
                         {recurring
-                          .filter(r => r.is_active)
-                          .reduce((s, r) => s + (r.frequency === 'monthly' ? r.amount : r.frequency === 'weekly' ? r.amount * 4 : r.frequency === 'quarterly' ? r.amount / 3 : r.amount / 12), 0)
+                          .filter((r: RecurringExpense) => r.is_active)
+                          .reduce((s: number, r: RecurringExpense) => s + (r.frequency === 'monthly' ? r.amount : r.frequency === 'weekly' ? r.amount * 4 : r.frequency === 'quarterly' ? r.amount / 3 : r.amount / 12), 0)
                           .toLocaleString()}
                       </td>
                       <td colSpan={4}></td>
