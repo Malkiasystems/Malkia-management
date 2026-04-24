@@ -423,7 +423,7 @@ function AppContent() {
       case 'inventory':         return <Inventory onNav={navigate} />
       case 'reports':           return <ReportsHub onNav={navigate} />
       case 'pnl':               return <PnL />
-      case 'sales-register':    return <SalesRegister />
+      case 'sales-register':    return <SalesRegister onEdit={navigateToEdit} />
       case 'sales-day-book':    return <SalesDayBook onNav={navigate} onEdit={navigateToEdit} />
       case 'sales-invoices-list': return <SalesInvoicesList onNav={navigate} onEdit={navigateToEdit} />
       case 'trial-balance':     return <TrialBalance />
