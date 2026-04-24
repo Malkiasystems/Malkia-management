@@ -38,18 +38,25 @@ export interface ExportData {
   totalCost: number
   totalMargin: number
   marginPct: number
+  cashTotal: number
+  creditTotal: number
+  cashCount: number
+  creditCount: number
+  cashPct: number
+  creditPct: number
   fromDate: string
   toDate: string
   tplSettings: SDBTemplateSettings
 }
 
 export function exportCSV(data: ExportData) {
-  const { filtered, totalRevenue, fromDate, toDate } = data
+  const { filtered, totalRevenue, cashTotal, creditTotal, cashCount, creditCount, cashPct, creditPct, fromDate, toDate } = data
   if (filtered.length === 0) return
-  const headers = ['Date','Ref','Customer','WhatsApp','Payment','Salesperson','Status','Amount (TZS)']
-  const rows = filtered.map(s => [
+  const headers = ['Date','Ref','Type','Customer','WhatsApp','Payment','Salesperson','Status','Amount (TZS)']
+  const rows: string[][] = filtered.map(s => [
     s.posting_date,
     s.ref,
+    s.type === 'sales_invoice' ? 'Credit' : 'Cash',
     `"${(s.customers as any)?.name || s.description || ''}"`,
     (s.customers as any)?.whatsapp || '',
     s.payment_method || '',
@@ -57,7 +64,10 @@ export function exportCSV(data: ExportData) {
     s.status || '',
     String(s.total_amount || 0),
   ])
-  rows.push(['TOTALS','','','','','','',String(totalRevenue)])
+  rows.push(['','','','','','','','',''])
+  rows.push(['TOTALS',`${filtered.length} txns`,'','','','','','',String(totalRevenue)])
+  rows.push(['  Cash Sales',`${cashCount} txns`,`${cashPct}%`,'','','','','',String(cashTotal)])
+  rows.push(['  Credit Sales',`${creditCount} txns`,`${creditPct}%`,'','','','','',String(creditTotal)])
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
   const blob = new Blob([csv], { type: 'text/csv' })
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -68,6 +78,7 @@ export function exportPDF(data: ExportData) {
   const {
     filtered, expenses, creditNotes, paymentSplit, expenseSplit,
     totalRevenue, totalExpenses, totalCreditNotes, netSales,
+    cashTotal, creditTotal, cashCount, creditCount, cashPct, creditPct,
     fromDate, toDate, tplSettings,
   } = data
   if (filtered.length === 0) return
@@ -90,10 +101,12 @@ export function exportPDF(data: ExportData) {
     `<tr><td class="ref">${e.ref}</td><td>${e.description || '—'}</td><td>${e.payment_method || 'Cash'}</td><td class="num">${(e.total_amount || 0).toLocaleString()}</td></tr>`
   ).join('')
 
-  const tableRows = filtered.map(s =>
-    `<tr>
+  const tableRows = filtered.map(s => {
+    const isCredit = s.type === 'sales_invoice'
+    return `<tr>
       <td>${s.posting_date}</td>
       <td class="ref">${s.ref}</td>
+      <td><span class="pill ${isCredit ? 'pill-b' : 'pill-g'}">${isCredit ? 'Credit' : 'Cash'}</span></td>
       <td>${(s.customers as any)?.name || '—'}</td>
       <td class="mono">${(s.customers as any)?.whatsapp || '—'}</td>
       <td><span class="pill ${s.payment_method?.includes('Cash') ? 'pill-g' : s.payment_method?.includes('M-Pesa') ? 'pill-b' : 'pill-a'}">${s.payment_method || '—'}</span></td>
@@ -101,7 +114,7 @@ export function exportPDF(data: ExportData) {
       <td><span class="pill ${s.status === 'posted' ? 'pill-g' : 'pill-y'}">${s.status === 'draft' ? 'POD' : 'Posted'}</span></td>
       <td class="num">${(s.total_amount || 0).toLocaleString()}</td>
     </tr>`
-  ).join('')
+  }).join('')
 
   const win = window.open('', '_blank')
   if (!win) return
@@ -167,6 +180,32 @@ export function exportPDF(data: ExportData) {
         <div class="stat" style="background:${(netSales - totalExpenses) >= 0 ? '#f0faf7' : '#fef2f2'};border-color:${(netSales - totalExpenses) >= 0 ? pc + '40' : '#fca5a540'}"><div class="stat-label">Net Position</div><div class="stat-val" style="color:${(netSales - totalExpenses) >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${(netSales - totalExpenses).toLocaleString()}</div></div>
       </div>
 
+      <div class="section-title">Sales Composition</div>
+      <div class="stats" style="margin-bottom:24px">
+        <div class="stat" style="background:#f0faf7;border-color:#1a7a4a20">
+          <div class="stat-label">Cash Sales</div>
+          <div class="stat-val green">TZS ${cashTotal.toLocaleString()}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">${cashCount} txns · ${cashPct}% of gross</div>
+          <div style="height:4px;background:#eee;border-radius:2px;margin-top:8px"><div style="height:100%;width:${cashPct}%;background:#1a7a4a;border-radius:2px"></div></div>
+        </div>
+        <div class="stat" style="background:#eff6ff;border-color:#2563eb20">
+          <div class="stat-label">Credit Sales</div>
+          <div class="stat-val blue">TZS ${creditTotal.toLocaleString()}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">${creditCount} txns · ${creditPct}% of gross</div>
+          <div style="height:4px;background:#eee;border-radius:2px;margin-top:8px"><div style="height:100%;width:${creditPct}%;background:#2563eb;border-radius:2px"></div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Avg Cash Sale</div>
+          <div class="stat-val">TZS ${cashCount > 0 ? Math.round(cashTotal / cashCount).toLocaleString() : '0'}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Immediate receipt</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Avg Credit Sale</div>
+          <div class="stat-val">TZS ${creditCount > 0 ? Math.round(creditTotal / creditCount).toLocaleString() : '0'}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Payment pending</div>
+        </div>
+      </div>
+
       <div class="split-grid">
         <div>
           <div class="section-title">Banking Summary</div>
@@ -193,15 +232,17 @@ export function exportPDF(data: ExportData) {
 
       <div class="section-title">Transaction Detail</div>
       <table>
-        <thead><tr><th>Date</th><th>Ref</th><th>Customer</th><th>WhatsApp</th><th>Payment</th><th>Salesperson</th><th>Status</th><th class="num">Amount (TZS)</th></tr></thead>
+        <thead><tr><th>Date</th><th>Ref</th><th>Type</th><th>Customer</th><th>WhatsApp</th><th>Payment</th><th>Salesperson</th><th>Status</th><th class="num">Amount (TZS)</th></tr></thead>
         <tbody>${tableRows}</tbody>
         <tfoot>
-          <tr class="total-row"><td colspan="7">Sales Subtotal — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr>
+          <tr class="total-row"><td colspan="8">Sales Subtotal — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr>
+          <tr style="background:#f0faf7;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#1a7a4a;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Cash Sales (${cashCount} txns · ${cashPct}%)</td><td class="num" style="color:#1a7a4a;font-weight:700">${cashTotal.toLocaleString()}</td></tr>
+          <tr style="background:#eff6ff;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#2563eb;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Credit Sales (${creditCount} txns · ${creditPct}%)</td><td class="num" style="color:#2563eb;font-weight:700">${creditTotal.toLocaleString()}</td></tr>
           ${creditNotes.length > 0 ? `
-            ${creditNotes.map(c => `<tr style="color:#c0392b"><td>${c.posting_date}</td><td class="ref" style="color:#c0392b">${c.ref}</td><td colspan="5">${c.description || 'Credit Note'}</td><td class="num">(${(c.total_amount || 0).toLocaleString()})</td></tr>`).join('')}
-            <tr style="background:#fef2f2;font-weight:700"><td colspan="7">Total Credit Notes</td><td class="num" style="color:#c0392b">(${totalCreditNotes.toLocaleString()})</td></tr>
+            ${creditNotes.map(c => `<tr style="color:#c0392b"><td>${c.posting_date}</td><td class="ref" style="color:#c0392b">${c.ref}</td><td colspan="6">${c.description || 'Credit Note'}</td><td class="num">(${(c.total_amount || 0).toLocaleString()})</td></tr>`).join('')}
+            <tr style="background:#fef2f2;font-weight:700"><td colspan="8">Total Credit Notes</td><td class="num" style="color:#c0392b">(${totalCreditNotes.toLocaleString()})</td></tr>
           ` : ''}
-          <tr style="background:#e6f9f0;font-weight:800"><td colspan="7" style="padding:12px 10px;font-size:13px">NET SALES</td><td class="num" style="padding:12px 10px;font-size:15px;color:#1a7a4a">${netSales.toLocaleString()}</td></tr>
+          <tr style="background:#e6f9f0;font-weight:800"><td colspan="8" style="padding:12px 10px;font-size:13px">NET SALES</td><td class="num" style="padding:12px 10px;font-size:15px;color:#1a7a4a">${netSales.toLocaleString()}</td></tr>
         </tfoot>
       </table>
 
