@@ -432,7 +432,7 @@ function AppContent() {
       case 'ap-aging':          return <APAgingReport />
       case 'stock-valuation':   return <StockValuationReport />
       case 'purchase-register': return <PurchaseRegister />
-      case 'payment-register':  return <PaymentRegister />
+      case 'payment-register':  return <PaymentRegister onEdit={navigateToEdit} />
       case 'receipt-template':  return <ReceiptTemplatePage />
       case 'invoice-template':  return <InvoiceTemplatePage />
       case 'proforma-template': return <ProformaTemplatePage />
