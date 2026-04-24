@@ -18,6 +18,9 @@ export default function SalesDayBook({ onEdit }: Props) {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
 
+  // 30-day trend
+  const [trend30, setTrend30] = useState<{ date: string; total: number }[]>([])
+
   // Expenses + Credit Notes for PDF
   const [expenses, setExpenses] = useState<SDBExpense[]>([])
   const [creditNotes, setCreditNotes] = useState<SDBCreditNote[]>([])
@@ -43,7 +46,29 @@ export default function SalesDayBook({ onEdit }: Props) {
   const catPredicate = makeCategoryPredicate(filterCat, _cats)
   const [showFilters, setShowFilters] = useState(false)
 
-  useEffect(() => { loadSales(); loadTplSettings() }, [])
+  useEffect(() => { loadSales(); loadTplSettings(); loadTrend() }, [])
+
+  const loadTrend = async () => {
+    const end = new Date()
+    const start = new Date(Date.now() - 29 * 86400000)
+    const startStr = start.toISOString().split('T')[0]
+    const endStr = end.toISOString().split('T')[0]
+    const { data } = await supabase
+      .from('vouchers')
+      .select('posting_date, total_amount, type')
+      .in('type', ['cash_sale', 'sales_invoice'])
+      .gte('posting_date', startStr)
+      .lte('posting_date', endStr)
+    const byDate: Record<string, number> = {}
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(Date.now() - (29 - i) * 86400000).toISOString().split('T')[0]
+      byDate[d] = 0
+    }
+    ;(data || []).forEach((v: any) => {
+      if (byDate[v.posting_date] !== undefined) byDate[v.posting_date] += (v.total_amount || 0)
+    })
+    setTrend30(Object.entries(byDate).map(([date, total]) => ({ date, total })))
+  }
 
   const loadSales = async (from?: string, to?: string) => {
     setLoading(true)
@@ -123,6 +148,14 @@ export default function SalesDayBook({ onEdit }: Props) {
   const marginPct = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0
   const podCount = filtered.filter(s => s.status === 'draft').length
   const postedCount = filtered.filter(s => s.status === 'posted').length
+
+  // Cash vs Credit split (cash_sale = cash, sales_invoice = credit)
+  const cashSales = filtered.filter(s => s.type === 'cash_sale')
+  const creditSales = filtered.filter(s => s.type === 'sales_invoice')
+  const cashTotal = cashSales.reduce((s, v) => s + (v.total_amount || 0), 0)
+  const creditTotal = creditSales.reduce((s, v) => s + (v.total_amount || 0), 0)
+  const cashPct = totalRevenue > 0 ? Math.round((cashTotal / totalRevenue) * 100) : 0
+  const creditPct = totalRevenue > 0 ? Math.round((creditTotal / totalRevenue) * 100) : 0
 
   // Payment split — use actual amounts from payment_split JSON when available
   const paymentSplit: Record<string, number> = {}
@@ -204,6 +237,12 @@ export default function SalesDayBook({ onEdit }: Props) {
         ))}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {/* Cash/Credit quick toggle */}
+          <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+            <button onClick={() => setVoucherType('all')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'all' ? 'var(--accent)' : 'transparent', color: voucherType === 'all' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}>All</button>
+            <button onClick={() => setVoucherType('cash_sale')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'cash_sale' ? 'var(--green)' : 'transparent', color: voucherType === 'cash_sale' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Cash</button>
+            <button onClick={() => setVoucherType('sales_invoice')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'sales_invoice' ? 'var(--blue)' : 'transparent', color: voucherType === 'sales_invoice' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Credit</button>
+          </div>
           <button onClick={() => setShowFilters(!showFilters)} className="btn btn-ghost btn-sm" style={{ position: 'relative' }}>
             Filters
             {activeFilters > 0 && <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, background: 'var(--accent)', borderRadius: '50%', fontSize: 9, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{activeFilters}</span>}
@@ -267,10 +306,51 @@ export default function SalesDayBook({ onEdit }: Props) {
         </div>
       )}
 
+      {/* 30-DAY SALES TREND SPARKLINE */}
+      {trend30.length > 0 && (() => {
+        const maxVal = Math.max(...trend30.map(d => d.total), 1)
+        const avg = trend30.reduce((s, d) => s + d.total, 0) / trend30.length
+        const last7 = trend30.slice(-7).reduce((s, d) => s + d.total, 0)
+        const prev7 = trend30.slice(-14, -7).reduce((s, d) => s + d.total, 0)
+        const wowPct = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 100) : 0
+        const w = 100, h = 28
+        const points = trend30.map((d, i) => {
+          const x = (i / (trend30.length - 1)) * w
+          const y = h - (d.total / maxVal) * h
+          return `${x},${y}`
+        }).join(' ')
+        const areaPoints = `0,${h} ${points} ${w},${h}`
+        return (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, minWidth: 80 }}>30-day trend</div>
+            <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ flex: 1, height: 32 }}>
+              <polygon points={areaPoints} fill="var(--accent)" opacity="0.15" />
+              <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+            </svg>
+            <div style={{ display: 'flex', gap: 16, fontSize: 11, fontFamily: 'var(--mono)' }}>
+              <div>
+                <div style={{ color: 'var(--text3)', fontSize: 9, textTransform: 'uppercase' }}>Daily Avg</div>
+                <div style={{ color: 'var(--text)', fontWeight: 600 }}>{tzs(Math.round(avg))}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text3)', fontSize: 9, textTransform: 'uppercase' }}>Last 7d</div>
+                <div style={{ color: 'var(--text)', fontWeight: 600 }}>{tzs(last7)}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text3)', fontSize: 9, textTransform: 'uppercase' }}>WoW</div>
+                <div style={{ color: wowPct >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>{wowPct >= 0 ? '+' : ''}{wowPct}%</div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* STAT CARDS */}
-      <div className="grid g4" style={{ marginBottom: 20 }}>
-        <div className="stat-card green"><div className="stat-label">Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
-        <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
+        <div className="stat-card green"><div className="stat-label">Total Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
+        <div className="stat-card green"><div className="stat-label">Cash Sales</div><div className="stat-value">{cashTotal >= 1000000 ? (cashTotal/1000000).toFixed(2)+'M' : (cashTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
+        <div className="stat-card blue"><div className="stat-label">Credit Sales</div><div className="stat-value">{creditTotal >= 1000000 ? (creditTotal/1000000).toFixed(2)+'M' : (creditTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
+        <div className="stat-card amber"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
         <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>
       </div>
 
@@ -376,6 +456,26 @@ export default function SalesDayBook({ onEdit }: Props) {
                     <td className="td-right td-mono td-green" style={{ fontSize: 15, fontWeight: 800, padding: '12px 14px' }}>{totalRevenue.toLocaleString()}</td>
                     <td></td>
                   </tr>
+                  {voucherType === 'all' && (
+                    <>
+                      <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
+                        <td colSpan={7} style={{ padding: '8px 14px 8px 30px', color: 'var(--text3)' }}>
+                          <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--green)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
+                          Cash Sales ({cashSales.length} txns · {cashPct}%)
+                        </td>
+                        <td className="td-right td-mono" style={{ color: 'var(--green)', fontWeight: 700, padding: '8px 14px' }}>{cashTotal.toLocaleString()}</td>
+                        <td></td>
+                      </tr>
+                      <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
+                        <td colSpan={7} style={{ padding: '8px 14px 8px 30px', color: 'var(--text3)' }}>
+                          <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--blue)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
+                          Credit Sales ({creditSales.length} txns · {creditPct}%)
+                        </td>
+                        <td className="td-right td-mono" style={{ color: 'var(--blue)', fontWeight: 700, padding: '8px 14px' }}>{creditTotal.toLocaleString()}</td>
+                        <td></td>
+                      </tr>
+                    </>
+                  )}
                 </tfoot>
               </table>
             </div>
@@ -500,6 +600,8 @@ export default function SalesDayBook({ onEdit }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 14 }}>
                 {[
                   { label: 'Revenue', value: tzs(totalRevenue), color: 'var(--green)' },
+                  { label: 'Cash Sales', value: `${tzs(cashTotal)} (${cashPct}%)`, color: 'var(--green)' },
+                  { label: 'Credit Sales', value: `${tzs(creditTotal)} (${creditPct}%)`, color: 'var(--blue)' },
                   { label: 'Cost of Goods', value: tzs(totalCost), color: 'var(--red)' },
                   { label: 'Gross Margin', value: `${tzs(totalMargin)} (${marginPct}%)`, color: 'var(--green)' },
                   { label: 'Avg per Sale', value: filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—', color: 'var(--text)' },
