@@ -16,7 +16,8 @@ interface VoucherLine {
 interface Sale {
   id: string; ref: string; description: string; total_amount: number; subtotal: number
   payment_method: string; posting_date: string; status: string; type: string
-  customers: { name: string; whatsapp: string } | null
+  customer_id: string | null; posted_by: string | null
+  customers: { id: string; name: string; whatsapp: string; segment: string; crown_points: number } | null
   voucher_lines: VoucherLine[]
 }
 interface ProductRow {
@@ -24,8 +25,19 @@ interface ProductRow {
   unitsSold: number; revenue: number; cost: number; margin: number; marginPct: number
   avgPrice: number; txCount: number
 }
+interface CustomerRow {
+  customerId: string; name: string; whatsapp: string; segment: string
+  txCount: number; unitsSold: number; revenue: number
+  cashRevenue: number; creditRevenue: number
+  margin: number; marginPct: number; lastPurchase: string; crownPoints: number
+}
+interface SalespersonRow {
+  name: string; txCount: number; revenue: number; cashRevenue: number
+  creditRevenue: number; avgTicket: number
+}
 
-type Tab = 'transactions' | 'products' | 'bundles' | 'compare' | 'targets'
+type Tab = 'transactions' | 'products' | 'customers' | 'salespeople' | 'bundles' | 'compare' | 'targets'
+type TypeFilter = 'all' | 'cash' | 'credit'
 
 const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
 const todayStr = () => new Date().toISOString().split('T')[0]
@@ -40,6 +52,9 @@ export default function SalesRegister() {
   const [tab, setTab] = useState<Tab>('transactions')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
+  // Cash / Credit / All filter (global across tabs)
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+
   // Shared date range
   const [fromDate, setFromDate] = useState(monthStart())
   const [toDate, setToDate] = useState(todayStr())
@@ -49,6 +64,18 @@ export default function SalesRegister() {
   const [loading, setLoading] = useState(true)
   const [filterCat, setFilterCat] = useState('all')
   const { categories } = useCategories()
+
+  // Outstanding receivables
+  const [outstanding, setOutstanding] = useState<{ customer_id: string; customer_name: string; remaining: number; days_overdue: number }[]>([])
+
+  // Customers tab sort
+  const [custSortCol, setCustSortCol] = useState<keyof CustomerRow>('revenue')
+  const [custSortDir, setCustSortDir] = useState<'asc' | 'desc'>('desc')
+  const [custSearch, setCustSearch] = useState('')
+
+  // Salespeople tab sort
+  const [spSortCol, setSpSortCol] = useState<keyof SalespersonRow>('revenue')
+  const [spSortDir, setSpSortDir] = useState<'asc' | 'desc'>('desc')
 
   // Compare state
   const [compareFrom, setCompareFrom] = useState(daysAgo(60))
@@ -82,15 +109,34 @@ export default function SalesRegister() {
     const f = from || fromDate, t = to || toDate
     const { data } = await supabase
       .from('vouchers')
-      .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type,
-        customers(name, whatsapp),
+      .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by,
+        customers(id, name, whatsapp, segment, crown_points),
         voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category))`)
       .in('type', ['cash_sale', 'sales_invoice'])
       .gte('posting_date', f).lte('posting_date', t)
       .order('posting_date', { ascending: false })
     if (data) setSales(data as any)
     setLoading(false)
+    loadOutstanding()
   }, [fromDate, toDate])
+
+  const loadOutstanding = useCallback(async () => {
+    const { data } = await supabase.from('customer_ledger_entries')
+      .select('customer_id, remaining_amount, due_date, posting_date, customers(name)')
+      .eq('is_open', true).gt('remaining_amount', 0)
+    if (!data) return
+    const today = new Date()
+    const byCustomer: Record<string, { customer_id: string; customer_name: string; remaining: number; days_overdue: number }> = {}
+    data.forEach((e: any) => {
+      const due = e.due_date ? new Date(e.due_date) : new Date(e.posting_date)
+      const days = Math.floor((today.getTime() - due.getTime()) / 86400000)
+      const key = e.customer_id
+      if (!byCustomer[key]) byCustomer[key] = { customer_id: key, customer_name: e.customers?.name || 'Unknown', remaining: 0, days_overdue: 0 }
+      byCustomer[key].remaining += (e.remaining_amount || 0)
+      if (days > byCustomer[key].days_overdue) byCustomer[key].days_overdue = days
+    })
+    setOutstanding(Object.values(byCustomer).sort((a, b) => b.remaining - a.remaining))
+  }, [])
 
   const loadCompareSales = useCallback(async () => {
     setCompareLoading(true)
@@ -166,10 +212,25 @@ export default function SalesRegister() {
 
   // ── Derived Data ──────────────────────────────────────────
   const catPredicate = makeCategoryPredicate(filterCat, categories)
-  const filtered = filterCat === 'all' ? sales : sales.filter(s =>
+  const typeFiltered = typeFilter === 'all' ? sales
+    : typeFilter === 'cash' ? sales.filter(s => s.type === 'cash_sale')
+    : sales.filter(s => s.type === 'sales_invoice')
+  const filtered = filterCat === 'all' ? typeFiltered : typeFiltered.filter(s =>
     (s.voucher_lines || []).some(l => l.products && catPredicate(l.products.category))
   )
   const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
+
+  // Cash / Credit totals (always computed off full typeFiltered-agnostic set, so UI can always show split)
+  const cashSales = filtered.filter(s => s.type === 'cash_sale')
+  const creditSales = filtered.filter(s => s.type === 'sales_invoice')
+  const cashTotal = cashSales.reduce((s, v) => s + (v.total_amount || 0), 0)
+  const creditTotal = creditSales.reduce((s, v) => s + (v.total_amount || 0), 0)
+  const cashPct = totalRevenue > 0 ? Math.round((cashTotal / totalRevenue) * 100) : 0
+  const creditPct = totalRevenue > 0 ? Math.round((creditTotal / totalRevenue) * 100) : 0
+
+  // Total outstanding from credit sales (from ledger, not sales window)
+  const totalOutstanding = outstanding.reduce((s, o) => s + o.remaining, 0)
+  const overdueCount = outstanding.filter(o => o.days_overdue > 0).length
 
   // Product aggregation
   const productRows = useMemo(() => {
@@ -204,6 +265,88 @@ export default function SalesRegister() {
   const totalProductUnits = productRows.reduce((s, r) => s + r.unitsSold, 0)
   const totalProductRevenue = productRows.reduce((s, r) => s + r.revenue, 0)
   const totalProductMargin = productRows.reduce((s, r) => s + r.margin, 0)
+
+  // ── Customer aggregation ────────────────────────────────
+  const customerRows = useMemo<CustomerRow[]>(() => {
+    const map: Record<string, CustomerRow> = {}
+    filtered.forEach(s => {
+      const key = s.customer_id || `__walkin_${s.customers?.name || 'Unknown'}`
+      const units = (s.voucher_lines || []).reduce((a, l) => a + (l.qty || 0), 0)
+      const cost = (s.voucher_lines || []).reduce((a, l) => a + (l.qty || 0) * (l.unit_cost || 0), 0)
+      if (!map[key]) {
+        map[key] = {
+          customerId: key,
+          name: s.customers?.name || s.description || 'Walk-in',
+          whatsapp: s.customers?.whatsapp || '',
+          segment: s.customers?.segment || (s.type === 'sales_invoice' ? 'Corporate' : 'Retail'),
+          txCount: 0, unitsSold: 0, revenue: 0, cashRevenue: 0, creditRevenue: 0,
+          margin: 0, marginPct: 0, lastPurchase: '', crownPoints: s.customers?.crown_points || 0,
+        }
+      }
+      const c = map[key]
+      c.txCount++
+      c.unitsSold += units
+      c.revenue += s.total_amount || 0
+      if (s.type === 'cash_sale') c.cashRevenue += s.total_amount || 0
+      else c.creditRevenue += s.total_amount || 0
+      c.margin += (s.total_amount || 0) - cost
+      if (!c.lastPurchase || s.posting_date > c.lastPurchase) c.lastPurchase = s.posting_date
+    })
+    return Object.values(map).map(c => {
+      c.marginPct = c.revenue > 0 ? Math.round((c.margin / c.revenue) * 100) : 0
+      return c
+    }).sort((a, b) => custSortDir === 'desc'
+      ? ((b[custSortCol] as any) > (a[custSortCol] as any) ? 1 : -1)
+      : ((a[custSortCol] as any) > (b[custSortCol] as any) ? 1 : -1))
+  }, [filtered, custSortCol, custSortDir])
+
+  const filteredCustomerRows = custSearch
+    ? customerRows.filter(c => c.name.toLowerCase().includes(custSearch.toLowerCase()) || c.whatsapp.includes(custSearch))
+    : customerRows
+
+  // Repeat vs new split (within selected window)
+  const repeatStats = useMemo(() => {
+    let repeatRev = 0, newRev = 0, repeatCount = 0, newCount = 0
+    customerRows.forEach(c => {
+      if (c.txCount > 1) { repeatRev += c.revenue; repeatCount++ }
+      else { newRev += c.revenue; newCount++ }
+    })
+    return { repeatRev, newRev, repeatCount, newCount }
+  }, [customerRows])
+
+  // Segment roll-up
+  const segmentRows = useMemo(() => {
+    const map: Record<string, { segment: string; txCount: number; revenue: number; customers: Set<string> }> = {}
+    customerRows.forEach(c => {
+      const seg = c.segment || 'Unknown'
+      if (!map[seg]) map[seg] = { segment: seg, txCount: 0, revenue: 0, customers: new Set() }
+      map[seg].txCount += c.txCount
+      map[seg].revenue += c.revenue
+      map[seg].customers.add(c.customerId)
+    })
+    return Object.values(map).map(s => ({ segment: s.segment, txCount: s.txCount, revenue: s.revenue, customerCount: s.customers.size }))
+      .sort((a, b) => b.revenue - a.revenue)
+  }, [customerRows])
+
+  // ── Salesperson aggregation ─────────────────────────────
+  const salespersonRows = useMemo<SalespersonRow[]>(() => {
+    const map: Record<string, SalespersonRow> = {}
+    filtered.forEach(s => {
+      const key = s.posted_by || 'Unassigned'
+      if (!map[key]) map[key] = { name: key, txCount: 0, revenue: 0, cashRevenue: 0, creditRevenue: 0, avgTicket: 0 }
+      const p = map[key]
+      p.txCount++
+      p.revenue += s.total_amount || 0
+      if (s.type === 'cash_sale') p.cashRevenue += s.total_amount || 0
+      else p.creditRevenue += s.total_amount || 0
+    })
+    return Object.values(map).map(p => {
+      p.avgTicket = p.txCount > 0 ? Math.round(p.revenue / p.txCount) : 0
+      return p
+    }).sort((a, b) => spSortDir === 'desc'
+      ? ((b[spSortCol] as any) > (a[spSortCol] as any) ? 1 : -1)
+      : ((a[spSortCol] as any) > (b[spSortCol] as any) ? 1 : -1))
+  }, [filtered, spSortCol, spSortDir])
 
   // Compare product rows
   const compareProductRows = useMemo(() => {
@@ -280,6 +423,8 @@ export default function SalesRegister() {
   const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: 'transactions', label: 'Transactions', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { key: 'products', label: 'Product Sales', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+    { key: 'customers', label: 'Customers', icon: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M13 7a4 4 0 11-8 0 4 4 0 018 0zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75' },
+    { key: 'salespeople', label: 'Salespeople', icon: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 11l-3-3m0 0l-3 3m3-3v12' },
     { key: 'bundles', label: 'Bundles', icon: 'M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z' },
     { key: 'compare', label: 'Compare', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
     { key: 'targets', label: 'Targets', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
@@ -304,6 +449,11 @@ export default function SalesRegister() {
             <span style={{ color: 'var(--text3)', fontSize: 12 }}>to</span>
             <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={toDate} onChange={e => setToDate(e.target.value)} />
             <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ width: 170 }} />
+            <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
+              <button onClick={() => setTypeFilter('all')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'all' ? 'var(--accent)' : 'transparent', color: typeFilter === 'all' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}>All</button>
+              <button onClick={() => setTypeFilter('cash')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'cash' ? 'var(--green)' : 'transparent', color: typeFilter === 'cash' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Cash</button>
+              <button onClick={() => setTypeFilter('credit')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'credit' ? 'var(--blue)' : 'transparent', color: typeFilter === 'credit' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Credit</button>
+            </div>
             <button className="btn btn-primary btn-sm" onClick={() => { loadSales(); refreshBundles() }}>Load</button>
           </div>
         )}
@@ -355,28 +505,65 @@ export default function SalesRegister() {
             )
           })()}
 
-          <div className="grid g3" style={{ marginBottom: 20 }}>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
             <div className="stat-card green"><div className="stat-label">Total Sales</div><div className="stat-value">{filtered.length}</div><div className="stat-change up">Transactions</div></div>
             <div className="stat-card amber"><div className="stat-label">Revenue</div><div className="stat-value">{tzs(totalRevenue)}</div><div className="stat-change up">Total</div></div>
-            <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : 'TZS 0'}</div><div className="stat-change up">Per transaction</div></div>
+            <div className="stat-card green"><div className="stat-label">Cash Sales</div><div className="stat-value">{tzs(cashTotal)}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
+            <div className="stat-card blue"><div className="stat-label">Credit Sales</div><div className="stat-value">{tzs(creditTotal)}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
+            <div className="stat-card yellow"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : 'TZS 0'}</div><div className="stat-change up">Per transaction</div></div>
           </div>
+
+          {/* Outstanding receivables panel */}
+          {outstanding.length > 0 && (
+            <div className="card" style={{ marginBottom: 20, borderLeft: overdueCount > 0 ? '3px solid var(--red)' : '3px solid var(--yellow)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                <div>
+                  <div className="card-title">Outstanding Receivables</div>
+                  <div className="card-sub">Unpaid credit sales across all periods · {outstanding.length} customers</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 800, color: overdueCount > 0 ? 'var(--red)' : 'var(--yellow)' }}>{tzs(totalOutstanding)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{overdueCount} overdue · {outstanding.length - overdueCount} current</div>
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Customer</th><th className="td-right">Outstanding</th><th className="td-right">Max Days Overdue</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {outstanding.slice(0, 5).map((o, i) => (
+                      <tr key={i}>
+                        <td className="td-bold">{o.customer_name}</td>
+                        <td className="td-right td-mono" style={{ color: o.days_overdue > 30 ? 'var(--red)' : o.days_overdue > 0 ? 'var(--yellow)' : 'var(--text)', fontWeight: 600 }}>{o.remaining.toLocaleString()}</td>
+                        <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{Math.max(0, o.days_overdue)}d</td>
+                        <td><span className={`pill ${o.days_overdue > 30 ? 'pill-red' : o.days_overdue > 0 ? 'pill-yellow' : 'pill-green'}`} style={{ fontSize: 10 }}>{o.days_overdue > 30 ? 'Overdue 30+' : o.days_overdue > 0 ? 'Overdue' : 'Current'}</span></td>
+                      </tr>
+                    ))}
+                    {outstanding.length > 5 && (
+                      <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 11, color: 'var(--text3)', padding: '8px 0' }}>+ {outstanding.length - 5} more · see AR Aging Report for full detail</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="table-wrap">
             <table>
               <thead><tr>
-                <th>Date</th><th>Ref</th><th>Customer</th><th>WhatsApp</th>
+                <th>Date</th><th>Ref</th><th>Type</th><th>Customer</th><th>WhatsApp</th>
                 <th>Payment</th><th className="td-right">Total (TZS)</th><th>Status</th>
               </tr></thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>Loading...</td></tr>
+                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>Loading...</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No sales found for this period.</td></tr>
+                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No sales found for this period.</td></tr>
                 ) : (
                   filtered.map((s, i) => (
                     <tr key={i}>
                       <td className="td-mono" style={{ color: 'var(--text3)', fontSize: 11 }}>{s.posting_date}</td>
                       <td className="td-mono td-amber">{s.ref}</td>
+                      <td><span className={`pill ${s.type === 'cash_sale' ? 'pill-green' : 'pill-blue'}`} style={{ fontSize: 10 }}>{s.type === 'cash_sale' ? 'Cash' : 'Credit'}</span></td>
                       <td className="td-bold">{s.customers?.name || s.description}</td>
                       <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{s.customers?.whatsapp || '—'}</td>
                       <td><span className={`pill ${s.payment_method === 'cash' || s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('Pesa') ? 'pill-blue' : 'pill-amber'}`}>{s.payment_method}</span></td>
@@ -386,11 +573,33 @@ export default function SalesRegister() {
                   ))
                 )}
                 {!loading && filtered.length > 0 && (
-                  <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                    <td colSpan={5} className="td-bold">TOTALS</td>
-                    <td className="td-right td-mono td-green">{totalRevenue.toLocaleString()}</td>
-                    <td></td>
-                  </tr>
+                  <>
+                    <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
+                      <td colSpan={6} className="td-bold">TOTALS — {filtered.length} transactions</td>
+                      <td className="td-right td-mono td-green" style={{ fontSize: 14 }}>{totalRevenue.toLocaleString()}</td>
+                      <td></td>
+                    </tr>
+                    {typeFilter === 'all' && (
+                      <>
+                        <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
+                          <td colSpan={6} style={{ padding: '6px 14px 6px 30px', color: 'var(--text3)' }}>
+                            <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--green)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
+                            Cash Sales ({cashSales.length} txns · {cashPct}%)
+                          </td>
+                          <td className="td-right td-mono" style={{ color: 'var(--green)', fontWeight: 700 }}>{cashTotal.toLocaleString()}</td>
+                          <td></td>
+                        </tr>
+                        <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
+                          <td colSpan={6} style={{ padding: '6px 14px 6px 30px', color: 'var(--text3)' }}>
+                            <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--blue)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
+                            Credit Sales ({creditSales.length} txns · {creditPct}%)
+                          </td>
+                          <td className="td-right td-mono" style={{ color: 'var(--blue)', fontWeight: 700 }}>{creditTotal.toLocaleString()}</td>
+                          <td></td>
+                        </tr>
+                      </>
+                    )}
+                  </>
                 )}
               </tbody>
             </table>
@@ -473,6 +682,192 @@ export default function SalesRegister() {
                     <td className="td-right td-mono td-green">{totalProductRevenue.toLocaleString()}</td>
                     <td className="td-right td-mono">{(totalProductRevenue - totalProductMargin).toLocaleString()}</td>
                     <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{totalProductRevenue > 0 ? Math.round((totalProductMargin / totalProductRevenue) * 100) : 0}%</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* ═══════════════════════════════════════════════════
+          TAB: CUSTOMERS SALES REGISTER
+         ═══════════════════════════════════════════════════ */}
+      {tab === 'customers' && (
+        <>
+          {/* Repeat vs New split */}
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+            <div className="stat-card green"><div className="stat-label">Total Customers</div><div className="stat-value">{customerRows.length}</div><div className="stat-change up">{repeatStats.repeatCount} repeat · {repeatStats.newCount} new</div></div>
+            <div className="stat-card amber"><div className="stat-label">Repeat Revenue</div><div className="stat-value">{tzs(repeatStats.repeatRev)}</div><div className="stat-change up">{totalRevenue > 0 ? Math.round((repeatStats.repeatRev / totalRevenue) * 100) : 0}% of total</div></div>
+            <div className="stat-card blue"><div className="stat-label">New Customer Revenue</div><div className="stat-value">{tzs(repeatStats.newRev)}</div><div className="stat-change up">{totalRevenue > 0 ? Math.round((repeatStats.newRev / totalRevenue) * 100) : 0}% of total</div></div>
+            <div className="stat-card yellow"><div className="stat-label">Avg per Customer</div><div className="stat-value">{customerRows.length > 0 ? tzs(Math.round(totalRevenue / customerRows.length)) : 'TZS 0'}</div><div className="stat-change up">Lifetime in period</div></div>
+          </div>
+
+          {/* Segment roll-up */}
+          {segmentRows.length > 1 && (
+            <div className="card" style={{ marginBottom: 20 }}>
+              <div className="card-header"><div className="card-title">By Segment</div><div className="card-sub">Revenue breakdown across customer segments</div></div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(segmentRows.length, 5)}, 1fr)`, gap: 12, marginTop: 12 }}>
+                {segmentRows.slice(0, 5).map((s, i) => {
+                  const pct = totalRevenue > 0 ? Math.round((s.revenue / totalRevenue) * 100) : 0
+                  return (
+                    <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>{s.segment}</div>
+                      <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{tzs(s.revenue)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>{s.customerCount} customers · {pct}%</div>
+                      <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2, marginTop: 6 }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent)', borderRadius: 2 }}></div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Search */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
+            <input className="form-input" style={{ maxWidth: 320, fontSize: 12 }} placeholder="Search customer or WhatsApp..." value={custSearch} onChange={e => setCustSearch(e.target.value)} />
+            <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{filteredCustomerRows.length} of {customerRows.length} customers</div>
+          </div>
+
+          {/* Customer table */}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th onClick={() => { if (custSortCol === 'name') setCustSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setCustSortCol('name'); setCustSortDir('asc') } }} style={{ cursor: 'pointer' }}>Customer{custSortCol === 'name' ? (custSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th>WhatsApp</th>
+                  <th>Segment</th>
+                  <th className="td-right" onClick={() => { if (custSortCol === 'txCount') setCustSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setCustSortCol('txCount'); setCustSortDir('desc') } }} style={{ cursor: 'pointer' }}>Txns{custSortCol === 'txCount' ? (custSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (custSortCol === 'unitsSold') setCustSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setCustSortCol('unitsSold'); setCustSortDir('desc') } }} style={{ cursor: 'pointer' }}>Units{custSortCol === 'unitsSold' ? (custSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (custSortCol === 'cashRevenue') setCustSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setCustSortCol('cashRevenue'); setCustSortDir('desc') } }} style={{ cursor: 'pointer' }}>Cash{custSortCol === 'cashRevenue' ? (custSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (custSortCol === 'creditRevenue') setCustSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setCustSortCol('creditRevenue'); setCustSortDir('desc') } }} style={{ cursor: 'pointer' }}>Credit{custSortCol === 'creditRevenue' ? (custSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (custSortCol === 'revenue') setCustSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setCustSortCol('revenue'); setCustSortDir('desc') } }} style={{ cursor: 'pointer' }}>Revenue{custSortCol === 'revenue' ? (custSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right">Margin</th>
+                  <th className="td-right">Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={10} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>Loading...</td></tr>
+                ) : filteredCustomerRows.length === 0 ? (
+                  <tr><td colSpan={10} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No customers found for this period.</td></tr>
+                ) : filteredCustomerRows.map((c, i) => (
+                  <tr key={i}>
+                    <td className="td-bold">{c.name}{c.txCount > 1 && <span style={{ fontSize: 9, color: 'var(--green)', marginLeft: 6, fontWeight: 600 }}>● REPEAT</span>}</td>
+                    <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{c.whatsapp || '—'}</td>
+                    <td><span className="pill pill-gray" style={{ fontSize: 10 }}>{c.segment}</span></td>
+                    <td className="td-right td-mono">{c.txCount}</td>
+                    <td className="td-right td-mono">{c.unitsSold.toLocaleString()}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{c.cashRevenue > 0 ? c.cashRevenue.toLocaleString() : '—'}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--blue)' }}>{c.creditRevenue > 0 ? c.creditRevenue.toLocaleString() : '—'}</td>
+                    <td className="td-right td-mono td-green" style={{ fontWeight: 700 }}>{c.revenue.toLocaleString()}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{c.marginPct}%</td>
+                    <td className="td-right td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{c.lastPurchase}</td>
+                  </tr>
+                ))}
+                {!loading && filteredCustomerRows.length > 0 && (
+                  <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
+                    <td colSpan={3} className="td-bold">TOTALS — {filteredCustomerRows.length} customers</td>
+                    <td className="td-right td-mono">{filteredCustomerRows.reduce((s, c) => s + c.txCount, 0)}</td>
+                    <td className="td-right td-mono">{filteredCustomerRows.reduce((s, c) => s + c.unitsSold, 0).toLocaleString()}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{filteredCustomerRows.reduce((s, c) => s + c.cashRevenue, 0).toLocaleString()}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--blue)' }}>{filteredCustomerRows.reduce((s, c) => s + c.creditRevenue, 0).toLocaleString()}</td>
+                    <td className="td-right td-mono td-green">{filteredCustomerRows.reduce((s, c) => s + c.revenue, 0).toLocaleString()}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Top 5 / Bottom 5 */}
+          {customerRows.length >= 4 && (
+            <div className="grid g2" style={{ marginTop: 20 }}>
+              <div className="card card-sm">
+                <div className="card-title" style={{ marginBottom: 12 }}>Top 5 Customers</div>
+                {customerRows.slice().sort((a, b) => b.revenue - a.revenue).slice(0, 5).map((c, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < 4 ? '1px solid var(--border)' : 'none', fontSize: 12 }}>
+                    <span><span style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', marginRight: 6 }}>#{i + 1}</span>{c.name}</span>
+                    <span className="td-mono td-green" style={{ fontWeight: 600 }}>{tzs(c.revenue)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="card card-sm">
+                <div className="card-title" style={{ marginBottom: 12 }}>Bottom 5 Customers</div>
+                {customerRows.slice().sort((a, b) => a.revenue - b.revenue).slice(0, 5).map((c, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < 4 ? '1px solid var(--border)' : 'none', fontSize: 12 }}>
+                    <span><span style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', marginRight: 6 }}>#{i + 1}</span>{c.name}</span>
+                    <span className="td-mono" style={{ color: 'var(--text3)' }}>{tzs(c.revenue)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ═══════════════════════════════════════════════════
+          TAB: SALESPEOPLE LEADERBOARD
+         ═══════════════════════════════════════════════════ */}
+      {tab === 'salespeople' && (
+        <>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+            <div className="stat-card green"><div className="stat-label">Active Salespeople</div><div className="stat-value">{salespersonRows.length}</div><div className="stat-change up">With sales in period</div></div>
+            <div className="stat-card amber"><div className="stat-label">Top Performer</div><div className="stat-value" style={{ fontSize: 16 }}>{salespersonRows[0]?.name || '—'}</div><div className="stat-change up">{salespersonRows[0] ? tzs(salespersonRows[0].revenue) : ''}</div></div>
+            <div className="stat-card blue"><div className="stat-label">Avg Revenue / Person</div><div className="stat-value">{salespersonRows.length > 0 ? tzs(Math.round(totalRevenue / salespersonRows.length)) : 'TZS 0'}</div><div className="stat-change up">Per salesperson</div></div>
+            <div className="stat-card yellow"><div className="stat-label">Avg Ticket</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : 'TZS 0'}</div><div className="stat-change up">Across all</div></div>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th onClick={() => { if (spSortCol === 'name') setSpSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSpSortCol('name'); setSpSortDir('asc') } }} style={{ cursor: 'pointer' }}>Salesperson{spSortCol === 'name' ? (spSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (spSortCol === 'txCount') setSpSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSpSortCol('txCount'); setSpSortDir('desc') } }} style={{ cursor: 'pointer' }}>Txns{spSortCol === 'txCount' ? (spSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (spSortCol === 'cashRevenue') setSpSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSpSortCol('cashRevenue'); setSpSortDir('desc') } }} style={{ cursor: 'pointer' }}>Cash{spSortCol === 'cashRevenue' ? (spSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (spSortCol === 'creditRevenue') setSpSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSpSortCol('creditRevenue'); setSpSortDir('desc') } }} style={{ cursor: 'pointer' }}>Credit{spSortCol === 'creditRevenue' ? (spSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (spSortCol === 'revenue') setSpSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSpSortCol('revenue'); setSpSortDir('desc') } }} style={{ cursor: 'pointer' }}>Total Revenue{spSortCol === 'revenue' ? (spSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th className="td-right" onClick={() => { if (spSortCol === 'avgTicket') setSpSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSpSortCol('avgTicket'); setSpSortDir('desc') } }} style={{ cursor: 'pointer' }}>Avg Ticket{spSortCol === 'avgTicket' ? (spSortDir === 'desc' ? ' ▼' : ' ▲') : ''}</th>
+                  <th>Mix</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>Loading...</td></tr>
+                ) : salespersonRows.length === 0 ? (
+                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No salespeople activity for this period.</td></tr>
+                ) : salespersonRows.map((p, i) => {
+                  const cashPctP = p.revenue > 0 ? (p.cashRevenue / p.revenue) * 100 : 0
+                  return (
+                    <tr key={i}>
+                      <td className="td-mono" style={{ color: i === 0 ? 'var(--yellow)' : 'var(--text3)', fontWeight: 700 }}>#{i + 1}</td>
+                      <td className="td-bold">{p.name}</td>
+                      <td className="td-right td-mono">{p.txCount}</td>
+                      <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{p.cashRevenue > 0 ? p.cashRevenue.toLocaleString() : '—'}</td>
+                      <td className="td-right td-mono" style={{ color: 'var(--blue)' }}>{p.creditRevenue > 0 ? p.creditRevenue.toLocaleString() : '—'}</td>
+                      <td className="td-right td-mono td-green" style={{ fontWeight: 700 }}>{p.revenue.toLocaleString()}</td>
+                      <td className="td-right td-mono">{tzs(p.avgTicket)}</td>
+                      <td style={{ width: 140 }}>
+                        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--surface3)' }}>
+                          <div style={{ width: `${cashPctP}%`, background: 'var(--green)' }}></div>
+                          <div style={{ width: `${100 - cashPctP}%`, background: 'var(--blue)' }}></div>
+                        </div>
+                        <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>{Math.round(cashPctP)}% cash</div>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {!loading && salespersonRows.length > 0 && (
+                  <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
+                    <td colSpan={2} className="td-bold">TOTALS</td>
+                    <td className="td-right td-mono">{salespersonRows.reduce((s, p) => s + p.txCount, 0)}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{salespersonRows.reduce((s, p) => s + p.cashRevenue, 0).toLocaleString()}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--blue)' }}>{salespersonRows.reduce((s, p) => s + p.creditRevenue, 0).toLocaleString()}</td>
+                    <td className="td-right td-mono td-green">{totalRevenue.toLocaleString()}</td>
                     <td colSpan={2}></td>
                   </tr>
                 )}
