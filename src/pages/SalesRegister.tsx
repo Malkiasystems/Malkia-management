@@ -40,7 +40,8 @@ interface LedgerEntry {
   id: string; posting_date: string; document_type: string; document_ref: string
   description: string; amount: number; remaining_amount: number
   is_open: boolean; due_date: string
-  voucher_id?: string | null
+  // Resolved separately after load by looking up vouchers by ref — not a schema column
+  source_voucher_id?: string | null
 }
 
 interface Props {
@@ -162,12 +163,60 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       return
     }
     setLedgerLoading(true)
-    const { data } = await supabase.from('customer_ledger_entries')
-      .select('id, posting_date, document_type, document_ref, description, amount, remaining_amount, is_open, due_date, voucher_id')
+
+    // 1. Pull ledger entries (credit sales, POD, payments, credit/debit notes)
+    const { data: ledgerData, error: ledgerErr } = await supabase
+      .from('customer_ledger_entries')
+      .select('id, posting_date, document_type, document_ref, description, amount, remaining_amount, is_open, due_date')
       .eq('customer_id', c.customerId)
       .order('posting_date', { ascending: false })
       .order('id', { ascending: false })
-    if (data) setCustomerLedger(data as LedgerEntry[])
+    if (ledgerErr) console.warn('[ledger] load failed:', ledgerErr.message)
+
+    // 2. Pull cash sales for this customer (these don't create ledger entries automatically)
+    // so we synthesize them as settled ledger entries to complete the picture
+    const { data: cashData, error: cashErr } = await supabase
+      .from('vouchers')
+      .select('id, ref, posting_date, total_amount, description, status')
+      .eq('customer_id', c.customerId)
+      .eq('type', 'cash_sale')
+      .order('posting_date', { ascending: false })
+    if (cashErr) console.warn('[ledger] cash sales load failed:', cashErr.message)
+
+    // 3. Build ref → voucher_id map for all entries (so refs are clickable)
+    const refs = [...(ledgerData || []).map((e: any) => e.document_ref), ...(cashData || []).map((v: any) => v.ref)].filter(Boolean)
+    const refToId: Record<string, string> = {}
+    if (refs.length > 0) {
+      const { data: voucherLookups } = await supabase
+        .from('vouchers')
+        .select('id, ref')
+        .in('ref', refs)
+      ;(voucherLookups || []).forEach((v: any) => { refToId[v.ref] = v.id })
+    }
+
+    // 4. Merge
+    const fromLedger: LedgerEntry[] = (ledgerData || []).map((e: any) => ({
+      ...e,
+      source_voucher_id: refToId[e.document_ref] || null,
+    }))
+    const fromCashSales: LedgerEntry[] = (cashData || []).map((v: any) => ({
+      id: `cash_${v.id}`,
+      posting_date: v.posting_date,
+      document_type: 'cash_sale',
+      document_ref: v.ref,
+      description: v.description || 'Cash Sale',
+      amount: v.total_amount || 0,
+      remaining_amount: 0,
+      is_open: false,
+      due_date: v.posting_date,
+      source_voucher_id: v.id,
+    }))
+    const merged = [...fromLedger, ...fromCashSales].sort((a, b) => {
+      if (a.posting_date !== b.posting_date) return a.posting_date < b.posting_date ? 1 : -1
+      return a.id < b.id ? 1 : -1
+    })
+
+    setCustomerLedger(merged)
     setLedgerLoading(false)
   }
 
@@ -1419,7 +1468,10 @@ export default function SalesRegister({ onEdit }: Props = {}) {
               {/* Ledger body */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700 }}>Customer Ledger</div>
+                  <div>
+                    <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700 }}>Customer Ledger</div>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>Credit sales, payments &amp; cash purchases · sorted newest first</div>
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
                     {ledgerLoading ? 'Loading…' : isWalkIn ? 'No ledger for walk-in contacts' : `${customerLedger.length} entries`}
                   </div>
@@ -1457,8 +1509,8 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                           const daysOverdue = overdue ? Math.floor((today.getTime() - new Date(e.due_date).getTime()) / 86400000) : 0
                           const docLabel = e.document_type?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
                           const clickable = !!onEdit && e.document_type === 'cash_sale'
-                          const onEditCash = () => { if (onEdit && e.voucher_id) { onEdit('cash-sale', e.voucher_id); closeCustomerLedger() } }
-                          const onEditInvoice = () => { if (onEdit && e.voucher_id) { onEdit('sales-invoice', e.voucher_id); closeCustomerLedger() } }
+                          const onEditCash = () => { if (onEdit && e.source_voucher_id) { onEdit('cash-sale', e.source_voucher_id); closeCustomerLedger() } }
+                          const onEditInvoice = () => { if (onEdit && e.source_voucher_id) { onEdit('sales-invoice', e.source_voucher_id); closeCustomerLedger() } }
                           return (
                             <tr key={e.id || i}>
                               <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{e.posting_date}</td>
