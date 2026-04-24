@@ -7,6 +7,7 @@ import { useSalesTargets, calcTargetProgress } from '../lib/useSalesTargets'
 import type { SalesTarget, TargetProgress } from '../lib/useSalesTargets'
 import Toast from '../components/Toast'
 import { tzs, getPostedBy } from '../lib/utils'
+import type { Page } from '../lib/types'
 
 // ── Types ───────────────────────────────────────────────────
 interface VoucherLine {
@@ -35,6 +36,16 @@ interface SalespersonRow {
   name: string; txCount: number; revenue: number; cashRevenue: number
   creditRevenue: number; avgTicket: number
 }
+interface LedgerEntry {
+  id: string; posting_date: string; document_type: string; document_ref: string
+  description: string; amount: number; remaining_amount: number
+  is_open: boolean; due_date: string
+  voucher_id?: string | null
+}
+
+interface Props {
+  onEdit?: (p: Page, voucherId: string) => void
+}
 
 type Tab = 'transactions' | 'products' | 'customers' | 'salespeople' | 'bundles' | 'compare' | 'targets'
 type TypeFilter = 'all' | 'cash' | 'credit'
@@ -48,12 +59,17 @@ function periodLabel(type: string) {
 }
 
 // ── Main Component ──────────────────────────────────────────
-export default function SalesRegister() {
+export default function SalesRegister({ onEdit }: Props = {}) {
   const [tab, setTab] = useState<Tab>('transactions')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   // Cash / Credit / All filter (global across tabs)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+
+  // Customer drawer state
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null)
+  const [customerLedger, setCustomerLedger] = useState<LedgerEntry[]>([])
+  const [ledgerLoading, setLedgerLoading] = useState(false)
 
   // Shared date range
   const [fromDate, setFromDate] = useState(monthStart())
@@ -137,6 +153,37 @@ export default function SalesRegister() {
     })
     setOutstanding(Object.values(byCustomer).sort((a, b) => b.remaining - a.remaining))
   }, [])
+
+  // Open customer ledger drawer — walk-in customers (synthetic IDs starting with __walkin_) have no ledger
+  const openCustomerLedger = async (c: CustomerRow) => {
+    setSelectedCustomer(c)
+    if (c.customerId.startsWith('__walkin_')) {
+      setCustomerLedger([])
+      return
+    }
+    setLedgerLoading(true)
+    const { data } = await supabase.from('customer_ledger_entries')
+      .select('id, posting_date, document_type, document_ref, description, amount, remaining_amount, is_open, due_date, voucher_id')
+      .eq('customer_id', c.customerId)
+      .order('posting_date', { ascending: false })
+      .order('id', { ascending: false })
+    if (data) setCustomerLedger(data as LedgerEntry[])
+    setLedgerLoading(false)
+  }
+
+  // Open ledger for a customer referenced only by id (e.g. from the Outstanding panel).
+  // Builds a synthetic CustomerRow using whatever is available from current sales data.
+  const openCustomerLedgerById = (customerId: string, fallbackName: string) => {
+    const existing = customerRows.find(r => r.customerId === customerId)
+    if (existing) return openCustomerLedger(existing)
+    const synthetic: CustomerRow = {
+      customerId, name: fallbackName, whatsapp: '', segment: '',
+      txCount: 0, unitsSold: 0, revenue: 0, cashRevenue: 0, creditRevenue: 0,
+      margin: 0, marginPct: 0, lastPurchase: '', crownPoints: 0,
+    }
+    return openCustomerLedger(synthetic)
+  }
+  const closeCustomerLedger = () => { setSelectedCustomer(null); setCustomerLedger([]) }
 
   const loadCompareSales = useCallback(async () => {
     setCompareLoading(true)
@@ -531,7 +578,7 @@ export default function SalesRegister() {
                   <thead><tr><th>Customer</th><th className="td-right">Outstanding</th><th className="td-right">Max Days Overdue</th><th>Status</th></tr></thead>
                   <tbody>
                     {outstanding.slice(0, 5).map((o, i) => (
-                      <tr key={i}>
+                      <tr key={i} onClick={() => openCustomerLedgerById(o.customer_id, o.customer_name)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
                         <td className="td-bold">{o.customer_name}</td>
                         <td className="td-right td-mono" style={{ color: o.days_overdue > 30 ? 'var(--red)' : o.days_overdue > 0 ? 'var(--yellow)' : 'var(--text)', fontWeight: 600 }}>{o.remaining.toLocaleString()}</td>
                         <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{Math.max(0, o.days_overdue)}d</td>
@@ -755,8 +802,8 @@ export default function SalesRegister() {
                 ) : filteredCustomerRows.length === 0 ? (
                   <tr><td colSpan={10} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No customers found for this period.</td></tr>
                 ) : filteredCustomerRows.map((c, i) => (
-                  <tr key={i}>
-                    <td className="td-bold">{c.name}{c.txCount > 1 && <span style={{ fontSize: 9, color: 'var(--green)', marginLeft: 6, fontWeight: 600 }}>● REPEAT</span>}</td>
+                  <tr key={i} onClick={() => openCustomerLedger(c)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                    <td className="td-bold">{c.name}{c.txCount > 1 && <span style={{ fontSize: 9, color: 'var(--green)', marginLeft: 6, fontWeight: 600 }}>● REPEAT</span>}{c.customerId.startsWith('__walkin_') && <span style={{ fontSize: 9, color: 'var(--text3)', marginLeft: 6, fontWeight: 500 }}>Walk-in</span>}</td>
                     <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{c.whatsapp || '—'}</td>
                     <td><span className="pill pill-gray" style={{ fontSize: 10 }}>{c.segment}</span></td>
                     <td className="td-right td-mono">{c.txCount}</td>
@@ -1283,6 +1330,200 @@ export default function SalesRegister() {
           </div>
         </div>
       )}
+
+      {/* ═══════════════════════════════════════════════════
+          CUSTOMER LEDGER DRAWER
+         ═══════════════════════════════════════════════════ */}
+      {selectedCustomer && (() => {
+        const c = selectedCustomer
+        const isWalkIn = c.customerId.startsWith('__walkin_')
+        // Compute running balance (oldest → newest)
+        const ordered = customerLedger.slice().reverse()
+        let running = 0
+        const withBalance = ordered.map(e => {
+          const isDebit = e.document_type === 'invoice' || e.document_type === 'cash_sale' || e.document_type === 'debit_note'
+          const signed = isDebit ? (e.amount || 0) : -(e.amount || 0)
+          running += signed
+          return { ...e, running_balance: running }
+        }).reverse()
+
+        const totalInvoiced = customerLedger.filter(e => e.document_type === 'invoice' || e.document_type === 'cash_sale').reduce((s, e) => s + (e.amount || 0), 0)
+        const totalPaid = customerLedger.filter(e => e.document_type === 'payment' || e.document_type === 'receipt').reduce((s, e) => s + (e.amount || 0), 0)
+        const totalOpen = customerLedger.filter(e => e.is_open).reduce((s, e) => s + (e.remaining_amount || 0), 0)
+        const today = new Date()
+
+        return (
+          <>
+            {/* Backdrop */}
+            <div onClick={closeCustomerLedger} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 998, animation: 'fadeIn .15s ease' }} />
+            {/* Drawer */}
+            <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(920px, 95vw)', background: 'var(--bg)', zIndex: 999, boxShadow: '-8px 0 32px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', animation: 'slideInRight .25s ease' }}>
+              {/* Drawer header */}
+              <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(133,194,190,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <svg width="18" height="18" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 800 }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>
+                        {c.whatsapp || '—'} · <span className="pill pill-gray" style={{ fontSize: 9 }}>{c.segment}</span>
+                        {c.txCount > 1 && <span style={{ color: 'var(--green)', marginLeft: 8, fontWeight: 600 }}>● REPEAT</span>}
+                        {isWalkIn && <span style={{ color: 'var(--text3)', marginLeft: 8 }}>Walk-in contact</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={closeCustomerLedger} className="btn btn-ghost btn-sm" style={{ padding: '6px 10px' }}>
+                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+
+              {/* KPI strip — period summary */}
+              <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+                <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Period summary · {fromDate} to {toDate}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 10 }}>
+                    <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Transactions</div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }}>{c.txCount}</div>
+                  </div>
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 10 }}>
+                    <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Units Sold</div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }}>{c.unitsSold.toLocaleString()}</div>
+                  </div>
+                  <div style={{ background: 'var(--surface)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 'var(--r)', padding: 10 }}>
+                    <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Cash</div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--green)' }}>{tzs(c.cashRevenue)}</div>
+                  </div>
+                  <div style={{ background: 'var(--surface)', border: '1px solid rgba(38,100,235,.2)', borderRadius: 'var(--r)', padding: 10 }}>
+                    <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Credit</div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--blue)' }}>{tzs(c.creditRevenue)}</div>
+                  </div>
+                  <div style={{ background: 'var(--surface)', border: '1px solid rgba(255,211,42,.2)', borderRadius: 'var(--r)', padding: 10 }}>
+                    <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Revenue</div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--yellow)' }}>{tzs(c.revenue)}</div>
+                  </div>
+                </div>
+                {/* Lifetime stats */}
+                {!isWalkIn && !ledgerLoading && customerLedger.length > 0 && (
+                  <div style={{ marginTop: 10, display: 'flex', gap: 16, fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                    <span>LIFETIME: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{customerLedger.length}</span> entries</span>
+                    <span>Invoiced: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{tzs(totalInvoiced)}</span></span>
+                    <span>Paid: <span style={{ color: 'var(--green)', fontWeight: 600 }}>{tzs(totalPaid)}</span></span>
+                    <span style={{ marginLeft: 'auto' }}>Outstanding: <span style={{ color: totalOpen > 0 ? 'var(--red)' : 'var(--green)', fontWeight: 700 }}>{tzs(totalOpen)}</span></span>
+                  </div>
+                )}
+              </div>
+
+              {/* Ledger body */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700 }}>Customer Ledger</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                    {ledgerLoading ? 'Loading…' : isWalkIn ? 'No ledger for walk-in contacts' : `${customerLedger.length} entries`}
+                  </div>
+                </div>
+
+                {isWalkIn ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)', background: 'var(--surface)', border: '1px dashed var(--border)', borderRadius: 'var(--r)' }}>
+                    <div style={{ fontSize: 13, marginBottom: 6 }}>Walk-in contacts don't have a ledger</div>
+                    <div style={{ fontSize: 11 }}>Only registered customers have accounting entries tracked in the ledger</div>
+                  </div>
+                ) : ledgerLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading ledger…</div>
+                ) : customerLedger.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>No ledger entries for this customer.</div>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Type</th>
+                          <th>Document</th>
+                          <th>Description</th>
+                          <th className="td-right">Debit</th>
+                          <th className="td-right">Credit</th>
+                          <th className="td-right">Balance</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {withBalance.map((e, i) => {
+                          const isDebit = e.document_type === 'invoice' || e.document_type === 'cash_sale' || e.document_type === 'debit_note'
+                          const isPaymentLike = e.document_type === 'payment' || e.document_type === 'receipt' || e.document_type === 'credit_note'
+                          const overdue = e.is_open && e.due_date && new Date(e.due_date) < today
+                          const daysOverdue = overdue ? Math.floor((today.getTime() - new Date(e.due_date).getTime()) / 86400000) : 0
+                          const docLabel = e.document_type?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
+                          const clickable = !!onEdit && e.document_type === 'cash_sale'
+                          const onEditCash = () => { if (onEdit && e.voucher_id) { onEdit('cash-sale', e.voucher_id); closeCustomerLedger() } }
+                          const onEditInvoice = () => { if (onEdit && e.voucher_id) { onEdit('sales-invoice', e.voucher_id); closeCustomerLedger() } }
+                          return (
+                            <tr key={e.id || i}>
+                              <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{e.posting_date}</td>
+                              <td>
+                                <span className={`pill ${e.document_type === 'invoice' ? 'pill-amber' : e.document_type === 'payment' || e.document_type === 'receipt' ? 'pill-green' : e.document_type === 'cash_sale' ? 'pill-blue' : e.document_type === 'credit_note' ? 'pill-red' : 'pill-gray'}`} style={{ fontSize: 9 }}>
+                                  {docLabel}
+                                </span>
+                              </td>
+                              <td className="td-mono td-amber" onClick={clickable ? onEditCash : (e.document_type === 'invoice' && onEdit ? onEditInvoice : undefined)} style={{ cursor: (clickable || (e.document_type === 'invoice' && onEdit)) ? 'pointer' : 'default', textDecoration: (clickable || (e.document_type === 'invoice' && onEdit)) ? 'underline' : 'none' }}>{e.document_ref}</td>
+                              <td style={{ fontSize: 11 }}>{e.description || '—'}</td>
+                              <td className="td-right td-mono" style={{ color: isDebit ? 'var(--red)' : 'var(--text3)' }}>{isDebit ? (e.amount || 0).toLocaleString() : '—'}</td>
+                              <td className="td-right td-mono" style={{ color: isPaymentLike ? 'var(--green)' : 'var(--text3)' }}>{isPaymentLike ? (e.amount || 0).toLocaleString() : '—'}</td>
+                              <td className="td-right td-mono" style={{ fontWeight: 700, color: (e.running_balance || 0) > 0 ? 'var(--red)' : (e.running_balance || 0) < 0 ? 'var(--green)' : 'var(--text)' }}>{Math.abs(e.running_balance || 0).toLocaleString()}{(e.running_balance || 0) < 0 ? ' Cr' : ''}</td>
+                              <td>
+                                {e.is_open ? (
+                                  <span className={`pill ${overdue ? (daysOverdue > 30 ? 'pill-red' : 'pill-yellow') : 'pill-amber'}`} style={{ fontSize: 9 }}>
+                                    {overdue ? `Overdue ${daysOverdue}d` : `Open · ${(e.remaining_amount || 0).toLocaleString()}`}
+                                  </span>
+                                ) : (
+                                  <span className="pill pill-green" style={{ fontSize: 9 }}>Settled</span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
+                          <td colSpan={4} className="td-bold" style={{ padding: '10px 14px' }}>LIFETIME TOTALS</td>
+                          <td className="td-right td-mono" style={{ color: 'var(--red)' }}>{totalInvoiced.toLocaleString()}</td>
+                          <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{totalPaid.toLocaleString()}</td>
+                          <td className="td-right td-mono" style={{ color: totalOpen > 0 ? 'var(--red)' : 'var(--green)' }}>{totalOpen.toLocaleString()}</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Drawer footer actions */}
+              {!isWalkIn && customerLedger.length > 0 && (
+                <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                    Current balance: <span style={{ color: totalOpen > 0 ? 'var(--red)' : 'var(--green)', fontWeight: 700, fontSize: 13 }}>{tzs(totalOpen)}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {c.whatsapp && (
+                      <a href={`https://wa.me/${c.whatsapp.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                        Message
+                      </a>
+                    )}
+                    <button onClick={closeCustomerLedger} className="btn btn-primary btn-sm">Close</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <style>{`
+              @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+              @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            `}</style>
+          </>
+        )
+      })()}
 
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
