@@ -195,10 +195,10 @@ export default function SalesDayBook({ onEdit }: Props) {
     (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
 
   // ── EXPORT: CSV ──────────────────────────────────────────────────────
-  const exportCSV = () => doExportCSV({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, fromDate, toDate, tplSettings })
+  const exportCSV = () => doExportCSV({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings })
 
   // ── EXPORT: PDF (Print) ──────────────────────────────────────────────
-  const exportPDF = () => doExportPDF({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, fromDate, toDate, tplSettings })
+  const exportPDF = () => doExportPDF({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings })
 
   return (
     <div className="page">
