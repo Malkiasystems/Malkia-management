@@ -281,21 +281,21 @@ export default function Dashboard({ onNav }: Props) {
       </div>
 
       {/* Recurring expense alert */}
-      {unpaidRecurring && unpaidRecurring.filter(u => u.is_due).length > 0 && (
+      {unpaidRecurring && unpaidRecurring.filter((u: any) => u.is_due).length > 0 && (
         <div className="card card-sm" style={{ marginBottom: 16, borderLeft: '3px solid var(--yellow)', cursor: 'pointer' }} onClick={() => onNav('payment-register')}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
             <div>
               <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-                {unpaidRecurring.filter(u => u.is_due).length} recurring expense{unpaidRecurring.filter(u => u.is_due).length > 1 ? 's' : ''} due
+                {unpaidRecurring.filter((u: any) => u.is_due).length} recurring expense{unpaidRecurring.filter((u: any) => u.is_due).length > 1 ? 's' : ''} due
               </div>
               <div style={{ fontSize: 11, color: 'var(--text3)' }}>
-                {unpaidRecurring.filter(u => u.is_due).slice(0, 3).map(u => u.name).join(' · ')}
-                {unpaidRecurring.filter(u => u.is_due).length > 3 && ` + ${unpaidRecurring.filter(u => u.is_due).length - 3} more`}
+                {unpaidRecurring.filter((u: any) => u.is_due).slice(0, 3).map((u: any) => u.name).join(' · ')}
+                {unpaidRecurring.filter((u: any) => u.is_due).length > 3 && ` + ${unpaidRecurring.filter((u: any) => u.is_due).length - 3} more`}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700, color: 'var(--red)' }}>
-                {tzs(unpaidRecurring.filter(u => u.is_due).reduce((s, u) => s + u.amount, 0))}
+                {tzs(unpaidRecurring.filter((u: any) => u.is_due).reduce((s: number, u: any) => s + u.amount, 0))}
               </div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>Total due</div>
             </div>
