@@ -6,6 +6,7 @@ import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { postLedgerEntries } from '../../lib/itemLedger'
+import { useAuth } from '../../lib/useAuth'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -13,16 +14,33 @@ interface TxLine { productId: string; qty: number; cost: number }
 interface StockLocation { id: string; code: string; name: string; branch_code: string }
 
 export default function StockTransfer({ onNav }: Props) {
+  const { user } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<{id:string;name:string;cost_price:number;qty_on_hand:number}[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
+  const [fromLocStocks, setFromLocStocks] = useState<Record<string, number>>({})
   const [lines, setLines] = useState<TxLine[]>([{ productId: '', qty: 1, cost: 0 }])
   const [form, setForm] = useState({ date: today(), ref: '', fromLocation: '', toLocation: '', notes: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
+
+  // Reload per-location stock whenever the source location changes
+  useEffect(() => {
+    const loadFromLocStock = async () => {
+      if (!form.fromLocation) { setFromLocStocks({}); return }
+      const { data } = await supabase
+        .from('product_locations')
+        .select('product_id, qty_on_hand')
+        .eq('location_code', form.fromLocation)
+      const map: Record<string, number> = {}
+      ;(data || []).forEach((r: any) => { map[r.product_id] = r.qty_on_hand || 0 })
+      setFromLocStocks(map)
+    }
+    loadFromLocStock()
+  }, [form.fromLocation])
 
   const loadData = async () => {
     const [{ data: prods }, { data: locs }] = await Promise.all([
@@ -59,58 +77,107 @@ export default function StockTransfer({ onNav }: Props) {
     if (form.fromLocation === form.toLocation) { showToast('From and To locations cannot be the same', 'error'); return }
     if (lines.every(l => !l.productId || !l.qty)) { showToast('Add at least one product', 'error'); return }
     if (!fromLoc || !toLoc) { showToast('Invalid locations', 'error'); return }
+    if (!user) { showToast('You must be signed in', 'error'); return }
     setPosting(true)
     try {
       const fromLabel = `${fromLoc.code} — ${fromLoc.name}`
       const toLabel = `${toLoc.code} — ${toLoc.name}`
+
+      // ─── PRE-FLIGHT STOCK CHECK (BEFORE any insert) ───────────────────
+      // Validate every line against actual qty AT THE FROM-LOCATION (not global qty).
+      // If ANY line fails, abort the whole post — no journal, no voucher, no ledger.
+      const validLines = lines.filter(l => l.productId && l.qty)
+      const productIds = validLines.map(l => l.productId)
+
+      const { data: freshProducts } = await supabase
+        .from('products')
+        .select('id, name, cost_price')
+        .in('id', productIds)
+      if (!freshProducts || freshProducts.length !== productIds.length) {
+        throw new Error('Could not load product data — try again')
+      }
+      const prodById: Record<string, { id: string; name: string; cost_price: number }> = {}
+      freshProducts.forEach((p: any) => { prodById[p.id] = p })
+
+      const { data: fromLocStock } = await supabase
+        .from('product_locations')
+        .select('product_id, qty_on_hand')
+        .in('product_id', productIds)
+        .eq('location_code', fromLoc.code)
+      const fromQtyByProduct: Record<string, number> = {}
+      ;(fromLocStock || []).forEach((row: any) => { fromQtyByProduct[row.product_id] = row.qty_on_hand || 0 })
+
+      // Aggregate quantities per product (in case the same product appears on multiple lines)
+      const requestedByProduct: Record<string, number> = {}
+      validLines.forEach(l => {
+        requestedByProduct[l.productId] = (requestedByProduct[l.productId] || 0) + l.qty
+      })
+
+      // Validate every product's available stock at from-location
+      const insufficientItems: string[] = []
+      for (const productId of Object.keys(requestedByProduct)) {
+        const requested = requestedByProduct[productId]
+        const available = fromQtyByProduct[productId] || 0
+        if (available < requested) {
+          const name = prodById[productId]?.name || productId
+          insufficientItems.push(`${name} (need ${requested}, have ${available} at ${fromLoc.code})`)
+        }
+      }
+      if (insufficientItems.length > 0) {
+        showToast(`Insufficient stock at ${fromLoc.code}: ${insufficientItems.join(' · ')}`, 'error')
+        setPosting(false)
+        return
+      }
+
+      // ─── ALL CHECKS PASSED — safe to post ────────────────────────────
       const { data: jRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Stock Transfer — ${fromLabel} → ${toLabel} — ${form.ref}`,
         journal_type: 'stock_transfer', source_type: 'stock_transfer', source_ref: form.ref,
-        posted_by: 'Joe Gembe', status: 'posted',
-      })  
-      if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
+        posted_by: user.full_name, status: 'posted',
+      })
+      if (jErr || !jRaw) throw new Error(jErr?.message || 'Journal insert failed')
       const j = jRaw
 
-      await supabase.from('vouchers').insert({
+      const { error: vErr } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'stock_transfer', posting_date: form.date,
         description: `Stock Transfer — ${fromLabel} → ${toLabel}`,
         total_amount: totalValue, status: 'posted', journal_id: j.id,
         notes: `${fromLabel} → ${toLabel}${form.notes ? ' · ' + form.notes : ''}`,
-        posted_by: 'Joe Gembe',
+        posted_by: user.full_name,
       })
+      if (vErr) throw new Error('Voucher insert failed: ' + vErr.message)
 
-      for (const line of lines) {
-        if (!line.productId || !line.qty) continue
-        // Fetch fresh qty from Supabase at post time — don't use stale local state
-        const { data: freshProd } = await supabase.from('products').select('name, qty_on_hand, cost_price').eq('id', line.productId).single()
-        if (!freshProd) continue
-        if (freshProd.qty_on_hand < line.qty) {
-          showToast(`Insufficient stock: ${freshProd.name} · Available: ${freshProd.qty_on_hand}`, 'error')
-          setPosting(false); return
-        }
+      for (const line of validLines) {
+        const prod = prodById[line.productId]
+        if (!prod) continue
         const result = await postLedgerEntries([
           {
             product_id: line.productId, entry_type: 'transfer_out',
             document_type: 'stock_transfer', document_ref: form.ref,
             posting_date: form.date, qty: -line.qty,
-            cost_amount: (freshProd.cost_price || 0) * line.qty,
+            cost_amount: (prod.cost_price || 0) * line.qty,
             location: fromLoc,
           },
           {
             product_id: line.productId, entry_type: 'transfer_in',
             document_type: 'stock_transfer', document_ref: form.ref,
             posting_date: form.date, qty: line.qty,
-            cost_amount: (freshProd.cost_price || 0) * line.qty,
+            cost_amount: (prod.cost_price || 0) * line.qty,
             location: toLoc,
           },
         ])
         if (!result.success) console.error('item_ledger_entries error:', result.error)
-        // Update product_locations with fresh qty
-        const { data: fromPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', fromLoc.code).single()
-        const { data: toPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', toLoc.code).single()
-        const fromQty = Math.max(0, (fromPL?.qty_on_hand || freshProd.qty_on_hand) - line.qty)
+
+        // Update product_locations using values fetched at the start (fresh enough)
+        const fromQtyBefore = fromQtyByProduct[line.productId] || 0
+        const fromQty = Math.max(0, fromQtyBefore - line.qty)
+        // Subtract from local cache so subsequent lines for the same product don't double-count
+        fromQtyByProduct[line.productId] = fromQty
+
+        const { data: toPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', toLoc.code).maybeSingle()
         const toQty = (toPL?.qty_on_hand || 0) + line.qty
+
         await supabase.from('product_locations').upsert(
           { product_id: line.productId, location_id: fromLoc.id, location_code: fromLoc.code, qty_on_hand: fromQty, last_updated: new Date().toISOString() },
           { onConflict: 'product_id,location_id' }
@@ -171,16 +238,37 @@ export default function StockTransfer({ onNav }: Props) {
       </div>
       <div className="card">
         <div className="card-title" style={{ marginBottom: 14 }}>Items to Transfer</div>
-        {lines.map((line, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <select className="form-input" style={{ fontSize: 12 }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
-              <option value="">— Select product —</option>
-              {products.map(p => <option key={p.id} value={p.id}>{p.name} · Stock: {p.qty_on_hand}</option>)}
-            </select>
-            <input type="number" className="form-input" style={{ textAlign: 'center' }} min={1} value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
-            {lines.length > 1 && <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button>}
-          </div>
-        ))}
+        {lines.map((line, i) => {
+          const atSource = line.productId ? (fromLocStocks[line.productId] ?? 0) : null
+          const overLimit = atSource != null && line.qty > atSource
+          return (
+            <div key={i}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: 8, marginBottom: overLimit ? 4 : 8, alignItems: 'center' }}>
+                <select className="form-input" style={{ fontSize: 12 }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
+                  <option value="">— Select product —</option>
+                  {products.map(p => {
+                    const a = fromLocStocks[p.id] ?? 0
+                    const total = p.qty_on_hand
+                    const elsewhere = Math.max(0, total - a)
+                    const elsewhereNote = elsewhere > 0 ? ` (${elsewhere} at other locations)` : ''
+                    return (
+                      <option key={p.id} value={p.id} disabled={a <= 0}>
+                        {p.name} · {a} at {form.fromLocation || 'source'}{elsewhereNote}
+                      </option>
+                    )
+                  })}
+                </select>
+                <input type="number" className="form-input" style={{ textAlign: 'center', borderColor: overLimit ? 'var(--red)' : undefined }} min={1} max={atSource ?? undefined} value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
+                {lines.length > 1 && <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button>}
+              </div>
+              {overLimit && (
+                <div style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'var(--mono)', marginBottom: 8, paddingLeft: 4 }}>
+                  Only {atSource} available at {form.fromLocation} — reduce qty
+                </div>
+              )}
+            </div>
+          )
+        })}
         <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', qty: 1, cost: 0 }])}>+ Add item</button>
         {totalValue > 0 && (
           <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 10, display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600 }}>
