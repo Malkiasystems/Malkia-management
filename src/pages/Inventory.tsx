@@ -200,21 +200,52 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
     loadProducts()
   }
 
+  // Compute the qty for a product given the current location filter.
+  // Centralised so filter, sort, and render all use exactly the same value.
+  // Number() coercion is defensive — if Supabase ever returns a string, we
+  // don't want it slipping through into rendering or comparisons.
+  const getEffectiveQty = (productId: string, globalQty: number): number => {
+    if (filterLoc === 'all') return Number(globalQty) || 0
+    const loc = productLocations[productId]?.[filterLoc]
+    return loc == null ? 0 : (Number(loc) || 0)
+  }
+
+  // Sum across all locations for a product (used for data-integrity check)
+  const getLocationSum = (productId: string): number => {
+    const locs = productLocations[productId]
+    if (!locs) return 0
+    return Object.values(locs).reduce((s, q) => s + (Number(q) || 0), 0)
+  }
+
   // Filtering
+  // When a specific location is selected, "Out of Stock" / "Low" reflects
+  // the qty AT THAT LOCATION (not the global qty across all warehouses).
+  // Important: a product with NO row at the selected location is treated as
+  // "not stocked here" and excluded from results — NOT shown as Out of Stock.
+  // Out of Stock means: there's an explicit zero at the selected location.
   const filtered = products
     .filter(p => {
-      const s = getStatus(p.qty_on_hand, p.reorder_point)
+      const hasRowAtLoc = filterLoc !== 'all' && productLocations[p.id]?.[filterLoc] !== undefined
+      const effectiveQty = getEffectiveQty(p.id, p.qty_on_hand)
+      const s = getStatus(effectiveQty, p.reorder_point)
       if (filterCat !== 'all' && !makeCategoryPredicate(filterCat, categories)(p.category)) return false
-      if (filterStatus === 'out' && p.qty_on_hand > 0) return false
-      if (filterStatus === 'low' && (p.qty_on_hand === 0 || s === 'ok')) return false
+
+      if (filterLoc !== 'all') {
+        // At a specific location: hide products not stocked here at all
+        if (!hasRowAtLoc) return false
+      }
+
+      if (filterStatus === 'out' && effectiveQty > 0) return false
+      if (filterStatus === 'low' && (effectiveQty === 0 || s === 'ok')) return false
       if (filterStatus === 'ok' && s !== 'ok') return false
       if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false
-      if (filterLoc !== 'all' && !productLocations[p.id]?.[filterLoc]) return false
       return true
     })
     .sort((a, b) => {
-      if (sortBy === 'qty') return b.qty_on_hand - a.qty_on_hand
-      if (sortBy === 'value') return (b.cost_price * b.qty_on_hand) - (a.cost_price * a.qty_on_hand)
+      const qa = getEffectiveQty(a.id, a.qty_on_hand)
+      const qb = getEffectiveQty(b.id, b.qty_on_hand)
+      if (sortBy === 'qty') return qb - qa
+      if (sortBy === 'value') return (b.cost_price * qb) - (a.cost_price * qa)
       if (sortBy === 'margin') return ((b.selling_price - b.cost_price)/b.selling_price) - ((a.selling_price - a.cost_price)/a.selling_price)
       return a.name.localeCompare(b.name)
     })
@@ -497,11 +528,11 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
           <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)' }}><Ic n="filter" s={12} c="var(--text3)" /></span>
         </div>
         <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ width: 180 }} />
-        <select className="form-input" style={{ fontSize: 12, padding: '7px 10px', width: 140 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-          <option value="all">All Status</option>
-          <option value="ok">In Stock</option>
-          <option value="low">Low Stock</option>
-          <option value="out">Out of Stock</option>
+        <select className="form-input" style={{ fontSize: 12, padding: '7px 10px', width: filterLoc !== 'all' ? 200 : 140 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+          <option value="all">{filterLoc === 'all' ? 'All Status' : `All at ${filterLoc}`}</option>
+          <option value="ok">{filterLoc === 'all' ? 'In Stock' : `In Stock at ${filterLoc}`}</option>
+          <option value="low">{filterLoc === 'all' ? 'Low Stock' : `Low at ${filterLoc}`}</option>
+          <option value="out">{filterLoc === 'all' ? 'Out of Stock' : `Out at ${filterLoc}`}</option>
         </select>
         <select className="form-input" style={{ fontSize: 12, padding: '7px 10px', width: 150 }} value={filterLoc} onChange={e => setFilterLoc(e.target.value)}>
           <option value="all">All Locations</option>
@@ -515,6 +546,11 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
         </select>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', marginLeft: 'auto' }}>
           {filtered.length} of {products.length} shown
+          {filterLoc !== 'all' && (
+            <div style={{ fontSize: 9, marginTop: 2, color: 'var(--text3)' }}>
+              At {filterLoc} only · global qty may differ
+            </div>
+          )}
         </div>
       </div>
 
@@ -539,8 +575,15 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
               </thead>
               <tbody>
                 {filtered.map((p, i) => {
-                  const s = getStatus(p.qty_on_hand, p.reorder_point)
-                  const pct = Math.min(100, Math.round((p.qty_on_hand / (p.reorder_point * 2)) * 100))
+                  const effectiveQty = getEffectiveQty(p.id, p.qty_on_hand)
+                  const locSum = getLocationSum(p.id)
+                  const hasLocations = Object.keys(productLocations[p.id] || {}).length > 0
+                  // Data sync mismatch: global qty doesn't equal sum of all location qtys.
+                  // This usually means a stock movement updated one but not the other
+                  // (e.g. legacy data, an old voucher, or an interrupted transfer).
+                  const syncMismatch = hasLocations && Math.abs(p.qty_on_hand - locSum) > 0.01
+                  const s = getStatus(effectiveQty, p.reorder_point)
+                  const pct = Math.min(100, Math.round((effectiveQty / (p.reorder_point * 2)) * 100))
                   const margin = p.selling_price > 0 ? Math.round(((p.selling_price - p.cost_price) / p.selling_price) * 100) : 0
                   return (
                     <tr key={i} style={{ cursor: 'pointer' }}
@@ -548,14 +591,24 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                       <td className="td-mono td-amber">{p.sku}</td>
-                      <td className="td-bold">{p.name}</td>
+                      <td className="td-bold">
+                        {p.name}
+                        {syncMismatch && (
+                          <span title={`Data mismatch — Global qty: ${p.qty_on_hand}, Sum at locations: ${locSum}. Stock movement may have updated one record but not the other.`} style={{ marginLeft: 6, fontSize: 9, color: 'var(--yellow)', fontFamily: 'var(--mono)', cursor: 'help' }}>⚠ SYNC</span>
+                        )}
+                      </td>
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.category}</td>
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.unit}</td>
                       <td className="td-right td-mono" style={{ color: colors[s], fontWeight: 700 }}>
-                        {filterLoc !== 'all' ? (productLocations[p.id]?.[filterLoc] ?? 0) : p.qty_on_hand}
-                        {filterLoc === 'all' && Object.keys(productLocations[p.id] || {}).length > 0 && (
+                        {effectiveQty}
+                        {filterLoc === 'all' && hasLocations && (
                           <div style={{ fontSize: 8, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 1 }}>
                             {Object.entries(productLocations[p.id] || {}).map(([code, qty]) => `${code}:${qty}`).join(' · ')}
+                          </div>
+                        )}
+                        {filterLoc !== 'all' && (
+                          <div style={{ fontSize: 8, color: p.qty_on_hand !== effectiveQty ? 'var(--yellow)' : 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 1 }}>
+                            global: {p.qty_on_hand}
                           </div>
                         )}
                       </td>
@@ -563,7 +616,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                       <td className="td-right td-mono" style={{ fontSize: 11 }}>{p.cost_price.toLocaleString()}</td>
                       <td className="td-right td-mono" style={{ fontSize: 11 }}>{p.selling_price.toLocaleString()}</td>
                       <td className="td-right td-mono" style={{ color: margin >= 40 ? 'var(--green)' : margin >= 20 ? 'var(--yellow)' : 'var(--red)', fontWeight: 600, fontSize: 12 }}>{margin}%</td>
-                      <td className="td-right td-mono" style={{ fontSize: 11 }}>{(p.cost_price * p.qty_on_hand).toLocaleString()}</td>
+                      <td className="td-right td-mono" style={{ fontSize: 11 }}>{(p.cost_price * effectiveQty).toLocaleString()}</td>
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                           <div className="stock-bar"><div className={`stock-fill ${s}`} style={{ width: `${pct}%` }}></div></div>
