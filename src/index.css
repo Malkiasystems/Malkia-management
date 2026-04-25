@@ -104,7 +104,11 @@ a { text-decoration: none; color: inherit; }
 
 .table-wrap { overflow-x: auto; border-radius: var(--r); border: 1px solid var(--border); }
 table { width: 100%; border-collapse: collapse; }
-th { text-align: left; font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface2); }
+th { text-align: left; font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface2); position: sticky; top: 0; z-index: 10; }
+/* Solid header background when sticky — surface2 may be semi-transparent in some themes */
+thead tr { background: var(--surface2); }
+/* Opt-out: tables inside modals or short cards that don't need sticky behavior */
+.no-sticky-head th { position: static; }
 td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text2); }
 tr:last-child td { border-bottom: none; }
 tr:hover td { color: var(--text); background: rgba(255,255,255,.02); }
