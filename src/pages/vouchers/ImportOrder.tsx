@@ -28,8 +28,43 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   if (n === 'dollar') return <svg {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
   return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
 }
-const STA_C: Record<string, string> = { draft:'pill-gray', deposit_paid:'pill-amber', balance_paid:'pill-blue', shipped:'pill-blue', partially_received:'pill-amber', received:'pill-green', closed:'pill-green' }
-const STA_L: Record<string, string> = { draft:'Draft', deposit_paid:'Deposit Paid', balance_paid:'Fully Paid', shipped:'Shipped', partially_received:'Partial Received', received:'All Received', closed:'Closed' }
+const STA_C: Record<string, string> = {
+  draft: 'pill-gray',
+  deposit_paid: 'pill-amber',
+  in_production: 'pill-amber',
+  balance_paid: 'pill-blue',
+  shipped: 'pill-blue',
+  at_port: 'pill-amber',
+  with_carrier: 'pill-amber',
+  partially_received: 'pill-amber',
+  received: 'pill-green',
+  closed: 'pill-green',
+}
+const STA_L: Record<string, string> = {
+  draft: 'Order Created',
+  deposit_paid: 'Deposit Sent',
+  in_production: 'Supplier Producing',
+  balance_paid: 'Fully Paid Supplier',
+  shipped: 'In Transit',
+  at_port: 'Arrived at Port',
+  with_carrier: 'With Local Carrier',
+  partially_received: 'Partial Received',
+  received: 'In Godown',
+  closed: 'Closed',
+}
+// What action the user should take next, given current status
+const NEXT_HINT: Record<string, string> = {
+  draft: 'Send deposit to supplier to lock in production',
+  deposit_paid: 'Mark as "In Production" once supplier confirms manufacturing started',
+  in_production: 'Pay balance when supplier confirms goods are ready',
+  balance_paid: 'Add shipment details once supplier hands over to forwarder',
+  shipped: 'Mark as "Arrived at Port" when notified by your shipping agent',
+  at_port: 'Pay agent (shipping + customs + clearing) before goods are released',
+  with_carrier: 'Pay local carrier and receive goods at godown',
+  partially_received: 'Receive remaining goods, or close order if final',
+  received: 'Verify all paid, then close this order',
+  closed: 'This order is closed and archived',
+}
 const EMPTY_LINE: OrderLine = { line_number:1, product_id:'', description:'', qty:1, unit_cost_usd:0, unit_cost_tzs:0, subtotal_usd:0, subtotal_tzs:0, qty_received:0, landed_unit_cost_tzs:0 }
 
 export default function ImportOrder({ onNav }: Props) {
@@ -41,7 +76,7 @@ export default function ImportOrder({ onNav }: Props) {
   const [activeOrder, setActiveOrder] = useState<ImportOrder|null>(null); const [orderLines, setOrderLines] = useState<OrderLine[]>([]); const [payments, setPayments] = useState<Payment[]>([]); const [shipments, setShipments] = useState<Shipment[]>([])
   const [form, setForm] = useState({ supplier:'', orderDate:today(), expectedReady:'', currency:'USD', fxRate:'2500', notes:'' })
   const [lines, setLines] = useState<OrderLine[]>([{...EMPTY_LINE}]); const [saving, setSaving] = useState(false)
-  const [showPayModal, setShowPayModal] = useState(false); const [payType, setPayType] = useState<'supplier_deposit'|'supplier_balance'|'forwarding_agent'>('supplier_deposit')
+  const [showPayModal, setShowPayModal] = useState(false); const [payType, setPayType] = useState<'supplier_deposit'|'supplier_balance'|'forwarding_agent'|'customs_duties'|'clearing_fees'|'local_carrier'>('supplier_deposit')
   const [payForm, setPayForm] = useState({ date:today(), amount:'', bankAccount:'', agentSupplierId:'', reference:'', notes:'', currency:'TZS', fxRate:'1' }); const [payPosting, setPayPosting] = useState(false)
   const [showShipModal, setShowShipModal] = useState(false); const [shipForm, setShipForm] = useState({ method:'sea', agentName:'', trackingRef:'', shipDate:today(), expectedArrival:'', freightCost:'', notes:'' })
   const [shipLines, setShipLines] = useState<{orderLineId:string;qty:number;desc:string}[]>([])
@@ -74,20 +109,21 @@ export default function ImportOrder({ onNav }: Props) {
     return `${pat}${String(seq).padStart(4,'0')}`
   }
   const updateLine = (i:number,field:keyof OrderLine,val:string|number) => {
-    const nl=[...lines]; nl[i]={...nl[i],[field]:val as never}; const rate=parseFloat(form.fxRate)||2500
+    const nl=[...lines]; nl[i]={...nl[i],[field]:val as never}; const rate=parseFloat(form.fxRate)||1
     if(field==='product_id'){const pr=products.find(pp=>pp.id===val);if(pr)nl[i].description=pr.name}
     if(field==='qty'||field==='unit_cost_usd'){nl[i].subtotal_usd=nl[i].qty*nl[i].unit_cost_usd;nl[i].unit_cost_tzs=nl[i].unit_cost_usd*rate;nl[i].subtotal_tzs=nl[i].subtotal_usd*rate}
     setLines(nl)
   }
   const recalcLines = (rate:number) => setLines(prev=>prev.map(l=>({...l,unit_cost_tzs:l.unit_cost_usd*rate,subtotal_tzs:l.subtotal_usd*rate})))
   const totalUsd = lines.reduce((s,l)=>s+l.subtotal_usd,0); const totalTzs = lines.reduce((s,l)=>s+l.subtotal_tzs,0)
+  const isLocalCurrency = form.currency === 'TZS'
 
   const saveOrder = async () => {
-    if(!form.supplier){showToast('Select a supplier','error');return}; if(lines.every(l=>!l.description&&!l.product_id)){showToast('Add at least one product','error');return}; if(totalUsd<=0){showToast('Total must be > 0','error');return}
+    if(!form.supplier){showToast('Select a supplier','error');return}; if(lines.every(l=>!l.description&&!l.product_id)){showToast('Add at least one product','error');return}; if(totalTzs<=0){showToast('Total must be > 0','error');return}
     setSaving(true)
     try{
       const ref=await generateRef()
-      const{data:order,error:oErr}=await supabase.from('import_orders').insert({ref,supplier_id:form.supplier,status:'draft',order_date:form.orderDate,expected_ready_date:form.expectedReady||null,currency:form.currency,fx_rate:parseFloat(form.fxRate)||2500,total_usd:totalUsd,total_tzs:totalTzs,total_freight_tzs:0,total_landed_tzs:totalTzs,notes:form.notes||null,created_by:'Joe Gembe'}).select('id').single()
+      const{data:order,error:oErr}=await supabase.from('import_orders').insert({ref,supplier_id:form.supplier,status:'draft',order_date:form.orderDate,expected_ready_date:form.expectedReady||null,currency:form.currency,fx_rate:parseFloat(form.fxRate)||1,total_usd:totalUsd,total_tzs:totalTzs,total_freight_tzs:0,total_landed_tzs:totalTzs,notes:form.notes||null,created_by:'Joe Gembe'}).select('id').single()
       if(oErr)throw new Error(oErr.message)
       const lp=lines.filter(l=>l.description||l.product_id).map((l,i)=>({order_id:order.id,line_number:i+1,product_id:l.product_id||null,description:l.description,qty:l.qty,unit_cost_usd:l.unit_cost_usd,unit_cost_tzs:l.unit_cost_tzs,subtotal_usd:l.subtotal_usd,subtotal_tzs:l.subtotal_tzs,qty_received:0,landed_unit_cost_tzs:0}))
       const{error:lErr}=await supabase.from('import_order_lines').insert(lp); if(lErr)throw new Error(lErr.message)
@@ -100,32 +136,69 @@ export default function ImportOrder({ onNav }: Props) {
   const recordPayment = async () => {
     if(!activeOrder)return; const raw=parseFloat(payForm.amount); if(!raw||raw<=0){showToast('Enter amount','error');return}
     const fx=parseFloat(payForm.fxRate)||1; const amount=payForm.currency==='TZS'?raw:raw*fx
-    if(!payForm.bankAccount){showToast('Select bank','error');return}; if(payType==='forwarding_agent'&&!payForm.agentSupplierId){showToast('Select agent','error');return}
+    if(!payForm.bankAccount){showToast('Select bank','error');return}
+    // All non-supplier payments need a payee/agent
+    const isSupplierPayment = payType==='supplier_deposit' || payType==='supplier_balance'
+    if(!isSupplierPayment && !payForm.agentSupplierId){showToast('Select payee','error');return}
     const dc=await validatePostingDate(payForm.date,isSuperAdmin()); if(!dc.allowed){showToast(dc.error||'Date blocked','error');return}
     setPayPosting(true)
     try{
+      // For all import payments we Dr the GRN Interim account (1121) — same pattern as before
       const drAcct=accounts.find(a=>a.code==='1121'); if(!drAcct)throw new Error('Account 1121 not found')
-      const cn=payForm.currency!=='TZS'?` (${payForm.currency} ${raw.toLocaleString()} @ ${fx})`:''; const an=payType==='forwarding_agent'?suppliers.find(s=>s.id===payForm.agentSupplierId)?.name||'':''
-      const desc=payType==='forwarding_agent'?`Import freight — ${an} — ${activeOrder.ref}${cn}`:`Import ${payType.replace('_',' ')} — ${activeOrder.ref}${cn}`
+      const cn=payForm.currency!=='TZS'?` (${payForm.currency} ${raw.toLocaleString()} @ ${fx})`:''
+      const payeeName = isSupplierPayment ? '' : (suppliers.find(s=>s.id===payForm.agentSupplierId)?.name||'')
+      const typeLabel: Record<string,string> = {
+        supplier_deposit:'Supplier Deposit', supplier_balance:'Supplier Balance',
+        forwarding_agent:'Shipping/Freight', customs_duties:'Customs & Duties',
+        clearing_fees:'Clearing Fees', local_carrier:'Local Carrier',
+      }
+      const desc=`Import — ${typeLabel[payType]}${payeeName?` — ${payeeName}`:''} — ${activeOrder.ref}${cn}`
       const{data:jnl,error:jErr}=await supabase.from('journals').insert({ref:`JV-${activeOrder.ref}-${payType.charAt(0).toUpperCase()}${payments.length+1}`,posting_date:payForm.date,description:desc,journal_type:'import_payment',source_type:'import_order',source_ref:activeOrder.ref,posted_by:'Joe Gembe',status:'posted'}).select('id').single()
       if(jErr)throw new Error(jErr.message)
       await supabase.from('journal_lines').insert([{journal_id:jnl.id,line_number:1,account_id:drAcct.id,description:desc,debit:amount,credit:0},{journal_id:jnl.id,line_number:2,account_id:payForm.bankAccount,description:`Bank — ${desc}`,debit:0,credit:amount}])
       await Promise.all([supabase.rpc('update_account_balance',{p_account_id:drAcct.id,p_debit:amount,p_credit:0}),supabase.rpc('update_account_balance',{p_account_id:payForm.bankAccount,p_debit:0,p_credit:amount})])
-      if(payType!=='forwarding_agent'&&activeOrder.supplier_id){
+      // Update supplier balance for supplier-side payments
+      if(isSupplierPayment && activeOrder.supplier_id){
         await supabase.from('vendor_ledger_entries').insert({supplier_id:activeOrder.supplier_id,posting_date:payForm.date,document_type:'payment',document_ref:activeOrder.ref,description:desc,amount_tzs:-amount,remaining_amount:0,is_open:false,journal_id:jnl.id,import_order_ref:activeOrder.ref})
         const sup=suppliers.find(s=>s.id===activeOrder.supplier_id); if(sup)await supabase.from('suppliers').update({balance_tzs:(sup.balance_tzs||0)-amount}).eq('id',activeOrder.supplier_id)
       }
-      if(payType==='forwarding_agent'&&payForm.agentSupplierId){
+      // Update agent/payee balance for non-supplier payments
+      if(!isSupplierPayment && payForm.agentSupplierId){
         await supabase.from('vendor_ledger_entries').insert({supplier_id:payForm.agentSupplierId,posting_date:payForm.date,document_type:'payment',document_ref:activeOrder.ref,description:desc,amount_tzs:-amount,remaining_amount:0,is_open:false,journal_id:jnl.id,import_order_ref:activeOrder.ref})
         const as2=suppliers.find(s=>s.id===payForm.agentSupplierId); if(as2)await supabase.from('suppliers').update({balance_tzs:(as2.balance_tzs||0)-amount}).eq('id',payForm.agentSupplierId)
       }
-      await supabase.from('import_payments').insert({order_id:activeOrder.id,payment_type:payType,payment_date:payForm.date,amount_tzs:amount,bank_account_id:payForm.bankAccount,agent_name:an||null,reference:payForm.reference||null,notes:payForm.notes||null,journal_id:jnl.id})
-      const ap=[...payments,{amount_tzs:amount,payment_type:payType} as Payment]; const tf=ap.filter(p=>p.payment_type==='forwarding_agent').reduce((s,p)=>s+p.amount_tzs,0); const sp=ap.filter(p=>p.payment_type!=='forwarding_agent').reduce((s,p)=>s+p.amount_tzs,0)
-      let ns=activeOrder.status; if(sp>=activeOrder.total_tzs&&(ns==='draft'||ns==='deposit_paid'))ns='balance_paid'; else if(sp>0&&ns==='draft')ns='deposit_paid'
-      await supabase.from('import_orders').update({total_freight_tzs:tf,total_landed_tzs:activeOrder.total_tzs+tf,status:ns}).eq('id',activeOrder.id)
+      await supabase.from('import_payments').insert({order_id:activeOrder.id,payment_type:payType,payment_date:payForm.date,amount_tzs:amount,bank_account_id:payForm.bankAccount,agent_name:payeeName||null,reference:payForm.reference||null,notes:payForm.notes||null,journal_id:jnl.id})
+      // Recompute totals + status
+      const ap=[...payments,{amount_tzs:amount,payment_type:payType} as Payment]
+      const supplierPaid=ap.filter(p=>p.payment_type==='supplier_deposit'||p.payment_type==='supplier_balance').reduce((s,p)=>s+p.amount_tzs,0)
+      // ALL non-supplier costs add to landed cost: freight + customs + clearing + carrier
+      const otherCostsPaid=ap.filter(p=>p.payment_type==='forwarding_agent'||p.payment_type==='customs_duties'||p.payment_type==='clearing_fees'||p.payment_type==='local_carrier').reduce((s,p)=>s+p.amount_tzs,0)
+      // Status auto-progression on supplier payments only — other payments keep current status
+      let ns=activeOrder.status
+      if(isSupplierPayment){
+        if(supplierPaid>=activeOrder.total_tzs && (ns==='draft'||ns==='deposit_paid'||ns==='in_production')) ns='balance_paid'
+        else if(supplierPaid>0 && ns==='draft') ns='deposit_paid'
+      }
+      await supabase.from('import_orders').update({total_freight_tzs:otherCostsPaid,total_landed_tzs:activeOrder.total_tzs+otherCostsPaid,status:ns}).eq('id',activeOrder.id)
       showToast(`Payment recorded — ${tzs(amount)}`); setShowPayModal(false); setPayForm({date:today(),amount:'',bankAccount:'',agentSupplierId:'',reference:'',notes:'',currency:'TZS',fxRate:'1'})
       const r=(await supabase.from('import_orders').select('*,suppliers(name,code)').eq('id',activeOrder.id).single()).data; if(r)await loadOrderDetail(r as ImportOrder)
     }catch(e:unknown){showToast(e instanceof Error?e.message:'Failed','error')}finally{setPayPosting(false)}
+  }
+
+  // Manual status transitions for stages where the system can't auto-detect (e.g. supplier confirms production started, agent says goods at port)
+  const advanceStatus = async (newStatus: string) => {
+    if (!activeOrder) return
+    try {
+      await supabase.from('import_orders').update({ status: newStatus }).eq('id', activeOrder.id)
+      showToast(`Status updated → ${STA_L[newStatus] || newStatus}`)
+      const r = (await supabase.from('import_orders').select('*, suppliers(name, code)').eq('id', activeOrder.id).single()).data
+      if (r) await loadOrderDetail(r as ImportOrder)
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed', 'error') }
+  }
+  const closeOrder = async () => {
+    if (!activeOrder) return
+    if (!confirm('Close this order? This marks it complete and removes it from the active list. You can still view it later.')) return
+    await advanceStatus('closed')
   }
 
   const addShipment = async () => {
@@ -207,12 +280,26 @@ export default function ImportOrder({ onNav }: Props) {
   // ═══ DETAIL VIEW ═══
   if (view === 'detail' && activeOrder) {
     const totalPaid = payments.reduce((s, p) => s + p.amount_tzs, 0)
-    const supplierPaid = payments.filter(p => p.payment_type !== 'forwarding_agent').reduce((s, p) => s + p.amount_tzs, 0)
+    const supplierPaid = payments.filter(p => p.payment_type === 'supplier_deposit' || p.payment_type === 'supplier_balance').reduce((s, p) => s + p.amount_tzs, 0)
     const freightPaid = payments.filter(p => p.payment_type === 'forwarding_agent').reduce((s, p) => s + p.amount_tzs, 0)
+    const customsPaid = payments.filter(p => p.payment_type === 'customs_duties').reduce((s, p) => s + p.amount_tzs, 0)
+    const clearingPaid = payments.filter(p => p.payment_type === 'clearing_fees').reduce((s, p) => s + p.amount_tzs, 0)
+    const carrierPaid = payments.filter(p => p.payment_type === 'local_carrier').reduce((s, p) => s + p.amount_tzs, 0)
+    const allOtherCosts = freightPaid + customsPaid + clearingPaid + carrierPaid
+    const outstanding = Math.max(0, activeOrder.total_tzs - supplierPaid)
     const totalQtyOrd = orderLines.reduce((s, l) => s + l.qty, 0)
     const totalQtyRcv = orderLines.reduce((s, l) => s + l.qty_received, 0)
     const paidPct = activeOrder.total_tzs > 0 ? Math.min(100, Math.round(supplierPaid / activeOrder.total_tzs * 100)) : 0
-    const step = activeOrder.status === 'draft' ? 1 : activeOrder.status === 'deposit_paid' ? 2 : activeOrder.status === 'balance_paid' ? 3 : ['shipped', 'partially_received'].includes(activeOrder.status) ? 4 : 5
+    // Step 1-7 progress matching new statuses
+    const STAGE_TO_STEP: Record<string, number> = {
+      draft: 1, deposit_paid: 2, in_production: 3, balance_paid: 4,
+      shipped: 5, at_port: 6, with_carrier: 6,
+      partially_received: 7, received: 7, closed: 7,
+    }
+    const step = STAGE_TO_STEP[activeOrder.status] || 1
+    const isClosed = activeOrder.status === 'closed'
+    const canClose = activeOrder.status === 'received' && supplierPaid >= activeOrder.total_tzs
+    const nextHint = NEXT_HINT[activeOrder.status] || ''
 
     return (<div className="page">
       <div className="page-header"><div style={{display:'flex',alignItems:'center',gap:12}}>
@@ -221,35 +308,90 @@ export default function ImportOrder({ onNav }: Props) {
         <div><div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontFamily:'var(--mono)',fontSize:14,fontWeight:800,color:'var(--accent)',background:'var(--accent-dim)',padding:'3px 12px',borderRadius:6}}>{activeOrder.ref}</span><span className={`pill ${STA_C[activeOrder.status]||'pill-gray'}`} style={{fontSize:10}}>{STA_L[activeOrder.status]||activeOrder.status}</span></div>
         <div className="page-sub">{activeOrder.suppliers?.name||'Unknown'} · {activeOrder.order_date}</div></div>
       </div><div className="page-actions">
-        <button className="btn btn-ghost btn-sm" onClick={()=>{setPayType('supplier_deposit');setShowPayModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="dollar" s={13}/> Pay</button>
-        <button className="btn btn-primary btn-sm" onClick={()=>{setShipForm({method:'sea',agentName:'',trackingRef:'',shipDate:today(),expectedArrival:'',freightCost:'',notes:''});setShipLines(orderLines.map(l=>({orderLineId:l.id!,qty:Math.max(0,l.qty-l.qty_received),desc:l.description})));setShowShipModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="ship" s={13}/> Add Shipment</button>
+        {!isClosed && <button className="btn btn-ghost btn-sm" onClick={()=>{setPayType('supplier_deposit');setShowPayModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="dollar" s={13}/> Pay</button>}
+        {/* Status advance buttons appear when manual transition makes sense */}
+        {activeOrder.status === 'deposit_paid' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('in_production')}>Mark In Production</button>}
+        {activeOrder.status === 'shipped' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('at_port')}>Mark At Port</button>}
+        {activeOrder.status === 'at_port' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('with_carrier')}>With Local Carrier</button>}
+        {!isClosed && <button className="btn btn-primary btn-sm" onClick={()=>{setShipForm({method:'sea',agentName:'',trackingRef:'',shipDate:today(),expectedArrival:'',freightCost:'',notes:''});setShipLines(orderLines.map(l=>({orderLineId:l.id!,qty:Math.max(0,l.qty-l.qty_received),desc:l.description})));setShowShipModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="ship" s={13}/> Add Shipment</button>}
+        {canClose && <button className="btn btn-primary btn-sm" onClick={closeOrder} style={{background:'var(--green)',borderColor:'var(--green)'}}><Ic n="check" s={13} c="#fff"/> Close Order</button>}
       </div></div>
 
-      {/* Progress */}
-      <div style={{display:'flex',alignItems:'center',gap:0,marginBottom:24,padding:'0 4px'}}>
-        {['Order Created','Deposit Paid','Fully Paid','Shipped','Received'].map((label,i)=>{const sn=i+1;const done=step>sn;const act=step===sn;return(<div key={i} style={{display:'flex',alignItems:'center',flex:1}}>
+      {/* Next-step hint banner */}
+      {!isClosed && nextHint && (
+        <div style={{background:'rgba(133,194,190,.06)',border:'1px solid rgba(133,194,190,.2)',borderRadius:'var(--r)',padding:'10px 14px',marginBottom:16,display:'flex',alignItems:'center',gap:10,fontSize:12}}>
+          <span style={{color:'var(--accent)',fontFamily:'var(--mono)',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:.5}}>Next →</span>
+          <span style={{color:'var(--text3)'}}>{nextHint}</span>
+        </div>
+      )}
+
+      {/* Progress — 7 stages */}
+      <div style={{display:'flex',alignItems:'center',gap:0,marginBottom:24,padding:'0 4px',overflowX:'auto'}}>
+        {[
+          {label:'Created'},{label:'Deposit'},{label:'Producing'},{label:'Balance Paid'},
+          {label:'Shipped'},{label:'At Port'},{label:'In Godown'},
+        ].map((stage,i)=>{const sn=i+1;const done=step>sn;const act=step===sn;return(<div key={i} style={{display:'flex',alignItems:'center',flex:'1 0 80px'}}>
           <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-            <div style={{width:28,height:28,borderRadius:'50%',background:done?'var(--green)':act?'var(--accent)':'var(--surface3)',border:`2px solid ${done?'var(--green)':act?'var(--accent)':'var(--border)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:done||act?'#fff':'var(--text3)'}}>{done?'✓':sn}</div>
-            <span style={{fontSize:9,fontFamily:'var(--mono)',color:done?'var(--green)':act?'var(--accent)':'var(--text3)',textTransform:'uppercase',letterSpacing:'.5px',textAlign:'center',lineHeight:1.2}}>{label}</span>
-          </div>{i<4&&<div style={{flex:1,height:2,background:done?'var(--green)':'var(--border)',margin:'0 6px',marginBottom:18}}/>}</div>)})}
+            <div style={{width:24,height:24,borderRadius:'50%',background:done?'var(--green)':act?'var(--accent)':'var(--surface3)',border:`2px solid ${done?'var(--green)':act?'var(--accent)':'var(--border)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:done||act?'#fff':'var(--text3)'}}>{done?'✓':sn}</div>
+            <span style={{fontSize:8,fontFamily:'var(--mono)',color:done?'var(--green)':act?'var(--accent)':'var(--text3)',textTransform:'uppercase',letterSpacing:'.3px',textAlign:'center',lineHeight:1.2}}>{stage.label}</span>
+          </div>{i<6&&<div style={{flex:1,height:2,background:done?'var(--green)':'var(--border)',margin:'0 4px',marginBottom:14}}/>}</div>)})}
       </div>
+
+      {/* Outstanding-to-pay banner — prominent when supplier has unpaid balance */}
+      {outstanding > 0 && !isClosed && (
+        <div style={{background: paidPct > 0 ? 'rgba(255,176,46,.06)' : 'rgba(255,176,46,.04)', border:'1px solid rgba(255,176,46,.25)', borderRadius:'var(--r)', padding:'12px 16px', marginBottom:16, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12}}>
+          <div>
+            <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:4}}>Outstanding to supplier</div>
+            <div style={{fontFamily:'var(--mono)',fontSize:18,fontWeight:800,color:'var(--yellow)'}}>{tzs(outstanding)}</div>
+          </div>
+          <div style={{flex:1,minWidth:200,maxWidth:400}}>
+            <div style={{height:8,background:'var(--surface3)',borderRadius:4,overflow:'hidden'}}>
+              <div style={{height:'100%',width:`${paidPct}%`,background: paidPct>=100?'var(--green)':'var(--yellow)',transition:'width .3s'}}></div>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',marginTop:4,fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)'}}>
+              <span>Paid {tzs(supplierPaid)} ({paidPct}%)</span>
+              <span>Total {tzs(activeOrder.total_tzs)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:20}}>
-        {[{label:'Order Total',val:tzs(activeOrder.total_tzs),sub:`USD ${activeOrder.total_usd.toLocaleString()} @ ${activeOrder.fx_rate}`,color:'var(--text)'},{label:'Supplier Paid',val:tzs(supplierPaid),sub:`${paidPct}%`,color:supplierPaid>=activeOrder.total_tzs?'var(--green)':'var(--yellow)'},{label:'Freight',val:tzs(freightPaid),color:freightPaid>0?'var(--blue)':'var(--text3)'},{label:'Total Landed',val:tzs(totalPaid),sub:totalQtyOrd>0?`${tzs(Math.round(totalPaid/totalQtyOrd))}/unit`:'',color:'var(--accent)'},{label:'Received',val:`${totalQtyRcv} / ${totalQtyOrd}`,color:totalQtyRcv>=totalQtyOrd?'var(--green)':'var(--yellow)'}].map(it=>(
+        {[
+          {label:'Order Total',val:tzs(activeOrder.total_tzs),sub:activeOrder.currency==='TZS'?'Local supplier':`${activeOrder.currency} ${activeOrder.total_usd.toLocaleString()} @ ${activeOrder.fx_rate}`,color:'var(--text)'},
+          {label:'Supplier Paid',val:tzs(supplierPaid),sub:`${paidPct}%`,color:supplierPaid>=activeOrder.total_tzs?'var(--green)':'var(--yellow)'},
+          {label:'Other Costs',val:tzs(allOtherCosts),sub:allOtherCosts>0?`Freight + customs + carrier`:'',color:allOtherCosts>0?'var(--blue)':'var(--text3)'},
+          {label:'Total Landed',val:tzs(totalPaid),sub:totalQtyOrd>0&&totalPaid>0?`${tzs(Math.round(totalPaid/totalQtyOrd))}/unit`:'',color:'var(--accent)'},
+          {label:'Received',val:`${totalQtyRcv} / ${totalQtyOrd}`,color:totalQtyRcv>=totalQtyOrd?'var(--green)':totalQtyRcv>0?'var(--yellow)':'var(--text3)'},
+        ].map(it=>(
           <div key={it.label} className="card" style={{padding:'14px 16px'}}><div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>{it.label}</div><div style={{fontFamily:'var(--mono)',fontSize:16,fontWeight:700,color:it.color}}>{it.val}</div>{it.sub&&<div style={{fontSize:10,color:'var(--text3)',marginTop:3}}>{it.sub}</div>}</div>))}
       </div>
 
+      {/* Cost breakdown chips — only show when there are non-supplier costs */}
+      {allOtherCosts > 0 && (
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:20}}>
+          {freightPaid > 0 && <div style={{background:'var(--surface)',border:'1px solid rgba(38,100,235,.2)',borderRadius:8,padding:'8px 12px',fontSize:11}}><span style={{color:'var(--text3)',fontFamily:'var(--mono)',fontSize:9,textTransform:'uppercase',marginRight:8}}>Shipping</span><span style={{color:'var(--blue)',fontFamily:'var(--mono)',fontWeight:700}}>{tzs(freightPaid)}</span></div>}
+          {customsPaid > 0 && <div style={{background:'var(--surface)',border:'1px solid rgba(255,176,46,.2)',borderRadius:8,padding:'8px 12px',fontSize:11}}><span style={{color:'var(--text3)',fontFamily:'var(--mono)',fontSize:9,textTransform:'uppercase',marginRight:8}}>Customs/Duties</span><span style={{color:'var(--yellow)',fontFamily:'var(--mono)',fontWeight:700}}>{tzs(customsPaid)}</span></div>}
+          {clearingPaid > 0 && <div style={{background:'var(--surface)',border:'1px solid rgba(255,176,46,.2)',borderRadius:8,padding:'8px 12px',fontSize:11}}><span style={{color:'var(--text3)',fontFamily:'var(--mono)',fontSize:9,textTransform:'uppercase',marginRight:8}}>Clearing</span><span style={{color:'var(--yellow)',fontFamily:'var(--mono)',fontWeight:700}}>{tzs(clearingPaid)}</span></div>}
+          {carrierPaid > 0 && <div style={{background:'var(--surface)',border:'1px solid rgba(133,194,190,.2)',borderRadius:8,padding:'8px 12px',fontSize:11}}><span style={{color:'var(--text3)',fontFamily:'var(--mono)',fontSize:9,textTransform:'uppercase',marginRight:8}}>Local Carrier</span><span style={{color:'var(--accent)',fontFamily:'var(--mono)',fontWeight:700}}>{tzs(carrierPaid)}</span></div>}
+        </div>
+      )}
+
       {/* Order Lines */}
-      <div className="card" style={{marginBottom:16}}><div className="card-title" style={{marginBottom:12}}>Products Ordered</div><div className="table-wrap"><table><thead><tr><th>SKU</th><th>Product</th><th className="td-right">Qty</th><th className="td-right">Unit USD</th><th className="td-right">Unit TZS</th><th className="td-right">Received</th><th className="td-right">Landed/Unit</th><th>Status</th></tr></thead><tbody>
-        {orderLines.map(l=>{const pct=l.qty>0?Math.round(l.qty_received/l.qty*100):0;return(<tr key={l.id}><td className="td-mono" style={{fontSize:11,color:'var(--accent)'}}>{products.find(pp=>pp.id===l.product_id)?.sku||''}</td><td style={{fontSize:12,fontWeight:600}}>{l.description}</td><td className="td-right td-mono">{l.qty}</td><td className="td-right td-mono" style={{fontSize:11}}>${l.unit_cost_usd.toFixed(2)}</td><td className="td-right td-mono" style={{fontSize:11}}>{tzs(l.unit_cost_tzs)}</td><td className="td-right td-mono" style={{fontWeight:700,color:pct>=100?'var(--green)':pct>0?'var(--yellow)':'var(--text3)'}}>{l.qty_received}/{l.qty}</td><td className="td-right td-mono" style={{fontSize:11,color:'var(--accent)'}}>{l.landed_unit_cost_tzs>0?tzs(Math.round(l.landed_unit_cost_tzs)):''}</td><td><span className={`pill ${pct>=100?'pill-green':pct>0?'pill-amber':'pill-gray'}`} style={{fontSize:9}}>{pct>=100?'Complete':pct>0?`${pct}%`:'Pending'}</span></td></tr>)})}
+      <div className="card" style={{marginBottom:16}}><div className="card-title" style={{marginBottom:12}}>Products Ordered</div><div className="table-wrap"><table><thead><tr><th>SKU</th><th>Product</th><th className="td-right">Qty</th><th className="td-right">Unit {activeOrder.currency}</th><th className="td-right">Unit TZS</th><th className="td-right">Received</th><th className="td-right">Landed/Unit</th><th>Status</th></tr></thead><tbody>
+        {orderLines.map(l=>{const pct=l.qty>0?Math.round(l.qty_received/l.qty*100):0;return(<tr key={l.id}><td className="td-mono" style={{fontSize:11,color:'var(--accent)'}}>{products.find(pp=>pp.id===l.product_id)?.sku||''}</td><td style={{fontSize:12,fontWeight:600}}>{l.description}</td><td className="td-right td-mono">{l.qty}</td><td className="td-right td-mono" style={{fontSize:11}}>{activeOrder.currency==='USD'?'$':''}{l.unit_cost_usd.toFixed(2)}{activeOrder.currency!=='USD'&&activeOrder.currency!=='TZS'?` ${activeOrder.currency}`:''}</td><td className="td-right td-mono" style={{fontSize:11}}>{tzs(l.unit_cost_tzs)}</td><td className="td-right td-mono" style={{fontWeight:700,color:pct>=100?'var(--green)':pct>0?'var(--yellow)':'var(--text3)'}}>{l.qty_received}/{l.qty}</td><td className="td-right td-mono" style={{fontSize:11,color:'var(--accent)'}}>{l.landed_unit_cost_tzs>0?tzs(Math.round(l.landed_unit_cost_tzs)):''}</td><td><span className={`pill ${pct>=100?'pill-green':pct>0?'pill-amber':'pill-gray'}`} style={{fontSize:9}}>{pct>=100?'Complete':pct>0?`${pct}%`:'Pending'}</span></td></tr>)})}
       </tbody></table></div></div>
 
       {/* Payments */}
       <div className="card" style={{marginBottom:16}}><div className="card-title" style={{marginBottom:12}}>Payments ({payments.length})</div>
         {payments.length===0?<div style={{textAlign:'center',padding:'20px 0',color:'var(--text3)',fontSize:12}}>No payments yet.</div>:
         <div className="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>To</th><th>Ref</th><th className="td-right">Amount</th></tr></thead><tbody>
-          {payments.map((p,i)=>(<tr key={i}><td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{p.payment_date}</td><td><span className={`pill ${p.payment_type==='forwarding_agent'?'pill-blue':p.payment_type==='supplier_deposit'?'pill-amber':'pill-green'}`} style={{fontSize:9,textTransform:'capitalize'}}>{p.payment_type.replace(/_/g,' ')}</span></td><td style={{fontSize:11}}>{p.agent_name||activeOrder.suppliers?.name||''}</td><td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{p.reference||''}</td><td className="td-right td-mono" style={{fontWeight:700,fontSize:13}}>{tzs(p.amount_tzs)}</td></tr>))}
+          {payments.map((p,i)=>{
+            const labelMap: Record<string,string> = {supplier_deposit:'Supplier Deposit', supplier_balance:'Supplier Balance', forwarding_agent:'Shipping/Freight', customs_duties:'Customs & Duties', clearing_fees:'Clearing Fees', local_carrier:'Local Carrier'}
+            const colorMap: Record<string,string> = {supplier_deposit:'pill-amber', supplier_balance:'pill-green', forwarding_agent:'pill-blue', customs_duties:'pill-amber', clearing_fees:'pill-amber', local_carrier:'pill-blue'}
+            return (<tr key={i}><td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{p.payment_date}</td><td><span className={`pill ${colorMap[p.payment_type]||'pill-gray'}`} style={{fontSize:9}}>{labelMap[p.payment_type]||p.payment_type.replace(/_/g,' ')}</span></td><td style={{fontSize:11}}>{p.agent_name||activeOrder.suppliers?.name||''}</td><td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{p.reference||''}</td><td className="td-right td-mono" style={{fontWeight:700,fontSize:13}}>{tzs(p.amount_tzs)}</td></tr>)
+          })}
         </tbody><tfoot><tr style={{background:'var(--surface2)'}}><td colSpan={4} style={{fontWeight:700}}>Total</td><td className="td-right td-mono" style={{fontSize:15,fontWeight:800}}>{tzs(totalPaid)}</td></tr></tfoot></table></div>}
       </div>
 
@@ -271,12 +413,23 @@ export default function ImportOrder({ onNav }: Props) {
       {/* Payment Modal */}
       {showPayModal&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowPayModal(false)}><div className="card" style={{width:500}} onClick={e=>e.stopPropagation()}>
         <div className="card-title" style={{marginBottom:16}}>Record Payment — {activeOrder.ref}</div>
-        <FG label="Type" req><select className="form-input" value={payType} onChange={e=>setPayType(e.target.value as typeof payType)}><option value="supplier_deposit">Supplier Deposit</option><option value="supplier_balance">Supplier Balance</option><option value="forwarding_agent">Forwarding Agent</option></select></FG>
+        <FG label="Type" req><select className="form-input" value={payType} onChange={e=>setPayType(e.target.value as typeof payType)}>
+          <optgroup label="Supplier">
+            <option value="supplier_deposit">Supplier Deposit</option>
+            <option value="supplier_balance">Supplier Balance</option>
+          </optgroup>
+          <optgroup label="Logistics">
+            <option value="forwarding_agent">Shipping / Freight</option>
+            <option value="customs_duties">Customs &amp; Duties</option>
+            <option value="clearing_fees">Clearing Fees</option>
+            <option value="local_carrier">Local Carrier (godown delivery)</option>
+          </optgroup>
+        </select></FG>
         <div className="form-row"><FG label="Currency"><select className="form-input" value={payForm.currency} onChange={e=>{setPayF('currency',e.target.value);if(e.target.value==='TZS')setPayF('fxRate','1');else if(e.target.value==='USD')setPayF('fxRate',String(activeOrder?.fx_rate||2500));else setPayF('fxRate','365')}}><option value="TZS">TZS</option><option value="USD">USD</option><option value="RMB">RMB</option></select></FG>
         {payForm.currency!=='TZS'&&<FG label={`Rate TZS/${payForm.currency}`}><input type="number" className="form-input" style={{fontFamily:'var(--mono)'}} value={payForm.fxRate} onChange={e=>setPayF('fxRate',e.target.value)}/></FG>}</div>
         <div className="form-row"><FG label={`Amount (${payForm.currency})`} req><input type="number" className="form-input" style={{fontFamily:'var(--mono)',fontSize:16,fontWeight:700}} value={payForm.amount} onChange={e=>setPayF('amount',e.target.value)} placeholder="0"/></FG><FG label="Date" req><input type="date" className="form-input" value={payForm.date} onChange={e=>setPayF('date',e.target.value)}/></FG></div>
         <FG label="Bank Account" req><select className="form-input" value={payForm.bankAccount} onChange={e=>setPayF('bankAccount',e.target.value)}><option value="">— Select —</option>{bankAccounts.map(a=><option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}</select></FG>
-        {payType==='forwarding_agent'&&<FG label="Agent (from Suppliers)" req><select className="form-input" value={payForm.agentSupplierId} onChange={e=>setPayF('agentSupplierId',e.target.value)}><option value="">— Select —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></FG>}
+        {(payType==='forwarding_agent'||payType==='customs_duties'||payType==='clearing_fees'||payType==='local_carrier')&&<FG label={payType==='local_carrier'?'Local Carrier (from Suppliers)':payType==='customs_duties'?'TRA / Authority':payType==='clearing_fees'?'Clearing Agent':'Shipping Agent'} req><select className="form-input" value={payForm.agentSupplierId} onChange={e=>setPayF('agentSupplierId',e.target.value)}><option value="">— Select —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></FG>}
         <FG label="Reference"><input className="form-input" value={payForm.reference} onChange={e=>setPayF('reference',e.target.value)} placeholder="Bank ref"/></FG>
         {payForm.currency!=='TZS'&&payForm.amount&&<div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:'10px 12px',fontSize:12,fontFamily:'var(--mono)',color:'var(--text3)',marginTop:4}}>{payForm.currency} {parseFloat(payForm.amount).toLocaleString()} x {payForm.fxRate} = <span style={{fontWeight:700,color:'var(--accent)'}}>{tzs(parseFloat(payForm.amount)*(parseFloat(payForm.fxRate)||1))}</span></div>}
         <div style={{display:'flex',gap:8,marginTop:14,justifyContent:'flex-end'}}><button className="btn btn-ghost" onClick={()=>setShowPayModal(false)}>Cancel</button><button className="btn btn-primary" onClick={recordPayment} disabled={payPosting}>{payPosting?'Posting...':'Record Payment'}</button></div>
@@ -322,12 +475,20 @@ export default function ImportOrder({ onNav }: Props) {
         <div className="card"><div className="card-title" style={{marginBottom:14}}>Order Details</div>
           <FG label="Supplier" req><select className="form-input" value={form.supplier} onChange={e=>setF('supplier',e.target.value)}><option value="">— Select —</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></FG>
           <div className="form-row"><FG label="Order Date" req><input type="date" className="form-input" value={form.orderDate} onChange={e=>setF('orderDate',e.target.value)}/></FG><FG label="Expected Ready"><input type="date" className="form-input" value={form.expectedReady} onChange={e=>setF('expectedReady',e.target.value)}/></FG></div>
-          <div className="form-row"><FG label="Currency"><input className="form-input" value={form.currency} onChange={e=>setF('currency',e.target.value)}/></FG><FG label="FX Rate (TZS/USD)" req><input type="number" className="form-input" style={{fontFamily:'var(--mono)'}} value={form.fxRate} onChange={e=>{setF('fxRate',e.target.value);recalcLines(parseFloat(e.target.value)||2500)}}/></FG></div>
+          <div className="form-row">
+            <FG label="Currency"><select className="form-input" value={form.currency} onChange={e=>{const c=e.target.value;setF('currency',c);if(c==='TZS'){setF('fxRate','1');recalcLines(1)}else if(c==='USD'){setF('fxRate','2500');recalcLines(2500)}else{setF('fxRate','350');recalcLines(350)}}}>
+              <option value="TZS">TZS (local supplier)</option>
+              <option value="USD">USD</option>
+              <option value="RMB">RMB (Chinese yuan)</option>
+              <option value="INR">INR (Indian rupee)</option>
+            </select></FG>
+            <FG label={isLocalCurrency?'FX Rate (1)':`FX Rate (TZS/${form.currency})`} req><input type="number" className="form-input" style={{fontFamily:'var(--mono)'}} value={form.fxRate} onChange={e=>{setF('fxRate',e.target.value);recalcLines(parseFloat(e.target.value)||1)}} disabled={isLocalCurrency}/></FG>
+          </div>
           <FG label="Notes"><textarea className="form-input" rows={2} style={{resize:'none'}} value={form.notes} onChange={e=>setF('notes',e.target.value)}/></FG>
         </div>
-        <div className="card" style={{padding:'16px 18px'}}><div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>Order Total</div><div style={{fontFamily:'var(--mono)',fontSize:28,fontWeight:800,color:'var(--accent)',marginBottom:4}}>USD {totalUsd.toFixed(2)}</div><div style={{fontFamily:'var(--mono)',fontSize:16,color:'var(--text3)'}}>{tzs(totalTzs)}</div><div style={{fontSize:10,color:'var(--text3)',marginTop:4}}>@ {form.fxRate} TZS/USD</div></div>
+        <div className="card" style={{padding:'16px 18px'}}><div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>Order Total</div><div style={{fontFamily:'var(--mono)',fontSize:28,fontWeight:800,color:'var(--accent)',marginBottom:4}}>{isLocalCurrency?tzs(totalTzs):`${form.currency} ${totalUsd.toFixed(2)}`}</div>{!isLocalCurrency&&<div style={{fontFamily:'var(--mono)',fontSize:16,color:'var(--text3)'}}>{tzs(totalTzs)}</div>}{!isLocalCurrency&&<div style={{fontSize:10,color:'var(--text3)',marginTop:4}}>@ {form.fxRate} TZS/{form.currency}</div>}{isLocalCurrency&&<div style={{fontSize:10,color:'var(--text3)',marginTop:4}}>Local supplier · TZS</div>}</div>
       </div>
-      <div className="card" style={{marginTop:16}}><div className="card-title" style={{marginBottom:14}}>Products</div><div className="table-wrap" style={{marginBottom:8}}><table><thead><tr><th>Product</th><th>Description</th><th style={{width:70,textAlign:'center'}}>Qty</th><th style={{width:120,textAlign:'right'}}>Unit USD</th><th style={{width:140,textAlign:'right'}}>Subtotal TZS</th><th style={{width:40}}></th></tr></thead><tbody>
+      <div className="card" style={{marginTop:16}}><div className="card-title" style={{marginBottom:14}}>Products</div><div className="table-wrap" style={{marginBottom:8}}><table><thead><tr><th>Product</th><th>Description</th><th style={{width:70,textAlign:'center'}}>Qty</th><th style={{width:120,textAlign:'right'}}>Unit {form.currency}</th><th style={{width:140,textAlign:'right'}}>Subtotal TZS</th><th style={{width:40}}></th></tr></thead><tbody>
         {lines.map((line,i)=>(<tr key={i}><td><select className="form-input" style={{fontSize:12,padding:'6px 8px'}} value={line.product_id} onChange={e=>updateLine(i,'product_id',e.target.value)}><option value="">— Select —</option>{products.map(pp=><option key={pp.id} value={pp.id}>{pp.sku} — {pp.name}</option>)}</select></td><td><input className="form-input" style={{fontSize:12,padding:'6px 8px'}} value={line.description} onChange={e=>updateLine(i,'description',e.target.value)} placeholder="Description"/></td><td><input type="number" className="form-input" style={{fontSize:12,padding:'6px 8px',textAlign:'center'}} value={line.qty} min={1} onChange={e=>updateLine(i,'qty',parseInt(e.target.value)||1)}/></td><td><input type="number" className="form-input" style={{fontSize:12,padding:'6px 8px',textAlign:'right',fontFamily:'var(--mono)'}} value={line.unit_cost_usd} step="0.01" onChange={e=>updateLine(i,'unit_cost_usd',parseFloat(e.target.value)||0)}/></td><td style={{textAlign:'right',fontFamily:'var(--mono)',fontSize:12}}>{Math.round(line.subtotal_tzs).toLocaleString()}</td><td><button onClick={()=>setLines(lines.filter((_,idx)=>idx!==i))} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text3)',fontSize:14}}>x</button></td></tr>))}
       </tbody></table></div><button className="btn btn-ghost btn-sm" onClick={()=>setLines([...lines,{...EMPTY_LINE,line_number:lines.length+1}])}>+ Add Product</button></div>
       {toast&&<Toast message={toast} type={toastType} onClose={()=>setToast('')}/>}
@@ -336,7 +497,7 @@ export default function ImportOrder({ onNav }: Props) {
 
   // ═══ LIST VIEW ═══
   return (<div className="page">
-    <div className="page-header"><div><div className="page-title">Import Orders</div><div className="page-sub">China/India sourcing · Quote to shelf</div></div>
+    <div className="page-header"><div><div className="page-title">Import Orders</div><div className="page-sub">Multi-stage purchases · Deposits, balance, shipping, customs, receipt</div></div>
     <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={loadAll} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="refresh"/> Refresh</button>
     <button className="btn btn-primary btn-sm" onClick={()=>{setForm({supplier:'',orderDate:today(),expectedReady:'',currency:'USD',fxRate:'2500',notes:''});setLines([{...EMPTY_LINE}]);setView('create')}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="plus" s={13}/> New Import Order</button></div></div>
     <div className="shortcut-bar">
@@ -354,7 +515,15 @@ export default function ImportOrder({ onNav }: Props) {
         </button>
       ))}
     </div>
-    {loading?<div className="card" style={{textAlign:'center',padding:'40px 0',color:'var(--text3)'}}>Loading...</div>:orders.length===0?<div className="card" style={{textAlign:'center',padding:'60px 0',color:'var(--text3)'}}><div style={{fontSize:14,fontWeight:600}}>No import orders yet</div></div>:
+    {loading?<div className="card" style={{textAlign:'center',padding:'40px 0',color:'var(--text3)'}}>Loading...</div>:orders.length===0?<div className="card" style={{textAlign:'center',padding:'40px 24px',color:'var(--text3)'}}>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:8,color:'var(--text)'}}>No import orders yet</div>
+      <div style={{fontSize:12,maxWidth:520,margin:'0 auto',lineHeight:1.5}}>
+        Use this for any purchase that spans weeks — local or international. Track deposits, balance payments, supplier production, shipping agents, customs, clearing fees, and local carriers all under one order. Stock enters your godown only when goods physically arrive, with the correct landed cost.
+      </div>
+      <div style={{fontSize:11,maxWidth:520,margin:'12px auto 0',color:'var(--text3)',lineHeight:1.5}}>
+        For local same-day purchases (pick up + invoice + pay), use <strong style={{color:'var(--text3)'}}>GRN + Purchase Invoice</strong> instead.
+      </div>
+    </div>:
     <div className="card"><div className="table-wrap"><table><thead><tr><th>Ref</th><th>Supplier</th><th>Date</th><th>Status</th><th className="td-right">USD</th><th className="td-right">TZS</th><th className="td-right">Freight</th><th className="td-right">Landed</th></tr></thead><tbody>
       {orders.map(o=>(<tr key={o.id} style={{cursor:'pointer'}} onClick={()=>loadOrderDetail(o)} onMouseEnter={e=>(e.currentTarget.style.background='var(--surface2)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}><td className="td-mono td-amber" style={{fontSize:12,fontWeight:700}}>{o.ref}</td><td style={{fontSize:12,fontWeight:600}}>{o.suppliers?.name||''}</td><td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{o.order_date}</td><td><span className={`pill ${STA_C[o.status]||'pill-gray'}`} style={{fontSize:9}}>{STA_L[o.status]||o.status}</span></td><td className="td-right td-mono" style={{fontSize:12}}>${o.total_usd.toLocaleString()}</td><td className="td-right td-mono" style={{fontSize:12}}>{tzs(o.total_tzs)}</td><td className="td-right td-mono" style={{fontSize:12,color:o.total_freight_tzs>0?'var(--blue)':'var(--text3)'}}>{o.total_freight_tzs>0?tzs(o.total_freight_tzs):''}</td><td className="td-right td-mono" style={{fontSize:12,fontWeight:700,color:'var(--accent)'}}>{tzs(o.total_landed_tzs)}</td></tr>))}
     </tbody></table></div></div>}
