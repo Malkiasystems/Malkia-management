@@ -482,10 +482,23 @@ export default function ImportOrder({ onNav }: Props) {
       }
 
       // 6. Update shipment + order status
-      await supabase.from('import_shipments').update({ status: 'received', actual_arrival: receivedAt }).eq('id', receiveShipmentId)
+      // Check if THIS shipment's lines are all fully received before flipping to 'received'
+      const { data: shLines } = await supabase
+        .from('import_shipment_lines')
+        .select('qty_shipped, qty_received')
+        .eq('shipment_id', receiveShipmentId)
+      const shipmentFullyReceived = shLines?.every(l => (l.qty_received || 0) >= (l.qty_shipped || 0)) || false
+      await supabase.from('import_shipments').update({
+        status: shipmentFullyReceived ? 'received' : 'in_transit',
+        actual_arrival: shipmentFullyReceived ? receivedAt : null,
+      }).eq('id', receiveShipmentId)
+
       const { data: fol } = await supabase.from('import_order_lines').select('qty, qty_received').eq('order_id', activeOrder.id)
       const allDone = fol?.every(l => l.qty_received >= l.qty) || false
-      await supabase.from('import_orders').update({ status: allDone ? 'received' : 'partially_received' }).eq('id', activeOrder.id)
+      const anyReceived = fol?.some(l => l.qty_received > 0) || false
+      await supabase.from('import_orders').update({
+        status: allDone ? 'received' : (anyReceived ? 'partially_received' : activeOrder.status)
+      }).eq('id', activeOrder.id)
 
       showToast(`Received at ${selectedLoc.code}: ${receiveLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
       setShowReceiveModal(false); await loadAll()
