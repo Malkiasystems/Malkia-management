@@ -72,6 +72,11 @@ export default function ImportOrder({ onNav }: Props) {
   const [toast, setToast] = useState(''); const [toastType, setToastType] = useState<'success'|'error'>('success')
   const showToast = (m: string, t: 'success'|'error' = 'success') => { setToast(m); setToastType(t) }
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([]); const [products, setProducts] = useState<DBProduct[]>([]); const [accounts, setAccounts] = useState<DBAccount[]>([]); const [orders, setOrders] = useState<ImportOrder[]>([]); const [loading, setLoading] = useState(true)
+  // List filters
+  const [filterStatus, setFilterStatus] = useState<'all'|'active'|'at_port'|'in_godown'|'closed'>('active')
+  const [filterSearch, setFilterSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'date'|'ref'|'supplier'|'value'>('date')
+  const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc')
   const [view, setView] = useState<'list'|'detail'|'create'>('list')
   const [activeOrder, setActiveOrder] = useState<ImportOrder|null>(null); const [orderLines, setOrderLines] = useState<OrderLine[]>([]); const [payments, setPayments] = useState<Payment[]>([]); const [shipments, setShipments] = useState<Shipment[]>([])
   const [form, setForm] = useState({ supplier:'', orderDate:today(), expectedReady:'', currency:'USD', fxRate:'2500', notes:'' })
@@ -496,10 +501,57 @@ export default function ImportOrder({ onNav }: Props) {
   }
 
   // ═══ LIST VIEW ═══
+  // Status grouping for filter pills
+  const isActive = (s: string) => !['closed','received'].includes(s)
+  const isAtPort = (s: string) => s === 'at_port' || s === 'with_carrier'
+  const isInGodown = (s: string) => s === 'received' || s === 'partially_received'
+
+  // Filtering
+  const filteredOrders = orders.filter(o => {
+    if (filterStatus === 'active' && !isActive(o.status) && o.status !== 'received') return false
+    if (filterStatus === 'at_port' && !isAtPort(o.status)) return false
+    if (filterStatus === 'in_godown' && !isInGodown(o.status)) return false
+    if (filterStatus === 'closed' && o.status !== 'closed') return false
+    if (filterSearch.trim()) {
+      const q = filterSearch.toLowerCase()
+      if (!o.ref.toLowerCase().includes(q) && !(o.suppliers?.name||'').toLowerCase().includes(q)) return false
+    }
+    return true
+  }).sort((a,b)=>{
+    let cmp = 0
+    if (sortBy==='date') cmp = a.order_date.localeCompare(b.order_date)
+    else if (sortBy==='ref') cmp = a.ref.localeCompare(b.ref)
+    else if (sortBy==='supplier') cmp = (a.suppliers?.name||'').localeCompare(b.suppliers?.name||'')
+    else if (sortBy==='value') cmp = a.total_landed_tzs - b.total_landed_tzs
+    return sortDir==='desc' ? -cmp : cmp
+  })
+
+  // Counts for filter pills
+  const counts = {
+    all: orders.length,
+    active: orders.filter(o => isActive(o.status) || o.status==='received').length,
+    atPort: orders.filter(o => isAtPort(o.status)).length,
+    inGodown: orders.filter(o => isInGodown(o.status)).length,
+    closed: orders.filter(o => o.status==='closed').length,
+  }
+
+  // KPI tiles — show value tied up in non-closed orders
+  const activeOrders = orders.filter(o => o.status !== 'closed')
+  const totalActiveValue = activeOrders.reduce((s,o)=>s+(o.total_landed_tzs||o.total_tzs),0)
+  const totalAtPortValue = orders.filter(o=>isAtPort(o.status)).reduce((s,o)=>s+(o.total_landed_tzs||o.total_tzs),0)
+  const totalInGodown = orders.filter(o=>o.status==='received').reduce((s,o)=>s+(o.total_landed_tzs||o.total_tzs),0)
+
+  const sortToggle = (col: typeof sortBy) => {
+    if (sortBy === col) setSortDir(d => d==='asc'?'desc':'asc')
+    else { setSortBy(col); setSortDir('desc') }
+  }
+  const SortIcon = ({col}:{col:typeof sortBy}) => sortBy!==col ? null : <span style={{marginLeft:4,fontSize:9,color:'var(--accent)'}}>{sortDir==='asc'?'▲':'▼'}</span>
+
   return (<div className="page">
     <div className="page-header"><div><div className="page-title">Import Orders</div><div className="page-sub">Multi-stage purchases · Deposits, balance, shipping, customs, receipt</div></div>
     <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={loadAll} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="refresh"/> Refresh</button>
     <button className="btn btn-primary btn-sm" onClick={()=>{setForm({supplier:'',orderDate:today(),expectedReady:'',currency:'USD',fxRate:'2500',notes:''});setLines([{...EMPTY_LINE}]);setView('create')}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="plus" s={13}/> New Import Order</button></div></div>
+
     <div className="shortcut-bar">
       {[
         { icon: 'M3 21h18M3 7v1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7H3l2-4h14l2 4 M5 21V10.7 M19 21V10.7', label: 'Suppliers', page: 'suppliers' as Page },
@@ -515,6 +567,65 @@ export default function ImportOrder({ onNav }: Props) {
         </button>
       ))}
     </div>
+
+    {/* KPI tiles */}
+    {orders.length > 0 && (
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:18}}>
+        <div className="card" style={{padding:'14px 16px'}}>
+          <div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Active Orders</div>
+          <div style={{fontFamily:'var(--mono)',fontSize:22,fontWeight:800,color:'var(--accent)'}}>{counts.active}</div>
+          <div style={{fontSize:11,color:'var(--text3)',marginTop:4}}>Total value: {tzs(totalActiveValue)}</div>
+        </div>
+        <div className="card" style={{padding:'14px 16px'}}>
+          <div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>At Port / With Carrier</div>
+          <div style={{fontFamily:'var(--mono)',fontSize:22,fontWeight:800,color: counts.atPort>0?'var(--yellow)':'var(--text3)'}}>{counts.atPort}</div>
+          <div style={{fontSize:11,color:'var(--text3)',marginTop:4}}>{counts.atPort>0?`${tzs(totalAtPortValue)} awaiting release`:'Nothing pending'}</div>
+        </div>
+        <div className="card" style={{padding:'14px 16px'}}>
+          <div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>In Godown (Open)</div>
+          <div style={{fontFamily:'var(--mono)',fontSize:22,fontWeight:800,color: counts.inGodown>0?'var(--green)':'var(--text3)'}}>{counts.inGodown}</div>
+          <div style={{fontSize:11,color:'var(--text3)',marginTop:4}}>{counts.inGodown>0?`${tzs(totalInGodown)} ready to close`:'Nothing waiting'}</div>
+        </div>
+      </div>
+    )}
+
+    {/* Filter bar */}
+    {orders.length > 0 && (
+      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {[
+            {key:'active' as const, label:'Active', count:counts.active},
+            {key:'at_port' as const, label:'At Port', count:counts.atPort},
+            {key:'in_godown' as const, label:'In Godown', count:counts.inGodown},
+            {key:'closed' as const, label:'Closed', count:counts.closed},
+            {key:'all' as const, label:'All', count:counts.all},
+          ].map(f=>(
+            <button key={f.key} onClick={()=>setFilterStatus(f.key)} style={{
+              padding:'6px 12px', fontSize:11, fontWeight:600,
+              background: filterStatus===f.key?'var(--accent)':'var(--surface)',
+              color: filterStatus===f.key?'#fff':'var(--text3)',
+              border:'1px solid var(--border)', borderRadius:'var(--r)', cursor:'pointer',
+              display:'inline-flex',alignItems:'center',gap:6,
+            }}>
+              {f.label}
+              <span style={{fontFamily:'var(--mono)',fontSize:10,opacity:.8,padding:'1px 6px',background: filterStatus===f.key?'rgba(255,255,255,.2)':'var(--surface3)',borderRadius:8}}>{f.count}</span>
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          placeholder="Search ref or supplier..."
+          className="form-input"
+          style={{flex:1, minWidth:200, maxWidth:320, fontSize:12, padding:'7px 12px'}}
+          value={filterSearch}
+          onChange={e=>setFilterSearch(e.target.value)}
+        />
+        <div style={{fontSize:11,color:'var(--text3)',fontFamily:'var(--mono)',marginLeft:'auto'}}>
+          Showing {filteredOrders.length} of {orders.length}
+        </div>
+      </div>
+    )}
+
     {loading?<div className="card" style={{textAlign:'center',padding:'40px 0',color:'var(--text3)'}}>Loading...</div>:orders.length===0?<div className="card" style={{textAlign:'center',padding:'40px 24px',color:'var(--text3)'}}>
       <div style={{fontSize:14,fontWeight:600,marginBottom:8,color:'var(--text)'}}>No import orders yet</div>
       <div style={{fontSize:12,maxWidth:520,margin:'0 auto',lineHeight:1.5}}>
@@ -523,10 +634,43 @@ export default function ImportOrder({ onNav }: Props) {
       <div style={{fontSize:11,maxWidth:520,margin:'12px auto 0',color:'var(--text3)',lineHeight:1.5}}>
         For local same-day purchases (pick up + invoice + pay), use <strong style={{color:'var(--text3)'}}>GRN + Purchase Invoice</strong> instead.
       </div>
+    </div>:filteredOrders.length===0?<div className="card" style={{textAlign:'center',padding:'30px 24px',color:'var(--text3)',fontSize:12}}>
+      No orders match the current filter. <button className="btn btn-ghost btn-sm" onClick={()=>{setFilterStatus('all');setFilterSearch('')}} style={{marginLeft:8}}>Clear filters</button>
     </div>:
-    <div className="card"><div className="table-wrap"><table><thead><tr><th>Ref</th><th>Supplier</th><th>Date</th><th>Status</th><th className="td-right">USD</th><th className="td-right">TZS</th><th className="td-right">Freight</th><th className="td-right">Landed</th></tr></thead><tbody>
-      {orders.map(o=>(<tr key={o.id} style={{cursor:'pointer'}} onClick={()=>loadOrderDetail(o)} onMouseEnter={e=>(e.currentTarget.style.background='var(--surface2)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}><td className="td-mono td-amber" style={{fontSize:12,fontWeight:700}}>{o.ref}</td><td style={{fontSize:12,fontWeight:600}}>{o.suppliers?.name||''}</td><td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{o.order_date}</td><td><span className={`pill ${STA_C[o.status]||'pill-gray'}`} style={{fontSize:9}}>{STA_L[o.status]||o.status}</span></td><td className="td-right td-mono" style={{fontSize:12}}>${o.total_usd.toLocaleString()}</td><td className="td-right td-mono" style={{fontSize:12}}>{tzs(o.total_tzs)}</td><td className="td-right td-mono" style={{fontSize:12,color:o.total_freight_tzs>0?'var(--blue)':'var(--text3)'}}>{o.total_freight_tzs>0?tzs(o.total_freight_tzs):''}</td><td className="td-right td-mono" style={{fontSize:12,fontWeight:700,color:'var(--accent)'}}>{tzs(o.total_landed_tzs)}</td></tr>))}
-    </tbody></table></div></div>}
+    <div className="card"><div className="table-wrap"><table><thead><tr>
+      <th onClick={()=>sortToggle('ref')} style={{cursor:'pointer'}}>Ref<SortIcon col="ref"/></th>
+      <th onClick={()=>sortToggle('supplier')} style={{cursor:'pointer'}}>Supplier<SortIcon col="supplier"/></th>
+      <th onClick={()=>sortToggle('date')} style={{cursor:'pointer'}}>Date<SortIcon col="date"/></th>
+      <th>Status</th>
+      <th className="td-right">FX</th>
+      <th className="td-right" onClick={()=>sortToggle('value')} style={{cursor:'pointer'}}>Order Value<SortIcon col="value"/></th>
+      <th className="td-right">Other Costs</th>
+      <th className="td-right">Landed (TZS)</th>
+    </tr></thead><tbody>
+      {filteredOrders.map(o=>{
+        const isLocal = o.currency==='TZS' || o.fx_rate===1
+        const otherCosts = (o.total_landed_tzs||0) - (o.total_tzs||0)
+        return (
+          <tr key={o.id} style={{cursor:'pointer'}} onClick={()=>loadOrderDetail(o)} onMouseEnter={e=>(e.currentTarget.style.background='var(--surface2)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+            <td className="td-mono td-amber" style={{fontSize:12,fontWeight:700}}>{o.ref}</td>
+            <td style={{fontSize:12,fontWeight:600}}>{o.suppliers?.name||''}</td>
+            <td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{o.order_date}</td>
+            <td><span className={`pill ${STA_C[o.status]||'pill-gray'}`} style={{fontSize:9}}>{STA_L[o.status]||o.status}</span></td>
+            <td className="td-right td-mono" style={{fontSize:11,color:'var(--text3)'}}>{isLocal?'—':`${o.currency} @ ${o.fx_rate}`}</td>
+            <td className="td-right td-mono" style={{fontSize:12}}>{tzs(o.total_tzs)}</td>
+            <td className="td-right td-mono" style={{fontSize:12,color:otherCosts>0?'var(--blue)':'var(--text3)'}}>{otherCosts>0?tzs(otherCosts):'—'}</td>
+            <td className="td-right td-mono" style={{fontSize:12,fontWeight:700,color:'var(--accent)'}}>{tzs(o.total_landed_tzs)}</td>
+          </tr>
+        )
+      })}
+    </tbody><tfoot>
+      <tr style={{background:'var(--surface2)',fontWeight:700}}>
+        <td colSpan={5} style={{padding:'10px 14px',fontFamily:'var(--mono)',fontSize:11,textTransform:'uppercase',color:'var(--text3)'}}>Totals — {filteredOrders.length} orders</td>
+        <td className="td-right td-mono" style={{padding:'10px 14px'}}>{tzs(filteredOrders.reduce((s,o)=>s+(o.total_tzs||0),0))}</td>
+        <td className="td-right td-mono" style={{padding:'10px 14px',color:'var(--blue)'}}>{tzs(filteredOrders.reduce((s,o)=>s+((o.total_landed_tzs||0)-(o.total_tzs||0)),0))}</td>
+        <td className="td-right td-mono" style={{padding:'10px 14px',color:'var(--accent)'}}>{tzs(filteredOrders.reduce((s,o)=>s+(o.total_landed_tzs||0),0))}</td>
+      </tr>
+    </tfoot></table></div></div>}
     {toast&&<Toast message={toast} type={toastType} onClose={()=>setToast('')}/>}
   </div>)
 }
