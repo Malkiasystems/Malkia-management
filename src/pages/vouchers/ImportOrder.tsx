@@ -39,6 +39,7 @@ const STA_C: Record<string, string> = {
   partially_received: 'pill-amber',
   received: 'pill-green',
   closed: 'pill-green',
+  voided: 'pill-red',
 }
 const STA_L: Record<string, string> = {
   draft: 'Order Created',
@@ -51,6 +52,7 @@ const STA_L: Record<string, string> = {
   partially_received: 'Partial Received',
   received: 'In Godown',
   closed: 'Closed',
+  voided: 'Voided',
 }
 // What action the user should take next, given current status
 const NEXT_HINT: Record<string, string> = {
@@ -206,6 +208,129 @@ export default function ImportOrder({ onNav }: Props) {
     await advanceStatus('closed')
   }
 
+  // Void an import order. Three levels based on what's already been done:
+  //   Level 1 (clean): no payments, no goods received. Soft delete.
+  //   Level 2 (reverse): payments exist but no goods received. Reverse each payment journal.
+  //   Level 3 (block): goods received. Refuse — user must clean up via stock adjustment or write-off.
+  const voidOrder = async () => {
+    if (!activeOrder) return
+    const totalQtyRcv = orderLines.reduce((s, l) => s + l.qty_received, 0)
+    const totalPaid = payments.reduce((s, p) => s + p.amount_tzs, 0)
+
+    // Level 3 — block
+    if (totalQtyRcv > 0) {
+      alert(
+        `Cannot void IMP order ${activeOrder.ref}.\n\n` +
+        `${totalQtyRcv} unit(s) have been received into your godown. ` +
+        `Voiding now would create stock and accounting errors.\n\n` +
+        `Options:\n` +
+        `1) Post a Stock Adjustment to remove the units (if not yet sold)\n` +
+        `2) Keep the order open and process as a write-off\n` +
+        `3) Contact admin for ledger surgery`
+      )
+      return
+    }
+
+    // Level 1 — clean
+    if (payments.length === 0) {
+      if (!confirm(`Void ${activeOrder.ref}? No payments have been made and no goods received. Safe to void.`)) return
+      try {
+        await supabase.from('import_orders').update({ status: 'voided' }).eq('id', activeOrder.id)
+        showToast(`${activeOrder.ref} voided`)
+        setView('list')
+        await loadAll()
+      } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed', 'error') }
+      return
+    }
+
+    // Level 2 — reverse
+    const ok = confirm(
+      `Void ${activeOrder.ref}?\n\n` +
+      `WARNING: ${payments.length} payment(s) totalling ${tzs(totalPaid)} have already been posted.\n\n` +
+      `Voiding will create REVERSAL journals (Dr Bank / Cr the original Dr account) and restore supplier/agent balances. ` +
+      `On paper, the money "comes back" — but only the books will reflect it. Your bank account in real life will not refund.\n\n` +
+      `Use this only for correcting data entry errors. If your Chinese supplier actually kept the deposit, ` +
+      `cancel and instead post a Cash Payment to "Lost Deposits" expense account.\n\n` +
+      `Continue with reversal?`
+    )
+    if (!ok) return
+
+    try {
+      // Reverse each payment journal
+      for (const pmt of payments) {
+        if (!pmt.journal_id) continue
+        // Read original journal_lines
+        const { data: lines } = await supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit')
+          .eq('journal_id', pmt.journal_id)
+        if (!lines || lines.length === 0) continue
+
+        // Reverse account balances
+        for (const ln of lines) {
+          // Original Dr → reverse with Cr (and vice versa)
+          await supabase.rpc('update_account_balance', {
+            p_account_id: ln.account_id,
+            p_debit: ln.credit,
+            p_credit: ln.debit,
+          })
+        }
+
+        // Zero out the original journal lines so TB doesn't see them
+        await supabase
+          .from('journal_lines')
+          .update({ debit: 0, credit: 0 })
+          .eq('journal_id', pmt.journal_id)
+
+        // Cancel the journal
+        await supabase
+          .from('journals')
+          .update({
+            status: 'cancelled',
+            description: 'CANCELLED via Import Order void — ' + activeOrder.ref,
+          })
+          .eq('id', pmt.journal_id)
+
+        // Reverse vendor ledger entry (it had amount_tzs = -pmt.amount_tzs)
+        await supabase
+          .from('vendor_ledger_entries')
+          .delete()
+          .eq('journal_id', pmt.journal_id)
+
+        // Reverse supplier balance
+        const targetSupplierId = pmt.payment_type === 'supplier_deposit' || pmt.payment_type === 'supplier_balance'
+          ? activeOrder.supplier_id
+          : (suppliers.find(s => s.name === pmt.agent_name)?.id || null)
+        if (targetSupplierId) {
+          const sup = suppliers.find(s => s.id === targetSupplierId)
+          if (sup) {
+            await supabase.from('suppliers')
+              .update({ balance_tzs: (sup.balance_tzs || 0) + pmt.amount_tzs })
+              .eq('id', targetSupplierId)
+          }
+        }
+      }
+
+      // Mark the import_payments rows as voided (keep audit trail)
+      await supabase
+        .from('import_payments')
+        .update({ notes: 'VOIDED via order void' })
+        .eq('order_id', activeOrder.id)
+
+      // Void the order itself
+      await supabase
+        .from('import_orders')
+        .update({ status: 'voided', notes: (activeOrder.notes || '') + ' [VOIDED — payments reversed]' })
+        .eq('id', activeOrder.id)
+
+      showToast(`${activeOrder.ref} voided · ${payments.length} payment(s) reversed`)
+      setView('list')
+      await loadAll()
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Void failed', 'error')
+    }
+  }
+
   const addShipment = async () => {
     if(!activeOrder)return; if(shipLines.every(l=>l.qty<=0)){showToast('Add quantities','error');return}
     try{
@@ -302,7 +427,7 @@ export default function ImportOrder({ onNav }: Props) {
       partially_received: 7, received: 7, closed: 7,
     }
     const step = STAGE_TO_STEP[activeOrder.status] || 1
-    const isClosed = activeOrder.status === 'closed'
+    const isClosed = activeOrder.status === 'closed' || activeOrder.status === 'voided'
     const canClose = activeOrder.status === 'received' && supplierPaid >= activeOrder.total_tzs
     const nextHint = NEXT_HINT[activeOrder.status] || ''
 
@@ -320,6 +445,9 @@ export default function ImportOrder({ onNav }: Props) {
         {activeOrder.status === 'at_port' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('with_carrier')}>With Local Carrier</button>}
         {!isClosed && <button className="btn btn-primary btn-sm" onClick={()=>{setShipForm({method:'sea',agentName:'',trackingRef:'',shipDate:today(),expectedArrival:'',freightCost:'',notes:''});setShipLines(orderLines.map(l=>({orderLineId:l.id!,qty:Math.max(0,l.qty-l.qty_received),desc:l.description})));setShowShipModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="ship" s={13}/> Add Shipment</button>}
         {canClose && <button className="btn btn-primary btn-sm" onClick={closeOrder} style={{background:'var(--green)',borderColor:'var(--green)'}}><Ic n="check" s={13} c="#fff"/> Close Order</button>}
+        {!isClosed && activeOrder.status !== 'voided' && (
+          <button className="btn btn-ghost btn-sm" onClick={voidOrder} style={{color:'var(--red)',borderColor:'rgba(255,71,87,.3)'}} title="Void this order">Void</button>
+        )}
       </div></div>
 
       {/* Next-step hint banner */}
