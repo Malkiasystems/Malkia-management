@@ -420,7 +420,17 @@ export default function ImportOrder({ onNav }: Props) {
 
         // 1. Update shipment line + order line received counts
         await supabase.from('import_shipment_lines').update({ qty_received: (rl.qtyAlreadyReceived || 0) + rl.qtyReceive }).eq('id', rl.shipmentLineId)
-        await supabase.from('import_order_lines').update({ qty_received: (ol.qty_received || 0) + rl.qtyReceive, landed_unit_cost_tzs: landedPerUnit }).eq('id', rl.orderLineId)
+        // Compute weighted-average landed cost across ALL receives so far (don't just overwrite with this shipment)
+        const prevQtyRcv = ol.qty_received || 0
+        const prevLanded = ol.landed_unit_cost_tzs || 0
+        const newQtyRcv = prevQtyRcv + rl.qtyReceive
+        const newAvgLanded = newQtyRcv > 0
+          ? ((prevQtyRcv * prevLanded) + landedTotal) / newQtyRcv
+          : landedPerUnit
+        await supabase.from('import_order_lines').update({
+          qty_received: newQtyRcv,
+          landed_unit_cost_tzs: newAvgLanded,
+        }).eq('id', rl.orderLineId)
 
         // 2. Update product master stock + average cost (USE qty_on_hand, not qty)
         if (rl.productId) {
@@ -496,8 +506,25 @@ export default function ImportOrder({ onNav }: Props) {
       const { data: fol } = await supabase.from('import_order_lines').select('qty, qty_received').eq('order_id', activeOrder.id)
       const allDone = fol?.every(l => l.qty_received >= l.qty) || false
       const anyReceived = fol?.some(l => l.qty_received > 0) || false
+
+      // Compute true total landed cost from item ledger entries for this order's products.
+      // This is the source of truth — it sums every receive's landed cost regardless of shipment vs payment.
+      const productIds = orderLines.map(l => l.product_id).filter((x): x is string => !!x)
+      let trueTotalLanded = activeOrder.total_tzs || 0
+      if (productIds.length > 0) {
+        const { data: ledgerSum } = await supabase
+          .from('item_ledger_entries')
+          .select('cost_amount')
+          .in('product_id', productIds)
+          .like('document_ref', `${activeOrder.ref}%`)
+        if (ledgerSum) {
+          trueTotalLanded = ledgerSum.reduce((s, r: { cost_amount: number }) => s + (r.cost_amount || 0), 0)
+        }
+      }
+
       await supabase.from('import_orders').update({
-        status: allDone ? 'received' : (anyReceived ? 'partially_received' : activeOrder.status)
+        status: allDone ? 'received' : (anyReceived ? 'partially_received' : activeOrder.status),
+        total_landed_tzs: trueTotalLanded,
       }).eq('id', activeOrder.id)
 
       showToast(`Received at ${selectedLoc.code}: ${receiveLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
