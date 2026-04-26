@@ -28,6 +28,7 @@ export type LedgerDocumentType =
   | 'cash_sale'
   | 'sales_invoice'
   | 'grn'
+  | 'purchase'
   | 'credit_note'
   | 'sales_return'
   | 'purchase_return'
