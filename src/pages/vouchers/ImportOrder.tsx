@@ -331,17 +331,45 @@ export default function ImportOrder({ onNav }: Props) {
     }
   }
 
+  // For a given order line, how many more units can still be shipped?
+  // = ordered qty - already shipped across all existing shipments
+  // (We track shipped, not received, because once shipped, it's allocated even if not yet arrived.)
+  const remainingToShip = (orderLineId: string): number => {
+    const ol = orderLines.find(l => l.id === orderLineId)
+    if (!ol) return 0
+    const alreadyShipped = shipments
+      .flatMap(s => s.import_shipment_lines || [])
+      .filter(sl => sl.order_line_id === orderLineId)
+      .reduce((sum, sl) => sum + (sl.qty_shipped || 0), 0)
+    return Math.max(0, ol.qty - alreadyShipped)
+  }
+
   const addShipment = async () => {
-    if(!activeOrder)return; if(shipLines.every(l=>l.qty<=0)){showToast('Add quantities','error');return}
-    try{
-      const num=shipments.length+1
-      const{data:sh,error:sErr}=await supabase.from('import_shipments').insert({order_id:activeOrder.id,shipment_number:num,method:shipForm.method,agent_name:shipForm.agentName||null,tracking_ref:shipForm.trackingRef||null,ship_date:shipForm.shipDate||null,expected_arrival:shipForm.expectedArrival||null,freight_cost_tzs:parseFloat(shipForm.freightCost)||0,status:'in_transit',notes:shipForm.notes||null}).select('id').single()
-      if(sErr)throw new Error(sErr.message)
-      await supabase.from('import_shipment_lines').insert(shipLines.filter(l=>l.qty>0).map(l=>({shipment_id:sh.id,order_line_id:l.orderLineId,qty_shipped:l.qty,qty_received:0})))
-      if(['draft','deposit_paid','balance_paid'].includes(activeOrder.status))await supabase.from('import_orders').update({status:'shipped'}).eq('id',activeOrder.id)
+    if (!activeOrder) return
+    if (shipLines.every(l => l.qty <= 0)) { showToast('Add quantities', 'error'); return }
+    // Validate every line's qty doesn't exceed remaining-to-ship
+    const violations: string[] = []
+    for (const sl of shipLines) {
+      if (sl.qty <= 0) continue
+      const remaining = remainingToShip(sl.orderLineId)
+      if (sl.qty > remaining) {
+        violations.push(`${sl.desc}: trying to ship ${sl.qty}, but only ${remaining} remain`)
+      }
+    }
+    if (violations.length > 0) {
+      showToast(`Cannot ship more than ordered. ${violations.join(' · ')}`, 'error')
+      return
+    }
+    try {
+      const num = shipments.length + 1
+      const { data: sh, error: sErr } = await supabase.from('import_shipments').insert({ order_id: activeOrder.id, shipment_number: num, method: shipForm.method, agent_name: shipForm.agentName || null, tracking_ref: shipForm.trackingRef || null, ship_date: shipForm.shipDate || null, expected_arrival: shipForm.expectedArrival || null, freight_cost_tzs: parseFloat(shipForm.freightCost) || 0, status: 'in_transit', notes: shipForm.notes || null }).select('id').single()
+      if (sErr) throw new Error(sErr.message)
+      await supabase.from('import_shipment_lines').insert(shipLines.filter(l => l.qty > 0).map(l => ({ shipment_id: sh.id, order_line_id: l.orderLineId, qty_shipped: l.qty, qty_received: 0 })))
+      if (['draft', 'deposit_paid', 'in_production', 'balance_paid'].includes(activeOrder.status)) await supabase.from('import_orders').update({ status: 'shipped' }).eq('id', activeOrder.id)
       showToast(`Shipment #${num} (${shipForm.method}) added`); setShowShipModal(false)
-      const r=(await supabase.from('import_orders').select('*,suppliers(name,code)').eq('id',activeOrder.id).single()).data; if(r)await loadOrderDetail(r as ImportOrder)
-    }catch(e:unknown){showToast(e instanceof Error?e.message:'Failed','error')}
+      const r = (await supabase.from('import_orders').select('*,suppliers(name,code)').eq('id', activeOrder.id).single()).data
+      if (r) await loadOrderDetail(r as ImportOrder)
+    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed', 'error') }
   }
 
   const openReceiveModal = async (sh: Shipment) => {
@@ -443,7 +471,7 @@ export default function ImportOrder({ onNav }: Props) {
         {activeOrder.status === 'deposit_paid' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('in_production')}>Mark In Production</button>}
         {activeOrder.status === 'shipped' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('at_port')}>Mark At Port</button>}
         {activeOrder.status === 'at_port' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('with_carrier')}>With Local Carrier</button>}
-        {!isClosed && <button className="btn btn-primary btn-sm" onClick={()=>{setShipForm({method:'sea',agentName:'',trackingRef:'',shipDate:today(),expectedArrival:'',freightCost:'',notes:''});setShipLines(orderLines.map(l=>({orderLineId:l.id!,qty:Math.max(0,l.qty-l.qty_received),desc:l.description})));setShowShipModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="ship" s={13}/> Add Shipment</button>}
+        {!isClosed && <button className="btn btn-primary btn-sm" onClick={()=>{setShipForm({method:'sea',agentName:'',trackingRef:'',shipDate:today(),expectedArrival:'',freightCost:'',notes:''});setShipLines(orderLines.map(l=>({orderLineId:l.id!,qty:remainingToShip(l.id!),desc:l.description})));setShowShipModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="ship" s={13}/> Add Shipment</button>}
         {canClose && <button className="btn btn-primary btn-sm" onClick={closeOrder} style={{background:'var(--green)',borderColor:'var(--green)'}}><Ic n="check" s={13} c="#fff"/> Close Order</button>}
         {!isClosed && activeOrder.status !== 'voided' && (
           <button className="btn btn-ghost btn-sm" onClick={voidOrder} style={{color:'var(--red)',borderColor:'rgba(255,71,87,.3)'}} title="Void this order">Void</button>
@@ -576,8 +604,46 @@ export default function ImportOrder({ onNav }: Props) {
         <FG label="Tracking Ref"><input className="form-input" value={shipForm.trackingRef} onChange={e=>setShipForm(f=>({...f,trackingRef:e.target.value}))}/></FG>
         <FG label="Freight Cost (TZS)"><input type="number" className="form-input" style={{fontFamily:'var(--mono)'}} value={shipForm.freightCost} onChange={e=>setShipForm(f=>({...f,freightCost:e.target.value}))} placeholder="0"/></FG>
         <div style={{marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}><div style={{fontSize:11,fontWeight:600,marginBottom:10,color:'var(--text3)',textTransform:'uppercase'}}>Quantities per product</div>
-        {shipLines.map((sl,i)=>{const ol3=orderLines.find(l=>l.id===sl.orderLineId);const rem=ol3?ol3.qty-ol3.qty_received:0;return(<div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:'1px solid var(--border)'}}><span style={{flex:1,fontSize:12}}>{sl.desc}</span><span style={{fontSize:10,color:'var(--text3)',fontFamily:'var(--mono)'}}>{rem} left</span><input type="number" className="form-input" style={{width:80,fontSize:12,padding:'5px 8px',textAlign:'center',fontFamily:'var(--mono)'}} value={sl.qty} min={0} max={rem} onChange={e=>{const nl=[...shipLines];nl[i]={...nl[i],qty:parseInt(e.target.value)||0};setShipLines(nl)}}/></div>)})}</div>
-        <div style={{display:'flex',gap:8,marginTop:14,justifyContent:'flex-end'}}><button className="btn btn-ghost" onClick={()=>setShowShipModal(false)}>Cancel</button><button className="btn btn-primary" onClick={addShipment}>Create Shipment</button></div>
+        {shipLines.map((sl,i)=>{
+          const ol3 = orderLines.find(l=>l.id===sl.orderLineId)
+          const rem = remainingToShip(sl.orderLineId)
+          const ordered = ol3?.qty || 0
+          const alreadyShipped = ordered - rem
+          const overLimit = sl.qty > rem
+          return (
+            <div key={i} style={{padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <span style={{flex:1,fontSize:12}}>{sl.desc}</span>
+                <span style={{fontSize:10,color:rem===0?'var(--red)':'var(--text3)',fontFamily:'var(--mono)'}}>
+                  {alreadyShipped > 0 ? `${alreadyShipped}/${ordered} shipped, ` : ''}{rem} remaining
+                </span>
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{width:80,fontSize:12,padding:'5px 8px',textAlign:'center',fontFamily:'var(--mono)',borderColor:overLimit?'var(--red)':undefined,color:overLimit?'var(--red)':undefined}}
+                  value={sl.qty}
+                  min={0}
+                  max={rem}
+                  disabled={rem===0}
+                  onChange={e=>{const nl=[...shipLines];nl[i]={...nl[i],qty:parseInt(e.target.value)||0};setShipLines(nl)}}
+                />
+              </div>
+              {overLimit && (
+                <div style={{fontSize:10,color:'var(--red)',fontFamily:'var(--mono)',marginTop:4,paddingLeft:4}}>
+                  Cannot ship more than {rem} (already shipped {alreadyShipped} of {ordered})
+                </div>
+              )}
+            </div>
+          )
+        })}</div>
+        <div style={{display:'flex',gap:8,marginTop:14,justifyContent:'flex-end'}}>
+          <button className="btn btn-ghost" onClick={()=>setShowShipModal(false)}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            onClick={addShipment}
+            disabled={shipLines.some(sl => sl.qty > remainingToShip(sl.orderLineId)) || shipLines.every(sl => sl.qty <= 0)}
+          >Create Shipment</button>
+        </div>
       </div></div>}
 
       {/* Receive Modal */}
