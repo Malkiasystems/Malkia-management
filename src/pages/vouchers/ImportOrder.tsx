@@ -5,11 +5,13 @@ import { FG } from '../../components/FormHelpers'
 import { tzs, today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface DBSupplier { id: string; code: string; name: string; balance_tzs: number }
-interface DBProduct { id: string; name: string; sku: string; cost_price: number; qty: number }
+interface DBProduct { id: string; name: string; sku: string; cost_price: number; qty_on_hand: number }
+interface StockLocation { id: string; code: string; name: string }
 interface DBAccount { id: string; code: string; name: string; category: string; type: string }
 interface ImportOrder { id: string; ref: string; supplier_id: string; status: string; order_date: string; expected_ready_date: string; currency: string; fx_rate: number; total_usd: number; total_tzs: number; total_freight_tzs: number; total_landed_tzs: number; notes: string; created_by: string; created_at: string; suppliers?: { name: string; code: string } | null }
 interface OrderLine { id?: string; order_id?: string; line_number: number; product_id: string; description: string; qty: number; unit_cost_usd: number; unit_cost_tzs: number; subtotal_usd: number; subtotal_tzs: number; qty_received: number; landed_unit_cost_tzs: number }
@@ -70,10 +72,12 @@ const NEXT_HINT: Record<string, string> = {
 const EMPTY_LINE: OrderLine = { line_number:1, product_id:'', description:'', qty:1, unit_cost_usd:0, unit_cost_tzs:0, subtotal_usd:0, subtotal_tzs:0, qty_received:0, landed_unit_cost_tzs:0 }
 
 export default function ImportOrder({ onNav }: Props) {
-  const { isSuperAdmin } = useAuth()
+  const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState(''); const [toastType, setToastType] = useState<'success'|'error'>('success')
   const showToast = (m: string, t: 'success'|'error' = 'success') => { setToast(m); setToastType(t) }
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([]); const [products, setProducts] = useState<DBProduct[]>([]); const [accounts, setAccounts] = useState<DBAccount[]>([]); const [orders, setOrders] = useState<ImportOrder[]>([]); const [loading, setLoading] = useState(true)
+  const [locations, setLocations] = useState<StockLocation[]>([])
+  const [receiveLocationId, setReceiveLocationId] = useState<string>('')
   // List filters
   const [filterStatus, setFilterStatus] = useState<'all'|'active'|'at_port'|'in_godown'|'closed'>('active')
   const [filterSearch, setFilterSearch] = useState('')
@@ -95,13 +99,19 @@ export default function ImportOrder({ onNav }: Props) {
   useEffect(() => { loadAll() }, [])
   const loadAll = async () => {
     setLoading(true)
-    const [s,p,a,o] = await Promise.all([
+    const [s,p,a,o,sl] = await Promise.all([
       supabase.from('suppliers').select('id, code, name, balance_tzs').eq('is_active', true).order('name'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('accounts').select('id, code, name, category, type').eq('is_active', true).order('code'),
       supabase.from('import_orders').select('*, suppliers(name, code)').order('created_at', { ascending: false }),
+      supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code'),
     ])
     if(s.data) setSuppliers(s.data as DBSupplier[]); if(p.data) setProducts(p.data as DBProduct[]); if(a.data) setAccounts(a.data as DBAccount[]); if(o.data) setOrders(o.data as ImportOrder[])
+    if(sl.data) {
+      setLocations(sl.data as StockLocation[])
+      // Default receive-location to the first one if not set
+      if (!receiveLocationId && sl.data.length > 0) setReceiveLocationId((sl.data[0] as StockLocation).id)
+    }
     setLoading(false)
   }
   const loadOrderDetail = async (order:ImportOrder) => {
@@ -130,7 +140,7 @@ export default function ImportOrder({ onNav }: Props) {
     setSaving(true)
     try{
       const ref=await generateRef()
-      const{data:order,error:oErr}=await supabase.from('import_orders').insert({ref,supplier_id:form.supplier,status:'draft',order_date:form.orderDate,expected_ready_date:form.expectedReady||null,currency:form.currency,fx_rate:parseFloat(form.fxRate)||1,total_usd:totalUsd,total_tzs:totalTzs,total_freight_tzs:0,total_landed_tzs:totalTzs,notes:form.notes||null,created_by:'Joe Gembe'}).select('id').single()
+      const{data:order,error:oErr}=await supabase.from('import_orders').insert({ref,supplier_id:form.supplier,status:'draft',order_date:form.orderDate,expected_ready_date:form.expectedReady||null,currency:form.currency,fx_rate:parseFloat(form.fxRate)||1,total_usd:totalUsd,total_tzs:totalTzs,total_freight_tzs:0,total_landed_tzs:totalTzs,notes:form.notes||null,created_by:user?.full_name||'System'}).select('id').single()
       if(oErr)throw new Error(oErr.message)
       const lp=lines.filter(l=>l.description||l.product_id).map((l,i)=>({order_id:order.id,line_number:i+1,product_id:l.product_id||null,description:l.description,qty:l.qty,unit_cost_usd:l.unit_cost_usd,unit_cost_tzs:l.unit_cost_tzs,subtotal_usd:l.subtotal_usd,subtotal_tzs:l.subtotal_tzs,qty_received:0,landed_unit_cost_tzs:0}))
       const{error:lErr}=await supabase.from('import_order_lines').insert(lp); if(lErr)throw new Error(lErr.message)
@@ -160,7 +170,7 @@ export default function ImportOrder({ onNav }: Props) {
         clearing_fees:'Clearing Fees', local_carrier:'Local Carrier',
       }
       const desc=`Import — ${typeLabel[payType]}${payeeName?` — ${payeeName}`:''} — ${activeOrder.ref}${cn}`
-      const{data:jnl,error:jErr}=await supabase.from('journals').insert({ref:`JV-${activeOrder.ref}-${payType.charAt(0).toUpperCase()}${payments.length+1}`,posting_date:payForm.date,description:desc,journal_type:'import_payment',source_type:'import_order',source_ref:activeOrder.ref,posted_by:'Joe Gembe',status:'posted'}).select('id').single()
+      const{data:jnl,error:jErr}=await supabase.from('journals').insert({ref:`JV-${activeOrder.ref}-${payType.charAt(0).toUpperCase()}${payments.length+1}`,posting_date:payForm.date,description:desc,journal_type:'import_payment',source_type:'import_order',source_ref:activeOrder.ref,posted_by:user?.full_name||'System',status:'posted'}).select('id').single()
       if(jErr)throw new Error(jErr.message)
       await supabase.from('journal_lines').insert([{journal_id:jnl.id,line_number:1,account_id:drAcct.id,description:desc,debit:amount,credit:0},{journal_id:jnl.id,line_number:2,account_id:payForm.bankAccount,description:`Bank — ${desc}`,debit:0,credit:amount}])
       await Promise.all([supabase.rpc('update_account_balance',{p_account_id:drAcct.id,p_debit:amount,p_credit:0}),supabase.rpc('update_account_balance',{p_account_id:payForm.bankAccount,p_debit:0,p_credit:amount})])
@@ -361,7 +371,12 @@ export default function ImportOrder({ onNav }: Props) {
       return
     }
     try {
-      const num = shipments.length + 1
+      // Fetch fresh shipment count from DB to prevent duplicate numbers from race conditions
+      const { count: existingCount } = await supabase
+        .from('import_shipments')
+        .select('*', { count: 'exact', head: true })
+        .eq('order_id', activeOrder.id)
+      const num = (existingCount || 0) + 1
       const { data: sh, error: sErr } = await supabase.from('import_shipments').insert({ order_id: activeOrder.id, shipment_number: num, method: shipForm.method, agent_name: shipForm.agentName || null, tracking_ref: shipForm.trackingRef || null, ship_date: shipForm.shipDate || null, expected_arrival: shipForm.expectedArrival || null, freight_cost_tzs: parseFloat(shipForm.freightCost) || 0, status: 'in_transit', notes: shipForm.notes || null }).select('id').single()
       if (sErr) throw new Error(sErr.message)
       await supabase.from('import_shipment_lines').insert(shipLines.filter(l => l.qty > 0).map(l => ({ shipment_id: sh.id, order_line_id: l.orderLineId, qty_shipped: l.qty, qty_received: 0 })))
@@ -387,9 +402,13 @@ export default function ImportOrder({ onNav }: Props) {
     if (!activeOrder || !receiveShipmentId) return
     const totalRcv = receiveLines.reduce((s, rl) => s + rl.qtyReceive, 0)
     if (totalRcv <= 0) { showToast('Enter quantities', 'error'); return }
+    if (!receiveLocationId) { showToast('Select the destination warehouse', 'error'); return }
+    const selectedLoc = locations.find(l => l.id === receiveLocationId)
+    if (!selectedLoc) { showToast('Selected warehouse not found', 'error'); return }
     setReceiving(true)
     try {
       const freight = rcvShipment?.freight_cost_tzs || 0
+      const receivedAt = today()
       for (const rl of receiveLines) {
         if (rl.qtyReceive <= 0) continue
         const ol = orderLines.find(l => l.id === rl.orderLineId)
@@ -399,40 +418,84 @@ export default function ImportOrder({ onNav }: Props) {
         const landedPerUnit = costPerUnit + freightPerUnit
         const landedTotal = landedPerUnit * rl.qtyReceive
 
+        // 1. Update shipment line + order line received counts
         await supabase.from('import_shipment_lines').update({ qty_received: (rl.qtyAlreadyReceived || 0) + rl.qtyReceive }).eq('id', rl.shipmentLineId)
         await supabase.from('import_order_lines').update({ qty_received: (ol.qty_received || 0) + rl.qtyReceive, landed_unit_cost_tzs: landedPerUnit }).eq('id', rl.orderLineId)
 
+        // 2. Update product master stock + average cost (USE qty_on_hand, not qty)
         if (rl.productId) {
-          const { data: fp } = await supabase.from('products').select('qty, cost_price').eq('id', rl.productId).single()
+          const { data: fp } = await supabase.from('products').select('qty_on_hand, cost_price').eq('id', rl.productId).single()
           if (fp) {
-            const curQty = fp.qty || 0; const newQty = curQty + rl.qtyReceive
+            const curQty = fp.qty_on_hand || 0
+            const newQty = curQty + rl.qtyReceive
             const oldVal = curQty * (fp.cost_price || 0)
             const avgCost = newQty > 0 ? (oldVal + landedTotal) / newQty : landedPerUnit
-            await supabase.from('products').update({ qty: newQty, cost_price: Math.round(avgCost) }).eq('id', rl.productId)
+            await supabase.from('products').update({ qty_on_hand: newQty, cost_price: Math.round(avgCost) }).eq('id', rl.productId)
           }
+
+          // 3. Write item ledger entry — this is what the inventory views read
+          await postLedgerEntry({
+            product_id: rl.productId,
+            entry_type: 'purchase',
+            document_type: 'grn',  // import receive maps to GRN-style entry
+            document_ref: `${activeOrder.ref}-RCV${rcvShipment?.shipment_number || ''}`,
+            posting_date: receivedAt,
+            qty: rl.qtyReceive,
+            cost_amount: landedTotal,
+            location: selectedLoc,
+          })
+
+          // 4. Update product_locations so per-warehouse balances reflect this receive
+          const { data: pl } = await supabase.from('product_locations')
+            .select('qty_on_hand').eq('product_id', rl.productId).eq('location_id', selectedLoc.id).maybeSingle()
+          const newLocQty = (pl?.qty_on_hand ?? 0) + rl.qtyReceive
+          await supabase.from('product_locations').upsert(
+            { product_id: rl.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
         }
       }
-      const invAcct = accounts.find(a => a.code === '1110'); const grnAcct = accounts.find(a => a.code === '1121')
+
+      // 5. Post journal: Dr Inventory / Cr GRN Interim
+      const invAcct = accounts.find(a => a.code === '1110')
+      const grnAcct = accounts.find(a => a.code === '1121')
       if (invAcct && grnAcct) {
-        const tv = receiveLines.reduce((s, rl) => { if (rl.qtyReceive <= 0) return s; const fp2 = totalRcv > 0 ? freight / totalRcv : 0; return s + (rl.unitCostTzs + fp2) * rl.qtyReceive }, 0)
+        const tv = receiveLines.reduce((s, rl) => {
+          if (rl.qtyReceive <= 0) return s
+          const fp2 = totalRcv > 0 ? freight / totalRcv : 0
+          return s + (rl.unitCostTzs + fp2) * rl.qtyReceive
+        }, 0)
         if (tv > 0) {
           const d2 = `Import received — ${activeOrder.ref} — Shipment #${rcvShipment?.shipment_number || ''}`
-          const { data: j2 } = await supabase.from('journals').insert({ ref: `JV-${activeOrder.ref}-RCV${rcvShipment?.shipment_number || ''}`, posting_date: today(), description: d2, journal_type: 'import_receive', source_type: 'import_order', source_ref: activeOrder.ref, posted_by: 'Joe Gembe', status: 'posted' }).select('id').single()
+          const { data: j2 } = await supabase.from('journals').insert({ ref: `JV-${activeOrder.ref}-RCV${rcvShipment?.shipment_number || ''}`, posting_date: receivedAt, description: d2, journal_type: 'import_receive', source_type: 'import_order', source_ref: activeOrder.ref, posted_by: user?.full_name || 'System', status: 'posted' }).select('id').single()
           if (j2) {
-            await supabase.from('journal_lines').insert([{ journal_id: j2.id, line_number: 1, account_id: invAcct.id, description: d2, debit: Math.round(tv), credit: 0 }, { journal_id: j2.id, line_number: 2, account_id: grnAcct.id, description: d2, debit: 0, credit: Math.round(tv) }])
-            await Promise.all([supabase.rpc('update_account_balance', { p_account_id: invAcct.id, p_debit: Math.round(tv), p_credit: 0 }), supabase.rpc('update_account_balance', { p_account_id: grnAcct.id, p_debit: 0, p_credit: Math.round(tv) })])
+            await supabase.from('journal_lines').insert([
+              { journal_id: j2.id, line_number: 1, account_id: invAcct.id, description: d2, debit: Math.round(tv), credit: 0 },
+              { journal_id: j2.id, line_number: 2, account_id: grnAcct.id, description: d2, debit: 0, credit: Math.round(tv) },
+            ])
+            await Promise.all([
+              supabase.rpc('update_account_balance', { p_account_id: invAcct.id, p_debit: Math.round(tv), p_credit: 0 }),
+              supabase.rpc('update_account_balance', { p_account_id: grnAcct.id, p_debit: 0, p_credit: Math.round(tv) }),
+            ])
           }
         }
       }
-      await supabase.from('import_shipments').update({ status: 'received', actual_arrival: today() }).eq('id', receiveShipmentId)
+
+      // 6. Update shipment + order status
+      await supabase.from('import_shipments').update({ status: 'received', actual_arrival: receivedAt }).eq('id', receiveShipmentId)
       const { data: fol } = await supabase.from('import_order_lines').select('qty, qty_received').eq('order_id', activeOrder.id)
       const allDone = fol?.every(l => l.qty_received >= l.qty) || false
       await supabase.from('import_orders').update({ status: allDone ? 'received' : 'partially_received' }).eq('id', activeOrder.id)
-      showToast(`Received: ${receiveLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated!`)
+
+      showToast(`Received at ${selectedLoc.code}: ${receiveLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
       setShowReceiveModal(false); await loadAll()
       const rf = (await supabase.from('import_orders').select('*, suppliers(name, code)').eq('id', activeOrder.id).single()).data
       if (rf) await loadOrderDetail(rf as ImportOrder)
-    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Receive failed', 'error') } finally { setReceiving(false) }
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Receive failed', 'error')
+    } finally {
+      setReceiving(false)
+    }
   }
 
   // ═══ DETAIL VIEW ═══
@@ -650,7 +713,13 @@ export default function ImportOrder({ onNav }: Props) {
       {showReceiveModal&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.6)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowReceiveModal(false)}><div className="card" style={{width:520}} onClick={e=>e.stopPropagation()}>
         <div className="card-title" style={{marginBottom:6}}>Receive Goods — Shipment #{rcvShipment?.shipment_number}</div>
         <div style={{fontSize:11,color:'var(--text3)',marginBottom:16}}>{rcvShipment?.method==='air'?'Air':'Sea'} cargo{rcvShipment?.agent_name?` via ${rcvShipment.agent_name}`:''}{rcvShipment?.freight_cost_tzs?` · Freight: ${tzs(rcvShipment.freight_cost_tzs)}`:''}</div>
-        <div style={{background:'rgba(133,194,190,.06)',border:'1px solid rgba(133,194,190,.15)',borderRadius:8,padding:'10px 12px',marginBottom:16,fontSize:11,color:'var(--text3)'}}>Stock will update immediately. Cost = purchase price + proportional freight per unit.</div>
+        <div style={{background:'rgba(133,194,190,.06)',border:'1px solid rgba(133,194,190,.15)',borderRadius:8,padding:'10px 12px',marginBottom:16,fontSize:11,color:'var(--text3)'}}>Stock will update immediately at the warehouse you choose. Cost = purchase price + proportional freight per unit.</div>
+        <FG label="Receive into warehouse" req>
+          <select className="form-input" value={receiveLocationId} onChange={e=>setReceiveLocationId(e.target.value)}>
+            <option value="">— Select warehouse —</option>
+            {locations.map(l => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
+          </select>
+        </FG>
         {receiveLines.map((rl,i)=>{const rem2=rl.qtyShipped-rl.qtyAlreadyReceived;return(<div key={i} style={{padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}><span style={{flex:1,fontSize:13,fontWeight:600}}>{rl.desc}</span><span style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)'}}>shipped: {rl.qtyShipped}</span></div>
           <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:11,color:'var(--text3)'}}>Receive:</span>
