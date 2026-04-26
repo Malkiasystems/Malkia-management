@@ -185,6 +185,84 @@ export default function ImportOrder({ onNav }: Props) {
         const as2=suppliers.find(s=>s.id===payForm.agentSupplierId); if(as2)await supabase.from('suppliers').update({balance_tzs:(as2.balance_tzs||0)-amount}).eq('id',payForm.agentSupplierId)
       }
       await supabase.from('import_payments').insert({order_id:activeOrder.id,payment_type:payType,payment_date:payForm.date,amount_tzs:amount,bank_account_id:payForm.bankAccount,agent_name:payeeName||null,reference:payForm.reference||null,notes:payForm.notes||null,journal_id:jnl.id})
+
+      // ════════════════════════════════════════════════════════════
+      // Distribute logistics cost to inventory (raises avg cost of received units)
+      // Only runs for non-supplier payments AND only if there are received units to absorb the cost.
+      // For each product: weighted-average the new cost into cost_price + write a cost adjustment ledger entry.
+      // Also posts the offsetting Dr Inventory / Cr GRN Interim journal so 1121 doesn't accumulate.
+      // ════════════════════════════════════════════════════════════
+      if (!isSupplierPayment) {
+        // Get all received qty across order lines
+        const { data: olWithRcv } = await supabase
+          .from('import_order_lines')
+          .select('id, product_id, qty_received')
+          .eq('order_id', activeOrder.id)
+        const receivedLines = (olWithRcv || []).filter(l => (l.qty_received || 0) > 0 && l.product_id)
+        const totalReceivedUnits = receivedLines.reduce((s, l) => s + (l.qty_received || 0), 0)
+
+        if (totalReceivedUnits > 0) {
+          const invAcct2 = accounts.find(a => a.code === '1110')
+          const grnAcct2 = accounts.find(a => a.code === '1121')
+          let totalAdjustment = 0
+
+          for (const line of receivedLines) {
+            const qtyShare = line.qty_received || 0
+            const costShare = amount * (qtyShare / totalReceivedUnits)
+            totalAdjustment += costShare
+
+            // Bump product cost_price (spread cost across CURRENT stock to be safe — units already sold can't be retroactively adjusted)
+            const { data: fp } = await supabase.from('products').select('qty_on_hand, cost_price').eq('id', line.product_id).single()
+            if (fp) {
+              const curQty = fp.qty_on_hand || 0
+              const curCost = fp.cost_price || 0
+              const newCost = curQty > 0 ? curCost + (costShare / curQty) : curCost
+              await supabase.from('products').update({ cost_price: Math.round(newCost) }).eq('id', line.product_id)
+            }
+
+            // Write cost-adjustment ledger entry directly (postLedgerEntry rejects qty=0).
+            // qty=0 so it doesn't change stock counts, only cost basis.
+            await supabase.from('item_ledger_entries').insert({
+              product_id: line.product_id,
+              entry_type: 'positive_adjustment',
+              document_type: 'stock_adjustment',
+              document_ref: `${activeOrder.ref}-COST-${payType.toUpperCase()}`,
+              posting_date: payForm.date,
+              qty: 0,
+              cost_amount: Math.round(costShare),
+              location_id: null,
+            })
+          }
+
+          // Post offsetting journal: Dr Inventory (1110) / Cr GRN Interim (1121) for the full amount
+          // The payment already debited 1121, so this clears it back out — net effect is Dr Inventory / Cr Bank
+          if (invAcct2 && grnAcct2 && totalAdjustment > 0) {
+            const adjDesc = `Inventory cost adjustment — ${activeOrder.ref} — ${typeLabel[payType]}`
+            const { data: adjJnl } = await supabase.from('journals').insert({
+              ref: `JV-${activeOrder.ref}-ADJ${payments.length+1}`,
+              posting_date: payForm.date,
+              description: adjDesc,
+              journal_type: 'inventory_adjustment',
+              source_type: 'import_order',
+              source_ref: activeOrder.ref,
+              posted_by: user?.full_name || 'System',
+              status: 'posted',
+            }).select('id').single()
+            if (adjJnl) {
+              await supabase.from('journal_lines').insert([
+                { journal_id: adjJnl.id, line_number: 1, account_id: invAcct2.id, description: adjDesc, debit: Math.round(totalAdjustment), credit: 0 },
+                { journal_id: adjJnl.id, line_number: 2, account_id: grnAcct2.id, description: adjDesc, debit: 0, credit: Math.round(totalAdjustment) },
+              ])
+              await Promise.all([
+                supabase.rpc('update_account_balance', { p_account_id: invAcct2.id, p_debit: Math.round(totalAdjustment), p_credit: 0 }),
+                supabase.rpc('update_account_balance', { p_account_id: grnAcct2.id, p_debit: 0, p_credit: Math.round(totalAdjustment) }),
+              ])
+            }
+          }
+        }
+      }
+      // ════════════════════════════════════════════════════════════
+
       // Recompute totals + status
       const ap=[...payments,{amount_tzs:amount,payment_type:payType} as Payment]
       const supplierPaid=ap.filter(p=>p.payment_type==='supplier_deposit'||p.payment_type==='supplier_balance').reduce((s,p)=>s+p.amount_tzs,0)
