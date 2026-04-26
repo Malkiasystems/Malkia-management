@@ -15,6 +15,7 @@ import { getActiveCompanyId } from './supabase'
 export type VoucherDraftType =
   | 'sales-invoice'
   | 'cash-sale'
+  | 'purchase'
   | 'purchase-invoice'
   | 'grn'
   | 'proforma'
