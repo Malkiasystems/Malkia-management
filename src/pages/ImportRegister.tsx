@@ -529,7 +529,7 @@ export default function ImportRegister({ onNav }: Props) {
 
   return (
     <div className="page">
-      {toast && <Toast message={toast.msg} type={toast.type} />}
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
       <div className="page-header">
         <div>
