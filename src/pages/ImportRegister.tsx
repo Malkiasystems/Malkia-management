@@ -35,8 +35,9 @@ const loadJsPDF = async (): Promise<void> => {
         s.onerror = () => { clearTimeout(timeout); s.remove(); reject(new Error(`Failed: ${url}`)) }
         document.head.appendChild(s)
       })
-      // Verify the global actually appeared
-      if (window.jspdf && window.jspdf.jsPDF) {
+      // Verify the global actually appeared (avoid TS narrowing issue by using a typed alias)
+      const w = window as unknown as { jspdf?: { jsPDF: new (...args: unknown[]) => unknown } }
+      if (w.jspdf && w.jspdf.jsPDF) {
         jsPDFLoaded = true
         return
       }
