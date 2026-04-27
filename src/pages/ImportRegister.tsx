@@ -1,11 +1,27 @@
 import { useState, useEffect, useMemo } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, getActiveCompany } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { tzs, today } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 declare global {
   interface Window { jspdf: { jsPDF: new (...args: unknown[]) => unknown } }
+}
+
+// jsPDF doc type alias — covers what we use
+type DocApi = {
+  setFontSize: (s: number) => void
+  setFont: (f: string, w: string) => void
+  setTextColor: (r: number, g: number, b: number) => void
+  setDrawColor: (r: number, g: number, b: number) => void
+  setFillColor: (r: number, g: number, b: number) => void
+  text: (t: string, x: number, y: number, opts?: { align?: string }) => void
+  rect: (x: number, y: number, w: number, h: number, style?: string) => void
+  line: (x1: number, y1: number, x2: number, y2: number) => void
+  addPage: () => void
+  save: (n: string) => void
+  setPage: (n: number) => void
+  internal?: { getNumberOfPages?: () => number }
 }
 
 // ── jsPDF loader (CDN with fallback, cached) ─────────────
@@ -380,57 +396,111 @@ export default function ImportRegister({ onNav }: Props) {
   const exportSummaryPDF = async () => {
     try {
       await loadJsPDF()
-      const { jsPDF } = window.jspdf
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' }) as { setFontSize: (s: number) => void; setFont: (f: string, w: string) => void; text: (t: string, x: number, y: number) => void; setDrawColor: (r: number, g: number, b: number) => void; setFillColor: (r: number, g: number, b: number) => void; rect: (x: number, y: number, w: number, h: number, style?: string) => void; line: (x1: number, y1: number, x2: number, y2: number) => void; addPage: () => void; save: (n: string) => void }
+      const w = window as unknown as { jspdf: { jsPDF: new (opts: { orientation?: string; unit?: string; format?: string }) => DocApi } }
+      const company = getActiveCompany()
+      const doc = new w.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const pageW = 297
+      const accent = [133, 194, 190] as const  // Malkia teal #85C2BE
 
-      // Header
+      // ── Header bar (brand color band)
+      doc.setFillColor(accent[0], accent[1], accent[2])
+      doc.rect(0, 0, pageW, 22, 'F')
+      doc.setTextColor(255, 255, 255)
       doc.setFontSize(18); doc.setFont('helvetica', 'bold')
-      doc.text('Import Register — Summary', 15, 18)
+      doc.text(company.name || 'Malkia Wellness Group', 15, 14)
       doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-      doc.text(`Generated: ${today()}`, 15, 25)
-      doc.text(`Filters: ${filterFrom || 'all'} → ${filterTo || 'now'}${filterSupplier ? ` · ${suppliers.find(s => s.id === filterSupplier)?.name || ''}` : ''}${filterStatus ? ` · ${STA_L[filterStatus]}` : ''}${filterCurrency ? ` · ${filterCurrency}` : ''}`, 15, 31)
+      doc.text('Import Register — Summary', pageW - 15, 14, { align: 'right' })
 
-      // KPIs
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-      doc.text('Key Numbers', 15, 42)
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal')
-      let y = 49
-      const kpiRows = [
-        ['Active Orders', `${kpis.active}`],
-        ['Goods in Transit (Value)', tzs(kpis.inTransitValue)],
-        ['Outstanding to Suppliers', tzs(kpis.outstandingSuppliers)],
-        ['Total Spend', tzs(kpis.totalSpend)],
-        ['Total Landed Cost', tzs(kpis.landedTotal)],
+      // ── Sub-header
+      doc.setTextColor(80, 80, 80)
+      doc.setFontSize(9)
+      doc.text(`Generated ${today()}`, 15, 30)
+
+      // Filters — only show ones that are set
+      const fparts: string[] = []
+      if (filterFrom || filterTo) fparts.push(`Period: ${filterFrom || 'start'} to ${filterTo || 'today'}`)
+      if (filterSupplier) fparts.push(`Supplier: ${suppliers.find(s => s.id === filterSupplier)?.name || ''}`)
+      if (filterStatus) fparts.push(`Status: ${STA_L[filterStatus]}`)
+      if (filterCurrency) fparts.push(`Currency: ${filterCurrency}`)
+      if (fparts.length > 0) {
+        doc.text(fparts.join('   |   '), 15, 35)
+      } else {
+        doc.text('No filters applied · Showing all import orders', 15, 35)
+      }
+      doc.setTextColor(0, 0, 0)
+
+      // ── KPI cards (horizontal row)
+      const kpiCards = [
+        { label: 'Active Orders', value: `${kpis.active}` },
+        { label: 'In Transit Value', value: tzs(kpis.inTransitValue) },
+        { label: 'Outstanding to Suppliers', value: tzs(kpis.outstandingSuppliers) },
+        { label: 'Total Spend', value: tzs(kpis.totalSpend) },
+        { label: 'Total Landed', value: tzs(kpis.landedTotal) },
       ]
-      for (const [k, v] of kpiRows) {
-        doc.text(k, 15, y); doc.text(v, 100, y); y += 6
+      const cardW = (pageW - 30) / 5
+      const cardY = 42
+      const cardH = 18
+      doc.setDrawColor(220, 220, 220)
+      for (let i = 0; i < kpiCards.length; i++) {
+        const x = 15 + (i * cardW)
+        doc.rect(x, cardY, cardW - 2, cardH)
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(120, 120, 120)
+        doc.text(kpiCards[i].label.toUpperCase(), x + 3, cardY + 5)
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 30, 30)
+        doc.text(kpiCards[i].value, x + 3, cardY + 13)
       }
 
-      // Orders table
-      y += 5
+      // ── Orders table
+      let y = cardY + cardH + 10
+      doc.setTextColor(30, 30, 30)
       doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-      doc.text(`Orders (${filtered.length})`, 15, y); y += 7
-      doc.setFontSize(8)
-      const headers = ['Ref', 'Date', 'Supplier', 'Cur', 'Total TZS', 'Paid %', 'Rcv %', 'Status']
-      const colX = [15, 40, 60, 110, 125, 165, 185, 205]
-      doc.setFont('helvetica', 'bold')
+      doc.text(`Orders (${filtered.length})`, 15, y)
+      y += 6
+
+      // Table header bar
+      doc.setFillColor(245, 245, 245)
+      doc.rect(15, y - 4, pageW - 30, 7, 'F')
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
+      const headers = ['Ref', 'Date', 'Supplier', 'Currency', 'Total TZS', 'Paid %', 'Rcv %', 'Status']
+      const colX = [17, 42, 65, 130, 152, 195, 220, 245]
       for (let i = 0; i < headers.length; i++) doc.text(headers[i], colX[i], y)
-      y += 1
-      doc.line(15, y + 1, 280, y + 1)
       y += 5
-      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(30, 30, 30); doc.setFont('helvetica', 'normal')
+
+      let rowEven = false
       for (const o of filtered) {
-        if (y > 195) { doc.addPage(); y = 15 }
+        if (y > 195) {
+          doc.addPage()
+          y = 20
+        }
+        if (rowEven) {
+          doc.setFillColor(250, 250, 250)
+          doc.rect(15, y - 3.5, pageW - 30, 5.5, 'F')
+        }
+        rowEven = !rowEven
         const m = orderMetrics.get(o.id)
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(accent[0] - 50, accent[1] - 80, accent[2] - 80)
         doc.text(o.ref, colX[0], y)
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 30, 30)
         doc.text(o.order_date, colX[1], y)
-        doc.text((o.suppliers?.name || '').substring(0, 30), colX[2], y)
+        doc.text((o.suppliers?.name || '—').substring(0, 38), colX[2], y)
         doc.text(o.currency, colX[3], y)
         doc.text(tzs(o.total_tzs), colX[4], y)
         doc.text(`${m?.pctPaid || 0}%`, colX[5], y)
         doc.text(`${m?.pctReceived || 0}%`, colX[6], y)
         doc.text(STA_L[o.status] || o.status, colX[7], y)
-        y += 5
+        y += 5.5
+      }
+
+      // ── Footer on every page
+      const pageCount = doc.internal?.getNumberOfPages?.() || 1
+      for (let p = 1; p <= pageCount; p++) {
+        doc.setPage(p)
+        doc.setDrawColor(220, 220, 220)
+        doc.line(15, 200, pageW - 15, 200)
+        doc.setFontSize(8); doc.setTextColor(150, 150, 150); doc.setFont('helvetica', 'normal')
+        doc.text(`${company.name || 'Malkia Wellness Group'} · Dar es Salaam, Tanzania`, 15, 205)
+        doc.text(`Page ${p} of ${pageCount}`, pageW - 15, 205, { align: 'right' })
       }
 
       doc.save(`Import_Register_${today()}.pdf`)
@@ -444,25 +514,40 @@ export default function ImportRegister({ onNav }: Props) {
   const exportOrderPDF = async (o: ImportOrder) => {
     try {
       await loadJsPDF()
-      const { jsPDF } = window.jspdf
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' }) as { setFontSize: (s: number) => void; setFont: (f: string, w: string) => void; text: (t: string, x: number, y: number) => void; line: (x1: number, y1: number, x2: number, y2: number) => void; addPage: () => void; save: (n: string) => void }
+      const w = window as unknown as { jspdf: { jsPDF: new (opts: { unit?: string; format?: string }) => DocApi } }
+      const company = getActiveCompany()
+      const doc = new w.jspdf.jsPDF({ unit: 'mm', format: 'a4' })
+      const pageW = 210
+      const accent = [133, 194, 190] as const
 
       const lines = allLines.filter(l => l.order_id === o.id)
       const pmts = allPayments.filter(p => p.order_id === o.id)
       const ships = allShipments.filter(sh => sh.order_id === o.id)
       const m = orderMetrics.get(o.id)
 
-      // Header
+      // ── Header band
+      doc.setFillColor(accent[0], accent[1], accent[2])
+      doc.rect(0, 0, pageW, 24, 'F')
+      doc.setTextColor(255, 255, 255)
       doc.setFontSize(16); doc.setFont('helvetica', 'bold')
-      doc.text(`Import Order — ${o.ref}`, 15, 18)
+      doc.text(company.name || 'Malkia Wellness Group', 15, 12)
       doc.setFontSize(10); doc.setFont('helvetica', 'normal')
-      doc.text(`${o.suppliers?.name || ''}`, 15, 25)
-      doc.text(`Order date: ${o.order_date}  ·  Status: ${STA_L[o.status]}  ·  Currency: ${o.currency}${o.currency !== 'TZS' ? ` @ ${o.fx_rate}` : ''}`, 15, 31)
+      doc.text(`Import Order — ${o.ref}`, pageW - 15, 12, { align: 'right' })
+      doc.setFontSize(8)
+      doc.text(`Status: ${STA_L[o.status]}`, pageW - 15, 18, { align: 'right' })
 
-      let y = 42
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-      doc.text('Summary', 15, y); y += 6
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal')
+      // ── Order info
+      doc.setTextColor(30, 30, 30)
+      let y = 32
+      doc.setFontSize(13); doc.setFont('helvetica', 'bold')
+      doc.text(o.suppliers?.name || '—', 15, y); y += 6
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(120, 120, 120)
+      doc.text(`Order date: ${o.order_date}   ·   Currency: ${o.currency}${o.currency !== 'TZS' ? ` @ ${o.fx_rate}` : ''}`, 15, y); y += 8
+      doc.setTextColor(30, 30, 30)
+
+      // ── Summary box
+      doc.setDrawColor(220, 220, 220)
+      doc.rect(15, y, pageW - 30, 32)
       const sumRows: [string, string][] = [
         ['Order Total', tzs(o.total_tzs)],
         ['Supplier Paid', `${tzs(m?.supplierPaid || 0)} (${m?.pctPaid || 0}%)`],
@@ -471,20 +556,32 @@ export default function ImportRegister({ onNav }: Props) {
         ['Received', `${m?.qtyReceived || 0} / ${m?.qtyOrdered || 0} units`],
         ['Outstanding to Supplier', tzs(m?.outstandingToSupplier || 0)],
       ]
-      for (const [k, v] of sumRows) { doc.text(k, 15, y); doc.text(v, 80, y); y += 5 }
+      doc.setFontSize(8)
+      for (let i = 0; i < sumRows.length; i++) {
+        const col = i % 2
+        const row = Math.floor(i / 2)
+        const xPos = 18 + (col * (pageW - 36) / 2)
+        const yPos = y + 6 + (row * 9)
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(120, 120, 120)
+        doc.text(sumRows[i][0], xPos, yPos)
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 30, 30)
+        doc.text(sumRows[i][1], xPos, yPos + 4)
+      }
+      y += 38
 
-      // Lines
-      y += 5
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold')
+      // ── Lines
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 30, 30)
       doc.text('Products Ordered', 15, y); y += 6
-      doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+      doc.setFillColor(245, 245, 245)
+      doc.rect(15, y - 4, pageW - 30, 6, 'F')
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
       const linesH = ['Description', 'Qty', 'Unit TZS', 'Received', 'Landed/Unit']
-      const linesX = [15, 90, 110, 140, 165]
+      const linesX = [17, 100, 120, 150, 175]
       for (let i = 0; i < linesH.length; i++) doc.text(linesH[i], linesX[i], y)
-      y += 1; doc.line(15, y + 1, 195, y + 1); y += 5
-      doc.setFont('helvetica', 'normal')
+      y += 5
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 30, 30)
       for (const l of lines) {
-        if (y > 270) { doc.addPage(); y = 15 }
+        if (y > 270) { doc.addPage(); y = 20 }
         doc.text(l.description.substring(0, 40), linesX[0], y)
         doc.text(`${l.qty}`, linesX[1], y)
         doc.text(tzs(l.unit_cost_tzs), linesX[2], y)
@@ -493,22 +590,29 @@ export default function ImportRegister({ onNav }: Props) {
         y += 5
       }
 
-      // Payments
+      // ── Payments
       if (pmts.length > 0) {
         y += 6
-        if (y > 250) { doc.addPage(); y = 15 }
+        if (y > 250) { doc.addPage(); y = 20 }
         doc.setFontSize(11); doc.setFont('helvetica', 'bold')
         doc.text('Payments', 15, y); y += 6
-        doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+        doc.setFillColor(245, 245, 245)
+        doc.rect(15, y - 4, pageW - 30, 6, 'F')
+        doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
         const phs = ['Date', 'Type', 'To', 'Reference', 'Amount']
-        const phsX = [15, 45, 80, 130, 170]
+        const phsX = [17, 47, 80, 130, 170]
         for (let i = 0; i < phs.length; i++) doc.text(phs[i], phsX[i], y)
-        y += 1; doc.line(15, y + 1, 195, y + 1); y += 5
-        doc.setFont('helvetica', 'normal')
+        y += 5
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 30, 30)
+        const typeLabel: Record<string, string> = {
+          supplier_deposit: 'Deposit', supplier_balance: 'Balance',
+          forwarding_agent: 'Shipping', customs_duties: 'Customs',
+          clearing_fees: 'Clearing', local_carrier: 'Carrier',
+        }
         for (const p of pmts) {
-          if (y > 270) { doc.addPage(); y = 15 }
+          if (y > 270) { doc.addPage(); y = 20 }
           doc.text(p.payment_date, phsX[0], y)
-          doc.text(p.payment_type.replace(/_/g, ' '), phsX[1], y)
+          doc.text(typeLabel[p.payment_type] || p.payment_type, phsX[1], y)
           doc.text((p.agent_name || o.suppliers?.name || '').substring(0, 25), phsX[2], y)
           doc.text((p.reference || '').substring(0, 18), phsX[3], y)
           doc.text(tzs(p.amount_tzs), phsX[4], y)
@@ -516,29 +620,42 @@ export default function ImportRegister({ onNav }: Props) {
         }
       }
 
-      // Shipments
+      // ── Shipments
       if (ships.length > 0) {
         y += 6
-        if (y > 250) { doc.addPage(); y = 15 }
+        if (y > 250) { doc.addPage(); y = 20 }
         doc.setFontSize(11); doc.setFont('helvetica', 'bold')
         doc.text('Shipments', 15, y); y += 6
-        doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+        doc.setFillColor(245, 245, 245)
+        doc.rect(15, y - 4, pageW - 30, 6, 'F')
+        doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
         const shs = ['#', 'Method', 'Agent', 'Ship Date', 'Arrived', 'Freight', 'Status']
-        const shsX = [15, 25, 50, 90, 115, 140, 170]
+        const shsX = [17, 27, 52, 92, 117, 142, 172]
         for (let i = 0; i < shs.length; i++) doc.text(shs[i], shsX[i], y)
-        y += 1; doc.line(15, y + 1, 195, y + 1); y += 5
-        doc.setFont('helvetica', 'normal')
+        y += 5
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 30, 30)
         for (const sh of ships) {
-          if (y > 270) { doc.addPage(); y = 15 }
+          if (y > 270) { doc.addPage(); y = 20 }
           doc.text(`${sh.shipment_number}`, shsX[0], y)
           doc.text(sh.method, shsX[1], y)
-          doc.text((sh.agent_name || '').substring(0, 22), shsX[2], y)
-          doc.text(sh.ship_date || '', shsX[3], y)
+          doc.text((sh.agent_name || '—').substring(0, 22), shsX[2], y)
+          doc.text(sh.ship_date || '—', shsX[3], y)
           doc.text(sh.actual_arrival || '—', shsX[4], y)
           doc.text(tzs(sh.freight_cost_tzs || 0), shsX[5], y)
           doc.text(sh.status, shsX[6], y)
           y += 5
         }
+      }
+
+      // ── Footer on all pages
+      const pageCount = doc.internal?.getNumberOfPages?.() || 1
+      for (let p = 1; p <= pageCount; p++) {
+        doc.setPage(p)
+        doc.setDrawColor(220, 220, 220)
+        doc.line(15, 285, pageW - 15, 285)
+        doc.setFontSize(8); doc.setTextColor(150, 150, 150); doc.setFont('helvetica', 'normal')
+        doc.text(`${company.name || 'Malkia Wellness Group'} · Generated ${today()}`, 15, 290)
+        doc.text(`Page ${p} of ${pageCount}`, pageW - 15, 290, { align: 'right' })
       }
 
       doc.save(`Import_${o.ref}.pdf`)
