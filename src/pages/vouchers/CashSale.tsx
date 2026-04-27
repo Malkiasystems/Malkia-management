@@ -372,8 +372,10 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     setPosting(true)
     const result = await updateCashSale({
       editVoucherData, newCustName, waInput, lines, dbProducts, selectedCust,
-      isPOD, selectedMethod, isSplit, splitLines, paymentRef,
+      isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef,
       townDelivery, upcountryShipping, currentMethod,
+      accountMap, deliveryAccountId, totalSplitPaid,
+      userName: user?.full_name || 'Unknown',
     })
     if (result.success) {
       showToast(`${editVoucherData.ref} updated successfully`)
