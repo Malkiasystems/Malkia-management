@@ -2,6 +2,18 @@
  * CashSale posting logic
  * Extracted from CashSale.tsx — contains post() and updateVoucher()
  * These are pure async functions that receive all data as arguments
+ *
+ * EDIT BEHAVIOUR (important):
+ * Editing a cash sale follows the "reverse + repost" pattern.
+ * On every update we:
+ *   1. Reverse the old journal lines (subtract their balance impact)
+ *   2. Delete the old journal_lines and voucher_lines
+ *   3. Restore old stock, then re-deduct based on new lines
+ *   4. Update the voucher header — payment_method AND payment_split together
+ *   5. Re-post fresh journal_lines and re-roll account balances
+ * This keeps the trial balance, payment_split, and the displayed
+ * payment_method label permanently in sync — none of them can drift
+ * independently when a cashier edits a voucher.
  */
 
 import { supabase } from './supabase'
@@ -12,6 +24,125 @@ import { PAYMENT_METHODS } from './cashSaleTypes'
 import type { DBProduct, SaleLine, SplitLine, PaymentMethod } from './cashSaleTypes'
 import { logBundleSale } from './useBundles'
 import type { Bundle } from './useBundles'
+
+// ─── Shared helpers (single source of truth for create + edit) ─────────────
+
+/**
+ * Build the payment_method display label.
+ * Used by both create and edit so the label is computed identically.
+ */
+function buildPaymentLabel(
+  isSplit: boolean,
+  splitLines: SplitLine[],
+  currentMethod: PaymentMethod
+): string {
+  if (!isSplit) return currentMethod.label
+  const parts = splitLines
+    .map(l => PAYMENT_METHODS.find(m => m.id === l.methodId)?.label || l.methodId)
+  return [...parts, currentMethod.label].join(' + ')
+}
+
+/**
+ * Build the payment_split JSONB { methodLabel: amount }.
+ * Used by both create and edit. Never call inline — always use this
+ * so that payment_split and payment_method can never desync.
+ */
+function buildPaymentSplit(
+  isSplit: boolean,
+  total: number,
+  totalSplitPaid: number,
+  splitLines: SplitLine[],
+  currentMethod: PaymentMethod
+): Record<string, number> {
+  const result: Record<string, number> = {}
+  if (isSplit) {
+    const primaryAmount = total - totalSplitPaid
+    if (primaryAmount > 0) result[currentMethod.label] = primaryAmount
+    for (const sl of splitLines) {
+      if (!sl.amount) continue
+      const m = PAYMENT_METHODS.find(pm => pm.id === sl.methodId)
+      const label = m?.label || sl.methodId
+      result[label] = (result[label] || 0) + sl.amount
+    }
+  } else {
+    result[currentMethod.label] = total
+  }
+  return result
+}
+
+/**
+ * Build the cash-receipt journal lines for a sale (debits to cash/bank/M-Pesa).
+ * Excludes revenue, COGS, inventory — those are appended by the caller.
+ */
+function buildReceiptJournalLines(args: {
+  journalId: string
+  startLineNumber: number
+  isPOD: boolean
+  autoReceipt: boolean
+  isSplit: boolean
+  total: number
+  totalSplitPaid: number
+  splitLines: SplitLine[]
+  currentMethod: PaymentMethod
+  accountMap: Record<string, string>
+  paymentRef: string
+  custName: string
+  ref: string
+  deliveryTotal: number
+  delivFloatId: string | null | undefined
+  arId: string | undefined
+}): { lines: any[]; nextLineNumber: number } {
+  const lines: any[] = []
+  let ln = args.startLineNumber
+
+  if (!args.isPOD && args.autoReceipt) {
+    const primaryAcctId = args.accountMap[args.currentMethod.accountCode]
+    if (!primaryAcctId) {
+      throw new Error(
+        `Payment account not found for ${args.currentMethod.label} (code: ${args.currentMethod.accountCode}). Check Chart of Accounts.`
+      )
+    }
+    const primaryAmount = args.isSplit ? args.total - args.totalSplitPaid : args.total
+    lines.push({
+      journal_id: args.journalId, line_number: ln++,
+      account_id: primaryAcctId,
+      description: `${args.currentMethod.label}${args.paymentRef ? ' · ' + args.paymentRef : ''} — ${args.custName}`,
+      debit: primaryAmount > 0 ? primaryAmount : args.total, credit: 0,
+    })
+    for (const sl of args.splitLines) {
+      if (!sl.accountId || !sl.amount) continue
+      const m = PAYMENT_METHODS.find(pm => pm.id === sl.methodId)
+      lines.push({
+        journal_id: args.journalId, line_number: ln++,
+        account_id: sl.accountId,
+        description: `${m?.label || sl.methodId}${sl.ref ? ' · ' + sl.ref : ''} — ${args.custName}`,
+        debit: sl.amount, credit: 0,
+      })
+    }
+    if (args.deliveryTotal > 0 && args.delivFloatId) {
+      const delivAcctId = args.accountMap[args.currentMethod.accountCode]
+      if (delivAcctId) {
+        lines.push({
+          journal_id: args.journalId, line_number: ln++,
+          account_id: delivAcctId,
+          description: `Delivery collected — ${args.ref}`,
+          debit: args.deliveryTotal, credit: 0,
+        })
+      }
+    }
+  } else if (args.isPOD && args.arId) {
+    lines.push({
+      journal_id: args.journalId, line_number: ln++,
+      account_id: args.arId,
+      description: `POD — ${args.custName} — ${args.ref}`,
+      debit: args.total, credit: 0,
+    })
+  }
+
+  return { lines, nextLineNumber: ln }
+}
+
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface PostParams {
   // Form state
@@ -56,6 +187,8 @@ export interface PostResult {
   receiptData?: any
   isPOD?: boolean
 }
+
+// ─── CREATE ────────────────────────────────────────────────────────────────
 
 export async function postCashSale(params: PostParams): Promise<PostResult> {
   const {
@@ -137,10 +270,8 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     const arId = acct('1050'); const delivFloatId = acct('2085') || deliveryAccountId
     if (!revenueId || !cogsId || !inventoryId) throw new Error('Required accounts not found')
 
-    // Build payment label
-    const paymentLabel = isSplit
-      ? splitLines.map(l => PAYMENT_METHODS.find(m => m.id === l.methodId)?.label || l.methodId).join(' + ') + ' + ' + currentMethod.label
-      : currentMethod.label
+    // Build payment label (helper — mirrored on edit path)
+    const paymentLabel = buildPaymentLabel(isSplit, splitLines, currentMethod)
 
     // Create journal (with retry to handle ref collisions)
     const { data: journal, error: jErr } = await insertJournalWithRetry({
@@ -157,39 +288,18 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       return s + (p ? p.cost_price * l.qty : 0)
     }, 0)
 
-    // Build journal lines
-    const jLines: any[] = []
-    let ln = 1
+    // Build journal lines using the shared helper
+    const { lines: receiptLines, nextLineNumber } = buildReceiptJournalLines({
+      journalId: journal.id, startLineNumber: 1,
+      isPOD, autoReceipt, isSplit,
+      total, totalSplitPaid, splitLines, currentMethod,
+      accountMap, paymentRef,
+      custName: newCustName, ref,
+      deliveryTotal, delivFloatId, arId,
+    })
 
-    if (!isPOD && autoReceipt) {
-      const primaryAcctId = accountMap[currentMethod.accountCode]
-      if (!primaryAcctId) throw new Error(`Payment account not found for ${currentMethod.label} (code: ${currentMethod.accountCode}). Check Chart of Accounts.`)
-      const primaryAmount = isSplit ? total - totalSplitPaid : total
-      jLines.push({
-        journal_id: journal.id, line_number: ln++,
-        account_id: primaryAcctId,
-        description: `${currentMethod.label}${paymentRef ? ' · ' + paymentRef : ''} — ${newCustName}`,
-        debit: primaryAmount > 0 ? primaryAmount : total, credit: 0
-      })
-      for (const sl of splitLines) {
-        if (!sl.accountId || !sl.amount) continue
-        const m = PAYMENT_METHODS.find(pm => pm.id === sl.methodId)
-        jLines.push({
-          journal_id: journal.id, line_number: ln++,
-          account_id: sl.accountId,
-          description: `${m?.label || sl.methodId}${sl.ref ? ' · ' + sl.ref : ''} — ${newCustName}`,
-          debit: sl.amount, credit: 0
-        })
-      }
-      if (deliveryTotal > 0 && delivFloatId) {
-        const delivAcctId = accountMap[currentMethod.accountCode]
-        if (delivAcctId) jLines.push({ journal_id: journal.id, line_number: ln++, account_id: delivAcctId, description: `Delivery collected — ${ref}`, debit: deliveryTotal, credit: 0 })
-      }
-    } else if (isPOD && arId) {
-      jLines.push({ journal_id: journal.id, line_number: ln++, account_id: arId, description: `POD — ${newCustName} — ${ref}`, debit: total, credit: 0 })
-    }
-
-    // Revenue, COGS, Inventory
+    const jLines: any[] = [...receiptLines]
+    let ln = nextLineNumber
     jLines.push({ journal_id: journal.id, line_number: ln++, account_id: revenueId, description: `Sales — ${ref}`, debit: 0, credit: subtotal })
     jLines.push({ journal_id: journal.id, line_number: ln++, account_id: cogsId, description: `COGS — ${ref}`, debit: cogsTotal, credit: 0 })
     jLines.push({ journal_id: journal.id, line_number: ln++, account_id: inventoryId, description: `Inventory out — ${ref}`, debit: 0, credit: cogsTotal })
@@ -202,22 +312,8 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
 
     await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
 
-    // Build payment split breakdown (actual amounts per method)
-    const paymentSplitData: Record<string, number> = {}
-    if (isSplit) {
-      // Primary method gets the remainder
-      const primaryAmount = total - totalSplitPaid
-      if (primaryAmount > 0) paymentSplitData[currentMethod.label] = primaryAmount
-      // Each split line
-      for (const sl of splitLines) {
-        if (!sl.amount) continue
-        const m = PAYMENT_METHODS.find(pm => pm.id === sl.methodId)
-        const label = m?.label || sl.methodId
-        paymentSplitData[label] = (paymentSplitData[label] || 0) + sl.amount
-      }
-    } else {
-      paymentSplitData[currentMethod.label] = total
-    }
+    // Build payment split (helper — mirrored on edit path)
+    const paymentSplitData = buildPaymentSplit(isSplit, total, totalSplitPaid, splitLines, currentMethod)
 
     // Create voucher
     const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
@@ -242,7 +338,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       const line = lines[i]; if (!line.productId) continue
       const prod = dbProducts.find(p => p.id === line.productId); if (!prod) continue
       await supabase.from('voucher_lines').insert({ voucher_id: voucher.id, line_number: i + 1, product_id: line.productId, description: line.name, qty: line.qty, unit_cost: prod.cost_price, unit_price: line.price, subtotal: line.amount, total: line.amount })
-      
+
       // Atomic stock deduction — if another cashier grabbed the last unit, this fails safely
       if (invSettings?.block_negative_stock) {
         const { error: stockErr } = await supabase.rpc('deduct_stock', { p_product_id: line.productId, p_qty: line.qty })
@@ -355,6 +451,8 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
   }
 }
 
+// ─── UPDATE (reverse + repost) ─────────────────────────────────────────────
+
 export interface UpdateParams {
   editVoucherData: any
   newCustName: string
@@ -363,6 +461,7 @@ export interface UpdateParams {
   dbProducts: DBProduct[]
   selectedCust: { id: string } | null
   isPOD: boolean
+  autoReceipt: boolean
   selectedMethod: string
   isSplit: boolean
   splitLines: SplitLine[]
@@ -370,16 +469,27 @@ export interface UpdateParams {
   townDelivery: string
   upcountryShipping: string
   currentMethod: PaymentMethod
+  // ─ Required for the journal repost (NEW) ─
+  accountMap: Record<string, string>
+  deliveryAccountId: string
+  totalSplitPaid: number
+  userName: string
 }
 
 export async function updateCashSale(params: UpdateParams): Promise<{ success: boolean; error?: string }> {
   const {
     editVoucherData, newCustName, waInput, lines, dbProducts, selectedCust,
-    isPOD, isSplit, splitLines, paymentRef, townDelivery, upcountryShipping, currentMethod,
+    isPOD, autoReceipt, isSplit, splitLines, paymentRef,
+    townDelivery, upcountryShipping, currentMethod,
+    accountMap, deliveryAccountId, totalSplitPaid, userName,
   } = params
 
   if (!newCustName.trim()) return { success: false, error: 'Customer name required' }
   if (lines.every(l => !l.productId)) return { success: false, error: 'Add at least one product' }
+
+  const voucherId = editVoucherData.id
+  const ref = editVoucherData.ref
+  const journalId = editVoucherData.journal_id
 
   try {
     const lineItems = lines.filter(l => l.productId && l.amount > 0)
@@ -387,48 +497,131 @@ export async function updateCashSale(params: UpdateParams): Promise<{ success: b
     const deliveryTotal = (parseInt(townDelivery) || 0) + (parseInt(upcountryShipping) || 0)
     const newTotal = newSubtotal + deliveryTotal
 
-    const paymentLabel = isSplit
-      ? splitLines.map(l => PAYMENT_METHODS.find(m => m.id === l.methodId)?.label || l.methodId).join(' + ') + ' + ' + currentMethod.label
-      : currentMethod.label
-
+    // ── 1. Customer info
     const cleaned = waInput.replace(/[\s+\-()]/g, '')
     if (selectedCust) {
-      await supabase.from('customers').update({ name: newCustName.trim(), whatsapp: cleaned || null }).eq('id', selectedCust.id)
+      await supabase.from('customers').update({
+        name: newCustName.trim(),
+        whatsapp: cleaned || null,
+      }).eq('id', selectedCust.id)
     }
 
+    // ── 2. Compute label + split TOGETHER (no drift possible)
+    const paymentLabel = buildPaymentLabel(isSplit, splitLines, currentMethod)
+    const paymentSplitData = buildPaymentSplit(isSplit, newTotal, totalSplitPaid, splitLines, currentMethod)
+
+    // ── 3. REVERSE old journal lines: undo balance impact, then delete them
+    if (journalId) {
+      const { data: oldJLines } = await supabase
+        .from('journal_lines')
+        .select('account_id, debit, credit')
+        .eq('journal_id', journalId)
+
+      if (oldJLines && oldJLines.length > 0) {
+        await Promise.all(oldJLines.map(l =>
+          supabase.rpc('update_account_balance', {
+            p_account_id: l.account_id,
+            p_debit: -(l.debit || 0),
+            p_credit: -(l.credit || 0),
+          })
+        ))
+        await supabase.from('journal_lines').delete().eq('journal_id', journalId)
+      }
+    }
+
+    // ── 4. Update voucher header — payment_method AND payment_split together
     const { error: vErr } = await supabase.from('vouchers').update({
-      subtotal: newSubtotal, total_amount: newTotal, payment_method: paymentLabel,
+      subtotal: newSubtotal,
+      total_amount: newTotal,
+      payment_method: paymentLabel,
+      payment_split: paymentSplitData,                    // ← previously missing (root cause)
       status: isPOD ? 'draft' : 'posted',
+      description: `Cash Sale — ${newCustName.trim()}`,
       notes: [
         deliveryTotal > 0 ? `Delivery: TZS ${deliveryTotal.toLocaleString()}` : '',
         currentMethod.id === 'pos' ? 'POS Card payment' : '',
-        paymentRef ? `Ref: ${paymentRef}` : ''
+        paymentRef ? `Ref: ${paymentRef}` : '',
+        `Edited by ${userName} on ${new Date().toISOString()}`,
       ].filter(Boolean).join(' · ') || null,
-    }).eq('id', editVoucherData.id)
+    }).eq('id', voucherId)
     if (vErr) throw new Error('Voucher update: ' + vErr.message)
 
+    // ── 5. Restore stock from old voucher lines, then delete & re-insert
     const oldLines = editVoucherData.voucher_lines || []
     for (const oldLine of oldLines) {
       if (!oldLine.product_id) continue
       const prod = dbProducts.find(p => p.id === oldLine.product_id)
       if (prod) {
-        await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand + oldLine.qty }).eq('id', oldLine.product_id)
+        await supabase.from('products')
+          .update({ qty_on_hand: prod.qty_on_hand + oldLine.qty })
+          .eq('id', oldLine.product_id)
       }
     }
-
-    await supabase.from('voucher_lines').delete().eq('voucher_id', editVoucherData.id)
+    await supabase.from('voucher_lines').delete().eq('voucher_id', voucherId)
 
     for (let i = 0; i < lineItems.length; i++) {
       const line = lineItems[i]
       const prod = dbProducts.find(p => p.id === line.productId)
       if (!prod) continue
       await supabase.from('voucher_lines').insert({
-        voucher_id: editVoucherData.id, line_number: i + 1, product_id: line.productId,
+        voucher_id: voucherId, line_number: i + 1, product_id: line.productId,
         description: line.name, qty: line.qty, unit_cost: prod.cost_price,
         unit_price: line.price, subtotal: line.amount, total: line.amount,
       })
       const currentQty = prod.qty_on_hand + (oldLines.find((ol: any) => ol.product_id === line.productId)?.qty || 0)
       await supabase.from('products').update({ qty_on_hand: currentQty - line.qty }).eq('id', line.productId)
+    }
+
+    // ── 6. RE-POST journal_lines with new amounts and (potentially new) accounts
+    if (journalId) {
+      const neededCodes = ['4010', '5010', '1110', '1050', '2085']
+      const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', neededCodes)
+      const acct = (code: string) => acctData?.find(a => a.code === code)?.id
+      const revenueId = acct('4010')
+      const cogsId = acct('5010')
+      const inventoryId = acct('1110')
+      const arId = acct('1050')
+      const delivFloatId = acct('2085') || deliveryAccountId
+      if (!revenueId || !cogsId || !inventoryId) throw new Error('Required accounts not found for re-post')
+
+      const cogsTotal = lineItems.reduce((s, l) => {
+        const p = dbProducts.find(p => p.id === l.productId)
+        return s + (p ? p.cost_price * l.qty : 0)
+      }, 0)
+
+      const { lines: receiptLines, nextLineNumber } = buildReceiptJournalLines({
+        journalId, startLineNumber: 1,
+        isPOD, autoReceipt, isSplit,
+        total: newTotal, totalSplitPaid, splitLines, currentMethod,
+        accountMap, paymentRef,
+        custName: newCustName.trim(), ref,
+        deliveryTotal, delivFloatId, arId,
+      })
+
+      const jLines: any[] = [...receiptLines]
+      let ln = nextLineNumber
+      jLines.push({ journal_id: journalId, line_number: ln++, account_id: revenueId, description: `Sales — ${ref}`, debit: 0, credit: newSubtotal })
+      jLines.push({ journal_id: journalId, line_number: ln++, account_id: cogsId, description: `COGS — ${ref}`, debit: cogsTotal, credit: 0 })
+      jLines.push({ journal_id: journalId, line_number: ln++, account_id: inventoryId, description: `Inventory out — ${ref}`, debit: 0, credit: cogsTotal })
+      if (deliveryTotal > 0 && delivFloatId) {
+        jLines.push({ journal_id: journalId, line_number: ln++, account_id: delivFloatId, description: `Delivery float — ${ref}`, debit: 0, credit: deliveryTotal })
+      }
+
+      const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
+      if (jlErr) throw new Error('Journal lines re-post: ' + jlErr.message)
+
+      await Promise.all(jLines.map(l =>
+        supabase.rpc('update_account_balance', {
+          p_account_id: l.account_id,
+          p_debit: l.debit,
+          p_credit: l.credit,
+        })
+      ))
+
+      // Audit trail on the journal description
+      await supabase.from('journals').update({
+        description: `Cash Sale — ${newCustName.trim()} — ${ref} (edited by ${userName})`,
+      }).eq('id', journalId)
     }
 
     return { success: true }
