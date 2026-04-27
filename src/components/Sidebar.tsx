@@ -7,12 +7,14 @@ const VOUCHER_PAGES: Page[] = [
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
   'bank-receipt', 'bank-transfer', 'petty-cash', 'contra', 'sales-invoice',
   'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
-  'grn', 'purchase-invoice', 'purchase-return', 'opening-stock',
+  'grn', 'purchase', 'purchase-invoice', 'purchase-return', 'opening-stock',
   'stock-adjustment', 'stock-transfer', 'journal-entry', 'internal-use',
   'proforma', 'proformas-list'
 ]
 
 const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-invoices-list', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note', 'proforma', 'proformas-list']
+
+const IMPORT_PAGES: Page[] = ['import-register', 'import-order']
 
 const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers']
 
@@ -108,7 +110,7 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
     { icon: 'customers', label: 'Customers', page: 'customers' as Page },
     { icon: 'suppliers', label: 'Suppliers', page: 'suppliers' as Page },
-    { icon: 'ship',     label: 'Imports',   page: 'import-order' as Page },
+    { icon: 'ship',     label: 'Imports',   page: 'import-register' as Page },
     { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page },
     // Bundles only for companies that don't hide them
     ...(!company.hideBundles ? [{ icon: 'inventory', label: 'Bundles', page: 'bundles' as Page }] : []),
@@ -173,10 +175,12 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
+        const isImportActive = IMPORT_PAGES.includes(current)
         const active =
           current === navItem.page ||
           (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive && !isHrmActive) ||
           (navItem.page === 'sales' && isSalesActive) ||
+          (navItem.page === 'import-register' && isImportActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
           (navItem.page === 'settings' && isSettingsActive) ||
           (navItem.page === 'hrm' && isHrmActive)
