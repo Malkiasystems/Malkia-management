@@ -158,14 +158,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     loadUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        loadUser()
-      } else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Only re-load the user on genuine identity changes.
+      //
+      // TOKEN_REFRESHED fires whenever Supabase rotates the JWT, which happens
+      // on every tab refocus after Chrome throttles the background tab. The
+      // user has NOT changed — only their token has — so re-running loadUser()
+      // here flips `loading` back to true and causes the entire UI to flash
+      // a spinner / re-mount. We deliberately ignore that event.
+      //
+      // INITIAL_SESSION also fires on every reload but the initial loadUser()
+      // call above already covers that case.
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        if (session) loadUser()
+      } else if (event === 'SIGNED_OUT') {
         setUser(null)
         setPermissions([])
         setLoading(false)
       }
+      // TOKEN_REFRESHED, INITIAL_SESSION, PASSWORD_RECOVERY, MFA_CHALLENGE_VERIFIED
+      // → no-op. Do not touch the user state.
     })
 
     return () => subscription.unsubscribe()
