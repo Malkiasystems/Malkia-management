@@ -8,17 +8,45 @@ declare global {
   interface Window { jspdf: { jsPDF: new (...args: unknown[]) => unknown } }
 }
 
-// ── jsPDF loader (CDN, cached) ────────────────────────────
+// ── jsPDF loader (CDN with fallback, cached) ─────────────
 let jsPDFLoaded = false
-const loadJsPDF = (): Promise<void> => {
-  if (jsPDFLoaded && window.jspdf) return Promise.resolve()
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script')
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js'
-    s.onload = () => { jsPDFLoaded = true; resolve() }
-    s.onerror = () => reject(new Error('Failed to load jsPDF'))
-    document.head.appendChild(s)
-  })
+const CDN_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js',
+  'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js',
+  'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
+]
+const loadJsPDF = async (): Promise<void> => {
+  if (jsPDFLoaded && window.jspdf) return
+  // If a previous attempt left the global, use it
+  if (window.jspdf) { jsPDFLoaded = true; return }
+
+  let lastErr: Error | null = null
+  for (const url of CDN_URLS) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement('script')
+        s.src = url
+        s.async = true
+        const timeout = setTimeout(() => {
+          s.remove()
+          reject(new Error(`Timeout loading ${url}`))
+        }, 8000)
+        s.onload = () => { clearTimeout(timeout); resolve() }
+        s.onerror = () => { clearTimeout(timeout); s.remove(); reject(new Error(`Failed: ${url}`)) }
+        document.head.appendChild(s)
+      })
+      // Verify the global actually appeared
+      if (window.jspdf && window.jspdf.jsPDF) {
+        jsPDFLoaded = true
+        return
+      }
+      lastErr = new Error(`Loaded ${url} but window.jspdf not available`)
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+      // Try next CDN
+    }
+  }
+  throw lastErr || new Error('All PDF library CDNs unreachable. Check your internet connection or ad blocker.')
 }
 
 // ── Types ─────────────────────────────────────────────────
