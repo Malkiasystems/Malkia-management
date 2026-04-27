@@ -17,6 +17,7 @@ const RIcon = ({ name }: { name: string }) => {
     register: <svg {...p}><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/></svg>,
     procure:  <svg {...p}><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>,
     payment:  <svg {...p}><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>,
+    ship:     <svg {...p}><path d="M2 20a2.4 2.4 0 0 0 2 1 2.4 2.4 0 0 0 2-1 2.4 2.4 0 0 1 2-1 2.4 2.4 0 0 1 2 1 2.4 2.4 0 0 0 2 1 2.4 2.4 0 0 0 2-1 2.4 2.4 0 0 1 2-1 2.4 2.4 0 0 1 2 1 2.4 2.4 0 0 0 2 1 2.4 2.4 0 0 0 2-1"/><path d="M4 18l-2-7h20l-2 7"/><path d="M12 11V4"/><path d="M5 11V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4"/></svg>,
   }
   return <>{icons[name] ?? icons.register}</>
 }
@@ -49,6 +50,7 @@ export default function ReportsHub({ onNav }: Props) {
         { name: 'Sales Register', icon: 'register', page: 'sales-register' as Page, desc: 'All sales in date order' },
         { name: 'Purchase Register', icon: 'procure', page: 'purchase-register' as Page, desc: 'All purchase transactions' },
         { name: 'Payment Register', icon: 'payment', page: 'payment-register' as Page, desc: 'All cash and bank movements' },
+        { name: 'Import Register', icon: 'ship', page: 'import-register' as Page, desc: 'Multi-stage purchases · KPIs · PDFs' },
       ]
     },
   ]
