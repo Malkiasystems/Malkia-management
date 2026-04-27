@@ -45,6 +45,7 @@ const StockValuationReport = lazy(() => import('./pages/StockValuationReport'))
 const PurchaseRegister = lazy(() => import('./pages/PurchaseRegister'))
 const PaymentRegister = lazy(() => import('./pages/PaymentRegister'))
 const StockTransferRegister = lazy(() => import('./pages/StockTransferRegister'))
+const ImportRegister = lazy(() => import('./pages/ImportRegister'))
 
 // Settings Pages
 const ReceiptTemplatePage = lazy(() => import('./pages/ReceiptTemplate'))
@@ -94,6 +95,7 @@ const DebitNote = lazy(() => import('./pages/vouchers/DebitNote'))
 const CreditNote = lazy(() => import('./pages/vouchers/CreditNote'))
 const PurchaseOrder = lazy(() => import('./pages/vouchers/PurchaseOrder'))
 const GRN = lazy(() => import('./pages/vouchers/GRN'))
+const Purchase = lazy(() => import('./pages/vouchers/Purchase'))
 const PurchaseInvoice = lazy(() => import('./pages/vouchers/PurchaseInvoice'))
 const PurchaseReturn = lazy(() => import('./pages/vouchers/PurchaseReturn'))
 const OpeningStock = lazy(() => import('./pages/vouchers/OpeningStock'))
@@ -278,6 +280,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'suppliers': 'Suppliers',
   'investors-hub': 'Investors Hub',
   'import-order': 'Import Orders',
+  'purchase': 'Purchase',
   'internal-use': 'Internal Use',
   'internal-use-report': 'Internal Use Report',
   // HRM Module
@@ -433,6 +436,7 @@ function AppContent() {
       case 'stock-valuation':   return <StockValuationReport />
       case 'purchase-register': return <PurchaseRegister />
       case 'payment-register':  return <PaymentRegister onEdit={navigateToEdit} />
+      case 'import-register':   return <ImportRegister onNav={navigate} />
       case 'receipt-template':  return <ReceiptTemplatePage />
       case 'invoice-template':  return <InvoiceTemplatePage />
       case 'proforma-template': return <ProformaTemplatePage />
@@ -460,6 +464,7 @@ function AppContent() {
       case 'purchase-order':    return <PurchaseOrder onNav={navigate} />
       case 'grn':               return <GRN onNav={navigate} />
       case 'purchase-invoice':  return <PurchaseInvoice onNav={navigate} />
+      case 'purchase':          return <Purchase onNav={navigate} />
       case 'purchase-return':   return <PurchaseReturn onNav={navigate} />
       case 'opening-stock':     return <OpeningStock onNav={navigate} />
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
