@@ -39,6 +39,26 @@ const PAYMENT_METHODS_BANK = [
   { value: 'swift',   label: 'SWIFT (International)' },
 ]
 
+// Derive the payment method from a Cash & Bank account code/name.
+// 1010, 1011, 1040 → cash · 1020, 1021 → mpesa · 103x, 102x bank → rtgs · etc.
+const deriveMethod = (code: string, name: string): string => {
+  if (!code) return 'cash'
+  const c = code.trim()
+  const n = (name || '').toLowerCase()
+  if (c.startsWith('101') || c === '1040') return 'cash'                  // Cash tills + petty cash
+  if (c.startsWith('102')) {
+    if (n.includes('mixx')) return 'mixx'
+    if (n.includes('airtel')) return 'airtel'
+    return 'mpesa'                                                         // M-Pesa default for 102x
+  }
+  if (c.startsWith('103')) return 'rtgs'                                   // CRDB/NMB/USD bank → bank transfer
+  return 'cash'
+}
+const methodLabel = (m: string): string => {
+  const all = [...PAYMENT_METHODS_CASH, ...PAYMENT_METHODS_BANK]
+  return all.find(x => x.value === m)?.label || m
+}
+
 export default function CashReceipt({ onNav: _onNav, variant = 'cash' }: Props) {
   const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
@@ -92,9 +112,18 @@ export default function CashReceipt({ onNav: _onNav, variant = 'cash' }: Props) 
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
   const arAccount = accounts.find(a => a.code === '1050')
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
+  // Auto-update method whenever deposit account changes (single source of truth)
+  useEffect(() => {
+    if (!form.depositAccountId) return
+    const acc = accounts.find(a => a.id === form.depositAccountId)
+    if (acc) {
+      const derived = deriveMethod(acc.code, acc.name)
+      if (derived !== form.method) setForm(f => ({ ...f, method: derived }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.depositAccountId, accounts])
 
-  const paymentMethods = variant === 'bank' ? PAYMENT_METHODS_BANK : PAYMENT_METHODS_CASH
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   // Reset the form after a successful post. Keeps the user on the same page
   // with a clean slate — no page reload, no scroll jump, no lost toast.
@@ -337,25 +366,19 @@ export default function CashReceipt({ onNav: _onNav, variant = 'cash' }: Props) 
                 placeholder="0" value={form.amount}
                 onChange={e => set('amount', e.target.value)} />
             </FG>
-            <FG label="Payment Method" req>
-              <select className="form-input" value={form.method} onChange={e => set('method', e.target.value)}>
-                {paymentMethods.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </select>
-            </FG>
+            {form.method !== 'cash' && (
+              <FG label={form.method === 'cheque' ? 'Cheque Number' : form.method === 'rtgs' ? 'Reference / TT Number' : 'Transaction ID'}>
+                <input className="form-input"
+                  placeholder={
+                    form.method === 'mpesa'  ? 'e.g. QTA1BCD2EFG' :
+                    form.method === 'cheque' ? 'e.g. 000123' :
+                    form.method === 'rtgs'   ? 'e.g. TT-REF-2026-01-01' :
+                    'Reference number'
+                  }
+                  value={form.transactionId} onChange={e => set('transactionId', e.target.value)} />
+              </FG>
+            )}
           </div>
-
-          {form.method !== 'cash' && (
-            <FG label={form.method === 'cheque' ? 'Cheque Number' : form.method === 'rtgs' ? 'Reference / TT Number' : 'Transaction ID'}>
-              <input className="form-input"
-                placeholder={
-                  form.method === 'mpesa'  ? 'e.g. QTA1BCD2EFG' :
-                  form.method === 'cheque' ? 'e.g. 000123' :
-                  form.method === 'rtgs'   ? 'e.g. TT-REF-2026-01-01' :
-                  'Reference number'
-                }
-                value={form.transactionId} onChange={e => set('transactionId', e.target.value)} />
-            </FG>
-          )}
 
           <FG label="Narration"><textarea className="form-input" rows={2}
             style={{ resize: 'none', fontSize: 12 }}
@@ -365,11 +388,16 @@ export default function CashReceipt({ onNav: _onNav, variant = 'cash' }: Props) 
 
         <div className="card">
           <div className="card-title" style={{ marginBottom: 16 }}>Accounting</div>
-          <FG label={variant === 'bank' ? 'Deposit to Bank Account' : 'Deposit To (Cash / M-Pesa)'} req>
+          <FG label={variant === 'bank' ? 'Deposit to Bank Account' : 'Deposit To (Cash / M-Pesa / Bank)'} req>
             <select className="form-input" value={form.depositAccountId} onChange={e => set('depositAccountId', e.target.value)}>
               <option value="">— Select account —</option>
               {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
             </select>
+            {form.depositAccountId && (
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, fontFamily: 'var(--mono)' }}>
+                Method: <span style={{ color: 'var(--accent)' }}>{methodLabel(form.method)}</span> <span style={{ color: 'var(--text3)' }}>(auto-detected from account)</span>
+              </div>
+            )}
           </FG>
 
           {receiptType === 'customer' ? (
