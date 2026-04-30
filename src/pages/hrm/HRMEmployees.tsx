@@ -195,7 +195,8 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
       if (!advAcct) {
         const { data: created, error: createErr } = await supabase.from('accounts').insert({
           code: '1060', name: 'Salary Advance Receivable', type: 'asset',
-          category: 'Current Assets', balance: 0, is_active: true, is_default: true,
+          // accounts table has no is_default column — see HRMPayroll for context.
+          category: 'Current Assets', balance: 0, is_active: true,
         }).select('id').single()
         if (createErr) throw new Error(createErr.message)
         advAcct = created

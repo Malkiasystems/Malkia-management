@@ -100,7 +100,9 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
 
       if (missing.length > 0) {
         const { error: insertErr } = await supabase.from('accounts').insert(
-          missing.map(a => ({ ...a, balance: 0, is_active: true, is_default: true }))
+          // The accounts table has no is_default column — that flag belongs
+          // on branches/stock_locations only. Don't include it here.
+          missing.map(a => ({ ...a, balance: 0, is_active: true }))
         )
         if (insertErr) throw new Error(`Failed to create accounts: ${insertErr.message}`)
       }
@@ -202,7 +204,8 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
         if (!advAcct) {
           const { data: created } = await supabase.from('accounts').insert({
             code: '1060', name: 'Salary Advance Receivable', type: 'asset',
-            category: 'Current Assets', balance: 0, is_active: true, is_default: true,
+            // No is_default column on accounts — see line ~103.
+            category: 'Current Assets', balance: 0, is_active: true,
           }).select('id').single()
           advAcct = created
         }
