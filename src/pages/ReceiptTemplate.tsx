@@ -31,7 +31,7 @@ export interface ReceiptVoucher {
   total_amount: number; subtotal: number
   payment_method: string; notes: string; posted_by: string
   customers: { name: string; whatsapp: string; pregnancy_stage: string; crown_points: number } | null
-  voucher_lines: { qty: number; unit_price: number; total: number; products: { name: string; sku: string; category: string } | null }[]
+  voucher_lines: { qty: number; unit_price: number; subtotal?: number; total: number; products: { name: string; sku: string; category: string } | null }[]
 }
 
 const DEFAULT: ReceiptSettings = {
@@ -149,17 +149,38 @@ export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; 
       {/* ── LINE ITEMS ───────────────────────────────────────────────────────── */}
       <div style={{ padding: '12px 20px' }}>
         <div style={{ fontSize: 9, color: '#bbb', fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{s.label_items}</div>
-        {(voucher.voucher_lines || []).map((line, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid #f5f0f0' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{line.products?.name || '—'}</div>
-              <div style={{ fontSize: 10, color: '#bbb', fontFamily: mono, marginTop: 2 }}>
-                {line.products?.sku ? `${line.products.sku} · ` : ''}{line.qty} × {(line.unit_price || 0).toLocaleString()}
+        {(voucher.voucher_lines || []).map((line, i) => {
+          // Discount detection: if subtotal (gross) is provided and exceeds
+          // total (net), the line had a per-line discount. Show the savings
+          // so the customer can see the gesture.
+          const gross = Number(line.subtotal ?? (line.qty * (line.unit_price || 0)))
+          const net = Number(line.total || 0)
+          const hasDiscount = gross > net + 0.5  // ½-shilling tolerance for rounding
+          const pct = gross > 0 ? Math.round(((gross - net) / gross) * 100) : 0
+          return (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid #f5f0f0' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{line.products?.name || '—'}</div>
+                <div style={{ fontSize: 10, color: '#bbb', fontFamily: mono, marginTop: 2 }}>
+                  {line.products?.sku ? `${line.products.sku} · ` : ''}{line.qty} × {(line.unit_price || 0).toLocaleString()}
+                </div>
+                {hasDiscount && (
+                  <div style={{ fontSize: 10, color: p, fontFamily: mono, marginTop: 2, fontWeight: 600 }}>
+                    Less {pct}% discount (saved {Math.round(gross - net).toLocaleString()})
+                  </div>
+                )}
+              </div>
+              <div style={{ paddingLeft: 12, textAlign: 'right' }}>
+                {hasDiscount && (
+                  <div style={{ fontFamily: mono, fontSize: 11, color: '#bbb', textDecoration: 'line-through' }}>
+                    {Math.round(gross).toLocaleString()}
+                  </div>
+                )}
+                <div style={{ fontFamily: mono, fontSize: 13, fontWeight: 700 }}>{net.toLocaleString()}</div>
               </div>
             </div>
-            <div style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, paddingLeft: 12 }}>{(line.total || 0).toLocaleString()}</div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── TOTALS ───────────────────────────────────────────────────────────── */}
