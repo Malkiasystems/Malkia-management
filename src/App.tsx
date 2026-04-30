@@ -106,10 +106,6 @@ const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
 
-// Inter-location stock transfer request flow (locked users + approvers)
-const StockTransferRequest = lazy(() => import('./pages/StockTransferRequest'))
-const StockTransferRequestApprovals = lazy(() => import('./pages/StockTransferRequestApprovals'))
-
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
 const CRMInbox = lazy(() => import('./pages/CRMInbox'))
@@ -126,6 +122,7 @@ const HRMEmployees = lazy(() => import('./pages/hrm/HRMEmployees'))
 const HRMAssets = lazy(() => import('./pages/hrm/HRMAssets'))
 const HRMPayroll = lazy(() => import('./pages/hrm/HRMPayroll'))
 const HRMPayslips = lazy(() => import('./pages/hrm/HRMPayslips'))
+const HRMPayslipTemplate = lazy(() => import('./pages/hrm/HRMPayslipTemplate'))
 const HRMLeave = lazy(() => import('./pages/hrm/HRMLeave'))
 const HRMAttendance = lazy(() => import('./pages/hrm/HRMAttendance'))
 const HRMPerformance = lazy(() => import('./pages/hrm/HRMPerformance'))
@@ -287,14 +284,13 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'purchase': 'Purchase',
   'internal-use': 'Internal Use',
   'internal-use-report': 'Internal Use Report',
-  'stock-transfer-request': 'Vouchers / Transfer Request',
-  'stock-transfer-approvals': 'Vouchers / Transfer Approvals',
   // HRM Module
   'hrm': 'HR Dashboard',
   'hrm-employees': 'HRM / Employees',
   'hrm-assets': 'HRM / Asset Allocation',
   'hrm-payroll': 'HRM / Payroll',
   'hrm-payslips': 'HRM / Payslips',
+  'hrm-payslip-template': 'HRM / Payslip Template',
   'hrm-leave': 'HRM / Leave',
   'hrm-attendance': 'HRM / Attendance',
   'hrm-performance': 'HRM / Performance',
@@ -485,8 +481,6 @@ function AppContent() {
       case 'import-order':      return <ImportOrder onNav={navigate} />
       case 'internal-use':      return <InternalUse onNav={navigate} />
       case 'internal-use-report': return <InternalUseReport onNav={navigate} />
-      case 'stock-transfer-request':   return <StockTransferRequest onNav={navigate} />
-      case 'stock-transfer-approvals': return <StockTransferRequestApprovals onNav={navigate} />
       case 'data-import':       return <DataImport />
       case 'bundles':           return <Bundles />
       
@@ -526,6 +520,7 @@ function AppContent() {
       case 'hrm-assets':        return <HRMAssets onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-payroll':       return <HRMPayroll onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-payslips':      return <HRMPayslips onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-payslip-template': return <HRMPayslipTemplate onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-leave':         return <HRMLeave onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-attendance':    return <HRMAttendance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-performance':   return <HRMPerformance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
