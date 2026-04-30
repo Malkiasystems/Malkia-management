@@ -83,4 +83,6 @@ export const BREADCRUMBS: Record<string, string> = {
   'settings':'Settings', 'data-import':'Data Import Studio', 'coming-soon':'Coming Soon',
   'bundles':'Product Bundles', 'suppliers':'Suppliers', 'investors-hub':'Investors Hub',
   'import-order':'Import Orders',
+  'stock-transfer-request':'Stock Transfer Request',
+  'stock-transfer-approvals':'Transfer Request Approvals',
 }
