@@ -11,11 +11,6 @@ export interface User {
   is_approver: boolean
   is_away: boolean
   avatar_url?: string
-  // Location locking — NULL means user can operate from any location.
-  // Set means the user is locked to this single stock_locations.id for
-  // posting vouchers and making inventory changes. They can still VIEW
-  // other locations' summaries via the inventory page.
-  allowed_location_id?: string | null
 }
 
 export interface AuthContextType {
@@ -106,8 +101,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         is_approver: userData.is_approver,
         is_away: userData.is_away,
         avatar_url: userData.avatar_url,
-        // Pre-migration users won't have this column; default to null.
-        allowed_location_id: userData.allowed_location_id ?? null,
       }
 
       setUser(currentUser)
@@ -243,12 +236,6 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'opening-stock': ['inventory.adjust'],
   'stock-adjustment': ['inventory.adjust'],
   'stock-transfer': ['inventory.transfer'],
-  // Anyone with inventory.view can request a transfer FROM another location
-  // (they don't actually do the moving — an approver at the source location does)
-  'stock-transfer-request': ['inventory.view'],
-  // Approvals page: any user with inventory.transfer can land here, but the
-  // page itself filters the list to requests they are allowed to approve.
-  'stock-transfer-approvals': ['inventory.transfer', 'inventory.view'],
   'journal-entry': ['accounting.create'],
   'crm': ['crm.view'],
   'crm-hub': ['crm.view'],
@@ -293,6 +280,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'hrm-assets': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
   'hrm-payroll': ['hrm.payroll', 'hrm.manage'],
   'hrm-payslips': ['hrm.payroll', 'hrm.view_own'],
+  'hrm-payslip-template': ['settings.edit', 'hrm.manage'],
   'hrm-leave': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
   'hrm-attendance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
   'hrm-performance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],

@@ -6,7 +6,6 @@ export type Page =
   | 'sales-return' | 'debit-note' | 'credit-note'
   | 'purchase-order' | 'grn' | 'purchase' | 'purchase-invoice' | 'purchase-return'
   | 'opening-stock' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry' | 'import-order'
-  | 'stock-transfer-request' | 'stock-transfer-approvals'
   | 'internal-use' | 'internal-use-report'
   | 'sales' | 'inventory' | 'reports' | 'pnl'
   | 'sales-register' | 'sales-day-book' | 'sales-invoices-list' | 'trial-balance' | 'balance-sheet'
@@ -33,6 +32,7 @@ export type Page =
   | 'bundles'
   // HRM Module Pages
   | 'hrm' | 'hrm-employees' | 'hrm-assets' | 'hrm-payroll' | 'hrm-payslips'
+  | 'hrm-payslip-template'
   | 'hrm-leave' | 'hrm-attendance' | 'hrm-performance' | 'hrm-recruitment'
   | 'hrm-events' | 'hrm-settings'
 
