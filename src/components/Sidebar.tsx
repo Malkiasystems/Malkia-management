@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth, canAccessPage } from '../lib/useAuth'
 import { getActiveCompany } from '../lib/supabase'
-import { useUserLocation } from '../lib/useUserLocation'
-import { countPendingApprovals } from '../lib/useStockTransferRequests'
 
 const VOUCHER_PAGES: Page[] = [
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
@@ -11,8 +9,7 @@ const VOUCHER_PAGES: Page[] = [
   'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
   'grn', 'purchase', 'purchase-invoice', 'purchase-return', 'opening-stock',
   'stock-adjustment', 'stock-transfer', 'journal-entry', 'internal-use',
-  'proforma', 'proformas-list',
-  'stock-transfer-request', 'stock-transfer-approvals',
+  'proforma', 'proformas-list'
 ]
 
 const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-invoices-list', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note', 'proforma', 'proformas-list']
@@ -23,7 +20,7 @@ const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'cr
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
-const HRM_PAGES: Page[] = ['hrm', 'hrm-employees', 'hrm-assets', 'hrm-payroll', 'hrm-payslips', 'hrm-leave', 'hrm-attendance', 'hrm-performance', 'hrm-recruitment', 'hrm-events', 'hrm-settings']
+const HRM_PAGES: Page[] = ['hrm', 'hrm-employees', 'hrm-assets', 'hrm-payroll', 'hrm-payslips', 'hrm-payslip-template', 'hrm-leave', 'hrm-attendance', 'hrm-performance', 'hrm-recruitment', 'hrm-events', 'hrm-settings']
 
 const HRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Dashboard', page: 'hrm',             icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
@@ -85,10 +82,6 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
     import:    <svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
     investors: <svg {...p}><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>,
     settings:  <svg {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
-    // Transfer request — two arrows between boxes (request stock from another loc)
-    'transfer-req': <svg {...p}><rect x="2" y="3" width="8" height="6" rx="1"/><rect x="14" y="15" width="8" height="6" rx="1"/><path d="M10 6h6a2 2 0 0 1 2 2v7"/><path d="M14 11l-4 4 4 4"/></svg>,
-    // Approvals — checkmark inside a clipboard
-    approvals: <svg {...p}><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
   }
   const icon = icons[name] ?? icons['home']
   return <>{icon}</>
@@ -99,28 +92,10 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const [crmOpen, setCrmOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hrmOpen, setHrmOpen] = useState(false)
-
-  const { user, permissions } = useAuth()
-  const userLoc = useUserLocation()
+  
+  const { permissions } = useAuth()
   const company = getActiveCompany()
   const CRM_HIDDEN = new Set(['services', 'konnect', 'crm'])
-
-  // Pending transfer-approvals count for the sidebar badge.
-  // Refresh every 60s so a manager sees new requests show up without
-  // a hard reload. Cheap query (count only, head=true).
-  const [pendingCount, setPendingCount] = useState(0)
-  useEffect(() => {
-    if (!user?.id) return
-    let cancelled = false
-
-    const refresh = async () => {
-      const c = await countPendingApprovals(user.id, userLoc.defaultLocationId, userLoc.isUnrestricted)
-      if (!cancelled) setPendingCount(c)
-    }
-    refresh()
-    const t = setInterval(refresh, 60000)
-    return () => { cancelled = true; clearInterval(t) }
-  }, [user?.id, userLoc.defaultLocationId, userLoc.isUnrestricted])
 
   // Build NAV dynamically based on company
   const NAV: (
@@ -130,16 +105,6 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
     { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
     { sep: true },
     { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page },
-    // Transfer Request — every user can submit one. Locked users use it to
-    // pull stock IN from another location (since they can't do that via the
-    // regular Stock Transfer page). Unrestricted users could just use Stock
-    // Transfer directly, but the page is harmless for them too.
-    { icon: 'transfer-req', label: 'Transfer Req', page: 'stock-transfer-request' as Page },
-    // Approvals — only shown when there is something this user can act on.
-    // Hides cleanly for cashiers etc. who never approve anything.
-    ...(pendingCount > 0
-      ? [{ icon: 'approvals', label: 'Approvals', page: 'stock-transfer-approvals' as Page, badge: pendingCount }]
-      : []),
     { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
     { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
