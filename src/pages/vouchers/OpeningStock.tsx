@@ -6,6 +6,7 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -13,6 +14,7 @@ interface OSLine { productId: string; name: string; qty: number; cost: number; a
 interface StockLocation { id: string; code: string; name: string; branch_code: string }
 
 export default function OpeningStock({ onNav }: Props) {
+  const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -37,8 +39,12 @@ export default function OpeningStock({ onNav }: Props) {
     }
     if (locs && locs.length > 0) {
       setLocations(locs)
-      // Default to warehouse (1002) if present, otherwise first location
-      const defaultLoc = locs.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || locs[0]
+      // Locked users get their assigned location. Otherwise default to
+      // warehouse (1002) if present, otherwise first location.
+      const defaultLoc =
+        (userLoc.defaultLocationCode && locs.find(l => l.code === userLoc.defaultLocationCode)) ||
+        locs.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) ||
+        locs[0]
       setForm(f => ({ ...f, locationCode: defaultLoc.code }))
     }
     if ((count || 0) > 0) setAlreadyPosted(true)
@@ -54,6 +60,11 @@ export default function OpeningStock({ onNav }: Props) {
   const post = async () => {
     if (alreadyPosted) { showToast('Opening stock already posted. Cannot post twice.', 'error'); return }
     if (lines.every(l => !l.qty)) { showToast('Enter at least one product quantity', 'error'); return }
+    // Defence in depth: locked users cannot post opening stock to another location.
+    if (!userLoc.canPostFrom(form.locationCode)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot post opening stock to ${form.locationCode}.`, 'error')
+      return
+    }
     setPosting(true)
     try {
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['1110', '3040'])
@@ -134,9 +145,22 @@ export default function OpeningStock({ onNav }: Props) {
           <FG label="Ref"><input className="form-input" value={form.ref} readOnly  /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
           <FG label="Location" req>
-            <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)} disabled={alreadyPosted}>
+            <select
+              className="form-input"
+              value={form.locationCode}
+              onChange={e => set('locationCode', e.target.value)}
+              disabled={alreadyPosted || userLoc.isLocked}
+              title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode}` : ''}
+            >
               {locations.length === 0 && <option value="">— Loading —</option>}
-              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+              {locations.map(l => {
+                const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === l.code
+                return (
+                  <option key={l.id} value={l.code} disabled={!isMine}>
+                    {l.code} — {l.name}{!isMine ? ' (not assigned)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </FG>
         </div>

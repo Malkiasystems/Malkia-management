@@ -12,6 +12,7 @@ import { MalkiaInvoice } from '../InvoiceTemplate'
 import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
+import { useUserLocation } from '../../lib/useUserLocation'
 
 interface Props {
   onNav: (p: Page) => void
@@ -64,6 +65,7 @@ function StepHeader({ num, title, helper }: { num: number; title: string; helper
 }
 
 export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
+  const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -124,7 +126,16 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   useEffect(() => {
     loadProducts(); loadSettings(); loadAllCustomers()
     supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
-      .then(({ data }) => { if (data) { setLocations(data); if (data[0]) setLocationCode(data[0].code) } })
+      .then(({ data }) => {
+        if (data) {
+          setLocations(data)
+          // Prefer the user's locked location if available; otherwise first.
+          const initial = userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)
+            ? userLoc.defaultLocationCode
+            : (data[0]?.code ?? '')
+          if (initial) setLocationCode(initial)
+        }
+      })
     const close = (e: MouseEvent) => {
       if (dropRef.current && !dropRef.current.contains(e.target as Node)) setShowDrop(false)
     }
@@ -320,6 +331,12 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     if (!selectedCust) { showToast('Select a customer from the database first', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (subtotal <= 0) { showToast('Invoice total must be greater than zero', 'error'); return }
+    // Defence in depth: even if the UI is bypassed, a locked user cannot
+    // post an invoice that deducts from someone else's location.
+    if (!userLoc.canPostFrom(locationCode)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot invoice from ${locationCode}.`, 'error')
+      return
+    }
     if (invSettings?.block_negative_stock) {
       for (const line of lines) {
         if (!line.productId) continue
@@ -901,21 +918,36 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           </div>
           {locations.length > 0 && (
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Deduct Stock From</div>
+              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>Deduct Stock From</span>
+                {userLoc.isLocked && (
+                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700, letterSpacing: 0 }}>
+                    LOCKED
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {locations.map(loc => (
-                  <button key={loc.id} onClick={() => setLocationCode(loc.code)}
-                    style={{
-                      padding: '5px 12px',
-                      border: `1.5px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`,
-                      borderRadius: 6,
-                      background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface)',
-                      cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                      color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)',
-                    }}>
-                    {loc.code} — {loc.name}
-                  </button>
-                ))}
+                {locations.map(loc => {
+                  const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === loc.code
+                  return (
+                    <button
+                      key={loc.id}
+                      onClick={() => { if (isMine) setLocationCode(loc.code) }}
+                      title={isMine ? '' : 'You are not assigned to this location'}
+                      style={{
+                        padding: '5px 12px',
+                        border: `1.5px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 6,
+                        background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface)',
+                        cursor: isMine ? 'pointer' : 'not-allowed',
+                        opacity: isMine ? 1 : 0.4,
+                        fontSize: 11, fontWeight: 600,
+                        color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)',
+                      }}>
+                      {loc.code} — {loc.name}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )}

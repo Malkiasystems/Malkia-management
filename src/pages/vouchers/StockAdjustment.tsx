@@ -8,6 +8,7 @@ import { today } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useAuth } from '../../lib/useAuth'
 import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
+import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -16,6 +17,7 @@ interface AdjLine { productId: string; qty: number; reason: string }
 interface StockLocation { id: string; code: string; name: string; branch_code: string }
 
 export default function StockAdjustment({ onNav }: Props) {
+  const userLoc = useUserLocation()
   const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -37,7 +39,10 @@ export default function StockAdjustment({ onNav }: Props) {
     const { data } = await supabase.from('stock_locations').select('id, code, name, branch_code').order('code')
     if (data && data.length > 0) {
       setLocations(data)
-      const defaultLoc = data.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || data[0]
+      const defaultLoc =
+        (userLoc.defaultLocationCode && data.find(l => l.code === userLoc.defaultLocationCode)) ||
+        data.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) ||
+        data[0]
       setForm(f => ({ ...f, locationCode: defaultLoc.code }))
     }
   }
@@ -56,6 +61,11 @@ export default function StockAdjustment({ onNav }: Props) {
   const post = async () => {
     if (lines.every(l => !l.productId)) { showToast('Please select at least one product', 'error'); return }
     if (!user) { showToast('You must be signed in', 'error'); return }
+    // Defence in depth: locked users cannot adjust stock at another location.
+    if (!userLoc.canPostFrom(form.locationCode)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot adjust stock at ${form.locationCode}.`, 'error')
+      return
+    }
 
     // ─── Approval gate ─────────────────────────────────────────────────
     // Any stock adjustment is sensitive. Totals are computed from cost price ×
@@ -239,9 +249,22 @@ export default function StockAdjustment({ onNav }: Props) {
             <input className="form-input" readOnly value={user?.full_name || ''} style={{ background: 'var(--surface2)', cursor: 'default' }} />
           </FG>
           <FG label="Location" req>
-            <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)}>
+            <select
+              className="form-input"
+              value={form.locationCode}
+              onChange={e => set('locationCode', e.target.value)}
+              disabled={userLoc.isLocked}
+              title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode}` : ''}
+            >
               {locations.length === 0 && <option value="">— Loading —</option>}
-              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+              {locations.map(l => {
+                const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === l.code
+                return (
+                  <option key={l.id} value={l.code} disabled={!isMine}>
+                    {l.code} — {l.name}{!isMine ? ' (not assigned)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </FG>
           <FG label="Notes"><input className="form-input" placeholder="Reason for adjustment" value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>

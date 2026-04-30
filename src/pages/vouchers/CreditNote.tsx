@@ -9,6 +9,7 @@ import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
+import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -37,6 +38,7 @@ interface OriginalVoucher {
 }
 
 export default function CreditNote({ onNav }: Props) {
+  const userLoc = useUserLocation()
   const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -83,7 +85,10 @@ export default function CreditNote({ onNav }: Props) {
     const { data } = await supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code')
     if (data && data.length > 0) {
       setLocations(data)
-      const defaultLoc = data.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || data[0]
+      const defaultLoc =
+        (userLoc.defaultLocationCode && data.find(l => l.code === userLoc.defaultLocationCode)) ||
+        data.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) ||
+        data[0]
       setLocationCode(defaultLoc.code)
     }
   }
@@ -311,6 +316,15 @@ export default function CreditNote({ onNav }: Props) {
     if (creditSubtotal <= 0) { showToast('Credit amount must be greater than zero', 'error'); return }
     if (!form.reason) { showToast('Select a reason', 'error'); return }
     if (overCredit) { showToast(`Cannot credit more than remaining ${tzs(maxCreditable)}. Already credited: ${tzs(alreadyCredited)}`, 'error'); return }
+
+    // Defence in depth: when the credit note actually returns stock to a
+    // location, locked users can only return it to their assigned location.
+    // Pure financial credits (no inventory move) skip this check.
+    const isInventoryReturn = hasInventory && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back')
+    if (isInventoryReturn && !userLoc.canPostFrom(locationCode)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot return stock into ${locationCode}.`, 'error')
+      return
+    }
 
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
@@ -682,9 +696,22 @@ export default function CreditNote({ onNav }: Props) {
         {/* Return Location — only relevant when stock is actually coming back */}
         {hasInventory && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back') && (
           <FG label="Return Location" req>
-            <select className="form-input" value={locationCode} onChange={e => setLocationCode(e.target.value)}>
+            <select
+              className="form-input"
+              value={locationCode}
+              onChange={e => setLocationCode(e.target.value)}
+              disabled={userLoc.isLocked}
+              title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode}` : ''}
+            >
               {locations.length === 0 && <option value="">— Loading —</option>}
-              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+              {locations.map(l => {
+                const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === l.code
+                return (
+                  <option key={l.id} value={l.code} disabled={!isMine}>
+                    {l.code} — {l.name}{!isMine ? ' (not assigned)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </FG>
         )}

@@ -9,6 +9,7 @@ import { today, tzs } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import { useAuth } from '../../lib/useAuth'
+import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -21,6 +22,7 @@ type PaymentMode = 'credit' | 'cash' | 'bank' | 'mpesa'
 
 export default function Purchase({ onNav }: Props) {
   const { user } = useAuth()
+  const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -63,8 +65,14 @@ export default function Purchase({ onNav }: Props) {
       .then(({ data }) => {
         if (data) {
           setLocations(data)
-          const wh = data.find(l => l.code === '1002')
-          if (wh) set('location_code', wh.code)
+          // Locked users get their assigned location. Unrestricted users
+          // default to godown (1002) where most purchases land.
+          if (userLoc.defaultLocationCode && data.find(l => l.code === userLoc.defaultLocationCode)) {
+            set('location_code', userLoc.defaultLocationCode)
+          } else {
+            const wh = data.find(l => l.code === '1002') || data[0]
+            if (wh) set('location_code', wh.code)
+          }
         }
       })
   }, [])
@@ -148,6 +156,11 @@ export default function Purchase({ onNav }: Props) {
       showToast('Select the cash/bank account you paid from', 'error'); return
     }
     if (!user) { showToast('You must be signed in', 'error'); return }
+    // Defence in depth: locked users cannot receive purchases into another location.
+    if (!userLoc.canPostFrom(form.location_code)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot receive a purchase into ${form.location_code}.`, 'error')
+      return
+    }
     setPosting(true)
 
     try {
@@ -344,8 +357,21 @@ export default function Purchase({ onNav }: Props) {
           <input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} />
         </FG>
         <FG label="Receive at Location" req>
-          <select className="form-input" value={form.location_code} onChange={e => set('location_code', e.target.value)}>
-            {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+          <select
+            className="form-input"
+            value={form.location_code}
+            onChange={e => set('location_code', e.target.value)}
+            disabled={userLoc.isLocked}
+            title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode}` : ''}
+          >
+            {locations.map(l => {
+              const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === l.code
+              return (
+                <option key={l.id} value={l.code} disabled={!isMine}>
+                  {l.code} — {l.name}{!isMine ? ' (not assigned)' : ''}
+                </option>
+              )
+            })}
           </select>
         </FG>
       </div>

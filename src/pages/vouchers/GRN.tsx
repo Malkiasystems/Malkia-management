@@ -8,6 +8,7 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
+import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -16,6 +17,7 @@ interface DBSupplier { id: string; name: string }
 interface GRNLine { productId: string; qty: number; unitCost: number; amount: number }
 
 export default function GRN({ onNav }: Props) {
+  const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -43,7 +45,20 @@ export default function GRN({ onNav }: Props) {
   useEffect(() => {
     loadProducts(); loadSuppliers(); loadNextRef()
     supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code')
-      .then(({data}) => { if(data) { setLocations(data); const wh = data.find((l:any) => l.code === '1002'); if(wh) set('location_code', wh.code) } })
+      .then(({data}) => {
+        if(data) {
+          setLocations(data)
+          // Locked users get their assigned location. Unrestricted users
+          // default to the goods receiving location (code '1002') if it
+          // exists, falling back to the first active location.
+          if (userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)) {
+            set('location_code', userLoc.defaultLocationCode)
+          } else {
+            const wh = data.find((l: any) => l.code === '1002') || data[0]
+            if (wh) set('location_code', wh.code)
+          }
+        }
+      })
   }, [])
 
   // Auto-save — skip while ref is still initializing and while truly empty
@@ -91,6 +106,11 @@ export default function GRN({ onNav }: Props) {
   const post = async () => {
     if (!form.supplier) { showToast('Please select a supplier', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Please add at least one product', 'error'); return }
+    // Defence in depth: locked users cannot receive stock into another location.
+    if (!userLoc.canPostFrom(form.location_code)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot receive stock into ${form.location_code}.`, 'error')
+      return
+    }
     setPosting(true)
 
     try {
@@ -219,9 +239,22 @@ export default function GRN({ onNav }: Props) {
             <div className="form-row">
               <FG label="FX Rate on Receipt Date"><input className="form-input" placeholder="2540" value={form.fxRate} onChange={e => set('fxRate', e.target.value)} /></FG>
               <FG label="Receive Into Location">
-                <select className="form-input" value={form.location_code} onChange={e => setForm(f => ({ ...f, location_code: e.target.value }))}>
+                <select
+                  className="form-input"
+                  value={form.location_code}
+                  onChange={e => setForm(f => ({ ...f, location_code: e.target.value }))}
+                  disabled={userLoc.isLocked}
+                  title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode}` : ''}
+                >
                   {locations.length === 0 && <option value="1002">1002 — Warehouse / Godown</option>}
-                  {locations.map(l => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
+                  {locations.map(l => {
+                    const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === l.code
+                    return (
+                      <option key={l.code} value={l.code} disabled={!isMine}>
+                        {l.code} — {l.name}{!isMine ? ' (not assigned)' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </FG>
               <FG label="Received By">

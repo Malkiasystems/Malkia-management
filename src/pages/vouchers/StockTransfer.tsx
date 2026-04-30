@@ -7,6 +7,7 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { postLedgerEntries } from '../../lib/itemLedger'
 import { useAuth } from '../../lib/useAuth'
+import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -15,6 +16,7 @@ interface StockLocation { id: string; code: string; name: string; branch_code: s
 
 export default function StockTransfer({ onNav }: Props) {
   const { user } = useAuth()
+  const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -52,7 +54,15 @@ export default function StockTransfer({ onNav }: Props) {
     const stpRef = await nextRef('stock_transfer')
     if (locs && locs.length > 0) {
       setLocations(locs)
-      setForm(f => ({ ...f, ref: stpRef, fromLocation: locs[0].code, toLocation: locs.length >= 2 ? locs[1].code : locs[0].code }))
+      // Locked users get their own location forced as the source. The
+      // destination defaults to a different location (or stays equal — the
+      // form will prompt them to change it). Unrestricted users see the
+      // first two locations as a sensible default pair.
+      const defaultFrom = userLoc.defaultLocationCode && locs.find(l => l.code === userLoc.defaultLocationCode)
+        ? userLoc.defaultLocationCode
+        : locs[0].code
+      const defaultTo = locs.find(l => l.code !== defaultFrom)?.code ?? defaultFrom
+      setForm(f => ({ ...f, ref: stpRef, fromLocation: defaultFrom, toLocation: defaultTo }))
     } else {
       setForm(f => ({ ...f, ref: stpRef }))
     }
@@ -78,6 +88,15 @@ export default function StockTransfer({ onNav }: Props) {
     if (lines.every(l => !l.productId || !l.qty)) { showToast('Add at least one product', 'error'); return }
     if (!fromLoc || !toLoc) { showToast('Invalid locations', 'error'); return }
     if (!user) { showToast('You must be signed in', 'error'); return }
+    // Defence in depth: locked users can only transfer OUT of their own
+    // location. To pull stock FROM somewhere else they must use the Transfer
+    // Request flow (which an approver at that source will execute).
+    if (!userLoc.canTransferFrom(form.fromLocation)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. To pull stock from ${form.fromLocation}, use Stock Transfer Request instead.`, 'error')
+      // Helpful nav: send them to the Request page directly.
+      setTimeout(() => onNav('stock-transfer-request'), 1500)
+      return
+    }
     setPosting(true)
     try {
       const fromLabel = `${fromLoc.code} — ${fromLoc.name}`
@@ -204,11 +223,41 @@ export default function StockTransfer({ onNav }: Props) {
           <FG label="Ref"><input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, background: 'var(--surface2)', cursor: 'default', color: 'var(--accent)' }} /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
         </div>
+        {/* For locked users: explain that this page is for OUTBOUND transfers
+            from their own location only. To pull stock IN from elsewhere they
+            must use the Transfer Request flow (which an approver at the source
+            executes for them). The banner doubles as a nav shortcut. */}
+        {userLoc.isLocked && (
+          <div style={{ background: '#3d8bff14', border: '1px solid #3d8bff44', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+              You are locked to <strong style={{ color: 'var(--blue)', fontFamily: 'var(--mono)' }}>{userLoc.defaultLocationCode}</strong>. You can only transfer stock OUT to other locations. To pull stock IN from another location, request a transfer.
+            </div>
+            <button
+              onClick={() => onNav('stock-transfer-request')}
+              style={{ padding: '7px 14px', borderRadius: 8, background: 'var(--blue)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}
+            >
+              Request Stock In
+            </button>
+          </div>
+        )}
         <div className="form-row">
           <FG label="From Location" req>
-            <select className="form-input" value={form.fromLocation} onChange={e => set('fromLocation', e.target.value)}>
+            <select
+              className="form-input"
+              value={form.fromLocation}
+              onChange={e => set('fromLocation', e.target.value)}
+              disabled={userLoc.isLocked}
+              title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode} — locked users cannot pick another source. Use Transfer Request to pull stock from elsewhere.` : ''}
+            >
               <option value="">— Select source —</option>
-              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+              {locations.map(l => {
+                const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === l.code
+                return (
+                  <option key={l.id} value={l.code} disabled={!isMine}>
+                    {l.code} — {l.name}{!isMine ? ' (use Transfer Request)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </FG>
           <FG label="To Location" req>

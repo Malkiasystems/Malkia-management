@@ -9,6 +9,7 @@ import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
+import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -16,6 +17,7 @@ interface ReturnLine { productId: string; name: string; qty: number; salePrice: 
 interface StockLoc { id: string; code: string; name: string }
 
 export default function SalesReturn({ onNav }: Props) {
+  const userLoc = useUserLocation()
   const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
@@ -43,7 +45,10 @@ export default function SalesReturn({ onNav }: Props) {
     }
     if (locs && locs.length > 0) {
       setLocations(locs)
-      const defaultLoc = locs.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) || locs[0]
+      const defaultLoc =
+        (userLoc.defaultLocationCode && locs.find(l => l.code === userLoc.defaultLocationCode)) ||
+        locs.find(l => l.code === '1002' || /warehouse|godown/i.test(l.name)) ||
+        locs[0]
       setForm(f => ({ ...f, locationCode: defaultLoc.code }))
     }
     const ref = await nextRef('sales_return')
@@ -69,6 +74,11 @@ export default function SalesReturn({ onNav }: Props) {
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (form.refundMethod !== 'credit' && form.refundMethod !== 'exchange' && !form.refundAccountId) { showToast('Select refund account', 'error'); return }
     if (!user) { showToast('You must be signed in', 'error'); return }
+    // Defence in depth: locked users cannot accept returns into another location.
+    if (!userLoc.canPostFrom(form.locationCode)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot accept returns into ${form.locationCode}.`, 'error')
+      return
+    }
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
 
@@ -248,9 +258,22 @@ export default function SalesReturn({ onNav }: Props) {
             </select>
           </FG>
           <FG label="Return Location" req>
-            <select className="form-input" value={form.locationCode} onChange={e => set('locationCode', e.target.value)}>
+            <select
+              className="form-input"
+              value={form.locationCode}
+              onChange={e => set('locationCode', e.target.value)}
+              disabled={userLoc.isLocked}
+              title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode}` : ''}
+            >
               {locations.length === 0 && <option value="">— Loading —</option>}
-              {locations.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+              {locations.map(l => {
+                const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === l.code
+                return (
+                  <option key={l.id} value={l.code} disabled={!isMine}>
+                    {l.code} — {l.name}{!isMine ? ' (not assigned)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </FG>
         </div>

@@ -10,6 +10,7 @@ import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
+import { useUserLocation } from '../../lib/useUserLocation'
 import { useDataCache } from '../../App'
 import BundlePicker from '../../components/BundlePicker'
 import type { Bundle } from '../../lib/useBundles'
@@ -40,6 +41,8 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [editVoucherData, setEditVoucherData] = useState<any>(null)
   const [appliedBundle, setAppliedBundle] = useState<Bundle | null>(null)
   const { user } = useAuth()
+  // Location lock — locked users see only their assigned location and can't pick another.
+  const userLoc = useUserLocation()
 
   // Customer
   const [waInput, setWaInput] = useState('')
@@ -146,7 +149,11 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       if (cachedLocations) {
         const locs = cachedLocations as {id:string;code:string;name:string}[]
         setLocations(locs)
-        if (locs[0]) setLocationCode(locs[0].code)
+        // If the user is locked to a location, prefer that. Otherwise use the first.
+        const initial = userLoc.defaultLocationCode && locs.find(l => l.code === userLoc.defaultLocationCode)
+          ? userLoc.defaultLocationCode
+          : (locs[0]?.code ?? '')
+        if (initial) setLocationCode(initial)
       }
 
       await Promise.all([
@@ -155,7 +162,16 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
         cachedAcctMap ? Promise.resolve() : loadAccountMap(),
         loadReceiptSettings(),
         loadWAConfig().then(setWaConfig),
-        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) { setLocations(data); setCache('cs_locations', data); if(data[0]) setLocationCode(data[0].code) } }),
+        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{
+          if(data) {
+            setLocations(data); setCache('cs_locations', data)
+            // Same lock-aware default for the network path
+            const initial = userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)
+              ? userLoc.defaultLocationCode
+              : (data[0]?.code ?? '')
+            if (initial) setLocationCode(initial)
+          }
+        }),
         supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} }),
         loadTodayStats(),
         loadRecentSales(),
@@ -404,6 +420,13 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   }
 
   const post = async () => {
+    // Defence in depth: even if the UI is somehow bypassed (devtools, stale
+    // state, etc.), refuse to post a sale tied to a location the user is not
+    // assigned to. Super admins and unrestricted users skip this check.
+    if (!userLoc.canPostFrom(locationCode)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot post a cash sale from ${locationCode}.`, 'error')
+      return
+    }
     setPosting(true)
     const result = await postCashSale({
       newCustName, waInput, lines, dbProducts, selectedCust,
@@ -724,18 +747,49 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   )}
                 </div>
 
-                {/* STEP 2 — LOCATION */}
+                {/* STEP 2 — LOCATION
+                    Locked users see their assigned location as the only option.
+                    The picker is rendered but every option except theirs is
+                    disabled. Click is also blocked. The intent is to keep the
+                    visual layout consistent (cashiers still see WHERE they're
+                    selling from) without giving them the ability to switch.
+                */}
                 {locations.length > 1 && (
                   <div>
-                    <div className="step-header" style={{ marginBottom: 10 }}><div className="step-num">2</div><div className="step-title">SELL FROM LOCATION</div></div>
+                    <div className="step-header" style={{ marginBottom: 10 }}>
+                      <div className="step-num">2</div>
+                      <div className="step-title">SELL FROM LOCATION</div>
+                      {userLoc.isLocked && (
+                        <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700, fontFamily: 'var(--mono)' }}>
+                          LOCKED TO {userLoc.defaultLocationCode}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      {locations.map(loc => (
-                        <div key={loc.id} onClick={() => setLocationCode(loc.code)}
-                          style={{ flex: 1, padding: '10px 12px', border: `2px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface2)', transition: 'all .15s' }}>
-                          <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800, color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}</div>
-                          <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{loc.name}</div>
-                        </div>
-                      ))}
+                      {locations.map(loc => {
+                        const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === loc.code
+                        const isSelected = locationCode === loc.code
+                        return (
+                          <div
+                            key={loc.id}
+                            onClick={() => { if (isMine) setLocationCode(loc.code) }}
+                            style={{
+                              flex: 1,
+                              padding: '10px 12px',
+                              border: `2px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+                              borderRadius: 10,
+                              cursor: isMine ? 'pointer' : 'not-allowed',
+                              background: isSelected ? 'var(--accent-dim)' : 'var(--surface2)',
+                              opacity: isMine ? 1 : 0.4,
+                              transition: 'all .15s',
+                            }}
+                            title={isMine ? '' : 'You are not assigned to this location'}
+                          >
+                            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800, color: isSelected ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{loc.name}</div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

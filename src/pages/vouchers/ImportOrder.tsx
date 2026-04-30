@@ -5,6 +5,7 @@ import { FG } from '../../components/FormHelpers'
 import { tzs, today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { useUserLocation } from '../../lib/useUserLocation'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import type { Page } from '../../lib/types'
 
@@ -73,6 +74,7 @@ const EMPTY_LINE: OrderLine = { line_number:1, product_id:'', description:'', qt
 
 export default function ImportOrder({ onNav }: Props) {
   const { user, isSuperAdmin } = useAuth()
+  const userLoc = useUserLocation()
   const [toast, setToast] = useState(''); const [toastType, setToastType] = useState<'success'|'error'>('success')
   const showToast = (m: string, t: 'success'|'error' = 'success') => { setToast(m); setToastType(t) }
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([]); const [products, setProducts] = useState<DBProduct[]>([]); const [accounts, setAccounts] = useState<DBAccount[]>([]); const [orders, setOrders] = useState<ImportOrder[]>([]); const [loading, setLoading] = useState(true)
@@ -109,8 +111,13 @@ export default function ImportOrder({ onNav }: Props) {
     if(s.data) setSuppliers(s.data as DBSupplier[]); if(p.data) setProducts(p.data as DBProduct[]); if(a.data) setAccounts(a.data as DBAccount[]); if(o.data) setOrders(o.data as ImportOrder[])
     if(sl.data) {
       setLocations(sl.data as StockLocation[])
-      // Default receive-location to the first one if not set
-      if (!receiveLocationId && sl.data.length > 0) setReceiveLocationId((sl.data[0] as StockLocation).id)
+      // Locked users always default to their assigned location.
+      // Unrestricted users get the first active location.
+      if (!receiveLocationId && sl.data.length > 0) {
+        const lockedMatch = userLoc.defaultLocationId
+          && (sl.data as StockLocation[]).find(l => l.id === userLoc.defaultLocationId)
+        setReceiveLocationId(lockedMatch ? userLoc.defaultLocationId! : (sl.data[0] as StockLocation).id)
+      }
     }
     setLoading(false)
   }
@@ -483,6 +490,11 @@ export default function ImportOrder({ onNav }: Props) {
     if (!receiveLocationId) { showToast('Select the destination warehouse', 'error'); return }
     const selectedLoc = locations.find(l => l.id === receiveLocationId)
     if (!selectedLoc) { showToast('Selected warehouse not found', 'error'); return }
+    // Defence in depth: locked users cannot receive imports into another location.
+    if (!userLoc.canPostFrom(selectedLoc.code)) {
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot receive imports into ${selectedLoc.code}.`, 'error')
+      return
+    }
     setReceiving(true)
     try {
       const freight = rcvShipment?.freight_cost_tzs || 0
@@ -833,9 +845,22 @@ export default function ImportOrder({ onNav }: Props) {
         <div style={{fontSize:11,color:'var(--text3)',marginBottom:16}}>{rcvShipment?.method==='air'?'Air':'Sea'} cargo{rcvShipment?.agent_name?` via ${rcvShipment.agent_name}`:''}{rcvShipment?.freight_cost_tzs?` · Freight: ${tzs(rcvShipment.freight_cost_tzs)}`:''}</div>
         <div style={{background:'rgba(133,194,190,.06)',border:'1px solid rgba(133,194,190,.15)',borderRadius:8,padding:'10px 12px',marginBottom:16,fontSize:11,color:'var(--text3)'}}>Stock will update immediately at the warehouse you choose. Cost = purchase price + proportional freight per unit.</div>
         <FG label="Receive into warehouse" req>
-          <select className="form-input" value={receiveLocationId} onChange={e=>setReceiveLocationId(e.target.value)}>
+          <select
+            className="form-input"
+            value={receiveLocationId}
+            onChange={e=>setReceiveLocationId(e.target.value)}
+            disabled={userLoc.isLocked}
+            title={userLoc.isLocked ? `Locked to ${userLoc.defaultLocationCode}` : ''}
+          >
             <option value="">— Select warehouse —</option>
-            {locations.map(l => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
+            {locations.map(l => {
+              const isMine = !userLoc.isLocked || userLoc.defaultLocationId === l.id
+              return (
+                <option key={l.id} value={l.id} disabled={!isMine}>
+                  {l.code} — {l.name}{!isMine ? ' (not assigned)' : ''}
+                </option>
+              )
+            })}
           </select>
         </FG>
         {receiveLines.map((rl,i)=>{const rem2=rl.qtyShipped-rl.qtyAlreadyReceived;return(<div key={i} style={{padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
