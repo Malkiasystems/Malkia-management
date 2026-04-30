@@ -10,7 +10,6 @@ import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
-import { useUserLocation } from '../../lib/useUserLocation'
 import { useDataCache } from '../../App'
 import BundlePicker from '../../components/BundlePicker'
 import type { Bundle } from '../../lib/useBundles'
@@ -41,8 +40,6 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [editVoucherData, setEditVoucherData] = useState<any>(null)
   const [appliedBundle, setAppliedBundle] = useState<Bundle | null>(null)
   const { user } = useAuth()
-  // Location lock — locked users see only their assigned location and can't pick another.
-  const userLoc = useUserLocation()
 
   // Customer
   const [waInput, setWaInput] = useState('')
@@ -55,7 +52,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   // Products
   const [dbProducts, setDbProducts] = useState<DBProduct[]>([])
   const [filterCat, setFilterCat] = useState('all')
-  const [lines, setLines] = useState<SaleLine[]>([{ productId: '', name: '', qty: 1, price: 0, amount: 0 }])
+  const [lines, setLines] = useState<SaleLine[]>([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])
   const { groups, catsByGroup } = useCategories()
 
   // Delivery
@@ -149,11 +146,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       if (cachedLocations) {
         const locs = cachedLocations as {id:string;code:string;name:string}[]
         setLocations(locs)
-        // If the user is locked to a location, prefer that. Otherwise use the first.
-        const initial = userLoc.defaultLocationCode && locs.find(l => l.code === userLoc.defaultLocationCode)
-          ? userLoc.defaultLocationCode
-          : (locs[0]?.code ?? '')
-        if (initial) setLocationCode(initial)
+        if (locs[0]) setLocationCode(locs[0].code)
       }
 
       await Promise.all([
@@ -162,16 +155,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
         cachedAcctMap ? Promise.resolve() : loadAccountMap(),
         loadReceiptSettings(),
         loadWAConfig().then(setWaConfig),
-        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{
-          if(data) {
-            setLocations(data); setCache('cs_locations', data)
-            // Same lock-aware default for the network path
-            const initial = userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)
-              ? userLoc.defaultLocationCode
-              : (data[0]?.code ?? '')
-            if (initial) setLocationCode(initial)
-          }
-        }),
+        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) { setLocations(data); setCache('cs_locations', data); if(data[0]) setLocationCode(data[0].code) } }),
         supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} }),
         loadTodayStats(),
         loadRecentSales(),
@@ -222,7 +206,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       .select(`
         *, 
         customers (id, name, whatsapp, crown_points, pregnancy_stage, last_purchase_date, last_purchase_amount, balance),
-        voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category, cost_price, selling_price, qty_on_hand))
+        voucher_lines (id, product_id, qty, unit_price, unit_cost, subtotal, total, products (id, sku, name, category, cost_price, selling_price, qty_on_hand))
       `)
       .eq('id', voucherId)
       .single()
@@ -239,14 +223,24 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
         setNewCustName(voucher.customers.name || '')
       }
       
-      // Set lines
-      const editLines: SaleLine[] = (voucher.voucher_lines || []).map((l: any) => ({
-        productId: l.product_id,
-        name: l.products?.name || '',
-        qty: l.qty,
-        price: l.unit_price,
-        amount: l.total
-      }))
+      // Set lines — recover discountPct from the stored gross/net split.
+      // For lines saved before this feature shipped, subtotal === total
+      // and discountPct comes back as 0, which is correct.
+      const editLines: SaleLine[] = (voucher.voucher_lines || []).map((l: any) => {
+        const gross = Number(l.subtotal ?? (l.qty * l.unit_price))
+        const net = Number(l.total ?? gross)
+        const discountPct = gross > 0 && net < gross
+          ? Math.round(((gross - net) / gross) * 100 * 100) / 100   // keep 2 decimals
+          : 0
+        return {
+          productId: l.product_id,
+          name: l.products?.name || '',
+          qty: l.qty,
+          price: l.unit_price,
+          discountPct,
+          amount: net,
+        }
+      })
       if (editLines.length > 0) setLines(editLines)
       
       // Set payment method
@@ -344,15 +338,34 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     const nl = [...lines]; nl[i] = { ...nl[i], [field]: val }
     if (field === 'productId') {
       const p = dbProducts.find(p => p.id === val)
-      if (p) { nl[i].name = p.name; nl[i].price = p.selling_price; nl[i].amount = nl[i].qty * p.selling_price }
+      if (p) {
+        nl[i].name = p.name
+        nl[i].price = p.selling_price
+        // Reset discount when picking a new product so we don't silently
+        // carry over a discount the cashier set for the previous item.
+        nl[i].discountPct = 0
+      }
     }
-    if (field === 'qty') nl[i].amount = (val as number) * nl[i].price
-    if (field === 'price') nl[i].amount = nl[i].qty * (val as number)
+    // Recompute amount = qty × price × (1 − discountPct / 100) on every relevant edit
+    if (field === 'qty' || field === 'price' || field === 'discountPct' || field === 'productId') {
+      const qty = nl[i].qty || 0
+      const price = nl[i].price || 0
+      const dp = Math.max(0, Math.min(100, nl[i].discountPct || 0))
+      nl[i].discountPct = dp
+      nl[i].amount = qty * price * (1 - dp / 100)
+    }
     setLines(nl)
   }
 
   // Totals
+  // grossSubtotal = sum of (qty × price) BEFORE per-line discounts.
+  // subtotal      = sum of line.amount (already net of per-line discount).
+  // discountGiven = grossSubtotal − subtotal. Surfaced in the totals panel
+  //                 so the cashier can see at a glance what discount they've
+  //                 applied across the whole sale.
+  const grossSubtotal = lines.reduce((s, l) => s + (l.qty * l.price), 0)
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
+  const discountGiven = Math.max(0, grossSubtotal - subtotal)
   const deliveryTotal = (parseFloat(townDelivery) || 0) + (parseFloat(upcountryShipping) || 0)
   const total = subtotal + deliveryTotal
   const crownPoints = Math.round(subtotal / 1000)
@@ -372,7 +385,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
   const resetForm = () => {
     setWaInput(''); setNewCustName(''); setSelectedCust(null)
-    setLines([{ productId: '', name: '', qty: 1, price: 0, amount: 0 }])
+    setLines([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])
     setSelectedMethod('cash'); setIsSplit(false); setSplitLines([])
     setTendered(''); setPaymentRef(''); setIsPOD(false)
     setTownDelivery(''); setUpcountryShipping(''); setShowDelivery(false)
@@ -420,13 +433,6 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   }
 
   const post = async () => {
-    // Defence in depth: even if the UI is somehow bypassed (devtools, stale
-    // state, etc.), refuse to post a sale tied to a location the user is not
-    // assigned to. Super admins and unrestricted users skip this check.
-    if (!userLoc.canPostFrom(locationCode)) {
-      showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot post a cash sale from ${locationCode}.`, 'error')
-      return
-    }
     setPosting(true)
     const result = await postCashSale({
       newCustName, waInput, lines, dbProducts, selectedCust,
@@ -747,49 +753,18 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   )}
                 </div>
 
-                {/* STEP 2 — LOCATION
-                    Locked users see their assigned location as the only option.
-                    The picker is rendered but every option except theirs is
-                    disabled. Click is also blocked. The intent is to keep the
-                    visual layout consistent (cashiers still see WHERE they're
-                    selling from) without giving them the ability to switch.
-                */}
+                {/* STEP 2 — LOCATION */}
                 {locations.length > 1 && (
                   <div>
-                    <div className="step-header" style={{ marginBottom: 10 }}>
-                      <div className="step-num">2</div>
-                      <div className="step-title">SELL FROM LOCATION</div>
-                      {userLoc.isLocked && (
-                        <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700, fontFamily: 'var(--mono)' }}>
-                          LOCKED TO {userLoc.defaultLocationCode}
-                        </span>
-                      )}
-                    </div>
+                    <div className="step-header" style={{ marginBottom: 10 }}><div className="step-num">2</div><div className="step-title">SELL FROM LOCATION</div></div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      {locations.map(loc => {
-                        const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === loc.code
-                        const isSelected = locationCode === loc.code
-                        return (
-                          <div
-                            key={loc.id}
-                            onClick={() => { if (isMine) setLocationCode(loc.code) }}
-                            style={{
-                              flex: 1,
-                              padding: '10px 12px',
-                              border: `2px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
-                              borderRadius: 10,
-                              cursor: isMine ? 'pointer' : 'not-allowed',
-                              background: isSelected ? 'var(--accent-dim)' : 'var(--surface2)',
-                              opacity: isMine ? 1 : 0.4,
-                              transition: 'all .15s',
-                            }}
-                            title={isMine ? '' : 'You are not assigned to this location'}
-                          >
-                            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800, color: isSelected ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}</div>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{loc.name}</div>
-                          </div>
-                        )
-                      })}
+                      {locations.map(loc => (
+                        <div key={loc.id} onClick={() => setLocationCode(loc.code)}
+                          style={{ flex: 1, padding: '10px 12px', border: `2px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface2)', transition: 'all .15s' }}>
+                          <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800, color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{loc.name}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -800,7 +775,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   {appliedBundle && (
                     <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,229,160,.3)', borderRadius: 8, padding: '6px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
                       <span style={{ color: 'var(--green)', fontWeight: 600 }}>Bundle applied: {appliedBundle.name} · Save {tzs(appliedBundle.individual_total - appliedBundle.bundle_price)}</span>
-                      <button onClick={() => { setAppliedBundle(null); setLines([{ productId: '', name: '', qty: 1, price: 0, amount: 0 }]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 10, textDecoration: 'underline' }}>Clear</button>
+                      <button onClick={() => { setAppliedBundle(null); setLines([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 10, textDecoration: 'underline' }}>Clear</button>
                     </div>
                   )}
                   {/* Category filter strip */}
@@ -818,22 +793,47 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                         })
                       : dbProducts.filter(p => p.category === filterCat)
                     return (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 48px 90px auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 48px 90px 64px auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
                       <select className="form-input" style={{ fontSize: 12 }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
                         <option value="">— Select product —</option>
                         {visibleProducts.map(p => <option key={p.id} value={p.id}>{p.name} · {tzs(p.selling_price)} · Stk:{p.qty_on_hand}</option>)}
                       </select>
                       <input type="number" className="form-input" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700 }} min={1} value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
                       <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'right' }} value={line.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)} />
+                      {/* Per-line discount % (0–100). Empty/zero = no discount. */}
+                      <input
+                        type="number"
+                        className="form-input"
+                        style={{
+                          fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'right',
+                          // Subtle highlight when a discount is active so the cashier
+                          // can spot it at a glance — easy to forget you typed 50%.
+                          color: line.discountPct > 0 ? 'var(--accent)' : undefined,
+                          fontWeight: line.discountPct > 0 ? 700 : 400,
+                        }}
+                        min={0}
+                        max={100}
+                        step={1}
+                        placeholder="0%"
+                        value={line.discountPct || ''}
+                        onChange={e => {
+                          const v = parseFloat(e.target.value)
+                          updateLine(i, 'discountPct', isNaN(v) ? 0 : v)
+                        }}
+                        title="Discount % for this line (0–100)"
+                      />
                       {lines.length > 1 ? <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button> : <div />}
                     </div>
                     )
                   })}
-                  <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>PRODUCT · QTY · PRICE (editable for custom amounts)</div>
+                  <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>PRODUCT · QTY · PRICE · DISC% (0 = no discount)</div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, amount: 0 }])}>+ Add item</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])}>+ Add item</button>
                     <BundlePicker onApply={(bundleLines, bundle) => {
-                      setLines(bundleLines)
+                      // BundlePicker emits its own ApplyLine[] shape (no discount field).
+                      // Map to SaleLine here so the discount column on each new line
+                      // starts at 0% rather than undefined.
+                      setLines(bundleLines.map(bl => ({ ...bl, discountPct: 0 })))
                       setAppliedBundle(bundle)
                     }} />
                   </div>
@@ -955,7 +955,31 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
                 {/* TOTALS */}
                 <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Products subtotal</span><span style={{ fontFamily: 'var(--mono)' }}>{subtotal.toLocaleString()}</span></div>
+                  {/* When at least one line has a discount, surface gross + discount + net.
+                      When nothing is discounted, keep the panel as compact as before. */}
+                  {discountGiven > 0 ? (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}>
+                        <span style={{ color: 'var(--text3)' }}>Gross subtotal (before discount)</span>
+                        <span style={{ fontFamily: 'var(--mono)' }}>{grossSubtotal.toLocaleString()}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}>
+                        <span style={{ color: 'var(--accent)' }}>
+                          Discount given ({grossSubtotal > 0 ? Math.round((discountGiven / grossSubtotal) * 100) : 0}%)
+                        </span>
+                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>−{discountGiven.toLocaleString()}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', borderTop: '1px dashed var(--border)', marginTop: 4, paddingTop: 6 }}>
+                        <span style={{ color: 'var(--text2)' }}>Net products subtotal</span>
+                        <span style={{ fontFamily: 'var(--mono)', fontWeight: 700 }}>{subtotal.toLocaleString()}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}>
+                      <span style={{ color: 'var(--text3)' }}>Products subtotal</span>
+                      <span style={{ fontFamily: 'var(--mono)' }}>{subtotal.toLocaleString()}</span>
+                    </div>
+                  )}
                   {deliveryTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Delivery → Float 2085</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{deliveryTotal.toLocaleString()}</span></div>}
                   {margin > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 800, padding: '12px 0 0', borderTop: '1px solid var(--border2)', marginTop: 8 }}>
