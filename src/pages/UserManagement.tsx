@@ -41,6 +41,17 @@ interface User {
   is_away: boolean
   permissions: string[]
   created_at: string
+  // NULL = user can operate from any location.
+  // Set = user is locked to this single stock_locations.id.
+  allowed_location_id?: string | null
+}
+
+interface StockLocationOption {
+  id: string
+  code: string
+  name: string
+  branch_code: string
+  is_active: boolean
 }
 
 // Permission structure grouped by module
@@ -201,17 +212,27 @@ export default function UserManagement({ onNav }: Props) {
     phone: '',
     is_approver: false,
     permissions: [] as string[],
+    // NULL/empty string = unrestricted (all locations).
+    // Set = locked to this stock_locations.id.
+    allowed_location_id: '' as string,
   })
+
+  // Stock locations for the location-lock dropdown.
+  // Loaded once on mount; rarely changes.
+  const [locations, setLocations] = useState<StockLocationOption[]>([])
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
     setLoading(true)
 
-    const { data: usersData, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('full_name')
+    const [{ data: usersData, error }, { data: locsData }] = await Promise.all([
+      supabase.from('users').select('*').order('full_name'),
+      // Active locations only — we don't want a deactivated location showing
+      // up as a lock target. The dropdown also includes "All locations" for
+      // unrestricted users.
+      supabase.from('stock_locations').select('id, code, name, branch_code, is_active').eq('is_active', true).order('code'),
+    ])
 
     if (error) {
       console.error('Error loading users:', error)
@@ -228,6 +249,8 @@ export default function UserManagement({ onNav }: Props) {
       setUsers(usersWithPerms)
     }
 
+    if (locsData) setLocations(locsData)
+
     setLoading(false)
   }
 
@@ -242,7 +265,7 @@ export default function UserManagement({ onNav }: Props) {
 
   const openNewUser = () => {
     setEditingUser(null)
-    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view_own'] })
+    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view_own'], allowed_location_id: '' })
     setActiveTab('details')
     setExpandedGroups([])
     setShowModal(true)
@@ -257,6 +280,7 @@ export default function UserManagement({ onNav }: Props) {
       phone: user.phone || '',
       is_approver: user.is_approver,
       permissions: user.permissions,
+      allowed_location_id: user.allowed_location_id ?? '',
     })
     setActiveTab('details')
     setExpandedGroups([])
@@ -324,6 +348,10 @@ export default function UserManagement({ onNav }: Props) {
       return
     }
 
+    // Empty string from the "All locations" option means NULL in the DB.
+    // The DB column is a UUID FK to stock_locations(id) and accepts NULL.
+    const allowedLocationId = formData.allowed_location_id ? formData.allowed_location_id : null
+
     if (editingUser) {
       // Update existing user with permissions in the same call
       const { error } = await supabase
@@ -335,6 +363,7 @@ export default function UserManagement({ onNav }: Props) {
           phone: formData.phone || null,
           is_approver: formData.is_approver,
           permissions: formData.permissions,
+          allowed_location_id: allowedLocationId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', editingUser.id)
@@ -357,6 +386,7 @@ export default function UserManagement({ onNav }: Props) {
           is_approver: formData.is_approver,
           is_active: true,
           permissions: formData.permissions,
+          allowed_location_id: allowedLocationId,
         })
 
       if (error) {
@@ -495,6 +525,7 @@ export default function UserManagement({ onNav }: Props) {
               <tr>
                 <th style={s.th}>User</th>
                 <th style={s.th}>Permissions</th>
+                <th style={s.th}>Location</th>
                 <th style={s.th}>Status</th>
                 <th style={s.th}>Approver</th>
                 <th style={{ ...s.th, textAlign: 'right' }}>Actions</th>
@@ -524,6 +555,21 @@ export default function UserManagement({ onNav }: Props) {
                   </td>
                   <td style={s.td}>
                     <span style={s.permBadge}>{user.permissions.length} permissions</span>
+                  </td>
+                  <td style={s.td}>
+                    {user.allowed_location_id ? (
+                      (() => {
+                        const loc = locations.find(l => l.id === user.allowed_location_id)
+                        return (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--mono)', background: '#f59e0b15', color: '#f59e0b', fontWeight: 600 }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                            {loc ? loc.code : 'Locked'}
+                          </span>
+                        )
+                      })()
+                    ) : (
+                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>All locations</span>
+                    )}
                   </td>
                   <td style={s.td}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -631,6 +677,37 @@ export default function UserManagement({ onNav }: Props) {
                     />
                     <span>Can approve requests (discounts, refunds, etc.)</span>
                   </label>
+                </div>
+
+                {/* ─── Location lock ────────────────────────────────────────
+                    NULL/empty = unrestricted: user can post vouchers and
+                    make inventory changes from any location, AND can
+                    approve transfer requests from any source location.
+                    Set = locked: user can only post vouchers tied to this
+                    location. Stock transfers can only originate FROM this
+                    location (they can transfer OUT to anywhere, but cannot
+                    pull stock IN — for that they must request a transfer).
+                    They can still VIEW inventory at every location.
+                    ──────────────────────────────────────────────────────── */}
+                <div style={s.formGroup}>
+                  <label style={s.label}>Location lock</label>
+                  <select
+                    style={s.input}
+                    value={formData.allowed_location_id}
+                    onChange={e => setFormData(prev => ({ ...prev, allowed_location_id: e.target.value }))}
+                  >
+                    <option value="">All locations (unrestricted)</option>
+                    {locations.map(loc => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.code} — {loc.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, lineHeight: 1.5 }}>
+                    {formData.allowed_location_id
+                      ? 'This user can ONLY post vouchers and adjust stock at the selected location. They can transfer stock OUT to any other location, request transfers IN, and view inventory anywhere — but cannot pull stock from a different location directly.'
+                      : 'This user can operate from any location. Use this for managers, super admins, and multi-site staff.'}
+                  </div>
                 </div>
               </>
             ) : (

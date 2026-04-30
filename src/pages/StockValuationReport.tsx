@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
+import { useUserLocation } from '../lib/useUserLocation'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
 interface StockItem { id: string; sku: string; name: string; category: string; unit: string; qty_on_hand: number; cost_price: number; selling_price: number; value: number; potential_revenue: number; margin: number }
+interface StockLoc { id: string; code: string; name: string }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -15,20 +17,48 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 }
 
 export default function StockValuationReport() {
+  const userLoc = useUserLocation()
   const [items, setItems] = useState<StockItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showExport, setShowExport] = useState(false)
   const [filterCat, setFilterCat] = useState('all')
+  // Location filter — 'all' shows global qty (sum across locations as stored
+  // on products.qty_on_hand). Specific code filters to that location's per-
+  // product qty using the product_locations table.
+  const [filterLoc, setFilterLoc] = useState('all')
+  const [locations, setLocations] = useState<StockLoc[]>([])
+  // Cache: productId → { locCode → qty }
+  const [perLoc, setPerLoc] = useState<Record<string, Record<string, number>>>({})
   const [asAt] = useState(new Date().toISOString().split('T')[0])
   const { categories } = useCategories()
 
   useEffect(() => { load() }, [])
 
+  // Default the filter to user's locked location once locations are known.
+  useEffect(() => {
+    if (userLoc.defaultLocationCode && locations.find(l => l.code === userLoc.defaultLocationCode)) {
+      setFilterLoc(userLoc.defaultLocationCode)
+    }
+  }, [userLoc.defaultLocationCode, locations.length])
+
   const load = async () => {
     setLoading(true)
-    const { data } = await supabase.from('products').select('id, sku, name, category, unit, qty_on_hand, cost_price, selling_price').eq('is_active', true).order('category').order('name')
-    if (data) {
-      setItems(data.map(p => ({
+    const [{ data: prods }, { data: locs }, { data: perLocRows }] = await Promise.all([
+      supabase.from('products').select('id, sku, name, category, unit, qty_on_hand, cost_price, selling_price').eq('is_active', true).order('category').order('name'),
+      supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code'),
+      supabase.from('product_locations').select('product_id, location_code, qty_on_hand'),
+    ])
+    if (locs) setLocations(locs)
+    if (perLocRows) {
+      const map: Record<string, Record<string, number>> = {}
+      perLocRows.forEach((r: any) => {
+        if (!map[r.product_id]) map[r.product_id] = {}
+        map[r.product_id][r.location_code] = r.qty_on_hand || 0
+      })
+      setPerLoc(map)
+    }
+    if (prods) {
+      setItems(prods.map(p => ({
         ...p,
         value: p.qty_on_hand * p.cost_price,
         potential_revenue: p.qty_on_hand * p.selling_price,
@@ -38,8 +68,25 @@ export default function StockValuationReport() {
     setLoading(false)
   }
 
+  // When a location is picked, replace each item's qty / value / revenue
+  // with that location's qty. Items not stocked at that location drop out.
+  const effectiveItems: StockItem[] = filterLoc === 'all'
+    ? items
+    : items
+        .map(i => {
+          const q = perLoc[i.id]?.[filterLoc]
+          if (q === undefined) return null  // not stocked here at all → omit
+          return {
+            ...i,
+            qty_on_hand: q,
+            value: q * i.cost_price,
+            potential_revenue: q * i.selling_price,
+          }
+        })
+        .filter((x): x is StockItem => x !== null)
+
   const catPredicate = makeCategoryPredicate(filterCat, categories)
-  const filtered = filterCat === 'all' ? items : items.filter(i => catPredicate(i.category))
+  const filtered = filterCat === 'all' ? effectiveItems : effectiveItems.filter(i => catPredicate(i.category))
   const totalValue = filtered.reduce((s, i) => s + i.value, 0)
   const totalRevPotential = filtered.reduce((s, i) => s + i.potential_revenue, 0)
   const totalPotentialGP = totalRevPotential - totalValue
@@ -64,6 +111,17 @@ export default function StockValuationReport() {
         </div>
         <div className="page-actions">
           <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ fontSize: 12, padding: '6px 10px' }} />
+          <select
+            className="form-input"
+            style={{ fontSize: 12, padding: '6px 10px', minWidth: 140 }}
+            value={filterLoc}
+            onChange={e => setFilterLoc(e.target.value)}
+          >
+            <option value="all">All Locations</option>
+            {locations.map(l => (
+              <option key={l.id} value={l.code}>{l.code} — {l.name}</option>
+            ))}
+          </select>
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
           <div style={{ position:'relative' }}>
             <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => setShowExport(!showExport)}><Ic n="pdf" /> Export</button>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
+import { useUserLocation } from '../lib/useUserLocation'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
 interface TransferRecord {
@@ -30,6 +31,7 @@ const parseLocations = (notes: string) => {
 }
 
 export default function StockTransferRegister() {
+  const userLoc = useUserLocation()
   const [records, setRecords] = useState<TransferRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
@@ -42,8 +44,19 @@ export default function StockTransferRegister() {
   useEffect(() => {
     load()
     supabase.from('stock_locations').select('code,name').eq('is_active', true).order('code')
-      .then(({ data }) => { if (data) setLocations(data) })
-  }, [])
+      .then(({ data }) => {
+        if (data) {
+          setLocations(data)
+          // Locked users default to filtering by their assigned location.
+          // Reports stay global by default per Joe's design call, but stock
+          // transfer history is genuinely location-scoped so a sensible
+          // default helps. The user can flip to 'all' anytime.
+          if (userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)) {
+            setLocFilter(userLoc.defaultLocationCode)
+          }
+        }
+      })
+  }, [userLoc.defaultLocationCode])
 
   const load = async (from?: string, to?: string) => {
     const f = from || fromDate

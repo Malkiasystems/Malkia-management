@@ -6,6 +6,7 @@ import { getStatus, tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter from '../components/CategoryFilter'
 import { makeCategoryPredicate } from '../components/CategoryFilter'
+import { useUserLocation } from '../lib/useUserLocation'
 import type { Page } from '../lib/types'
 
 interface DBProduct {
@@ -55,6 +56,7 @@ const ENTRY_TYPE_LABELS: Record<string, { label: string; color: string; dr: stri
 }
 
 export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
+  const userLoc = useUserLocation()
   const [products, setProducts] = useState<DBProduct[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [search, setSearch] = useState('')
@@ -108,7 +110,15 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
 
   const loadLocations = async () => {
     const { data } = await supabase.from('stock_locations').select('id, code, name, branch_code').eq('is_active', true).order('code')
-    if (data) setLocations(data)
+    if (data) {
+      setLocations(data)
+      // Locked users default to viewing their own location's stock first.
+      // They can switch to "All Locations" via the dropdown to view summaries
+      // from elsewhere — they just can't post against another location.
+      if (userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)) {
+        setFilterLoc(userLoc.defaultLocationCode)
+      }
+    }
   }
 
   const openLedger = async (p: DBProduct) => {
