@@ -573,6 +573,172 @@ async function executeSalesReturn(c: ExecuteContext): Promise<ExecutorResult> {
   return { success: true, voucherId: c.referenceId }
 }
 
+// ─── Cash Sale ─────────────────────────────────────────────────────────────
+// When a cash sale is gated for approval (e.g. by sales_discount), the
+// page will create a 'pending_approval' voucher and stash the snapshot
+// payload below. Approval here re-executes the post by delegating to
+// postCashSale() — the same code path the live cashier uses.
+//
+// Why delegate rather than inline the journal logic? Cash sale's posting
+// flow is non-trivial (split payments, delivery floats, cash drawer, customer
+// upserts, ledger entries, bundle logging, receipt generation) and lives in
+// lib/cashSalePost.ts. Re-implementing it here would drift over time.
+//
+// The trade-off: postCashSale creates a NEW voucher row. So after success,
+// we need to delete the old 'pending_approval' voucher row that was created
+// when the request was submitted, then return the NEW voucher id.
+async function executeCashSale(c: ExecuteContext): Promise<ExecutorResult> {
+  // Lazy-import to avoid a circular dep between cashSalePost <-> approvalExecutor
+  const { postCashSale } = await import('./cashSalePost')
+
+  const p = c.payload as {
+    // Mirrors PostParams in cashSalePost.ts. The submitForApproval call
+    // (to be wired in CashSale.tsx in a later session) will store exactly
+    // these fields. We accept any shape and pass through.
+    params: any
+  }
+
+  if (!p.params) {
+    return { success: false, error: 'Cash sale payload missing `params`' }
+  }
+
+  // Re-post the sale — same code path as the cashier-driven create.
+  const result = await postCashSale({ ...p.params, userName: c.executedByName })
+
+  if (!result.success) {
+    return { success: false, error: result.error || 'Cash sale post failed on approval' }
+  }
+
+  // The new posted voucher has a fresh ID. The old pending_approval row
+  // referenced by c.referenceId is now redundant — delete it so it doesn't
+  // pollute registers. (If the row was somehow already removed, the delete
+  // is a no-op.)
+  await supabase.from('vouchers').delete().eq('id', c.referenceId).eq('status', 'pending_approval')
+
+  // Resolve the new voucher's UUID by ref — postCashSale returns the ref
+  // string but not the id directly.
+  const { data: newRow } = await supabase
+    .from('vouchers').select('id').eq('ref', result.ref!).maybeSingle()
+
+  return { success: true, voucherId: newRow?.id ?? c.referenceId }
+}
+
+// ─── Cash Payment ──────────────────────────────────────────────────────────
+// Dr expense / Cr cash account. Mirrors the page-side post() in CashPayment.tsx.
+async function executeCashPayment(c: ExecuteContext): Promise<ExecutorResult> {
+  const p = c.payload as {
+    form: { date: string; ref: string; paidTo: string; notes?: string }
+    /** lines[].accountId is the EXPENSE account being debited */
+    lines: Array<{ desc: string; amount: number; accountId: string }>
+    /** UUID of the cash account being credited */
+    cashAccountId: string
+    total: number
+  }
+
+  if (!p.cashAccountId) {
+    return { success: false, error: 'Cash account id missing in payload' }
+  }
+
+  const { data: journal, error: jErr } = await insertJournalWithRetry({
+    ref: 'JV-' + p.form.ref,
+    posting_date: p.form.date,
+    description: `Cash Payment — ${p.form.paidTo}`,
+    journal_type: 'cash_payment',
+    source_type: 'cash_payment',
+    source_ref: p.form.ref,
+    posted_by: c.executedByName,
+    status: 'posted',
+  })
+  if (jErr || !journal) return { success: false, error: 'Journal: ' + (jErr?.message || 'unknown') }
+
+  const jLines: any[] = []
+  let lnNum = 1
+  for (const line of p.lines) {
+    if (!line.amount || !line.accountId) continue
+    jLines.push({
+      journal_id: journal.id, line_number: lnNum++, account_id: line.accountId,
+      description: line.desc || `Cash payment to ${p.form.paidTo}`,
+      debit: line.amount, credit: 0,
+    })
+  }
+  jLines.push({
+    journal_id: journal.id, line_number: lnNum, account_id: p.cashAccountId,
+    description: `Cash out — ${p.form.paidTo}`,
+    debit: 0, credit: p.total,
+  })
+
+  const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
+  if (jlErr) return { success: false, error: 'Journal lines: ' + jlErr.message }
+
+  await Promise.all(jLines.map(l =>
+    supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })
+  ))
+
+  await supabase.from('vouchers')
+    .update({
+      status: 'posted', journal_id: journal.id, posted_by: c.executedByName,
+      posted_at: new Date().toISOString(), notes: p.form.notes,
+    })
+    .eq('id', c.referenceId)
+
+  return { success: true, voucherId: c.referenceId }
+}
+
+// ─── Journal Entry ─────────────────────────────────────────────────────────
+// Free-form Dr/Cr entries. The page collects an array of {accountId, debit, credit, narration}
+// rows. The executor just writes them verbatim; the page-side post() already validated
+// that debits = credits. Trusts the snapshot.
+async function executeJournalEntry(c: ExecuteContext): Promise<ExecutorResult> {
+  const p = c.payload as {
+    form: { date: string; ref: string; narration: string; notes?: string }
+    lines: Array<{ accountId: string; debit: number; credit: number; description?: string }>
+    total: number   // sum of debits (== sum of credits)
+  }
+
+  // Sanity: balanced?
+  const totalDr = p.lines.reduce((s, l) => s + (l.debit || 0), 0)
+  const totalCr = p.lines.reduce((s, l) => s + (l.credit || 0), 0)
+  if (Math.abs(totalDr - totalCr) > 0.01) {
+    return { success: false, error: `Journal entry not balanced (Dr ${totalDr} ≠ Cr ${totalCr})` }
+  }
+
+  const { data: journal, error: jErr } = await insertJournalWithRetry({
+    ref: p.form.ref,
+    posting_date: p.form.date,
+    description: p.form.narration || `Journal Entry — ${p.form.ref}`,
+    journal_type: 'journal_entry',
+    source_type: 'journal_entry',
+    source_ref: p.form.ref,
+    posted_by: c.executedByName,
+    status: 'posted',
+  })
+  if (jErr || !journal) return { success: false, error: 'Journal: ' + (jErr?.message || 'unknown') }
+
+  const jLines = p.lines
+    .filter(l => l.accountId && (l.debit > 0 || l.credit > 0))
+    .map((l, i) => ({
+      journal_id: journal.id, line_number: i + 1, account_id: l.accountId,
+      description: l.description || p.form.narration,
+      debit: l.debit || 0, credit: l.credit || 0,
+    }))
+
+  const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
+  if (jlErr) return { success: false, error: 'Journal lines: ' + jlErr.message }
+
+  await Promise.all(jLines.map(l =>
+    supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })
+  ))
+
+  await supabase.from('vouchers')
+    .update({
+      status: 'posted', journal_id: journal.id, posted_by: c.executedByName,
+      posted_at: new Date().toISOString(), notes: p.form.notes,
+    })
+    .eq('id', c.referenceId)
+
+  return { success: true, voucherId: c.referenceId }
+}
+
 // ─── Registry ──────────────────────────────────────────────────────────────
 type Executor = (c: ExecuteContext) => Promise<ExecutorResult>
 
@@ -586,6 +752,13 @@ const EXECUTORS: Record<string, Executor> = {
   'bank_transfer':        executeBankTransfer,
   'credit_note':          executeCreditNote,
   'sales_return':         executeSalesReturn,
+  // Newly registered — ready for when the page-side gates are wired.
+  // The 'sales_discount' approval code dispatches to the cash sale executor
+  // because that's where the gated post lives. Same payload shape.
+  'cash_sale':            executeCashSale,
+  'sales_discount':       executeCashSale,
+  'cash_payment':         executeCashPayment,
+  'journal_entry':        executeJournalEntry,
 }
 
 // ─── Main entry point ──────────────────────────────────────────────────────

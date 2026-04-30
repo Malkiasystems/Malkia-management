@@ -216,7 +216,11 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     for (const line of lines) {
       if (!line.productId || !line.price) continue
       const prod = dbProducts.find(p => p.id === line.productId)
-      if (prod && line.price < prod.cost_price) return { success: false, error: `Selling ${prod.name} below cost price. Adjust price or change settings.` }
+      // Effective price = net amount per unit AFTER any line-level discount.
+      // We check this rather than line.price so a deep discount that pushes
+      // the unit price below cost is also caught.
+      const effectivePrice = line.qty > 0 ? line.amount / line.qty : line.price
+      if (prod && effectivePrice < prod.cost_price) return { success: false, error: `Selling ${prod.name} below cost price (effective TZS ${Math.round(effectivePrice).toLocaleString()} vs cost TZS ${prod.cost_price.toLocaleString()}). Adjust price/discount or change settings.` }
     }
   }
   if (invSettings?.warn_below_min_margin) {
@@ -224,7 +228,9 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       if (!line.productId || !line.price) continue
       const prod = dbProducts.find(p => p.id === line.productId)
       if (prod && prod.selling_price > 0) {
-        const margin = ((line.price - prod.cost_price) / line.price) * 100
+        // Same reasoning — check the effective unit price after discount.
+        const effectivePrice = line.qty > 0 ? line.amount / line.qty : line.price
+        const margin = effectivePrice > 0 ? ((effectivePrice - prod.cost_price) / effectivePrice) * 100 : 0
         if (margin < (invSettings.global_min_margin || 0)) return { success: false, error: `Warning: ${prod.name} margin is ${Math.round(margin)}% — below minimum ${invSettings.global_min_margin}%` }
       }
     }
@@ -337,7 +343,22 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]; if (!line.productId) continue
       const prod = dbProducts.find(p => p.id === line.productId); if (!prod) continue
-      await supabase.from('voucher_lines').insert({ voucher_id: voucher.id, line_number: i + 1, product_id: line.productId, description: line.name, qty: line.qty, unit_cost: prod.cost_price, unit_price: line.price, subtotal: line.amount, total: line.amount })
+      // subtotal = qty × unit_price (gross, before line discount)
+      // total    = line.amount (net, after line discount)
+      // The split between the two columns is what tells reports how much
+      // discount was given — `subtotal - total`.
+      const grossLineAmount = line.qty * line.price
+      await supabase.from('voucher_lines').insert({
+        voucher_id: voucher.id,
+        line_number: i + 1,
+        product_id: line.productId,
+        description: line.name,
+        qty: line.qty,
+        unit_cost: prod.cost_price,
+        unit_price: line.price,
+        subtotal: grossLineAmount,
+        total: line.amount,
+      })
 
       // Atomic stock deduction — if another cashier grabbed the last unit, this fails safely
       if (invSettings?.block_negative_stock) {
@@ -439,7 +460,15 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp, pregnancy_stage: selectedCust.pregnancy_stage, crown_points: (selectedCust.crown_points || 0) + crownPoints } : { name: newCustName, whatsapp: waInput, pregnancy_stage: '', crown_points: crownPoints },
         voucher_lines: lines.filter(l => l.productId).map(l => {
           const prod = dbProducts.find(p => p.id === l.productId)
-          return { qty: l.qty, unit_price: l.price, total: l.amount, products: prod ? { name: prod.name, sku: prod.sku, category: '' } : null }
+          return {
+            qty: l.qty,
+            unit_price: l.price,
+            // gross before line discount — used by the receipt to show
+            // "less X% off" when subtotal > total.
+            subtotal: l.qty * l.price,
+            total: l.amount,
+            products: prod ? { name: prod.name, sku: prod.sku, category: '' } : null,
+          }
         }),
       }
       return { success: true, ref, receiptData, isPOD: false }
@@ -563,10 +592,11 @@ export async function updateCashSale(params: UpdateParams): Promise<{ success: b
       const line = lineItems[i]
       const prod = dbProducts.find(p => p.id === line.productId)
       if (!prod) continue
+      const grossLineAmount = line.qty * line.price
       await supabase.from('voucher_lines').insert({
         voucher_id: voucherId, line_number: i + 1, product_id: line.productId,
         description: line.name, qty: line.qty, unit_cost: prod.cost_price,
-        unit_price: line.price, subtotal: line.amount, total: line.amount,
+        unit_price: line.price, subtotal: grossLineAmount, total: line.amount,
       })
       const currentQty = prod.qty_on_hand + (oldLines.find((ol: any) => ol.product_id === line.productId)?.qty || 0)
       await supabase.from('products').update({ qty_on_hand: currentQty - line.qty }).eq('id', line.productId)

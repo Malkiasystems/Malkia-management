@@ -15,7 +15,28 @@ export interface DBCustomer {
 }
 
 export interface SaleLine {
-  productId: string; name: string; qty: number; price: number; amount: number
+  productId: string
+  name: string
+  qty: number
+  /**
+   * Price BEFORE any line-level discount is applied. Cashiers can still
+   * type a custom price here for a free-form override; the discountPct
+   * field is layered on top of that.
+   */
+  price: number
+  /**
+   * Per-line discount in PERCENT (0-100). Defaults to 0.
+   * Applied to (qty × price) to compute the final amount.
+   * Stored separately so reports can show "discount given" totals
+   * and so the future approval gate can compare to a threshold.
+   */
+  discountPct: number
+  /**
+   * Final line amount after discount. Always equals
+   *   qty × price × (1 - discountPct/100)
+   * Kept in state to avoid recomputing on every render.
+   */
+  amount: number
 }
 
 export interface SplitLine {
