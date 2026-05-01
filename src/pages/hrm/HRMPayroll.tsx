@@ -74,57 +74,271 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
     advDed: acc.advDed + l.advanceDeduction,
   }), { gross: 0, paye: 0, nssfEe: 0, nssfEr: 0, sdl: 0, net: 0, advDed: 0 })
 
+  /**
+   * Wipe a previously-posted payroll run cleanly.
+   *
+   * Order matters here. Account balances must be reversed BEFORE the
+   * underlying journal_lines are deleted, otherwise we lose the figures
+   * needed for the reversal. Salary advances must be restored BEFORE the
+   * payroll lines are deleted, since the lines hold the advance_deduction
+   * amounts we need to add back.
+   *
+   * Steps:
+   *   1. Pull the old journal id from the payroll run.
+   *   2. Pull all journal_lines for that journal — these are the source
+   *      of truth for what hit the GL.
+   *   3. Reverse each line's balance impact (call update_account_balance
+   *      with negated debit/credit).
+   *   4. Restore salary advances using the per-line advance_deduction
+   *      figures from hrm_payroll_lines.
+   *   5. Delete journal_lines, then the journal row.
+   *   6. Delete the voucher row that mirrored the journal.
+   *   7. Delete hrm_payroll_lines for this run.
+   *   8. Delete the hrm_payroll_runs row itself.
+   *
+   * If anything throws partway through, we surface it to the caller so
+   * the user sees a real error instead of a half-cleaned database. There
+   * is no automatic compensating rollback — the operations aren't all
+   * reversible without a transaction, and Supabase RPCs don't span
+   * multiple table writes from the JS client. In practice the steps are
+   * ordered so that an early failure leaves the data more-or-less intact.
+   */
+  const purgeExistingRun = async (runId: string) => {
+    // 1. Find the journal — we look it up by source_ref since the run row
+    //    only stores journal_ref (a string), not the journal UUID.
+    const oldRef = `PAY-${period.replace('-', '')}`
+    const { data: oldJournal } = await supabase
+      .from('journals').select('id').eq('source_ref', oldRef).maybeSingle()
+
+    if (oldJournal?.id) {
+      // 2. Pull old journal lines for the balance reversal
+      const { data: oldJLines } = await supabase
+        .from('journal_lines')
+        .select('account_id, debit, credit')
+        .eq('journal_id', oldJournal.id)
+
+      // 3. Reverse balances — flip the sign of each side
+      if (oldJLines && oldJLines.length > 0) {
+        await Promise.all(oldJLines.map(l =>
+          supabase.rpc('update_account_balance', {
+            p_account_id: l.account_id,
+            p_debit: -(l.debit || 0),
+            p_credit: -(l.credit || 0),
+          })
+        ))
+      }
+
+      // 5a. Delete journal_lines
+      await supabase.from('journal_lines').delete().eq('journal_id', oldJournal.id)
+      // 5b. Delete the journal itself
+      await supabase.from('journals').delete().eq('id', oldJournal.id)
+      // 6. And the voucher row that mirrored it
+      await supabase.from('vouchers').delete().eq('ref', oldRef).eq('type', 'payroll')
+    }
+
+    // 4. Restore salary advances — read advance_deduction from the old
+    //    payroll lines and add it back to the active advance row(s) for
+    //    each employee. We mirror the original "deduct from advance with
+    //    earliest active advance first" approach, so we restore in the
+    //    same order.
+    const { data: oldPayLines } = await supabase
+      .from('hrm_payroll_lines')
+      .select('employee_id, advance_deduction')
+      .eq('payroll_run_id', runId)
+
+    for (const pl of (oldPayLines || [])) {
+      if (!pl.advance_deduction || pl.advance_deduction <= 0) continue
+      // Look up the most recently-touched advance for this employee
+      // (status active OR cleared — a fully-cleared advance from the
+      // previous post needs to come back to active when restored).
+      const { data: advs } = await supabase
+        .from('hrm_salary_advances')
+        .select('id, remaining, total, monthly_deduction, status')
+        .eq('employee_id', pl.employee_id)
+        .in('status', ['active', 'cleared'])
+        .order('updated_at', { ascending: false })
+        .limit(1)
+
+      if (advs && advs.length > 0) {
+        const adv = advs[0]
+        const restored = Math.min((adv.total || 0), (adv.remaining || 0) + pl.advance_deduction)
+        await supabase.from('hrm_salary_advances').update({
+          remaining: restored,
+          status: restored > 0 ? 'active' : 'cleared',
+        }).eq('id', adv.id)
+      }
+    }
+
+    // 7. Delete payroll lines for this run
+    await supabase.from('hrm_payroll_lines').delete().eq('payroll_run_id', runId)
+    // 8. Delete the run itself
+    await supabase.from('hrm_payroll_runs').delete().eq('id', runId)
+  }
+
   const postPayroll = async () => {
     if (lines.length === 0) return
-    setPosting(true)
     const userName = user?.full_name || 'System'
     const ref = `PAY-${period.replace('-', '')}`
 
+    // ── PRE-CHECK: is this period already posted? ──────────────────
+    // Earlier versions of this file blindly tried to insert a fresh journal
+    // every click, which collided with the unique constraint on journals.ref
+    // and looked to the user like an opaque "Journal ref collision" error
+    // that retried itself out and never resolved. The right semantics for
+    // payroll is "one posted run per period at a time". If the user wants
+    // to redo the period, they need to wipe the previous one first.
+    const { data: existing } = await supabase
+      .from('hrm_payroll_runs')
+      .select('id, posted_at, posted_by, status')
+      .eq('period', period)
+      .eq('status', 'posted')
+      .order('posted_at', { ascending: false })
+      .limit(1)
+
+    if (existing && existing.length > 0) {
+      const prev = existing[0]
+      const when = prev.posted_at ? new Date(prev.posted_at).toLocaleString() : '(no timestamp)'
+      const ok = confirm(
+        `Payroll for ${period} has already been posted.\n\n` +
+        `  Previously posted by: ${prev.posted_by || '(unknown)'}\n` +
+        `  Previously posted at: ${when}\n\n` +
+        `Re-posting will REPLACE the existing run:\n` +
+        `  • Reverse the old journal's account-balance impact\n` +
+        `  • Delete the old journal + its lines\n` +
+        `  • Delete the old payroll run + its line items\n` +
+        `  • Restore previously-deducted salary advances\n` +
+        `  • Then post a fresh run with the figures shown on screen\n\n` +
+        `This is irreversible. Continue?`
+      )
+      if (!ok) return
+
+      setPosting(true)
+      try {
+        await purgeExistingRun(prev.id)
+      } catch (err: any) {
+        setToast(`Failed to clear previous ${period} run: ${err.message || err}`); setToastType('error')
+        setPosting(false)
+        return
+      }
+    } else {
+      setPosting(true)
+    }
+
     try {
-      // ── 1. Ensure payroll accounts exist ──────────────
-      const requiredAccounts = [
-        { code: '6010', name: 'Salaries — Full-Time Staff', type: 'expense', category: 'People' },
-        { code: '6020', name: 'NSSF Expense — Employer', type: 'expense', category: 'People' },
-        { code: '6030', name: 'SDL Expense', type: 'expense', category: 'People' },
-        { code: '2030', name: 'PAYE Payable', type: 'liability', category: 'Payroll Tax' },
-        { code: '2040', name: 'NSSF Payable', type: 'liability', category: 'Payroll Tax' },
-        { code: '2050', name: 'SDL Payable', type: 'liability', category: 'Payroll Tax' },
-        { code: '2060', name: 'Net Salary Payable', type: 'liability', category: 'Payroll Tax' },
+      // ── 1. Resolve payroll accounts by NAME (with code fallback) ────────
+      // Why name-first: account codes have drifted in the past (e.g. 2040 was
+      // "NSSF Payable" then got repurposed to "Accrued Expenses"). Hardcoding
+      // 2040 then blindly posting silently routed payroll to the wrong account
+      // for an entire month. By looking up by name and only falling back to
+      // a known set of historical codes, we still find the account when the
+      // code drifts AND fail loudly with a clear error if neither hits.
+      //
+      // The 'preferredCode' is just what we use if we have to CREATE the
+      // account from scratch — never used for lookup of existing accounts.
+      type PayrollAcctSpec = {
+        key: string
+        names: string[]              // accepted name variants (case-insensitive contains-match)
+        fallbackCodes: string[]      // historical codes to try if name lookup fails
+        preferredCode: string        // code used if we need to CREATE the account
+        type: 'expense' | 'liability' | 'asset'
+        category: string
+      }
+
+      const payrollAccountSpecs: PayrollAcctSpec[] = [
+        { key: 'salary',     names: ['Salaries', 'Salary'],            fallbackCodes: ['6010'],         preferredCode: '6010', type: 'expense',   category: 'People' },
+        { key: 'nssfExp',    names: ['NSSF Expense', 'NSSF Employer'], fallbackCodes: ['6020'],         preferredCode: '6020', type: 'expense',   category: 'People' },
+        { key: 'sdlExp',     names: ['SDL Expense'],                   fallbackCodes: ['6030'],         preferredCode: '6030', type: 'expense',   category: 'People' },
+        { key: 'payePay',    names: ['PAYE Payable', 'PAYE'],          fallbackCodes: ['2030'],         preferredCode: '2030', type: 'liability', category: 'Payroll Tax' },
+        { key: 'nssfPay',    names: ['NSSF Payable', 'NSSF / WCF'],    fallbackCodes: ['2031', '2040'], preferredCode: '2031', type: 'liability', category: 'Payroll Tax' },
+        { key: 'sdlPay',     names: ['SDL Payable'],                   fallbackCodes: ['2033', '2050'], preferredCode: '2033', type: 'liability', category: 'Payroll Tax' },
+        { key: 'netPay',     names: ['Net Salary Payable', 'Net Pay Payable'], fallbackCodes: ['2032', '2060'], preferredCode: '2032', type: 'liability', category: 'Payroll' },
       ]
 
-      const { data: existingAccts } = await supabase.from('accounts')
-        .select('id, code').in('code', requiredAccounts.map(a => a.code))
+      // Pull every active account once — we'll do all the resolution in memory.
+      const { data: allAccounts } = await supabase
+        .from('accounts')
+        .select('id, code, name, type, is_active')
+        .eq('is_active', true)
+      if (!allAccounts) throw new Error('Could not load chart of accounts')
 
-      const existingCodes = new Set((existingAccts || []).map(a => a.code))
-      const missing = requiredAccounts.filter(a => !existingCodes.has(a.code))
+      const resolved: Record<string, string> = {}     // key → account_id
+      const toCreate: PayrollAcctSpec[] = []
 
-      if (missing.length > 0) {
-        const { error: insertErr } = await supabase.from('accounts').insert(
-          // The accounts table has no is_default column — that flag belongs
-          // on branches/stock_locations only. Don't include it here.
-          missing.map(a => ({ ...a, balance: 0, is_active: true }))
+      for (const spec of payrollAccountSpecs) {
+        // 1) Try matching by name (case-insensitive contains).
+        //    We require the matched account to be of the expected `type` so a
+        //    coincidental name collision (e.g. "PAYE adjustment expense") doesn't
+        //    misroute a liability posting.
+        let hit = allAccounts.find(a =>
+          a.type === spec.type &&
+          spec.names.some(n => a.name.toLowerCase().includes(n.toLowerCase()))
         )
-        if (insertErr) throw new Error(`Failed to create accounts: ${insertErr.message}`)
+        // 2) Fall back to known historical codes — but only if the name there
+        //    doesn't actively conflict with another payroll account name.
+        if (!hit) {
+          for (const code of spec.fallbackCodes) {
+            const candidate = allAccounts.find(a => a.code === code && a.type === spec.type)
+            if (candidate) { hit = candidate; break }
+          }
+        }
+        if (hit) {
+          resolved[spec.key] = hit.id
+        } else {
+          toCreate.push(spec)
+        }
       }
 
-      // Refetch all account IDs
-      const { data: acctData } = await supabase.from('accounts')
-        .select('id, code').in('code', requiredAccounts.map(a => a.code))
-      if (!acctData || acctData.length < 4) throw new Error('Payroll accounts not found. Check Chart of Accounts.')
+      // Auto-create any accounts that don't exist anywhere — using their preferred code.
+      // If the preferred code is already taken (by an unrelated account), we surface
+      // the conflict to the user loudly rather than overwrite anything.
+      if (toCreate.length > 0) {
+        const conflictingCodes: string[] = []
+        for (const spec of toCreate) {
+          const existing = allAccounts.find(a => a.code === spec.preferredCode)
+          if (existing) {
+            conflictingCodes.push(`${spec.preferredCode} ("${existing.name}") wanted by ${spec.names[0]}`)
+          }
+        }
+        if (conflictingCodes.length > 0) {
+          throw new Error(
+            `Cannot create payroll accounts — preferred codes are taken by other accounts:\n` +
+            conflictingCodes.join('\n') +
+            `\n\nFix: open Chart of Accounts and either rename the conflicting accounts or` +
+            ` manually create the missing payroll accounts with available codes, then retry.`
+          )
+        }
 
-      const acct = (code: string) => {
-        const found = acctData.find(a => a.code === code)
-        if (!found) throw new Error(`Account ${code} not found`)
-        return found.id
+        const { data: created, error: insertErr } = await supabase.from('accounts').insert(
+          toCreate.map(s => ({
+            code: s.preferredCode, name: s.names[0], type: s.type, category: s.category,
+            balance: 0, is_active: true,
+          }))
+        ).select('id, code, name, type')
+        if (insertErr || !created) throw new Error(`Failed to create payroll accounts: ${insertErr?.message || 'unknown'}`)
+
+        // Wire the freshly-created ids into resolved
+        for (const spec of toCreate) {
+          const c = created.find(x => x.code === spec.preferredCode)
+          if (!c) throw new Error(`Could not find created account for ${spec.names[0]}`)
+          resolved[spec.key] = c.id
+        }
       }
 
-      const salaryId = acct('6010')
-      const nssfExpId = acct('6020')
-      const sdlExpId = acct('6030')
-      const payePayId = acct('2030')
-      const nssfPayId = acct('2040')
-      const sdlPayId = acct('2050')
-      const netPayId = acct('2060')
+      // Final sanity check — every spec must have an id by now.
+      for (const spec of payrollAccountSpecs) {
+        if (!resolved[spec.key]) {
+          throw new Error(`Payroll account "${spec.names[0]}" could not be resolved or created. Check Chart of Accounts.`)
+        }
+      }
+
+      const salaryId = resolved.salary
+      const nssfExpId = resolved.nssfExp
+      const sdlExpId = resolved.sdlExp
+      const payePayId = resolved.payePay
+      const nssfPayId = resolved.nssfPay
+      const sdlPayId = resolved.sdlPay
+      const netPayId = resolved.netPay
+
 
       // ── 2. Create payroll run in HRM ──────────────────
       const { data: run, error: runErr } = await supabase.from('hrm_payroll_runs').insert({
@@ -196,26 +410,58 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
           description: `SDL payable — ${period}`, debit: 0, credit: totals.sdl })
       }
 
-      // Advance recovery: Cr Salary Advance Receivable (1060) — reduces employee debt
-      // The net pay (2060) is already reduced by advance amount in the computation,
-      // so we need to explicitly clear the advance asset
+      // Advance recovery: Cr Salary Advance Receivable — reduces employee debt
+      // The net pay (Net Salary Payable) is already reduced by advance amount
+      // in the computation, so we need to explicitly clear the advance asset.
+      // Same name-first / fallback-code resolution pattern as the main payroll
+      // accounts above. Code 1060 was used historically but got repurposed
+      // to "VAT Receivable" — never trust just the code.
       if (totals.advDed > 0) {
-        let { data: advAcct } = await supabase.from('accounts').select('id').eq('code', '1060').single()
-        if (!advAcct) {
-          const { data: created } = await supabase.from('accounts').insert({
-            code: '1060', name: 'Salary Advance Receivable', type: 'asset',
-            // No is_default column on accounts — see line ~103.
-            category: 'Current Assets', balance: 0, is_active: true,
-          }).select('id').single()
-          advAcct = created
+        let advAcctId: string | null = null
+
+        // Try by name first
+        const advByName = allAccounts.find(a =>
+          a.type === 'asset' && a.name.toLowerCase().includes('salary advance')
+        )
+        if (advByName) {
+          advAcctId = advByName.id
+        } else {
+          // Fall back to historical codes (1061 is the new home, 1060 was the old one)
+          for (const code of ['1061', '1060']) {
+            const candidate = allAccounts.find(a => a.code === code && a.type === 'asset' && a.name.toLowerCase().includes('advance'))
+            if (candidate) { advAcctId = candidate.id; break }
+          }
         }
-        if (advAcct) {
-          // The net pay credited to 2060 is already net of advances.
-          // To balance: we need to credit 1060 (asset goes down) and add the advance amount back to 2060.
-          // Effectively: Dr Net Salary Payable (2060) / Cr Salary Advance Receivable (1060)
+
+        // If still missing, create at the new preferred code 1061 — but only
+        // if 1061 isn't taken by something unrelated.
+        if (!advAcctId) {
+          const conflict = allAccounts.find(a => a.code === '1061')
+          if (conflict && !conflict.name.toLowerCase().includes('advance')) {
+            throw new Error(
+              `Cannot create Salary Advance Receivable — code 1061 is already used by "${conflict.name}". ` +
+              `Open Chart of Accounts and free up code 1061 (or create the advance account manually under a different code) before posting.`
+            )
+          }
+          if (!conflict) {
+            const { data: created, error: createErr } = await supabase.from('accounts').insert({
+              code: '1061', name: 'Salary Advance Receivable', type: 'asset',
+              category: 'Current Assets', balance: 0, is_active: true,
+            }).select('id').single()
+            if (createErr || !created) throw new Error(`Failed to create Salary Advance Receivable: ${createErr?.message || 'unknown'}`)
+            advAcctId = created.id
+          } else {
+            // conflict is itself the advance account by name — reuse
+            advAcctId = conflict.id
+          }
+        }
+
+        if (advAcctId) {
+          // The net pay credited to Net Salary Payable is already net of advances.
+          // To balance: Dr Net Salary Payable / Cr Salary Advance Receivable.
           jLines.push({ journal_id: journal.id, line_number: ln++, account_id: netPayId,
             description: `Advance recovery from salaries — ${period}`, debit: totals.advDed, credit: 0 })
-          jLines.push({ journal_id: journal.id, line_number: ln++, account_id: advAcct.id,
+          jLines.push({ journal_id: journal.id, line_number: ln++, account_id: advAcctId,
             description: `Advance recovery — ${period}`, debit: 0, credit: totals.advDed })
         }
       }
