@@ -4,7 +4,7 @@ import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 import type { Page } from '../lib/types'
-import { exportCSV as doExportCSV, exportPDF as doExportPDF } from '../lib/salesDayBookExport'
+import { exportCSV as doExportCSV, exportPDF as doExportPDF, exportDetailPDF as doExportDetailPDF } from '../lib/salesDayBookExport'
 import type { SDBSale, SDBExpense, SDBCreditNote, SDBTemplateSettings } from '../lib/salesDayBookExport'
 
 interface Props {
@@ -198,7 +198,12 @@ export default function SalesDayBook({ onEdit }: Props) {
   const exportCSV = () => doExportCSV({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings })
 
   // ── EXPORT: PDF (Print) ──────────────────────────────────────────────
-  const exportPDF = () => doExportPDF({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings })
+  // View-aware: Summary view → summary PDF; Detail view → per-voucher detail PDF.
+  const exportPDF = () => {
+    const payload = { filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings }
+    if (view === 'detail') doExportDetailPDF(payload)
+    else doExportPDF(payload)
+  }
 
   return (
     <div className="page">
@@ -212,7 +217,7 @@ export default function SalesDayBook({ onEdit }: Props) {
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" onClick={() => loadSales()} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
-          <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print / PDF</button>
+          <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> {view === 'detail' ? 'Print / Detail PDF' : 'Print / PDF'}</button>
           <button className="btn btn-ghost btn-sm" onClick={exportCSV} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
         </div>
       </div>
