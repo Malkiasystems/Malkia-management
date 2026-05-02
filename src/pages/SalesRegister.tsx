@@ -55,6 +55,72 @@ const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(
 const todayStr = () => new Date().toISOString().split('T')[0]
 const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
 
+// ── To-date period helpers ─────────────────────────────────────────────
+// "Quarter" is calendar quarter: Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec
+const isoDate = (d: Date) => d.toISOString().split('T')[0]
+const quarterStartMonth = (m: number) => Math.floor(m / 3) * 3  // 0,3,6,9
+const yearStart = (y: number) => isoDate(new Date(y, 0, 1))
+const quarterStartFor = (y: number, m: number) => isoDate(new Date(y, quarterStartMonth(m), 1))
+const monthStartFor = (y: number, m: number) => isoDate(new Date(y, m, 1))
+
+/**
+ * For a given anchor date (today, by default), return the "current to-date"
+ * range and the "previous period to-date" range for month, quarter, and year.
+ * Previous period uses same number of elapsed days within the prior period
+ * for an apples-to-apples partial comparison.
+ *
+ * Example (anchor = 2 May 2026):
+ *   month   → cur [1 May 2026, 2 May 2026], prev [1 Apr 2026, 2 Apr 2026]
+ *   quarter → cur [1 Apr 2026, 2 May 2026], prev [1 Jan 2026, 2 Feb 2026]
+ *   year    → cur [1 Jan 2026, 2 May 2026], prev [1 Jan 2025, 2 May 2025]
+ */
+function buildToDatePresets(anchor: Date = new Date()) {
+  const y = anchor.getFullYear()
+  const m = anchor.getMonth()
+  const today = isoDate(anchor)
+
+  // Days elapsed since the start of the period — used for prev-period offset.
+  const monthElapsed = anchor.getDate() - 1  // 0-indexed days within month
+  const qStartDate = new Date(y, quarterStartMonth(m), 1)
+  const quarterElapsedDays = Math.floor((anchor.getTime() - qStartDate.getTime()) / 86400000)
+  const yearElapsedDays = Math.floor((anchor.getTime() - new Date(y, 0, 1).getTime()) / 86400000)
+
+  // Month-to-date vs last MTD: same day-of-month last month.
+  // Use `min(today's day, last month's last day)` so e.g. 31 Mar vs 28 Feb is still safe.
+  const prevMonthYear = m === 0 ? y - 1 : y
+  const prevMonthMonth = m === 0 ? 11 : m - 1
+  const prevMonthLastDay = new Date(prevMonthYear, prevMonthMonth + 1, 0).getDate()
+  const prevMonthDay = Math.min(anchor.getDate(), prevMonthLastDay)
+
+  // Quarter-to-date vs last QTD: take same number of elapsed days from prior quarter start.
+  const prevQuarterStart = new Date(qStartDate)
+  prevQuarterStart.setMonth(prevQuarterStart.getMonth() - 3)
+  const prevQuarterAnchor = new Date(prevQuarterStart)
+  prevQuarterAnchor.setDate(prevQuarterAnchor.getDate() + quarterElapsedDays)
+
+  // Year-to-date vs last YTD: same date one year back.
+  const prevYearAnchor = new Date(anchor)
+  prevYearAnchor.setFullYear(y - 1)
+
+  return {
+    monthToDate: {
+      cur: [monthStartFor(y, m), today],
+      prev: [monthStartFor(prevMonthYear, prevMonthMonth), isoDate(new Date(prevMonthYear, prevMonthMonth, prevMonthDay))],
+      elapsed: monthElapsed + 1,
+    },
+    quarterToDate: {
+      cur: [quarterStartFor(y, m), today],
+      prev: [isoDate(prevQuarterStart), isoDate(prevQuarterAnchor)],
+      elapsed: quarterElapsedDays + 1,
+    },
+    yearToDate: {
+      cur: [yearStart(y), today],
+      prev: [yearStart(y - 1), isoDate(prevYearAnchor)],
+      elapsed: yearElapsedDays + 1,
+    },
+  }
+}
+
 function periodLabel(type: string) {
   return type === 'annual' ? 'Annual' : type === 'quarterly' ? 'Quarterly' : 'Monthly'
 }
@@ -1066,7 +1132,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
               </div>
               <button className="btn btn-primary btn-sm" onClick={() => { loadSales(); loadCompareSales() }}>Compare</button>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               {[
                 { label: 'This Month vs Last Month', cur: [monthStart(), todayStr()], prev: [new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().split('T')[0], new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().split('T')[0]] },
                 { label: 'This Week vs Last Week', cur: [daysAgo(6), todayStr()], prev: [daysAgo(13), daysAgo(7)] },
@@ -1077,6 +1143,21 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                   setTimeout(() => { loadSales(p.cur[0], p.cur[1]) }, 50)
                 }}>{p.label}</button>
               ))}
+              <div style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
+              <span style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1 }}>To-Date</span>
+              {(() => {
+                const td = buildToDatePresets()
+                return [
+                  { label: 'MTD vs Last MTD', cur: td.monthToDate.cur, prev: td.monthToDate.prev },
+                  { label: 'QTD vs Last QTD', cur: td.quarterToDate.cur, prev: td.quarterToDate.prev },
+                  { label: 'YTD vs Last YTD', cur: td.yearToDate.cur, prev: td.yearToDate.prev },
+                ].map((p, i) => (
+                  <button key={`td-${i}`} className="btn btn-ghost btn-sm" style={{ fontSize: 11, borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => {
+                    setFromDate(p.cur[0]); setToDate(p.cur[1]); setCompareFrom(p.prev[0]); setCompareTo(p.prev[1])
+                    setTimeout(() => { loadSales(p.cur[0], p.cur[1]) }, 50)
+                  }}>{p.label}</button>
+                ))
+              })()}
             </div>
           </div>
 
