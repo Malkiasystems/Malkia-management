@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
+import { useAuth } from '../lib/useAuth'
+import { approveRequest, rejectRequest } from '../lib/useApproval'
+import { executeApprovedRequest } from '../lib/approvalExecutor'
+import Toast from '../components/Toast'
 
 interface Props {
   onNav: (p: Page) => void
@@ -100,6 +104,7 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }
 
 export default function ApprovalWorkflows({ onNav }: Props) {
   void onNav
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<'pending' | 'history' | 'settings'>('pending')
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
   const [settings, setSettings] = useState<ApprovalSetting[]>([])
@@ -107,6 +112,9 @@ export default function ApprovalWorkflows({ onNav }: Props) {
   const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null)
   const [comment, setComment] = useState('')
   const [filterType, setFilterType] = useState<string>('all')
+  const [toast, setToast] = useState('')
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => { loadData() }, [activeTab])
 
@@ -187,47 +195,76 @@ export default function ApprovalWorkflows({ onNav }: Props) {
 
   const handleApprove = async () => {
     if (!selectedRequest) return
-
-    const { error } = await supabase
-      .from('approval_requests')
-      .update({
-        status: 'approved',
-        resolved_by: 'current-user-id', // Replace with actual user
-        resolved_at: new Date().toISOString(),
-        resolution_comment: comment || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', selectedRequest.id)
-
-    if (!error) {
-      setSelectedRequest(null)
-      setComment('')
-      loadData()
+    if (!user) {
+      setToast('You must be signed in to approve')
+      setToastType('error')
+      return
     }
-  }
+    setBusy(true)
 
-  const handleReject = async () => {
-    if (!selectedRequest || !comment) {
-      alert('Please provide a reason for rejection')
+    // Step 1: Call the approve_request RPC. This validates the approver,
+    // flips status to 'approved', logs an action, and returns the payload
+    // we need to actually execute the voucher post.
+    const approveRes = await approveRequest(selectedRequest.id, user.id, comment || undefined)
+    if (!approveRes.success) {
+      setToast('Approve failed: ' + (approveRes.error || 'unknown'))
+      setToastType('error')
+      setBusy(false)
       return
     }
 
-    const { error } = await supabase
-      .from('approval_requests')
-      .update({
-        status: 'rejected',
-        resolved_by: 'current-user-id',
-        resolved_at: new Date().toISOString(),
-        resolution_comment: comment,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', selectedRequest.id)
-
-    if (!error) {
-      setSelectedRequest(null)
-      setComment('')
-      loadData()
+    // Step 2: Run the executor. It dispatches by approval_type code,
+    // posts the journal, decrements stock, writes item ledger entries,
+    // flips voucher to 'posted', and marks the request as 'executed'.
+    const execRes = await executeApprovedRequest(
+      selectedRequest.id,
+      user.id,
+      user.full_name || user.email || 'Approver'
+    )
+    if (!execRes.success) {
+      setToast('Approved but execution failed: ' + (execRes.error || 'unknown'))
+      setToastType('error')
+      setBusy(false)
+      // Don't clear modal — let the user see the error
+      return
     }
+
+    setToast('Approved · ' + (selectedRequest.reference_number || 'request') + ' executed')
+    setToastType('success')
+    setSelectedRequest(null)
+    setComment('')
+    setBusy(false)
+    loadData()
+  }
+
+  const handleReject = async () => {
+    if (!selectedRequest) return
+    if (!user) {
+      setToast('You must be signed in to reject')
+      setToastType('error')
+      return
+    }
+    if (!comment || !comment.trim()) {
+      setToast('Please provide a reason for rejection')
+      setToastType('error')
+      return
+    }
+    setBusy(true)
+
+    const res = await rejectRequest(selectedRequest.id, user.id, comment)
+    if (!res.success) {
+      setToast('Reject failed: ' + (res.error || 'unknown'))
+      setToastType('error')
+      setBusy(false)
+      return
+    }
+
+    setToast('Rejected · ' + (selectedRequest.reference_number || 'request'))
+    setToastType('success')
+    setSelectedRequest(null)
+    setComment('')
+    setBusy(false)
+    loadData()
   }
 
   const filteredRequests = requests.filter(r => 
@@ -498,21 +535,23 @@ export default function ApprovalWorkflows({ onNav }: Props) {
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
-              <button style={{ ...s.btn, ...s.btnGhost }} onClick={() => setSelectedRequest(null)}>
+              <button style={{ ...s.btn, ...s.btnGhost, opacity: busy ? 0.5 : 1 }} onClick={() => setSelectedRequest(null)} disabled={busy}>
                 Cancel
               </button>
-              <button style={{ ...s.btn, ...s.btnReject }} onClick={handleReject}>
+              <button style={{ ...s.btn, ...s.btnReject, opacity: busy ? 0.5 : 1 }} onClick={handleReject} disabled={busy}>
                 <Icon name="x" size={16} />
-                Reject
+                {busy ? 'Working…' : 'Reject'}
               </button>
-              <button style={{ ...s.btn, ...s.btnApprove }} onClick={handleApprove}>
+              <button style={{ ...s.btn, ...s.btnApprove, opacity: busy ? 0.5 : 1 }} onClick={handleApprove} disabled={busy}>
                 <Icon name="check" size={16} />
-                Approve
+                {busy ? 'Working…' : 'Approve'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <Toast message={toast} type={toastType} onClose={() => setToast('')} />
     </div>
   )
 }
