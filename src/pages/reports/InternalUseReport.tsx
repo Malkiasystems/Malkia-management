@@ -16,6 +16,7 @@ import { supabase } from '../../lib/supabase'
 import { tzs, today } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 import Toast from '../../components/Toast'
+import VoucherVerifyButton from '../../components/VoucherVerifyButton'
 
 interface Props { onNav: (p: Page) => void }
 
@@ -460,7 +461,12 @@ export default function InternalUseReport({ onNav }: Props) {
                   {filtered.map((r, i) => (
                     <tr key={`${r.voucher_ref}-${i}`} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{r.posting_date}</td>
-                      <td style={{ padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.voucher_ref}</td>
+                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>{r.voucher_ref}</span>
+                          <VoucherVerifyButton voucherRef={r.voucher_ref} size="pill" label="" />
+                        </div>
+                      </td>
                       <td style={{ padding: '8px 12px' }}>
                         <span style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600, padding: '3px 7px', borderRadius: 4, background: `${catColor(r.category)}22`, color: catColor(r.category), whiteSpace: 'nowrap' }}>
                           {r.category}
