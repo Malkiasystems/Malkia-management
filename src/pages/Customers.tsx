@@ -4,6 +4,7 @@ import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
+import CashCustomerDetail from './customers/CashCustomerDetail'
 
 interface Customer {
   id: string; customer_number: string; name: string; company: string; contact_person: string
@@ -171,6 +172,19 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
 
   const openInvoices = ledger.filter(e => e.is_open && e.amount > 0)
   const totalOutstanding = openInvoices.reduce((s, e) => s + e.remaining_amount, 0)
+
+  // ── CASH CUSTOMER DETAIL (CRM-focused page) ─────────────────────────────
+  // Cash customers (B2C / moms) get the loyalty-and-marketing view.
+  // Debtors (wholesale / resellers) keep the credit-focused ledger view below.
+  if (view === 'ledger' && selected && selected.customer_type === 'cash') {
+    return (
+      <CashCustomerDetail
+        customerId={selected.id}
+        onBack={() => setView('list')}
+        onViewStatement={onViewStatement}
+      />
+    )
+  }
 
   // ── LEDGER VIEW ─────────────────────────────────────────────────────────
   if (view === 'ledger' && selected) {
