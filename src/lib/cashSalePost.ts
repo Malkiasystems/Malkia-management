@@ -170,6 +170,7 @@ export interface PostParams {
   invSettings: any
   // Auth
   userName: string
+  userId?: string
   // Bundle
   appliedBundle: Bundle | null
   // Computed
@@ -178,6 +179,15 @@ export interface PostParams {
   crownPoints: number
   deliveryTotal: number
   totalSplitPaid: number
+  // Optional customer context (TTC / pregnancy / postpartum) captured at till.
+  // Skipped fields are not written; not provided = no change to existing.
+  customerContext?: {
+    stage_path?:    'ttc' | 'pregnant' | 'postpartum' | null
+    ttc_duration?:  string | null
+    edd?:           string | null
+    delivery_date?: string | null
+    notes?:         string | null
+  }
 }
 
 export interface PostResult {
@@ -195,8 +205,9 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     newCustName, waInput, lines, dbProducts, selectedCust,
     isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
     deliveryAccountId,
-    locationCode, locations, invSettings, userName, appliedBundle,
+    locationCode, locations, invSettings, userName, userId, appliedBundle,
     subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
+    customerContext,
   } = params
 
   const currentMethod = PAYMENT_METHODS.find(m => m.id === selectedMethod)!
@@ -256,6 +267,38 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       customerCode = `CONT-${lastNum + 1}`
     }
 
+    // Build context fields if cashier captured anything this sale.
+    // Stage_path null/undefined = nothing captured; leave existing fields as-is.
+    const ctxPayload: Record<string, any> = {}
+    if (customerContext?.stage_path) {
+      // Mark as captured + stamp who/when
+      ctxPayload.context_status      = 'captured'
+      ctxPayload.context_captured_at = new Date().toISOString()
+      if (userId) ctxPayload.context_captured_by = userId
+
+      if (customerContext.stage_path === 'ttc' && customerContext.ttc_duration) {
+        ctxPayload.ttc_duration  = customerContext.ttc_duration
+        ctxPayload.edd           = null
+        ctxPayload.delivery_date = null
+      } else if (customerContext.stage_path === 'pregnant' && customerContext.edd) {
+        ctxPayload.edd               = customerContext.edd
+        ctxPayload.edd_source        = 'first_purchase'
+        ctxPayload.edd_captured_at   = new Date().toISOString()
+        ctxPayload.ttc_duration      = null
+        ctxPayload.delivery_date     = null
+      } else if (customerContext.stage_path === 'postpartum' && customerContext.delivery_date) {
+        ctxPayload.delivery_date = customerContext.delivery_date
+        ctxPayload.ttc_duration  = null
+        // Don't clear edd — historical EDD has audit value even after birth
+      }
+
+      // Notes only carried for the edit view (per Joe's preference: notes are
+      // back-office responsibility for first-time captures)
+      if (customerContext.notes !== undefined) {
+        ctxPayload.internal_notes = customerContext.notes
+      }
+    }
+
     const { data: custData } = await supabase.from('customers').upsert({
       ...(customerCode ? { code: customerCode } : {}),
       name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
@@ -264,6 +307,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       last_purchase_date: postingDate,
       last_purchase_amount: subtotal,
       balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
+      ...ctxPayload,
     }, { onConflict: 'whatsapp' }).select('id').single()
     if (custData) customerId = custData.id
 
@@ -503,6 +547,15 @@ export interface UpdateParams {
   deliveryAccountId: string
   totalSplitPaid: number
   userName: string
+  userId?: string
+  // Optional customer context update (Edit view path)
+  customerContext?: {
+    stage_path?:    'ttc' | 'pregnant' | 'postpartum' | null
+    ttc_duration?:  string | null
+    edd?:           string | null
+    delivery_date?: string | null
+    notes?:         string | null
+  }
 }
 
 export async function updateCashSale(params: UpdateParams): Promise<{ success: boolean; error?: string }> {
@@ -510,7 +563,8 @@ export async function updateCashSale(params: UpdateParams): Promise<{ success: b
     editVoucherData, newCustName, waInput, lines, dbProducts, selectedCust,
     isPOD, autoReceipt, isSplit, splitLines, paymentRef,
     townDelivery, upcountryShipping, currentMethod,
-    accountMap, deliveryAccountId, totalSplitPaid, userName,
+    accountMap, deliveryAccountId, totalSplitPaid, userName, userId,
+    customerContext,
   } = params
 
   if (!newCustName.trim()) return { success: false, error: 'Customer name required' }
@@ -529,9 +583,34 @@ export async function updateCashSale(params: UpdateParams): Promise<{ success: b
     // ── 1. Customer info
     const cleaned = waInput.replace(/[\s+\-()]/g, '')
     if (selectedCust) {
+      // Build context fields if cashier captured/updated anything
+      const ctxPayload: Record<string, any> = {}
+      if (customerContext?.stage_path) {
+        ctxPayload.context_status      = 'captured'
+        ctxPayload.context_captured_at = new Date().toISOString()
+        if (userId) ctxPayload.context_captured_by = userId
+        if (customerContext.stage_path === 'ttc' && customerContext.ttc_duration) {
+          ctxPayload.ttc_duration  = customerContext.ttc_duration
+          ctxPayload.edd           = null
+          ctxPayload.delivery_date = null
+        } else if (customerContext.stage_path === 'pregnant' && customerContext.edd) {
+          ctxPayload.edd               = customerContext.edd
+          ctxPayload.edd_source        = 'manual_edit'
+          ctxPayload.edd_captured_at   = new Date().toISOString()
+          ctxPayload.ttc_duration      = null
+          ctxPayload.delivery_date     = null
+        } else if (customerContext.stage_path === 'postpartum' && customerContext.delivery_date) {
+          ctxPayload.delivery_date = customerContext.delivery_date
+          ctxPayload.ttc_duration  = null
+        }
+        if (customerContext.notes !== undefined) {
+          ctxPayload.internal_notes = customerContext.notes
+        }
+      }
       await supabase.from('customers').update({
         name: newCustName.trim(),
         whatsapp: cleaned || null,
+        ...ctxPayload,
       }).eq('id', selectedCust.id)
     }
 
