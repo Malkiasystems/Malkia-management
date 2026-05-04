@@ -12,6 +12,8 @@ import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
 import { useDataCache } from '../../App'
 import BundlePicker from '../../components/BundlePicker'
+import CustomerContextSection from '../../components/CustomerContextSection'
+import type { CustomerContext } from '../../components/CustomerContextSection'
 import type { Bundle } from '../../lib/useBundles'
 import { PAYMENT_METHODS } from '../../lib/cashSaleTypes'
 import type { DBProduct, DBCustomer, SaleLine, SplitLine, PaymentMethod } from '../../lib/cashSaleTypes'
@@ -48,6 +50,18 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
+
+  // Customer context (TTC / pregnancy / postpartum) — captured optionally at till.
+  // existingContext is the snapshot from the DB for the selectedCust (read-only display).
+  // pendingContext is what the cashier has entered/changed in this session.
+  const [existingContext, setExistingContext] = useState<{
+    ttc_duration: string | null
+    edd: string | null
+    delivery_date: string | null
+    context_status: string | null
+    internal_notes: string | null
+  } | null>(null)
+  const [pendingContext, setPendingContext] = useState<CustomerContext>({})
 
   // Products
   const [dbProducts, setDbProducts] = useState<DBProduct[]>([])
@@ -329,9 +343,17 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     setSelectedCust(null)
   }
 
-  const selectCustomer = (c: DBCustomer) => {
+  const selectCustomer = async (c: DBCustomer) => {
     setSelectedCust(c); setWaInput(c.whatsapp); setNewCustName(c.name)
     setShowDropdown(false); setCustResults([])
+    // Load context fields for the read-only summary panel
+    const { data } = await supabase
+      .from('customers')
+      .select('ttc_duration, edd, delivery_date, context_status, internal_notes')
+      .eq('id', c.id)
+      .maybeSingle()
+    setExistingContext(data || null)
+    setPendingContext({})
   }
 
   const updateLine = (i: number, field: keyof SaleLine, val: string | number) => {
@@ -405,6 +427,8 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       townDelivery, upcountryShipping, currentMethod,
       accountMap, deliveryAccountId, totalSplitPaid,
       userName: user?.full_name || 'Unknown',
+      userId: user?.id,
+      customerContext: pendingContext,
     })
     if (result.success) {
       showToast(`${editVoucherData.ref} updated successfully`)
@@ -440,7 +464,9 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       townDelivery, upcountryShipping, deliveryAccountId,
       locationCode, locations, invSettings,
       userName: user?.full_name || 'Unknown',
+      userId: user?.id,
       appliedBundle, subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
+      customerContext: pendingContext,
     })
 
     if (!result.success) {
@@ -750,6 +776,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                     </div>
                   ) : (
                     <input className="form-input" style={{ marginTop: 8 }} placeholder="Customer name (new customer)" value={newCustName} onChange={e => setNewCustName(e.target.value)} />
+                  )}
+
+                  {/* Customer Context — optional pregnancy/baby/TTC capture.
+                      Skipping is fine; missing customers flow to the back-office queue. */}
+                  {(newCustName.trim() || selectedCust) && (
+                    <CustomerContextSection
+                      existing={existingContext}
+                      onChange={setPendingContext}
+                    />
                   )}
                 </div>
 
