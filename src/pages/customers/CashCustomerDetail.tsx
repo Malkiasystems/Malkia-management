@@ -48,12 +48,17 @@ interface Metrics {
 }
 
 interface Purchase {
-  id: string
+  // One row per (cash sale × product line). Multiple lines from the same
+  // sale share the same voucher_id, posting_date, and ref — the renderer
+  // groups them visually so the date/ref shows once per voucher.
+  voucher_id: string
   ref: string
   posting_date: string
-  total_amount: number
-  status: string
-  line_count: number
+  voucher_total: number     // total for the whole cash sale
+  line_number: number       // for stable ordering within a voucher
+  product_name: string
+  qty: number
+  line_total: number        // post-discount line total
 }
 
 interface TopProduct {
@@ -186,38 +191,61 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
   }
 
   const loadPurchases = async () => {
-    // Pull cash sales with line counts
+    // Pull this customer's cash sales (most recent first).
     const { data: vouchers } = await supabase
       .from('vouchers')
-      .select('id, ref, posting_date, total_amount, status')
+      .select('id, ref, posting_date, total_amount')
       .eq('customer_id', customerId)
       .eq('type', 'cash_sale')
       .eq('status', 'posted')
       .order('posting_date', { ascending: false })
       .limit(50)
 
-    if (!vouchers) return
+    if (!vouchers || vouchers.length === 0) { setPurchases([]); return }
 
-    // Get line counts in one go
+    // Pull all line items for those sales in one go, then expand into
+    // one row per (voucher × line). The renderer groups them visually.
     const ids = vouchers.map(v => v.id)
-    if (ids.length === 0) { setPurchases([]); return }
-
     const { data: lines } = await supabase
       .from('voucher_lines')
-      .select('voucher_id')
+      .select('voucher_id, line_number, description, qty, total')
       .in('voucher_id', ids)
+      .order('voucher_id', { ascending: false })
+      .order('line_number', { ascending: true })
 
-    const lineCountByVoucher: Record<string, number> = {}
-    if (lines) {
-      for (const ln of lines) {
-        lineCountByVoucher[ln.voucher_id] = (lineCountByVoucher[ln.voucher_id] || 0) + 1
-      }
-    }
+    if (!lines) { setPurchases([]); return }
 
-    setPurchases(vouchers.map(v => ({
-      ...v,
-      line_count: lineCountByVoucher[v.id] || 0,
-    })) as Purchase[])
+    // Index voucher metadata for quick lookup
+    const voucherById: Record<string, typeof vouchers[number]> = {}
+    for (const v of vouchers) voucherById[v.id] = v
+
+    const expanded: Purchase[] = lines
+      .map(l => {
+        const v = voucherById[l.voucher_id]
+        if (!v) return null
+        return {
+          voucher_id:    v.id,
+          ref:           v.ref,
+          posting_date:  v.posting_date,
+          voucher_total: v.total_amount,
+          line_number:   l.line_number,
+          product_name:  l.description || '—',
+          qty:           l.qty,
+          line_total:    l.total ?? 0,
+        } as Purchase
+      })
+      .filter((p): p is Purchase => p !== null)
+      // Sort: most recent voucher first (vouchers already came back desc, but
+      // the join may have shuffled). Within voucher, by line_number ascending.
+      .sort((a, b) => {
+        const dateCmp = b.posting_date.localeCompare(a.posting_date)
+        if (dateCmp !== 0) return dateCmp
+        const refCmp = b.ref.localeCompare(a.ref)
+        if (refCmp !== 0) return refCmp
+        return a.line_number - b.line_number
+      })
+
+    setPurchases(expanded)
   }
 
   const loadTopProducts = async () => {
@@ -682,16 +710,18 @@ function OverviewTab({ metrics, purchases, topProducts, autoTags, onViewStatemen
           </div>
         ) : (
           <div style={{ marginTop: 8 }}>
-            {purchases.slice(0, 5).map(p => (
-              <div key={p.id} style={timelineRow}>
+            {/* purchases is now line-level — aggregate back to voucher level
+                for the activity feed (one entry per visit). */}
+            {aggregateByVoucher(purchases).slice(0, 5).map(v => (
+              <div key={v.voucher_id} style={timelineRow}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>{p.ref}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{v.ref}</div>
                   <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                    {formatDate(p.posting_date)} · {p.line_count} item{p.line_count !== 1 ? 's' : ''}
+                    {formatDate(v.posting_date)} · {v.line_count} item{v.line_count !== 1 ? 's' : ''}
                   </div>
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>
-                  {tzs(p.total_amount)}
+                  {tzs(v.voucher_total)}
                 </div>
               </div>
             ))}
@@ -702,34 +732,146 @@ function OverviewTab({ metrics, purchases, topProducts, autoTags, onViewStatemen
   )
 }
 
+// Aggregate line-level purchases back to one row per voucher for activity feed
+function aggregateByVoucher(lines: Purchase[]): {
+  voucher_id: string
+  ref: string
+  posting_date: string
+  voucher_total: number
+  line_count: number
+}[] {
+  const byVoucher: Record<string, {
+    voucher_id: string
+    ref: string
+    posting_date: string
+    voucher_total: number
+    line_count: number
+  }> = {}
+  for (const line of lines) {
+    if (!byVoucher[line.voucher_id]) {
+      byVoucher[line.voucher_id] = {
+        voucher_id:    line.voucher_id,
+        ref:           line.ref,
+        posting_date:  line.posting_date,
+        voucher_total: line.voucher_total,
+        line_count:    0,
+      }
+    }
+    byVoucher[line.voucher_id].line_count += 1
+  }
+  // Already sorted by date desc in loadPurchases, so iteration order preserves that
+  const seen = new Set<string>()
+  const out: typeof byVoucher[string][] = []
+  for (const line of lines) {
+    if (seen.has(line.voucher_id)) continue
+    seen.add(line.voucher_id)
+    out.push(byVoucher[line.voucher_id])
+  }
+  return out
+}
+
 // ─── Purchases Tab ───────────────────────────────────────────────────────
+// Line-level view: one row per (cash sale × product line). Date and ref
+// merge visually across rows from the same sale via rowSpan.
 
 function PurchasesTab({ purchases }: { purchases: Purchase[] }) {
   if (purchases.length === 0) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)' }}>No purchases yet</div>
   }
+
+  // Pre-compute how many lines belong to each voucher so the first row of
+  // each group spans rowSpan=N for the date/ref cells.
+  const linesByVoucher: Record<string, number> = {}
+  for (const p of purchases) {
+    linesByVoucher[p.voucher_id] = (linesByVoucher[p.voucher_id] || 0) + 1
+  }
+
+  // Track which voucher we're rendering — only render date/ref on first line
+  const renderedVouchers = new Set<string>()
+
   return (
     <div style={panelStyle}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            <th style={thStyle}>Ref</th>
             <th style={thStyle}>Date</th>
-            <th style={thStyle}>Items</th>
+            <th style={thStyle}>Ref</th>
+            <th style={thStyle}>Product</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
             <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
           </tr>
         </thead>
         <tbody>
-          {purchases.map(p => (
-            <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ ...tdStyle, fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600 }}>{p.ref}</td>
-              <td style={tdStyle}>{formatDate(p.posting_date)}</td>
-              <td style={tdStyle}>{p.line_count}</td>
-              <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 700 }}>
-                {tzs(p.total_amount)}
-              </td>
-            </tr>
-          ))}
+          {purchases.map((p, i) => {
+            const isFirstLineOfVoucher = !renderedVouchers.has(p.voucher_id)
+            if (isFirstLineOfVoucher) renderedVouchers.add(p.voucher_id)
+            const rowSpan = linesByVoucher[p.voucher_id]
+
+            // Visual: top border on first line of each new voucher group;
+            // light border between lines within the same voucher.
+            const isLastLineOfVoucher =
+              i === purchases.length - 1 || purchases[i + 1].voucher_id !== p.voucher_id
+
+            const rowStyle: React.CSSProperties = {
+              borderBottom: isLastLineOfVoucher
+                ? '1px solid var(--border)'
+                : '1px dashed rgba(255,255,255,.06)',
+            }
+
+            return (
+              <tr key={`${p.voucher_id}-${p.line_number}`} style={rowStyle}>
+                {isFirstLineOfVoucher && (
+                  <>
+                    <td
+                      rowSpan={rowSpan}
+                      style={{
+                        ...tdStyle,
+                        verticalAlign: 'top',
+                        borderRight: '1px solid var(--border)',
+                        background: 'var(--surface2)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {formatDate(p.posting_date)}
+                    </td>
+                    <td
+                      rowSpan={rowSpan}
+                      style={{
+                        ...tdStyle,
+                        verticalAlign: 'top',
+                        borderRight: '1px solid var(--border)',
+                        background: 'var(--surface2)',
+                        fontFamily: 'var(--mono)',
+                        color: 'var(--accent)',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <div>{p.ref}</div>
+                      {rowSpan > 1 && (
+                        <div style={{
+                          fontSize: 10, fontWeight: 400, color: 'var(--text3)',
+                          marginTop: 4,
+                        }}>
+                          {tzs(p.voucher_total)} · {rowSpan} items
+                        </div>
+                      )}
+                    </td>
+                  </>
+                )}
+                <td style={tdStyle}>{p.product_name}</td>
+                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--mono)' }}>{p.qty}</td>
+                <td style={{
+                  ...tdStyle,
+                  textAlign: 'right',
+                  fontFamily: 'var(--mono)',
+                  fontWeight: 700,
+                }}>
+                  {tzs(p.line_total)}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
