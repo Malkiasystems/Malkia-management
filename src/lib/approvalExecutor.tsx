@@ -116,6 +116,13 @@ async function executeInternalUse(c: ExecuteContext): Promise<ExecutorResult> {
   const { data: locRow } = await supabase.from('stock_locations')
     .select('id, code').eq('code', p.form.locationCode).maybeSingle()
 
+  // Hard guard: a stock-decrementing voucher without a resolved location is a
+  // configuration bug. Refuse rather than silently update only global qty,
+  // which is what caused the historical drift we just cleaned up.
+  if (!locRow) {
+    return { success: false, error: `Cannot execute: location code "${p.form.locationCode || '(empty)'}" not found in stock_locations` }
+  }
+
   for (const ln of p.lines) {
     if (!ln.productId || ln.qty <= 0) continue
 
@@ -127,34 +134,19 @@ async function executeInternalUse(c: ExecuteContext): Promise<ExecutorResult> {
       posting_date: p.form.date,
       qty: -ln.qty,                           // negative = stock out
       cost_amount: ln.unitCost * ln.qty,      // always positive
-      location: locRow || null,
+      location: locRow,
     })
 
     // Decrement THIS LOCATION's qty. The product_locations trigger then
     // recomputes products.qty_on_hand = SUM(all locations), keeping global
-    // in sync. Previously this code updated products.qty_on_hand directly
-    // and never touched product_locations, causing every approved internal
-    // use to silently drift.
-    if (locRow) {
-      const { data: existingLoc } = await supabase.from('product_locations')
-        .select('qty_on_hand').eq('product_id', ln.productId).eq('location_id', locRow.id).maybeSingle()
-      const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - ln.qty)
-      await supabase.from('product_locations').upsert(
-        { product_id: ln.productId, location_id: locRow.id, location_code: locRow.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
-        { onConflict: 'product_id,location_id' }
-      )
-    } else {
-      // No location specified — fall back to direct global decrement so stock
-      // still goes down. This shouldn't happen in practice (locationCode is
-      // required on the form) but we don't want to silently swallow the qty.
-      const { data: prod } = await supabase.from('products')
-        .select('qty_on_hand').eq('id', ln.productId).single()
-      if (prod) {
-        await supabase.from('products')
-          .update({ qty_on_hand: Math.max(0, (prod.qty_on_hand || 0) - ln.qty) })
-          .eq('id', ln.productId)
-      }
-    }
+    // in sync. Drift becomes structurally impossible.
+    const { data: existingLoc } = await supabase.from('product_locations')
+      .select('qty_on_hand').eq('product_id', ln.productId).eq('location_id', locRow.id).maybeSingle()
+    const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - ln.qty)
+    await supabase.from('product_locations').upsert(
+      { product_id: ln.productId, location_id: locRow.id, location_code: locRow.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+      { onConflict: 'product_id,location_id' }
+    )
   }
 
   return { success: true, voucherId: c.referenceId }
@@ -212,6 +204,11 @@ async function executeStockAdjustment(c: ExecuteContext): Promise<ExecutorResult
   const { data: locRow } = await supabase.from('stock_locations')
     .select('id, code').eq('code', p.form.locationCode).maybeSingle()
 
+  // Hard guard — same reasoning as executeInternalUse.
+  if (!locRow) {
+    return { success: false, error: `Cannot execute: location code "${p.form.locationCode || '(empty)'}" not found in stock_locations` }
+  }
+
   const sign = p.form.type === 'increase' ? 1 : -1
   for (const ln of p.lines) {
     if (!ln.productId) continue
@@ -224,31 +221,18 @@ async function executeStockAdjustment(c: ExecuteContext): Promise<ExecutorResult
       posting_date: p.form.date,
       qty: sign * ln.qty,
       cost_amount: ln.unitCost * ln.qty,
-      location: locRow || null,
+      location: locRow,
     })
 
     // Apply the qty change to THIS LOCATION. The product_locations trigger
-    // then recomputes products.qty_on_hand = SUM(all locations). Previously
-    // this code wrote products.qty_on_hand directly without touching
-    // product_locations — every approved adjustment caused drift.
-    if (locRow) {
-      const { data: existingLoc } = await supabase.from('product_locations')
-        .select('qty_on_hand').eq('product_id', ln.productId).eq('location_id', locRow.id).maybeSingle()
-      const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) + (sign * ln.qty))
-      await supabase.from('product_locations').upsert(
-        { product_id: ln.productId, location_id: locRow.id, location_code: locRow.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
-        { onConflict: 'product_id,location_id' }
-      )
-    } else {
-      // No location specified — fall back to direct global update.
-      const { data: prod } = await supabase.from('products')
-        .select('qty_on_hand').eq('id', ln.productId).single()
-      if (prod) {
-        await supabase.from('products')
-          .update({ qty_on_hand: Math.max(0, (prod.qty_on_hand || 0) + (sign * ln.qty)) })
-          .eq('id', ln.productId)
-      }
-    }
+    // then recomputes products.qty_on_hand = SUM(all locations).
+    const { data: existingLoc } = await supabase.from('product_locations')
+      .select('qty_on_hand').eq('product_id', ln.productId).eq('location_id', locRow.id).maybeSingle()
+    const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) + (sign * ln.qty))
+    await supabase.from('product_locations').upsert(
+      { product_id: ln.productId, location_id: locRow.id, location_code: locRow.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+      { onConflict: 'product_id,location_id' }
+    )
   }
 
   return { success: true, voucherId: c.referenceId }
