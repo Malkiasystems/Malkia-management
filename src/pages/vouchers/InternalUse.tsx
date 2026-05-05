@@ -428,6 +428,20 @@ export default function InternalUse({ onNav }: Props) {
           cost_amount: line.unitCost * line.qty,
           location: selectedLoc || null,
         })
+
+        // Decrement THIS LOCATION's qty so per-location stock stays accurate.
+        // The product_locations trigger then recomputes products.qty_on_hand
+        // = SUM(all locations), keeping global in sync. Without this, every
+        // direct-post internal use silently caused drift.
+        if (selectedLoc) {
+          const { data: existingLoc } = await supabase.from('product_locations')
+            .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+          const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - line.qty)
+          await supabase.from('product_locations').upsert(
+            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
+        }
       }
 
       clearDraft()
