@@ -422,11 +422,17 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         location: locObj || null,
       })
       if (locObj) {
-        // Refresh actual qty from DB after atomic deduction
-        const { data: freshProd } = await supabase.from('products').select('qty_on_hand').eq('id', line.productId).single()
-        const actualQty = freshProd?.qty_on_hand ?? Math.max(0, (prod.qty_on_hand || 0) - line.qty)
+        // Decrement THIS LOCATION's own qty — read it fresh, subtract this sale's qty.
+        // Previously this code read the global products.qty_on_hand after the RPC ran
+        // and wrote that as the location qty, which corrupted multi-location stock
+        // (selling location's qty would inherit the global total). The product_locations
+        // trigger will recompute products.qty_on_hand = SUM(locations) after this upsert,
+        // so global stays in sync automatically.
+        const { data: existingLoc } = await supabase.from('product_locations')
+          .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', locObj.id).maybeSingle()
+        const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - line.qty)
         await supabase.from('product_locations').upsert(
-          { product_id: line.productId, location_id: locObj.id, location_code: locationCode, qty_on_hand: actualQty, last_updated: new Date().toISOString() },
+          { product_id: line.productId, location_id: locObj.id, location_code: locationCode, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
           { onConflict: 'product_id,location_id' }
         )
       }
