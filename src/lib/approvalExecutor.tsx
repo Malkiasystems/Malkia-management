@@ -119,15 +119,6 @@ async function executeInternalUse(c: ExecuteContext): Promise<ExecutorResult> {
   for (const ln of p.lines) {
     if (!ln.productId || ln.qty <= 0) continue
 
-    // Decrement stock on products table (internal_use = stock going out)
-    const { data: prod } = await supabase.from('products')
-      .select('qty_on_hand').eq('id', ln.productId).single()
-    if (prod) {
-      await supabase.from('products')
-        .update({ qty_on_hand: (prod.qty_on_hand || 0) - ln.qty })
-        .eq('id', ln.productId)
-    }
-
     await postLedgerEntry({
       product_id: ln.productId,
       entry_type: 'internal_use',
@@ -138,6 +129,32 @@ async function executeInternalUse(c: ExecuteContext): Promise<ExecutorResult> {
       cost_amount: ln.unitCost * ln.qty,      // always positive
       location: locRow || null,
     })
+
+    // Decrement THIS LOCATION's qty. The product_locations trigger then
+    // recomputes products.qty_on_hand = SUM(all locations), keeping global
+    // in sync. Previously this code updated products.qty_on_hand directly
+    // and never touched product_locations, causing every approved internal
+    // use to silently drift.
+    if (locRow) {
+      const { data: existingLoc } = await supabase.from('product_locations')
+        .select('qty_on_hand').eq('product_id', ln.productId).eq('location_id', locRow.id).maybeSingle()
+      const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - ln.qty)
+      await supabase.from('product_locations').upsert(
+        { product_id: ln.productId, location_id: locRow.id, location_code: locRow.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+        { onConflict: 'product_id,location_id' }
+      )
+    } else {
+      // No location specified — fall back to direct global decrement so stock
+      // still goes down. This shouldn't happen in practice (locationCode is
+      // required on the form) but we don't want to silently swallow the qty.
+      const { data: prod } = await supabase.from('products')
+        .select('qty_on_hand').eq('id', ln.productId).single()
+      if (prod) {
+        await supabase.from('products')
+          .update({ qty_on_hand: Math.max(0, (prod.qty_on_hand || 0) - ln.qty) })
+          .eq('id', ln.productId)
+      }
+    }
   }
 
   return { success: true, voucherId: c.referenceId }
@@ -199,15 +216,6 @@ async function executeStockAdjustment(c: ExecuteContext): Promise<ExecutorResult
   for (const ln of p.lines) {
     if (!ln.productId) continue
 
-    // Update products.qty_on_hand
-    const { data: prod } = await supabase.from('products')
-      .select('qty_on_hand').eq('id', ln.productId).single()
-    if (prod) {
-      await supabase.from('products')
-        .update({ qty_on_hand: (prod.qty_on_hand || 0) + (sign * ln.qty) })
-        .eq('id', ln.productId)
-    }
-
     await postLedgerEntry({
       product_id: ln.productId,
       entry_type: sign > 0 ? 'positive_adjustment' : 'negative_adjustment',
@@ -218,6 +226,29 @@ async function executeStockAdjustment(c: ExecuteContext): Promise<ExecutorResult
       cost_amount: ln.unitCost * ln.qty,
       location: locRow || null,
     })
+
+    // Apply the qty change to THIS LOCATION. The product_locations trigger
+    // then recomputes products.qty_on_hand = SUM(all locations). Previously
+    // this code wrote products.qty_on_hand directly without touching
+    // product_locations — every approved adjustment caused drift.
+    if (locRow) {
+      const { data: existingLoc } = await supabase.from('product_locations')
+        .select('qty_on_hand').eq('product_id', ln.productId).eq('location_id', locRow.id).maybeSingle()
+      const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) + (sign * ln.qty))
+      await supabase.from('product_locations').upsert(
+        { product_id: ln.productId, location_id: locRow.id, location_code: locRow.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+        { onConflict: 'product_id,location_id' }
+      )
+    } else {
+      // No location specified — fall back to direct global update.
+      const { data: prod } = await supabase.from('products')
+        .select('qty_on_hand').eq('id', ln.productId).single()
+      if (prod) {
+        await supabase.from('products')
+          .update({ qty_on_hand: Math.max(0, (prod.qty_on_hand || 0) + (sign * ln.qty)) })
+          .eq('id', ln.productId)
+      }
+    }
   }
 
   return { success: true, voucherId: c.referenceId }
