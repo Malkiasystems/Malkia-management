@@ -417,6 +417,20 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           posting_date: form.date, qty: -line.qty, cost_amount: prod.cost_price * line.qty,
           location: selectedLoc || null,
         })
+        // Decrement THIS LOCATION's qty so per-location stock stays accurate.
+        // The product_locations trigger then recomputes products.qty_on_hand
+        // as SUM(all locations), keeping global in sync. Without this, every
+        // sales invoice silently caused drift (global went down, no location
+        // bumped down to match).
+        if (selectedLoc) {
+          const { data: existingLoc } = await supabase.from('product_locations')
+            .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+          const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - line.qty)
+          await supabase.from('product_locations').upsert(
+            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+            { onConflict: 'product_id,location_id' }
+          )
+        }
       }
 
       // Update customer balance and ledger
@@ -425,13 +439,21 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         last_purchase_date: form.date, last_purchase_amount: subtotal,
       }).eq('id', customerId)
 
-      supabase.from('customer_ledger_entries').insert({
+      // Customer ledger entry — must be awaited. Previously this was fire-and-forget
+      // (.then(...) without await), meaning if the insert silently failed, the
+      // voucher would post but the AR ledger would have no record of the receivable.
+      // The customer balance trigger relies on this row existing.
+      const { error: ledgerErr } = await supabase.from('customer_ledger_entries').insert({
         customer_id: customerId, posting_date: form.date,
         document_type: 'invoice', document_ref: form.ref,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
         amount: subtotal, remaining_amount: subtotal,
         due_date: form.dueDate || null, is_open: true, journal_id: journal.id,
-      }).then(({ error }) => { if (error) console.warn('Ledger:', error.message) })
+      })
+      if (ledgerErr) {
+        console.error('Customer ledger insert failed:', ledgerErr.message)
+        showToast(`Voucher posted but AR ledger entry failed: ${ledgerErr.message}`, 'error')
+      }
 
       const invoiceData = {
         ref: form.ref, posting_date: form.date, due_date: form.dueDate,
