@@ -9,6 +9,7 @@ import { today, tzs, getPostedBy } from '../../lib/utils'
 import { loadWAConfig, sendWhatsApp } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
+import { useSettings } from '../../lib/settingsLoader'
 import type { Page } from '../../lib/types'
 import { MalkiaProforma, DEFAULT_PROFORMA } from '../ProformaTemplate'
 import type { ProformaSettings, ProformaVoucher } from '../ProformaTemplate'
@@ -61,6 +62,9 @@ const SHORTCUTS: { icon: string; label: string; page: Page }[] = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
+  const { settings } = useSettings()
+  const vatEnabled = settings.tax?.vat_enabled ?? false
+  const vatRate = settings.tax?.default_vat_rate ?? 18
   // ── UI state ──────────────────────────────────────────────────────────────
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -320,7 +324,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
 
   // ── Totals ───────────────────────────────────────────────────────────────
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
-  const vat = Math.round(subtotal * 18 / 118)
+  const vat = vatEnabled ? Math.round(subtotal * vatRate / (100 + vatRate)) : 0
   const netRevenue = subtotal - vat
   const totalSavings = lines.reduce((s, l) => {
     if (!l.discount) return s
@@ -386,7 +390,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
           product_id: l.productId || null,
           description: l.desc, qty: l.qty,
           unit_price: l.price, discount_pct: l.discount,
-          subtotal: l.amount, vat_amount: Math.round(l.amount * 18 / 118),
+          subtotal: l.amount, vat_amount: vatEnabled ? Math.round(l.amount * vatRate / (100 + vatRate)) : 0,
           total: l.amount,
         }))
         if (lineInserts.length) {
@@ -426,7 +430,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
           product_id: l.productId || null,
           description: l.desc, qty: l.qty,
           unit_price: l.price, discount_pct: l.discount,
-          subtotal: l.amount, vat_amount: Math.round(l.amount * 18 / 118),
+          subtotal: l.amount, vat_amount: vatEnabled ? Math.round(l.amount * vatRate / (100 + vatRate)) : 0,
           total: l.amount,
         }))
         if (lineInserts.length) {
@@ -793,13 +797,15 @@ _Malkia Wellness Group Ltd_`
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: 'var(--text3)' }}>
-                <span>Subtotal (excl. VAT)</span>
+                <span>{vatEnabled ? 'Subtotal (excl. VAT)' : 'Subtotal'}</span>
                 <span style={{ fontFamily: 'var(--mono)' }}>{netRevenue.toLocaleString()}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: 'var(--text3)' }}>
-                <span>VAT (18% incl.)</span>
-                <span style={{ fontFamily: 'var(--mono)' }}>{vat.toLocaleString()}</span>
-              </div>
+              {vatEnabled && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', color: 'var(--text3)' }}>
+                  <span>VAT ({vatRate}% incl.)</span>
+                  <span style={{ fontFamily: 'var(--mono)' }}>{vat.toLocaleString()}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10, paddingTop: 10, borderTop: '2px solid var(--accent)' }}>
                 <span style={{ fontSize: 13, fontWeight: 800 }}>QUOTED TOTAL</span>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>
