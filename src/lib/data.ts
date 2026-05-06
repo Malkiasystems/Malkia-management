@@ -67,7 +67,7 @@ export const CUSTOMERS: Record<string, Customer> = {
 export const BREADCRUMBS: Record<string, string> = {
   'dashboard':'Dashboard', 'vouchers':'Vouchers', 'chart-of-accounts':'Chart of Accounts',
   'banks':'Banks & Cash', 'inventory':'Inventory', 'reports':'Reports',
-  'sales':'Cash Sale', 'cash-sale':'Cash Sale', 'cash-payment':'Cash Payment',
+  'sales':'Cash Sale', 'cash-sale':'Cash Sale', 'cash-payment':'Payment Voucher',
   'bank-receipt':'Cash Receipt', 'bank-transfer':'Bank Transfer', 'petty-cash':'Petty Cash',
   'contra':'Contra Entry', 'sales-invoice':'Sales Invoice', 'proforma':'Proforma Invoice', 'sales-return':'Sales Return',
   'debit-note':'Debit Note', 'credit-note':'Credit Note',
