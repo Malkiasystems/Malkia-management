@@ -449,7 +449,7 @@ function AppContent() {
       case 'banks':             return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
-      case 'bank-payment':      return <CashPayment onNav={navigate} />
+      case 'bank-payment':      return <CashPayment onNav={navigate} />  // legacy alias — single Payment Voucher handles both
       case 'cash-receipt':      return <CashReceipt onNav={navigate} />
       case 'bank-receipt':      return <BankReceipt onNav={navigate} />
       case 'bank-transfer':     return <BankTransfer onNav={navigate} />
