@@ -26,7 +26,7 @@ const SEARCHABLE_PAGES: { page: Page; label: string; keywords: string }[] = [
   { page: 'banks', label: 'Banks & Accounts', keywords: 'bank accounts' },
   { page: 'settings', label: 'Settings', keywords: 'config preferences' },
   { page: 'petty-cash', label: 'Petty Cash', keywords: 'expenses' },
-  { page: 'cash-payment', label: 'Cash Payment', keywords: 'pay expense' },
+  { page: 'cash-payment', label: 'Payment Voucher', keywords: 'pay expense cash bank' },
   { page: 'cash-receipt', label: 'Cash Receipt', keywords: 'receive money' },
   { page: 'credit-note', label: 'Credit Note', keywords: 'refund return' },
   { page: 'opening-stock', label: 'Opening Stock', keywords: 'initial inventory' },
