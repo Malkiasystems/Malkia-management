@@ -48,7 +48,7 @@ const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(
 const todayStr = () => new Date().toISOString().split('T')[0]
 
 const TYPE_LABEL: Record<string, string> = {
-  cash_payment: 'Cash Payment', petty_cash: 'Petty Cash',
+  cash_payment: 'Payment Voucher', petty_cash: 'Petty Cash',
   bank_transfer: 'Bank Transfer', contra: 'Contra', cash_receipt: 'Cash Receipt',
 }
 const TYPE_COLOR: Record<string, string> = {
@@ -506,7 +506,7 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             {[
               { key: 'all' as TypeFilter, label: 'All' },
-              { key: 'cash_payment' as TypeFilter, label: 'Cash Payments' },
+              { key: 'cash_payment' as TypeFilter, label: 'Payment Vouchers' },
               { key: 'petty_cash' as TypeFilter, label: 'Petty Cash' },
               { key: 'bank_transfer' as TypeFilter, label: 'Bank Transfers' },
               { key: 'cash_receipt' as TypeFilter, label: 'Receipts' },
