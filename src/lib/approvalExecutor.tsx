@@ -18,6 +18,26 @@ import { insertJournalWithRetry } from './refs'
 import { postLedgerEntry } from './itemLedger'
 import { markRequestExecuted } from './useApproval'
 
+// ─── Tax settings reader ────────────────────────────────────────────────────
+// Mirrors useSettings().settings.tax for non-React contexts (executors are
+// not React components and can't call hooks). Reads the same 'tax' row from
+// system_settings that the React loader merges with defaults.
+async function getTaxSettings(): Promise<{ vatEnabled: boolean; vatRate: number }> {
+  const { data } = await supabase
+    .from('system_settings')
+    .select('value')
+    .eq('key', 'tax')
+    .maybeSingle()
+  let parsed: any = null
+  try {
+    parsed = data?.value ? (typeof data.value === 'string' ? JSON.parse(data.value) : data.value) : null
+  } catch { /* fall through to defaults */ }
+  return {
+    vatEnabled: parsed?.vat_enabled ?? false,
+    vatRate: parsed?.default_vat_rate ?? 18,
+  }
+}
+
 export interface ExecutorResult {
   success: boolean
   voucherId?: string
@@ -508,7 +528,8 @@ async function executeSalesReturn(c: ExecuteContext): Promise<ExecutorResult> {
     return { success: false, error: 'Required accounts missing (4050, 5010, 1110)' }
   }
 
-  const vat = Math.round(p.total * 18 / 118)
+  const { vatEnabled, vatRate } = await getTaxSettings()
+  const vat = vatEnabled ? Math.round(p.total * vatRate / (100 + vatRate)) : 0
   const netReturn = p.total - vat
 
   const { data: journal, error: jErr } = await insertJournalWithRetry({
@@ -527,7 +548,7 @@ async function executeSalesReturn(c: ExecuteContext): Promise<ExecutorResult> {
     { journal_id: journal.id, line_number: 1, account_id: returnsId!,
       description: `Sales return — ${p.form.customer}`, debit: netReturn, credit: 0 },
   ]
-  if (vatId) {
+  if (vat > 0 && vatId) {
     jLines.push({ journal_id: journal.id, line_number: 2, account_id: vatId,
       description: `VAT reversal — ${p.form.ref}`, debit: vat, credit: 0 })
   }
