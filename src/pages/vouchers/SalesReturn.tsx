@@ -8,6 +8,7 @@ import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { useSettings } from '../../lib/settingsLoader'
 import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
 import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
@@ -19,6 +20,9 @@ interface StockLoc { id: string; code: string; name: string }
 export default function SalesReturn({ onNav }: Props) {
   const userLoc = useUserLocation()
   const { user, isSuperAdmin } = useAuth()
+  const { settings } = useSettings()
+  const vatEnabled = settings.tax?.vat_enabled ?? false
+  const vatRate = settings.tax?.default_vat_rate ?? 18
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -102,7 +106,7 @@ export default function SalesReturn({ onNav }: Props) {
       const vatId = acct('2020')
       if (!returnsId || !cogsId || !inventoryId) throw new Error('Required accounts not found. Ensure 4050 Sales Returns exists in Chart of Accounts.')
 
-      const vat = Math.round(total * 18 / 118)
+      const vat = vatEnabled ? Math.round(total * vatRate / (100 + vatRate)) : 0
       const netReturn = total - vat
 
       const { data: jRaw, error: jErr } = await insertJournalWithRetry({
@@ -117,7 +121,7 @@ export default function SalesReturn({ onNav }: Props) {
       const jLines: any[] = [
         { journal_id: j.id, line_number: 1, account_id: returnsId, description: `Sales return — ${form.customer}`, debit: netReturn, credit: 0 },
       ]
-      if (vatId) jLines.push({ journal_id: j.id, line_number: 2, account_id: vatId, description: `VAT reversal — ${form.ref}`, debit: vat, credit: 0 })
+      if (vat > 0 && vatId) jLines.push({ journal_id: j.id, line_number: 2, account_id: vatId, description: `VAT reversal — ${form.ref}`, debit: vat, credit: 0 })
       // Cr Cash/AR — refund issued
       if (form.refundAccountId) {
         jLines.push({ journal_id: j.id, line_number: jLines.length + 1, account_id: form.refundAccountId, description: `Refund — ${form.customer}`, debit: 0, credit: total })
