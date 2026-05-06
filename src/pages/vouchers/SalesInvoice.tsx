@@ -13,6 +13,7 @@ import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useUserLocation } from '../../lib/useUserLocation'
+import { useSettings } from '../../lib/settingsLoader'
 
 interface Props {
   onNav: (p: Page) => void
@@ -66,6 +67,9 @@ function StepHeader({ num, title, helper }: { num: number; title: string; helper
 
 export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
   const userLoc = useUserLocation()
+  const { settings } = useSettings()
+  const vatEnabled = settings.tax?.vat_enabled ?? false
+  const vatRate = settings.tax?.default_vat_rate ?? 18
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -318,7 +322,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
-  const vat = Math.round(subtotal * 18 / 118)
+  // VAT only applies when org is VAT-registered. When disabled, the line price
+  // IS the revenue (no VAT split). Toggle lives in Settings → Tax.
+  const vat = vatEnabled ? Math.round(subtotal * vatRate / (100 + vatRate)) : 0
   const netRevenue = subtotal - vat
   const cogsTotal = lines.reduce((s, l) => {
     const p = products.find(p => p.id === l.productId)
@@ -365,13 +371,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
 
-      const jLines = [
+      const jLines: any[] = [
         { journal_id: journal.id, line_number: 1, account_id: arId, description: `AR — ${selectedCust.company || selectedCust.name} — ${form.ref}`, debit: subtotal, credit: 0 },
         { journal_id: journal.id, line_number: 2, account_id: revenueId, description: `Revenue — ${form.ref}`, debit: 0, credit: netRevenue },
-        { journal_id: journal.id, line_number: 3, account_id: vatId, description: `VAT — ${form.ref}`, debit: 0, credit: vat },
-        { journal_id: journal.id, line_number: 4, account_id: cogsId, description: `COGS — ${form.ref}`, debit: cogsTotal, credit: 0 },
-        { journal_id: journal.id, line_number: 5, account_id: inventoryId, description: `Inventory out — ${form.ref}`, debit: 0, credit: cogsTotal },
       ]
+      if (vat > 0 && vatId) {
+        jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: vatId, description: `VAT — ${form.ref}`, debit: 0, credit: vat })
+      }
+      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: cogsId, description: `COGS — ${form.ref}`, debit: cogsTotal, credit: 0 })
+      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: inventoryId, description: `Inventory out — ${form.ref}`, debit: 0, credit: cogsTotal })
       const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
       if (jlErr) throw new Error(jlErr.message)
       await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
@@ -407,7 +415,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           voucher_id: voucher.id, line_number: i + 1, product_id: line.productId,
           description: line.name, qty: line.qty, unit_cost: prod.cost_price,
           unit_price: line.price, subtotal: line.amount, discount_pct: discPctEquiv,
-          vat_amount: Math.round(line.amount * 18 / 118), total: line.amount,
+          vat_amount: vat > 0 ? Math.round(line.amount * vatRate / (100 + vatRate)) : 0, total: line.amount,
         })
         await supabase.rpc('deduct_stock_allow_negative', { p_product_id: prod.id, p_qty: line.qty })
         const selectedLoc = locations.find(l => l.code === locationCode)
@@ -492,7 +500,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       postLabel={posting ? 'Posting…' : 'Post Invoice'}
       postDisabled={!selectedCust || posting}
       postDisabledReason={!selectedCust ? 'Select a registered customer before posting. Walk-in or typed names are not accepted on credit invoices.' : undefined}
-      journalNote="Dr AR (1050) · Cr Revenue (4011) · Cr VAT (2020) · Dr COGS (5010) · Cr Inventory (1110)">
+      journalNote={vatEnabled
+        ? 'Dr AR (1050) · Cr Revenue (4011) · Cr VAT (2020) · Dr COGS (5010) · Cr Inventory (1110)'
+        : 'Dr AR (1050) · Cr Revenue (4011) · Dr COGS (5010) · Cr Inventory (1110)'}>
 
       {/* Draft resume banner — only shows if we found a saved draft on mount */}
       {availableDraft && draftAgeMs !== null && (
@@ -1000,13 +1010,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         {/* Totals — right-aligned block */}
         <div style={{ maxWidth: 420, marginLeft: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', color: 'var(--text2)' }}>
-            <span>Subtotal (ex VAT)</span>
+            <span>{vatEnabled ? 'Subtotal (ex VAT)' : 'Subtotal'}</span>
             <span style={{ fontFamily: 'var(--mono)' }}>{netRevenue.toLocaleString()}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', color: 'var(--text2)' }}>
-            <span>VAT 18%</span>
-            <span style={{ fontFamily: 'var(--mono)' }}>{vat.toLocaleString()}</span>
-          </div>
+          {vatEnabled && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', color: 'var(--text2)' }}>
+              <span>VAT {vatRate}%</span>
+              <span style={{ fontFamily: 'var(--mono)' }}>{vat.toLocaleString()}</span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8, paddingTop: 10, borderTop: '2px solid var(--accent)' }}>
             <span style={{ fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Due</span>
             <span style={{ fontFamily: 'var(--mono)', fontSize: 24, fontWeight: 800, color: 'var(--green)' }}>TZS {subtotal.toLocaleString()}</span>
