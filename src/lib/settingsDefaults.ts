@@ -163,7 +163,10 @@ export const DEFAULT_NUMBERING: NumberingSettings = {
 }
 
 export const DEFAULT_TAX: TaxSettings = {
-  vat_enabled: true,
+  // VAT is disabled by default. Tanzanian SMEs only register for VAT once
+  // turnover crosses 100M TZS. Flip this on in Settings → Tax once the
+  // organisation is registered and starts charging VAT on invoices.
+  vat_enabled: false,
   default_vat_rate: 18,
   vat_rates: [
     { label: 'Standard', rate: 18 },
