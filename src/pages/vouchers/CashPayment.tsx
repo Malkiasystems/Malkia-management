@@ -173,12 +173,12 @@ export default function CashPayment({ onNav }: Props) {
 
   return (
     <VoucherPage
-      title="Cash Payment"
+      title="Payment Voucher"
       icon=""
-      subtitle="Record a cash expense or supplier payment"
+      subtitle="Pay any expense or supplier from cash, bank, or M-Pesa"
       color="rgba(255,71,87,.12)"
       onPost={post}
-      journalNote={`Dr Expense/Supplier Account · Cr Cash Account · Balance updated`}>
+      journalNote={`Dr Expense/Supplier Account · Cr Cash/Bank Account · Balance updated`}>
 
       <div className="grid g2" style={{ gap: 20 }}>
         <div className="card">

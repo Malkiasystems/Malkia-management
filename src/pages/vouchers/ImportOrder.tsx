@@ -345,7 +345,7 @@ export default function ImportOrder({ onNav }: Props) {
       `Voiding will create REVERSAL journals (Dr Bank / Cr the original Dr account) and restore supplier/agent balances. ` +
       `On paper, the money "comes back" — but only the books will reflect it. Your bank account in real life will not refund.\n\n` +
       `Use this only for correcting data entry errors. If your Chinese supplier actually kept the deposit, ` +
-      `cancel and instead post a Cash Payment to "Lost Deposits" expense account.\n\n` +
+      `cancel and instead post a Payment Voucher to "Lost Deposits" expense account.\n\n` +
       `Continue with reversal?`
     )
     if (!ok) return

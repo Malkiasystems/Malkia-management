@@ -513,7 +513,7 @@ export default function Purchase({ onNav }: Props) {
         <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4, fontSize: 10, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1 }}>What this does</div>
         <div>Stock enters your inventory immediately at the unit cost shown. Average cost recalculated automatically.</div>
         {form.paymentMode === 'credit'
-          ? <div>Supplier balance increases by the total — settle later via Cash Payment or Bank Transfer.</div>
+          ? <div>Supplier balance increases by the total — settle later via Payment Voucher or Bank Transfer.</div>
           : <div>Money leaves the selected account at posting — no separate payment voucher needed.</div>
         }
       </div>
