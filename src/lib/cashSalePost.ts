@@ -102,13 +102,34 @@ function buildReceiptJournalLines(args: {
         `Payment account not found for ${args.currentMethod.label} (code: ${args.currentMethod.accountCode}). Check Chart of Accounts.`
       )
     }
+
+    // primaryAmount = what the PRIMARY payment method actually received.
+    // Non-split  → the whole total goes to the primary method.
+    // Split      → total minus what the secondary split lines collected.
+    //
+    // IMPORTANT: args.total already includes deliveryTotal (computed upstream
+    // as `subtotal + deliveryTotal`). The credit side of this journal posts a
+    // separate `Delivery float (2085)` line for deliveryTotal, which exactly
+    // balances the delivery portion already inside `total` on the debit side.
+    // We must NOT push an additional delivery debit line here — doing so was
+    // the bug that left every cash sale with a delivery fee out of balance by
+    // exactly `deliveryTotal`.
     const primaryAmount = args.isSplit ? args.total - args.totalSplitPaid : args.total
-    lines.push({
-      journal_id: args.journalId, line_number: ln++,
-      account_id: primaryAcctId,
-      description: `${args.currentMethod.label}${args.paymentRef ? ' · ' + args.paymentRef : ''} — ${args.custName}`,
-      debit: primaryAmount > 0 ? primaryAmount : args.total, credit: 0,
-    })
+
+    // Only push a primary-method debit if it actually received money.
+    // Previously the fallback `primaryAmount > 0 ? primaryAmount : args.total`
+    // re-debited the full total when a split fully allocated to secondary
+    // methods (primaryAmount === 0), producing a debit side that was double
+    // the credit side. We now skip the line entirely in that case.
+    if (primaryAmount > 0) {
+      lines.push({
+        journal_id: args.journalId, line_number: ln++,
+        account_id: primaryAcctId,
+        description: `${args.currentMethod.label}${args.paymentRef ? ' · ' + args.paymentRef : ''} — ${args.custName}`,
+        debit: primaryAmount, credit: 0,
+      })
+    }
+
     for (const sl of args.splitLines) {
       if (!sl.accountId || !sl.amount) continue
       const m = PAYMENT_METHODS.find(pm => pm.id === sl.methodId)
@@ -118,17 +139,6 @@ function buildReceiptJournalLines(args: {
         description: `${m?.label || sl.methodId}${sl.ref ? ' · ' + sl.ref : ''} — ${args.custName}`,
         debit: sl.amount, credit: 0,
       })
-    }
-    if (args.deliveryTotal > 0 && args.delivFloatId) {
-      const delivAcctId = args.accountMap[args.currentMethod.accountCode]
-      if (delivAcctId) {
-        lines.push({
-          journal_id: args.journalId, line_number: ln++,
-          account_id: delivAcctId,
-          description: `Delivery collected — ${args.ref}`,
-          debit: args.deliveryTotal, credit: 0,
-        })
-      }
     }
   } else if (args.isPOD && args.arId) {
     lines.push({
@@ -319,6 +329,11 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     const inventoryId = acct('1110')
     const arId = acct('1050'); const delivFloatId = acct('2085') || deliveryAccountId
     if (!revenueId || !cogsId || !inventoryId) throw new Error('Required accounts not found')
+    // If we collected delivery money but have nowhere to credit it, the
+    // journal will silently go out of balance. Fail loudly instead.
+    if (deliveryTotal > 0 && !delivFloatId) {
+      throw new Error('Delivery & Shipping Float account (2085) not found and no fallback configured. Add it to the Chart of Accounts before posting sales with delivery.')
+    }
 
     // Build payment label (helper — mirrored on edit path)
     const paymentLabel = buildPaymentLabel(isSplit, splitLines, currentMethod)
@@ -698,6 +713,9 @@ export async function updateCashSale(params: UpdateParams): Promise<{ success: b
       const arId = acct('1050')
       const delivFloatId = acct('2085') || deliveryAccountId
       if (!revenueId || !cogsId || !inventoryId) throw new Error('Required accounts not found for re-post')
+      if (deliveryTotal > 0 && !delivFloatId) {
+        throw new Error('Delivery & Shipping Float account (2085) not found and no fallback configured. Cannot re-post.')
+      }
 
       const cogsTotal = lineItems.reduce((s, l) => {
         const p = dbProducts.find(p => p.id === l.productId)
