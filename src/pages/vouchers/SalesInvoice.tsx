@@ -46,6 +46,25 @@ interface InvLine {
 
 const TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET45', 'NET60', 'NET90']
 
+// Derive the payment method from a Cash & Bank account code/name.
+// Mirrors the logic in CashReceipt — single source of truth for "what kind
+// of money is this?" so the journal narrative and voucher.payment_method
+// stay consistent across the system.
+// 1010, 1011, 1040 → cash · 1020, 1021 → mpesa · 103x → rtgs · etc.
+const deriveMethod = (code: string, name: string): string => {
+  if (!code) return 'cash'
+  const c = code.trim()
+  const n = (name || '').toLowerCase()
+  if (c.startsWith('101') || c === '1040') return 'cash'
+  if (c.startsWith('102')) {
+    if (n.includes('mixx')) return 'mixx'
+    if (n.includes('airtel')) return 'airtel'
+    return 'mpesa'
+  }
+  if (c.startsWith('103')) return 'rtgs'
+  return 'cash'
+}
+
 // Small section-header used above each step in the new SI layout. Provides
 // a visual progress cue (numbered circle) + title + optional helper text.
 function StepHeader({ num, title, helper }: { num: number; title: string; helper?: string }) {
@@ -84,6 +103,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const { groups, catsByGroup } = useCategories()
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
   const [allCustomers, setAllCustomers] = useState<DBCustomer[]>([])  // full cached list for instant browse
+  // Cash/M-Pesa/Bank accounts for the optional "Payment received at issue"
+  // block. Loaded once on mount; same source as Cash Receipt's deposit picker.
+  const [cashAccounts, setCashAccounts] = useState<{ id: string; code: string; name: string }[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
   const [showDrop, setShowDrop] = useState(false)
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
@@ -98,6 +120,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     customer: '', wa: '', paymentTerms: 'NET30', notes: '', salesperson: 'Joe Gembe',
     poRef: '',                // Customer's PO number (B2B)
     deliveryAddress: '',      // If blank, use customer registered address
+    // ── Optional advance payment captured at issue time ────────────────
+    // For wholesale customers who pay (fully or partially) in cash at the
+    // moment of invoicing — they still get a proper Sales Invoice (their
+    // ledger and AR aging show it) but we capture the receipt in the same
+    // post so the books stay tight. Different from Cash Sale, which is
+    // reserved for retail walk-ins (CASH001 etc.).
+    paidNow: '',              // TZS string; 0 / empty = no advance payment
+    paidDepositAccountId: '', // cash/bank account to debit
+    paidTransactionId: '',    // M-Pesa code / cheque no / TT ref (optional)
   })
   const dropRef = useRef<HTMLDivElement>(null)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -128,7 +159,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   useEffect(() => {
-    loadProducts(); loadSettings(); loadAllCustomers()
+    loadProducts(); loadSettings(); loadAllCustomers(); loadCashAccounts()
     supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
       .then(({ data }) => {
         if (data) {
@@ -260,6 +291,18 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       .then(({ data }) => { if (data) setAllCustomers(data) })
   }
 
+  // Pull active Cash & Bank accounts for the optional "Payment received at
+  // issue" picker. Filtered to category='Cash & Bank' so we don't show
+  // revenue/expense accounts in the deposit dropdown.
+  const loadCashAccounts = () => {
+    supabase.from('accounts')
+      .select('id, code, name, category')
+      .eq('is_active', true)
+      .eq('category', 'Cash & Bank')
+      .order('code')
+      .then(({ data }) => { if (data) setCashAccounts(data) })
+  }
+
   const loadNextRef = async () => {
     const ref = await nextRef('sales_invoice')
     setForm(f => ({ ...f, ref }))
@@ -337,6 +380,21 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     if (!selectedCust) { showToast('Select a customer from the database first', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (subtotal <= 0) { showToast('Invoice total must be greater than zero', 'error'); return }
+
+    // Optional advance payment validation. If the user typed an amount in
+    // the "Payment received at issue" block we need a deposit account and
+    // the amount can't exceed the invoice total — any overpayment should
+    // be entered later via a normal Cash Receipt so it becomes credit on
+    // the customer's account, separate from this invoice.
+    const paidNow = parseFloat(form.paidNow) || 0
+    if (paidNow < 0) { showToast('Advance payment cannot be negative', 'error'); return }
+    if (paidNow > 0 && !form.paidDepositAccountId) {
+      showToast('Select where the cash was deposited (cash / M-Pesa / bank account)', 'error'); return
+    }
+    if (paidNow > subtotal + 0.5) {
+      showToast(`Advance payment (${paidNow.toLocaleString()}) is more than the invoice total. Post the invoice first, then receive the extra via Cash Receipt.`, 'error'); return
+    }
+
     // Defence in depth: even if the UI is bypassed, a locked user cannot
     // post an invoice that deducts from someone else's location.
     if (!userLoc.canPostFrom(locationCode)) {
@@ -441,9 +499,13 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         }
       }
 
-      // Update customer balance and ledger
+      // Update customer balance and ledger. When the customer paid in
+      // advance, the *net* balance change is subtotal − paidNow (invoice
+      // adds receivable, receipt reduces it). Both ledger rows are still
+      // posted individually for an audit trail.
+      const netBalanceChange = subtotal - paidNow
       await supabase.from('customers').update({
-        balance: (selectedCust.balance || 0) + subtotal,
+        balance: (selectedCust.balance || 0) + netBalanceChange,
         last_purchase_date: form.date, last_purchase_amount: subtotal,
       }).eq('id', customerId)
 
@@ -451,16 +513,101 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       // (.then(...) without await), meaning if the insert silently failed, the
       // voucher would post but the AR ledger would have no record of the receivable.
       // The customer balance trigger relies on this row existing.
+      //
+      // remaining_amount and is_open reflect the advance payment: if the
+      // wholesaler paid in full at issue, this invoice closes immediately;
+      // partial payments leave it open with a reduced remaining_amount.
+      const invoiceRemaining = Math.max(0, subtotal - paidNow)
+      const invoiceStillOpen = invoiceRemaining > 0.5
       const { error: ledgerErr } = await supabase.from('customer_ledger_entries').insert({
         customer_id: customerId, posting_date: form.date,
         document_type: 'invoice', document_ref: form.ref,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
-        amount: subtotal, remaining_amount: subtotal,
-        due_date: form.dueDate || null, is_open: true, journal_id: journal.id,
+        amount: subtotal, remaining_amount: invoiceRemaining,
+        due_date: form.dueDate || null, is_open: invoiceStillOpen, journal_id: journal.id,
       })
       if (ledgerErr) {
         console.error('Customer ledger insert failed:', ledgerErr.message)
         showToast(`Voucher posted but AR ledger entry failed: ${ledgerErr.message}`, 'error')
+      }
+
+      // ── Advance payment: post a sibling Cash Receipt ──────────────────
+      // When the wholesaler paid cash at issue time, we record a normal
+      // Cash Receipt against the same customer, so it shows on their
+      // statement as "Payment received against INV-…" and the AR aging
+      // report reflects the reduced outstanding amount immediately.
+      // This keeps the books clean: invoice and receipt are two separate
+      // vouchers and two separate journals (audit-friendly), tied
+      // together by the customer ledger entries' remaining_amount.
+      if (paidNow > 0 && form.paidDepositAccountId) {
+        try {
+          const depositAcc = cashAccounts.find(a => a.id === form.paidDepositAccountId)
+          const payMethod = depositAcc ? deriveMethod(depositAcc.code, depositAcc.name) : 'cash'
+          const receiptRef = await nextRef('cash_receipt')
+          const custName = selectedCust.company || selectedCust.name
+
+          const { data: receiptJournalRaw, error: rjErr } = await insertJournalWithRetry({
+            ref: 'JV-' + receiptRef, posting_date: form.date,
+            description: `Customer Receipt (advance on ${form.ref}) — ${custName} — ${receiptRef}`,
+            journal_type: 'cash_receipt', source_type: 'cash_receipt',
+            source_ref: receiptRef, posted_by: getPostedBy(), status: 'posted',
+          })
+          if (rjErr || !receiptJournalRaw) throw new Error(rjErr?.message || 'Receipt journal insert failed')
+
+          const { error: rlErr } = await supabase.from('journal_lines').insert([
+            {
+              journal_id: receiptJournalRaw.id, line_number: 1,
+              account_id: form.paidDepositAccountId,
+              description: `Received from ${custName} — advance on ${form.ref}`,
+              debit: paidNow, credit: 0,
+            },
+            {
+              journal_id: receiptJournalRaw.id, line_number: 2,
+              account_id: arId,
+              description: `AR payment — ${custName} — ${form.ref}`,
+              debit: 0, credit: paidNow,
+            },
+          ])
+          if (rlErr) throw new Error('Receipt journal lines: ' + rlErr.message)
+
+          await Promise.all([
+            supabase.rpc('update_account_balance', { p_account_id: form.paidDepositAccountId, p_debit: paidNow, p_credit: 0 }),
+            supabase.rpc('update_account_balance', { p_account_id: arId, p_debit: 0, p_credit: paidNow }),
+          ])
+
+          // Receipt voucher row — links the receipt to the customer and
+          // exposes it in the Payment Register page.
+          await supabase.from('vouchers').insert({
+            ref: receiptRef, type: 'cash_receipt', posting_date: form.date,
+            description: `Customer Receipt (advance on ${form.ref}) — ${custName}`,
+            total_amount: paidNow, status: 'posted', journal_id: receiptJournalRaw.id,
+            payment_method: payMethod,
+            notes: form.paidTransactionId
+              ? `Advance payment for ${form.ref} · ${payMethod.toUpperCase()} ref: ${form.paidTransactionId}`
+              : `Advance payment for ${form.ref}`,
+            posted_by: getPostedBy(), customer_id: customerId,
+          })
+
+          // Receipt ledger entry — negative amount on the customer's AR
+          // ledger, marks the receipt itself as closed. Settling specific
+          // invoices (i.e. matching this receipt to the invoice ledger
+          // entry above so it reduces remaining_amount further) is already
+          // handled at insert time via the invoiceRemaining math; the
+          // receipt row exists for audit and customer statement display.
+          await supabase.from('customer_ledger_entries').insert({
+            customer_id: customerId, posting_date: form.date,
+            document_type: 'receipt', document_ref: receiptRef,
+            description: `Payment received against ${form.ref}`,
+            amount: -paidNow, remaining_amount: 0,
+            is_open: false, journal_id: receiptJournalRaw.id,
+          })
+        } catch (advErr: any) {
+          // Invoice already posted at this point — surface the receipt
+          // failure so the user knows to retry the receipt manually rather
+          // than thinking the whole thing failed.
+          console.error('Advance receipt failed after invoice posted:', advErr.message)
+          showToast(`Invoice ${form.ref} posted, but advance receipt failed: ${advErr.message}. Please post the receipt manually via Cash Receipt.`, 'error')
+        }
       }
 
       const invoiceData = {
@@ -471,17 +618,33 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         customers: {
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',
-          whatsapp: selectedCust.whatsapp || '', address: '', balance: selectedCust.balance || 0
+          whatsapp: selectedCust.whatsapp || '', address: '', balance: (selectedCust.balance || 0) + (subtotal - paidNow),
         },
         voucher_lines: lines.filter(l => l.productId).map(l => ({
           qty: l.qty, unit_price: l.price, total: l.amount,
           discount_pct: l.discount, description: l.name,
           products: { name: l.name, sku: products.find(p => p.id === l.productId)?.sku || '' }
         })),
+        // When an advance was captured, switch the preview into view-mode
+        // semantics so the template paints the PAID IN FULL or PARTIAL
+        // PAYMENT badge. The fields below are read by InvoiceTemplate.
+        ...(paidNow > 0 && {
+          _viewMode: true,
+          _invoicePaid: paidNow,
+          _invoiceRemaining: Math.max(0, subtotal - paidNow),
+          _statementDate: form.date,
+        }),
       }
       setLastInvoice(invoiceData)
       setShowInvoice(true)
-      showToast(`${form.ref} posted · TZS ${subtotal.toLocaleString()}`)
+      // Status-aware toast: tells the user at a glance whether the invoice
+      // was fully settled, partially paid, or left fully open.
+      const paidLabel = paidNow >= subtotal - 0.5
+        ? ' · PAID IN FULL'
+        : paidNow > 0
+          ? ` · Paid TZS ${paidNow.toLocaleString()} (balance ${(subtotal - paidNow).toLocaleString()})`
+          : ''
+      showToast(`${form.ref} posted · TZS ${subtotal.toLocaleString()}${paidLabel}`)
       clearDraft()  // posted successfully — no draft to recover
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
@@ -1003,9 +1166,167 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         </div>
       </div>
 
-      {/* ═══ STEP 3: REVIEW & POST ══════════════════════════════════════════ */}
+      {/* ═══ STEP 3: PAYMENT RECEIVED AT ISSUE (OPTIONAL) ═════════════════ */}
+      {/*
+        Wholesale customers occasionally pay cash up-front. They are NOT
+        cash sale walk-ins (Cash Sale is reserved for retail, CASH001 etc.)
+        so the document still has to be a Sales Invoice — they're on the
+        debtor list with credit terms and they want it on their statement.
+        Capturing the receipt right here in the same posting means:
+          • The PnL and bank balance reflect the money immediately
+          • The invoice shows on the customer statement as PAID or PARTIAL
+          • No "post invoice, then go to Cash Receipt, then search again"
+            workflow that's easy to forget halfway through.
+        Leave blank for normal credit invoices — this is purely additive.
+      */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <StepHeader num={3} title="Payment Received at Issue" helper="Optional — only if the customer is paying cash / M-Pesa / bank now (e.g. wholesalers who pay upfront)" />
+
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12,
+          padding: '10px 12px', background: 'rgba(0,229,160,.06)',
+          border: '1px solid rgba(0,229,160,.2)', borderRadius: 8,
+          fontSize: 12, color: 'var(--text2)',
+        }}>
+          <svg width="14" height="14" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 2 }}>
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          <span>
+            Leave the amount blank for a normal credit invoice. If the customer
+            is paying now, type the amount — a matching <strong>Cash Receipt</strong> is
+            posted automatically and the invoice shows as <strong>Paid</strong> or <strong>Partially Paid</strong>.
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 1fr', gap: 10 }}>
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              Amount Paid Now (TZS)
+            </div>
+            <input
+              type="number"
+              className="form-input"
+              placeholder="0 — leave blank for full credit"
+              value={form.paidNow}
+              onChange={e => set('paidNow', e.target.value)}
+              style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }}
+              min={0}
+              max={subtotal}
+            />
+            {/* Quick-fill buttons let the user pop common amounts without
+                fiddly typing — "Full" is the typical wholesaler upfront case. */}
+            {subtotal > 0 && (
+              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => set('paidNow', subtotal.toString())}
+                  style={{
+                    fontSize: 10, padding: '3px 8px', borderRadius: 4,
+                    border: '1px solid var(--accent)', background: 'var(--accent-dim)',
+                    color: 'var(--accent)', cursor: 'pointer', fontWeight: 600,
+                  }}>
+                  Full ({tzs(subtotal)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => set('paidNow', Math.round(subtotal / 2).toString())}
+                  style={{
+                    fontSize: 10, padding: '3px 8px', borderRadius: 4,
+                    border: '1px solid var(--border)', background: 'var(--surface)',
+                    color: 'var(--text3)', cursor: 'pointer',
+                  }}>
+                  50%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { set('paidNow', ''); set('paidTransactionId', '') }}
+                  style={{
+                    fontSize: 10, padding: '3px 8px', borderRadius: 4,
+                    border: '1px solid var(--border)', background: 'var(--surface)',
+                    color: 'var(--text3)', cursor: 'pointer',
+                  }}>
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              Deposit To {parseFloat(form.paidNow || '0') > 0 && <span style={{ color: 'var(--red)', textTransform: 'none', letterSpacing: 0 }}>*</span>}
+            </div>
+            <select
+              className="form-input"
+              value={form.paidDepositAccountId}
+              onChange={e => set('paidDepositAccountId', e.target.value)}
+              disabled={!(parseFloat(form.paidNow || '0') > 0)}
+            >
+              <option value="">— Select cash / M-Pesa / bank account —</option>
+              {cashAccounts.map(a => (
+                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+              ))}
+            </select>
+            {form.paidDepositAccountId && parseFloat(form.paidNow || '0') > 0 && (() => {
+              const acc = cashAccounts.find(a => a.id === form.paidDepositAccountId)
+              if (!acc) return null
+              const method = deriveMethod(acc.code, acc.name)
+              return (
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>
+                  Method: <span style={{ color: 'var(--accent)' }}>{method.toUpperCase()}</span> (auto-detected)
+                </div>
+              )
+            })()}
+          </div>
+
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              Reference <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text3)' }}>(M-Pesa / cheque / TT no.)</span>
+            </div>
+            <input
+              className="form-input"
+              placeholder="e.g. QTA1BCD2EFG"
+              value={form.paidTransactionId}
+              onChange={e => set('paidTransactionId', e.target.value)}
+              disabled={!(parseFloat(form.paidNow || '0') > 0)}
+              style={{ fontFamily: 'var(--mono)', fontSize: 12 }}
+            />
+          </div>
+        </div>
+
+        {/* Live status strip — tells the user exactly what will happen on post */}
+        {parseFloat(form.paidNow || '0') > 0 && (() => {
+          const paid = parseFloat(form.paidNow) || 0
+          const balance = Math.max(0, subtotal - paid)
+          const isFull = paid >= subtotal - 0.5
+          const over = paid > subtotal + 0.5
+          return (
+            <div style={{
+              marginTop: 12, padding: '10px 14px',
+              background: over ? 'rgba(239,68,68,.08)' : isFull ? 'rgba(0,229,160,.08)' : 'rgba(234,179,8,.08)',
+              border: `1px solid ${over ? 'var(--red)' : isFull ? 'var(--green)' : 'var(--yellow)'}`,
+              borderRadius: 8, fontSize: 12, color: 'var(--text2)',
+            }}>
+              {over ? (
+                <span style={{ color: 'var(--red)', fontWeight: 600 }}>
+                  ⚠ Amount paid ({tzs(paid)}) exceeds invoice total ({tzs(subtotal)}). Reduce it, or post the invoice first then receive the extra via Cash Receipt as a credit on account.
+                </span>
+              ) : isFull ? (
+                <span>
+                  <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ Invoice will be marked PAID IN FULL.</span> A Cash Receipt for {tzs(paid)} will post alongside the invoice, both journals settle the AR.
+                </span>
+              ) : (
+                <span>
+                  <span style={{ color: 'var(--yellow)', fontWeight: 700 }}>Partial payment.</span> {tzs(paid)} will be received now; {tzs(balance)} remains as open AR on the customer's statement.
+                </span>
+              )}
+            </div>
+          )
+        })()}
+      </div>
+
+      {/* ═══ STEP 4: REVIEW & POST ══════════════════════════════════════════ */}
       <div className="card" style={{ marginBottom: 100 /* space for sticky footer */ }}>
-        <StepHeader num={3} title="Review & Post" helper="Check totals, then post to create the invoice, update AR, and deduct stock" />
+        <StepHeader num={4} title="Review & Post" helper="Check totals, then post to create the invoice, update AR, and deduct stock" />
 
         {/* Totals — right-aligned block */}
         <div style={{ maxWidth: 420, marginLeft: 'auto' }}>
@@ -1023,6 +1344,29 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             <span style={{ fontSize: 14, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Due</span>
             <span style={{ fontFamily: 'var(--mono)', fontSize: 24, fontWeight: 800, color: 'var(--green)' }}>TZS {subtotal.toLocaleString()}</span>
           </div>
+
+          {/* Paid-now summary appears whenever an advance payment is entered.
+              Shows total → paid now → balance for a quick sanity check. */}
+          {parseFloat(form.paidNow || '0') > 0 && (() => {
+            const paid = parseFloat(form.paidNow) || 0
+            const balance = Math.max(0, subtotal - paid)
+            return (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', color: 'var(--text2)', marginTop: 6 }}>
+                  <span>Paid at issue</span>
+                  <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>− {paid.toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: balance > 0.5 ? 'var(--yellow)' : 'var(--green)' }}>
+                    {balance > 0.5 ? 'Balance Outstanding' : 'PAID IN FULL'}
+                  </span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: balance > 0.5 ? 'var(--yellow)' : 'var(--green)' }}>
+                    TZS {balance.toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )
+          })()}
 
           {/* Credit impact warning if applicable */}
           {selectedCust && selectedCust.credit_limit > 0 && availableCredit !== null && subtotal > availableCredit && (
@@ -1053,6 +1397,31 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               TZS {subtotal.toLocaleString()}
             </div>
           </div>
+          {/* Show "Paid now / Balance" splits in the footer when an advance is entered */}
+          {parseFloat(form.paidNow || '0') > 0 && (() => {
+            const paid = parseFloat(form.paidNow) || 0
+            const balance = Math.max(0, subtotal - paid)
+            const isFull = balance <= 0.5
+            return (
+              <>
+                <div style={{ width: 1, height: 36, background: 'var(--border)' }} />
+                <div>
+                  <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Paid Now</div>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>
+                    {paid.toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {isFull ? 'Status' : 'Balance'}
+                  </div>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: isFull ? 'var(--green)' : 'var(--yellow)' }}>
+                    {isFull ? 'PAID' : balance.toLocaleString()}
+                  </div>
+                </div>
+              </>
+            )
+          })()}
           <div style={{ width: 1, height: 36, background: 'var(--border)' }} />
           <div style={{ fontSize: 11, color: 'var(--text3)', minWidth: 0 }}>
             {!selectedCust ? (
@@ -1061,6 +1430,10 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               <span style={{ color: 'var(--yellow)' }}>⚠ Add at least one product</span>
             ) : subtotal <= 0 ? (
               <span style={{ color: 'var(--yellow)' }}>⚠ Invoice total must be &gt; 0</span>
+            ) : parseFloat(form.paidNow || '0') > subtotal + 0.5 ? (
+              <span style={{ color: 'var(--red)' }}>⚠ Paid amount exceeds invoice total</span>
+            ) : parseFloat(form.paidNow || '0') > 0 && !form.paidDepositAccountId ? (
+              <span style={{ color: 'var(--yellow)' }}>⚠ Pick where the cash was deposited</span>
             ) : (
               <>
                 <span style={{ color: 'var(--green)' }}>✓ Ready to post</span>
@@ -1082,7 +1455,13 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               opacity: (!selectedCust || posting) ? 0.5 : 1,
               cursor: (!selectedCust || posting) ? 'not-allowed' : 'pointer',
             }}>
-            {posting ? 'Posting…' : 'Post Invoice'}
+            {posting
+              ? 'Posting…'
+              : parseFloat(form.paidNow || '0') >= subtotal - 0.5 && parseFloat(form.paidNow || '0') > 0
+                ? 'Post Invoice + Receipt'
+                : parseFloat(form.paidNow || '0') > 0
+                  ? 'Post Invoice + Part Receipt'
+                  : 'Post Invoice'}
           </button>
         </div>
       </div>
