@@ -49,7 +49,8 @@ export default function ReportsHub({ onNav }: Props) {
         { name: 'Sales Day Book', icon: 'daybook', page: 'sales-day-book' as Page, desc: 'Full sales detail with filters' },
         { name: 'Sales Register', icon: 'register', page: 'sales-register' as Page, desc: 'All sales in date order' },
         { name: 'Purchase Register', icon: 'procure', page: 'purchase-register' as Page, desc: 'All purchase transactions' },
-        { name: 'Payment Register', icon: 'payment', page: 'payment-register' as Page, desc: 'All cash and bank movements' },
+        { name: 'Payment Register', icon: 'payment', page: 'payment-register' as Page, desc: 'All cash and bank movements (in + out)' },
+        { name: 'Expense Register', icon: 'payment', page: 'expense-register' as Page, desc: 'Money leaving the business · payments + petty cash' },
         { name: 'Import Register', icon: 'ship', page: 'import-register' as Page, desc: 'Multi-stage purchases · KPIs · PDFs' },
       ]
     },
