@@ -210,8 +210,12 @@ export default function StockAdjustment({ onNav }: Props) {
         throw new Error(res.error || 'Submission failed')
       }
 
-      showToast(`Submitted for approval · ${reason}`, 'success')
-      setTimeout(() => onNav('approvals'), 1200)
+      // Don't redirect to /approvals — that's approver-only and would
+      // show an Access Denied screen to non-approvers. Stay in the
+      // vouchers hub instead so the submitter can keep working.
+      const approverPhrase = res.assignedToName ? ` · Sent to ${res.assignedToName}` : ''
+      showToast(`Submitted for approval · ${reason}${approverPhrase}`, 'success')
+      setTimeout(() => onNav('vouchers'), 1500)
     } catch (e: any) {
       showToast(e.message || 'Submission failed', 'error')
     } finally {
