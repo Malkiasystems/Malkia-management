@@ -7,7 +7,7 @@ import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
+import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -44,6 +44,39 @@ export default function PettyCash({ onNav }: Props) {
   const total = lines.reduce((s, l) => s + (l.amount || 0), 0)
   const showToast = (msg: string, type: 'success'|'error' = 'success') => { setToast(msg); setToastType(type) }
 
+  // ─── Live approval pre-check ──────────────────────────────────────────
+  // Run checkApprovalRequired whenever the total changes so the UI can
+  // tell the cashier ahead of time that this expense will need approval.
+  // The check is cheap (single Supabase row lookup) and debounced via a
+  // 250ms timer to avoid hammering the DB while she's still typing.
+  // Result drives the pre-submit banner + the button label below — no
+  // surprise "Access Denied"-feel padlock at posting time.
+  const [approvalCheck, setApprovalCheck] = useState<ApprovalCheckResult | null>(null)
+  useEffect(() => {
+    if (total <= 0) { setApprovalCheck(null); return }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const res = await checkApprovalRequired('petty_cash', { value: total })
+      if (!cancelled) setApprovalCheck(res)
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [total])
+
+  const canBypassApproval = (approvalCheck?.superAdminBypass ?? false) && isSuperAdmin()
+  const needsApproval = !!approvalCheck?.requiresApproval && !!approvalCheck?.blockPosting && !canBypassApproval
+  const approvalNotice = approvalCheck ? formatApprovalNotice(approvalCheck) : ''
+
+  // Reset the form after a successful post or submission — keeps the
+  // cashier on the same page with a fresh ref, ready to log the next
+  // expense. Replaces the old onNav('approvals') redirect which sent
+  // her to an approver-only page she couldn't access.
+  const resetForm = async () => {
+    const newRef = await nextRef('petty_cash')
+    setForm({ date: today(), ref: newRef, paidTo: '', notes: '' })
+    setLines([{ desc: '', amount: 0, accountId: '' }])
+    setApprovalCheck(null)
+  }
+
   const post = async () => {
     if (!form.paidTo.trim()) { showToast('Paid to is required', 'error'); return }
     if (lines.every(l => !l.desc || !l.amount)) { showToast('Add at least one expense line', 'error'); return }
@@ -55,7 +88,10 @@ export default function PettyCash({ onNav }: Props) {
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
 
     // ─── Approval gate ─────────────────────────────────────────────────
-    // Petty cash runs above a configured threshold (default 50k) need approval.
+    // We already have a cached approval pre-check from the live useEffect
+    // above. Re-run it here as a safety net (in case approval rules
+    // changed mid-session) so we never submit something that no longer
+    // needs approval, or vice versa.
     const check = await checkApprovalRequired('petty_cash', { value: total })
     const canBypass = check.superAdminBypass && isSuperAdmin()
     if (check.requiresApproval && check.blockPosting && !canBypass) {
@@ -135,8 +171,16 @@ export default function PettyCash({ onNav }: Props) {
         throw new Error(res.error || 'Submission failed')
       }
 
-      showToast(`Submitted for approval · ${reason}`, 'success')
-      setTimeout(() => onNav('approvals'), 1200)
+      // Success toast: name the approver if we know them so the cashier
+      // knows exactly who to chase. Stay on the page (clean form) so she
+      // can immediately log another expense — DO NOT redirect to the
+      // /approvals page, which is approver-only and would slap her with
+      // an Access Denied screen.
+      const approverPhrase = res.assignedToName
+        ? ` · Sent to ${res.assignedToName}`
+        : ''
+      showToast(`Submitted for approval · ${reason}${approverPhrase}`, 'success')
+      setTimeout(() => resetForm(), 1500)
     } catch (e: any) {
       showToast(e.message || 'Submission failed', 'error')
     } finally {
@@ -146,8 +190,43 @@ export default function PettyCash({ onNav }: Props) {
 
   return (
     <VoucherPage title="Petty Cash Expense" icon="" subtitle="Small office expenses from petty cash float" color="rgba(255,211,42,.12)"
-      onPost={post} postLabel={posting ? 'Posting…' : 'Post Expense'}
+      onPost={post}
+      postLabel={
+        posting
+          ? (needsApproval ? 'Submitting…' : 'Posting…')
+          : needsApproval ? 'Submit for Approval' : 'Post Expense'
+      }
       journalNote="Dr Expense Account(s) · Cr Petty Cash (1040)">
+
+      {/* Pre-submit approval notice — appears whenever the entered total
+          crosses a configured threshold. Tells the cashier ahead of time
+          what will happen on post, so the workflow feels intentional
+          instead of "I tried something and the system shouted at me." */}
+      {needsApproval && approvalNotice && (
+        <div style={{
+          background: 'rgba(255,211,42,.08)',
+          border: '1px solid rgba(255,211,42,.4)',
+          borderRadius: 'var(--r)', padding: '12px 14px',
+          marginBottom: 16,
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+        }}>
+          <svg width="18" height="18" fill="none" stroke="#f59e0b" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 1 }}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+              This expense needs approval
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+              {approvalNotice} Click <strong>Submit for Approval</strong> below — your manager will be notified and the
+              entry will appear in your voucher list once they approve it.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
           <FG label="Ref"><input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, background: 'var(--surface2)', cursor: 'default', color: 'var(--accent)' }} /></FG>
