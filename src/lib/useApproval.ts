@@ -78,6 +78,10 @@ export interface SubmitApprovalResult {
   success: boolean
   requestId?: string
   error?: string
+  /** Name of the user the request was assigned to. Lets the calling
+   *  voucher show a useful toast like "Submitted to Jane Mwatonoka for
+   *  approval" instead of a generic "Submitted for approval". */
+  assignedToName?: string
 }
 
 // ─── checkApprovalRequired ─────────────────────────────────────────────────
@@ -266,6 +270,18 @@ export async function submitForApproval(
       }
     }
 
+    // Resolve the approver's display name so the calling voucher can show
+    // a useful toast ("Submitted to Jane for approval"). If the lookup
+    // fails we still proceed — the assignment is already correct, the
+    // name is just nice-to-have.
+    let assignedToName: string | undefined
+    const { data: approverRow } = await supabase
+      .from('users')
+      .select('full_name')
+      .eq('id', assignedTo)
+      .maybeSingle()
+    if (approverRow?.full_name) assignedToName = approverRow.full_name
+
     const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString()
 
     // Insert the request
@@ -308,7 +324,7 @@ export async function submitForApproval(
         .eq('id', params.referenceId)
     }
 
-    return { success: true, requestId: req.id }
+    return { success: true, requestId: req.id, assignedToName }
   } catch (e: any) {
     return { success: false, error: e?.message || 'Unknown error' }
   }
@@ -426,6 +442,37 @@ export async function getPendingCountForUser(userId: string): Promise<number> {
     .eq('assigned_to', userId)
     .eq('status', 'pending')
   return count ?? 0
+}
+
+// ─── formatApprovalNotice ──────────────────────────────────────────────────
+/**
+ * Produces a short, friendly message explaining WHY an action needs approval
+ * — for use in the pre-submit banner shown to the requester.
+ *
+ * We deliberately don't say "blocked" or "denied" anywhere. The cashier did
+ * nothing wrong; she just crossed a threshold. The message should reassure
+ * her that her work will be saved and someone will look at it.
+ *
+ * Examples produced:
+ *   • "Above the TZS 50,000 petty cash threshold — needs a manager's approval."
+ *   • "Discount above 15% — needs a manager's approval."
+ *   • "This action requires a manager's approval."
+ */
+export function formatApprovalNotice(check: ApprovalCheckResult): string {
+  if (!check.requiresApproval) return ''
+  if (check.thresholdType === 'amount' && check.threshold !== null) {
+    return `Above the TZS ${check.threshold.toLocaleString()} threshold — needs a manager's approval before it can post.`
+  }
+  if (check.thresholdType === 'percentage' && check.threshold !== null) {
+    return `Above the ${check.threshold}% threshold — needs a manager's approval before it can post.`
+  }
+  if (check.thresholdType === 'quantity' && check.threshold !== null) {
+    return `Above the ${check.threshold}-unit threshold — needs a manager's approval before it can post.`
+  }
+  if (check.thresholdType === 'days' && check.threshold !== null) {
+    return `Older than ${check.threshold} days — needs a manager's approval before it can post.`
+  }
+  return check.reason || `This action requires a manager's approval before it can post.`
 }
 
 // ─── getMyPendingSubmissions ───────────────────────────────────────────────
