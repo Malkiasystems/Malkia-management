@@ -438,6 +438,7 @@ function AppContent() {
       case 'stock-valuation':   return <StockValuationReport />
       case 'purchase-register': return <PurchaseRegister />
       case 'payment-register':  return <PaymentRegister onEdit={navigateToEdit} />
+      case 'expense-register':  return <PaymentRegister onEdit={navigateToEdit} mode="expense" />
       case 'import-register':   return <ImportRegister onNav={navigate} />
       case 'receipt-template':  return <ReceiptTemplatePage />
       case 'invoice-template':  return <InvoiceTemplatePage />
