@@ -65,11 +65,34 @@ export function CustomerPaymentFlow({
 }: Props) {
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Debtor[]>([])
+  // Full cached list of active debtors. Loaded once on mount so the user can
+  // browse without typing and so filtering happens instantly client-side
+  // (no Supabase round-trip per keystroke). This is the same pattern the
+  // Sales Invoice page uses for its customer picker.
+  const [allDebtors, setAllDebtors] = useState<Debtor[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [selected, setSelected] = useState<Debtor | null>(null)
   const [openInvoices, setOpenInvoices] = useState<OpenInvoice[]>([])
   const [loadingInvoices, setLoadingInvoices] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
+
+  // Load all active debtors once on mount. Lets the user click the browse
+  // icon and see everyone immediately, instead of having to guess at
+  // search terms.
+  useEffect(() => {
+    let cancelled = false
+    const loadAll = async () => {
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name, company, contact_person, customer_number, balance, whatsapp')
+        .eq('customer_type', 'debtor')
+        .eq('is_active', true)
+        .order('name')
+      if (!cancelled && data) setAllDebtors(data)
+    }
+    loadAll()
+    return () => { cancelled = true }
+  }, [])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -101,25 +124,32 @@ export function CustomerPaymentFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount])
 
-  // ─── Customer search (debtors only) ──────────────────────────────────────
-
-  const searchDebtors = async (q: string) => {
+  // ─── Customer search (debtors only, client-side filter) ──────────────────
+  //
+  // Filters the cached debtor list by name / company / contact / DEB number.
+  // An empty query shows everyone (up to 50 rows) so the user can browse
+  // without having to type — the previous implementation searched the
+  // server with a literal space character on focus, which silently capped
+  // results at 10 matching customers with a space in their name. That
+  // forced users to scroll endlessly past the wrong people.
+  const searchDebtors = (q: string) => {
     setSearch(q)
-    if (q.length < 1) {
-      setSearchResults([])
-      setShowDropdown(false)
+    const trimmed = q.trim().toLowerCase()
+    if (!trimmed) {
+      // Empty query: show everyone (capped at 50 for performance; typing
+      // narrows further). The dropdown is scrollable for the rest.
+      setSearchResults(allDebtors.slice(0, 50))
+      setShowDropdown(allDebtors.length > 0)
       return
     }
-    const { data } = await supabase
-      .from('customers')
-      .select('id, name, company, contact_person, customer_number, balance, whatsapp')
-      .eq('customer_type', 'debtor')
-      .eq('is_active', true)
-      .or(`name.ilike.%${q}%,company.ilike.%${q}%,contact_person.ilike.%${q}%,customer_number.ilike.%${q}%`)
-      .order('name')
-      .limit(10)
-    setSearchResults(data || [])
-    setShowDropdown((data || []).length > 0)
+    const filtered = allDebtors.filter(c =>
+      (c.name || '').toLowerCase().includes(trimmed) ||
+      (c.company || '').toLowerCase().includes(trimmed) ||
+      (c.contact_person || '').toLowerCase().includes(trimmed) ||
+      (c.customer_number || '').toLowerCase().includes(trimmed)
+    ).slice(0, 50)
+    setSearchResults(filtered)
+    setShowDropdown(true)  // always open while searching so the "no results" panel can render
   }
 
   const pickCustomer = async (c: Debtor) => {
@@ -232,21 +262,76 @@ export function CustomerPaymentFlow({
           <label style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'block' }}>
             Customer (debtor) <span style={{ color: 'var(--red)' }}>*</span>
           </label>
-          <input
-            className="form-input"
-            style={{ fontSize: 14, height: 44 }}
-            placeholder="Search by company, name, contact person, or DEB number…"
-            value={search}
-            onChange={e => searchDebtors(e.target.value)}
-            onFocus={() => { if (!search) searchDebtors(' ') }}
-          />
+          <div style={{ position: 'relative' }}>
+            {/* Browse icon — click to open the full debtor list. Same UX as
+                Sales Invoice. Keeps the input focus from auto-opening,
+                so tabbing into the field doesn't pop up a list the user
+                didn't ask for. */}
+            <button
+              type="button"
+              onClick={() => {
+                if (showDropdown) {
+                  setShowDropdown(false)
+                } else {
+                  // Pass the current search so the icon respects any
+                  // existing filter; empty string shows everyone.
+                  searchDebtors(search)
+                }
+              }}
+              title={showDropdown ? 'Close list' : 'Browse all debtors'}
+              style={{
+                position: 'absolute', left: 6, top: '50%',
+                transform: 'translateY(-50%)',
+                background: showDropdown ? 'var(--accent-dim)' : 'transparent',
+                border: 'none', borderRadius: 6,
+                width: 32, height: 32,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', zIndex: 2,
+                color: showDropdown ? 'var(--accent)' : 'var(--text3)',
+                transition: 'background .15s, color .15s',
+              }}
+              onMouseEnter={e => { if (!showDropdown) (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
+              onMouseLeave={e => { if (!showDropdown) (e.currentTarget as HTMLElement).style.color = 'var(--text3)' }}
+            >
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+            </button>
+            <input
+              className="form-input"
+              style={{ paddingLeft: 44, fontSize: 14, height: 44 }}
+              placeholder="Click person icon to browse, or type name / company / DEB number…"
+              value={search}
+              onChange={e => searchDebtors(e.target.value)}
+            />
+          </div>
           {showDropdown && searchResults.length > 0 && (
             <div style={{
               position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
               background: 'var(--surface)', border: '1px solid var(--accent)',
               borderRadius: 10, zIndex: 50, boxShadow: '0 12px 40px rgba(0,0,0,.4)',
-              overflow: 'hidden', maxHeight: 320, overflowY: 'auto',
+              overflow: 'hidden', maxHeight: 360, overflowY: 'auto',
             }}>
+              {/* Dropdown header — tells the user what they're seeing.
+                  Matches the Sales Invoice pattern: a sticky strip showing
+                  "X matches" while typing, or "All debtors (N)" while browsing. */}
+              <div style={{
+                padding: '8px 14px', background: 'var(--surface2)',
+                borderBottom: '1px solid var(--border)',
+                fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)',
+                textTransform: 'uppercase', letterSpacing: 0.5,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                position: 'sticky', top: 0, zIndex: 1,
+              }}>
+                <span>
+                  {search.trim().length > 0
+                    ? `${searchResults.length} match${searchResults.length === 1 ? '' : 'es'}`
+                    : `All registered debtors${allDebtors.length > 50 ? ` (showing 50 of ${allDebtors.length})` : ` (${allDebtors.length})`}`}
+                </span>
+                <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text3)' }}>
+                  {search.trim().length === 0 && allDebtors.length > 50 && 'Type to filter…'}
+                </span>
+              </div>
               {searchResults.map((c, i) => (
                 <div key={i} onClick={() => pickCustomer(c)}
                   style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -271,13 +356,13 @@ export function CustomerPaymentFlow({
               ))}
             </div>
           )}
-          {showDropdown && searchResults.length === 0 && search.length > 0 && (
+          {showDropdown && searchResults.length === 0 && search.trim().length > 0 && (
             <div style={{
               position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
               background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 10, zIndex: 50, padding: '14px', fontSize: 12, color: 'var(--text3)',
             }}>
-              No matching debtors. Make sure the customer is registered with type "Debtor".
+              No matching debtors for "<strong>{search}</strong>". Make sure the customer is registered with type "Debtor".
             </div>
           )}
         </div>
