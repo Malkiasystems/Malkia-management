@@ -279,6 +279,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'stock-valuation': ['reports.view'],
   'purchase-register': ['reports.view'],
   'payment-register': ['reports.view'],
+  'expense-register': ['reports.view'],
   'stock-transfer-register': ['reports.view'],
   'data-import': ['settings.edit'],
   'report-templates': ['settings.edit'],
