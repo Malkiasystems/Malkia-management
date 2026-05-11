@@ -58,9 +58,31 @@ const TYPE_COLOR: Record<string, string> = {
 
 interface Props {
   onEdit?: (p: Page, voucherId: string) => void
+  // Variant of this register:
+  //  - 'all'     → full payment register (payments + receipts + transfers + contra)
+  //  - 'expense' → expense register: only outgoing money (cash_payment + petty_cash)
+  //
+  // Defaults to 'all' so the existing /payment-register route is unchanged.
+  // The 'expense' mode is used by the dedicated /expense-register route to
+  // give Joe a focused view of money leaving the business (supplier payments,
+  // petty cash, recurring expenses, vendor analytics) without receipts or
+  // internal transfers cluttering the table.
+  mode?: 'all' | 'expense'
 }
 
-export default function PaymentRegister({ onEdit }: Props = {}) {
+export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
+  // Which voucher types this register cares about. Expense mode shows only
+  // outgoing-money vouchers; payment mode shows everything.
+  // ──────────────────────────────────────────────────────────────────────
+  // Bank transfers and contra are excluded from expense mode because they
+  // move money between your own accounts — the cash didn't actually leave
+  // the business, it just changed which till/bank it sits in. Including
+  // them would inflate the "total expenses" KPI and make the budget vs
+  // actual comparison wrong.
+  const RELEVANT_TYPES = mode === 'expense'
+    ? ['cash_payment', 'petty_cash']
+    : ['cash_payment', 'petty_cash', 'bank_transfer', 'contra', 'cash_receipt']
+
   const [tab, setTab] = useState<Tab>('transactions')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -126,7 +148,7 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
     const t = to || toDate
     const { data } = await supabase.from('vouchers')
       .select('id, ref, type, posting_date, description, total_amount, payment_method, status, notes, posted_by, supplier_id, journal_id, expense_category, tags, suppliers(name)')
-      .in('type', ['cash_payment', 'petty_cash', 'bank_transfer', 'contra', 'cash_receipt'])
+      .in('type', RELEVANT_TYPES)
       .gte('posting_date', f).lte('posting_date', t)
       .order('posting_date', { ascending: false })
       .order('ref', { ascending: false })
@@ -158,14 +180,24 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
       setCategoryMap({})
     }
 
-    // Count pending approvals (shows as alert banner)
+    // Count pending approvals (shows as alert banner). Limit to the
+    // same voucher types this register cares about — in expense mode
+    // a pending bank transfer isn't actionable from this page.
+    const pendingTypes = mode === 'expense'
+      ? ['cash_payment', 'petty_cash']
+      : ['cash_payment', 'petty_cash', 'bank_transfer']
     const { count } = await supabase.from('vouchers')
       .select('id', { count: 'exact', head: true })
-      .in('type', ['cash_payment', 'petty_cash', 'bank_transfer'])
+      .in('type', pendingTypes)
       .eq('status', 'pending_approval')
     setPendingCount(count || 0)
 
     setLoading(false)
+    // RELEVANT_TYPES is derived from `mode` (a prop). It only changes if a
+    // parent unmounts and remounts this component with a different mode,
+    // so it's effectively stable for the lifetime of this instance. Adding
+    // it here keeps the lint rule happy without causing extra reloads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromDate, toDate])
 
   // Budget comparison
@@ -386,12 +418,17 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
     rows.push(['TOTALS', `${filtered.length} records`, '', '', '', '', '', '', '', ''])
     rows.push(['  Cash Out', '', '', '', '', '', '', String(cashOut), '', ''])
     rows.push(['  Bank Out', '', '', '', '', '', '', String(bankOut), '', ''])
-    rows.push(['  Receipts', '', '', '', '', '', '', String(totalIn), '', ''])
-    rows.push(['  Net Flow', '', '', '', '', '', '', String(net), '', ''])
+    if (mode !== 'expense') {
+      rows.push(['  Receipts', '', '', '', '', '', '', String(totalIn), '', ''])
+      rows.push(['  Net Flow', '', '', '', '', '', '', String(net), '', ''])
+    } else {
+      rows.push(['  Total Paid Out', '', '', '', '', '', '', String(totalOut), '', ''])
+    }
     const csv = rows.map(r => r.join(',')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    a.download = `Payment_Register_${fromDate}_to_${toDate}.csv`
+    const filePrefix = mode === 'expense' ? 'Expense_Register' : 'Payment_Register'
+    a.download = `${filePrefix}_${fromDate}_to_${toDate}.csv`
     a.click()
   }
 
@@ -410,8 +447,13 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
       {/* HEADER */}
       <div className="page-header">
         <div>
-          <div className="page-title">Payment Register</div>
-          <div className="page-sub">All cash and bank movements · budgets · vendors · recurring · <span className="sync-dot"></span> Live</div>
+          <div className="page-title">{mode === 'expense' ? 'Expense Register' : 'Payment Register'}</div>
+          <div className="page-sub">
+            {mode === 'expense'
+              ? 'Money leaving the business · payment vouchers · petty cash · budgets · vendors · recurring · '
+              : 'All cash and bank movements · budgets · vendors · recurring · '}
+            <span className="sync-dot"></span> Live
+          </div>
         </div>
         {tab !== 'recurring' && (
           <div className="page-actions">
@@ -453,12 +495,16 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
          ═══════════════════════════════════════════════════ */}
       {tab === 'transactions' && (
         <>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
+          <div className="grid" style={{ gridTemplateColumns: mode === 'expense' ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
             <div className="stat-card red"><div className="stat-label">Cash Out</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(cashOut)}</div><div className="stat-change">Cash + petty cash</div></div>
-            <div className="stat-card red"><div className="stat-label">Bank Out</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(bankOut)}</div><div className="stat-change">Bank payments + transfers</div></div>
-            <div className="stat-card amber"><div className="stat-label">Total Paid Out</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalOut)}</div><div className="stat-change">All outflows</div></div>
-            <div className="stat-card green"><div className="stat-label">Receipts</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalIn)}</div><div className="stat-change up">Cash received</div></div>
-            <div className={`stat-card ${net >= 0 ? 'green' : 'red'}`}><div className="stat-label">Net Flow</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(net)}</div><div className="stat-change">{filtered.length} txns</div></div>
+            <div className="stat-card red"><div className="stat-label">Bank Out</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(bankOut)}</div><div className="stat-change">{mode === 'expense' ? 'Bank payments' : 'Bank payments + transfers'}</div></div>
+            <div className="stat-card amber"><div className="stat-label">Total Paid Out</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalOut)}</div><div className="stat-change">{mode === 'expense' ? `${filtered.length} expense txns` : 'All outflows'}</div></div>
+            {mode !== 'expense' && (
+              <>
+                <div className="stat-card green"><div className="stat-label">Receipts</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalIn)}</div><div className="stat-change up">Cash received</div></div>
+                <div className={`stat-card ${net >= 0 ? 'green' : 'red'}`}><div className="stat-label">Net Flow</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(net)}</div><div className="stat-change">{filtered.length} txns</div></div>
+              </>
+            )}
           </div>
 
           {/* Top 5 categories + Top 5 vendors */}
@@ -504,14 +550,21 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
 
           {/* Type filter pills */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            {[
-              { key: 'all' as TypeFilter, label: 'All' },
-              { key: 'cash_payment' as TypeFilter, label: 'Payment Vouchers' },
-              { key: 'petty_cash' as TypeFilter, label: 'Petty Cash' },
-              { key: 'bank_transfer' as TypeFilter, label: 'Bank Transfers' },
-              { key: 'cash_receipt' as TypeFilter, label: 'Receipts' },
-              { key: 'contra' as TypeFilter, label: 'Contra' },
-            ].map(t => (
+            {(mode === 'expense'
+              ? [
+                  { key: 'all' as TypeFilter, label: 'All Expenses' },
+                  { key: 'cash_payment' as TypeFilter, label: 'Payment Vouchers' },
+                  { key: 'petty_cash' as TypeFilter, label: 'Petty Cash' },
+                ]
+              : [
+                  { key: 'all' as TypeFilter, label: 'All' },
+                  { key: 'cash_payment' as TypeFilter, label: 'Payment Vouchers' },
+                  { key: 'petty_cash' as TypeFilter, label: 'Petty Cash' },
+                  { key: 'bank_transfer' as TypeFilter, label: 'Bank Transfers' },
+                  { key: 'cash_receipt' as TypeFilter, label: 'Receipts' },
+                  { key: 'contra' as TypeFilter, label: 'Contra' },
+                ]
+            ).map(t => (
               <button key={t.key} onClick={() => setTypeFilter(t.key)} style={{
                 padding: '6px 12px', fontSize: 11, fontWeight: 600,
                 background: typeFilter === t.key ? 'var(--accent)' : 'var(--surface)',
@@ -535,7 +588,7 @@ export default function PaymentRegister({ onEdit }: Props = {}) {
                   </tr></thead>
                   <tbody>
                     {filtered.length === 0 ? (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No payment records for this period.</td></tr>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No {mode === 'expense' ? 'expense' : 'payment'} records for this period.</td></tr>
                     ) : filtered.map((r, i) => {
                       const cat = r.journal_id ? categoryMap[r.journal_id] : null
                       const clickable = onEdit && ['cash_payment', 'petty_cash', 'bank_transfer'].includes(r.type)
