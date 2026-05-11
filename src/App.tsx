@@ -232,35 +232,69 @@ const PageLoader = () => (
 )
 
 // Access Denied Component
-const AccessDenied = ({ page }: { page: string }) => (
-  <div style={{
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-    color: 'var(--text3)',
-    gap: 16,
-    padding: 40,
-    textAlign: 'center'
-  }}>
-    <svg width="48" height="48" fill="none" stroke="var(--text3)" strokeWidth="1.5" viewBox="0 0 24 24">
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-    </svg>
-    <div>
-      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
-        Access Denied
+// Shown when the current user lacks the permission required for a page.
+// Two adjustments matter for non-technical users:
+//   • Always give them a way back (the previous version stranded them
+//     on a dead-end screen).
+//   • Special-case the `approvals` page: cashiers and other submitters
+//     reach it by accident (e.g. clicking the sidebar link, or by an
+//     old voucher that used to redirect them here after submission).
+//     They aren't doing anything wrong — they just don't have approver
+//     rights. The message should reflect that.
+const AccessDenied = ({ page, onNav }: { page: string; onNav?: (p: any) => void }) => {
+  const isApprovalsPage = page === 'approvals'
+  const title = isApprovalsPage ? 'You\'re not an approver' : 'You don\'t have access here'
+  const body = isApprovalsPage
+    ? 'This page is for managers who review and approve pending requests. Any expense or voucher you submitted for approval will show up in your vouchers list once it\'s been approved — you don\'t need to be here for that to happen.'
+    : 'You don\'t have permission to open this page. If you think you should, ask an admin to update your access.'
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      color: 'var(--text3)',
+      gap: 16,
+      padding: 40,
+      textAlign: 'center',
+      maxWidth: 520,
+      margin: '0 auto',
+    }}>
+      <svg width="48" height="48" fill="none" stroke="var(--text3)" strokeWidth="1.5" viewBox="0 0 24 24">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+          {title}
+        </div>
+        <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+          {body}
+        </div>
+        <div style={{ fontSize: 11, marginTop: 12, fontFamily: 'var(--mono)', color: 'var(--text3)', opacity: 0.6 }}>
+          {page}
+        </div>
       </div>
-      <div style={{ fontSize: 13 }}>
-        You don't have permission to access this page.
-      </div>
-      <div style={{ fontSize: 11, marginTop: 8, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
-        {page}
-      </div>
+      {onNav && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => onNav('vouchers')}
+          >
+            Go to Vouchers
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => onNav('dashboard')}
+          >
+            Go to Home
+          </button>
+        </div>
+      )}
     </div>
-  </div>
-)
+  )
+}
 
 // Extended breadcrumbs for CRM and Settings
 const EXTENDED_BREADCRUMBS: Record<string, string> = {
@@ -415,7 +449,7 @@ function AppContent() {
   const renderPage = () => {
     // Show access denied if user doesn't have permission
     if (!hasAccess && !authLoading) {
-      return <AccessDenied page={page} />
+      return <AccessDenied page={page} onNav={navigate} />
     }
 
     switch (page) {
