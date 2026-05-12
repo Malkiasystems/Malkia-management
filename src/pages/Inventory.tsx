@@ -7,6 +7,8 @@ import { useCategories } from '../lib/useCategories'
 import CategoryFilter from '../components/CategoryFilter'
 import { makeCategoryPredicate } from '../components/CategoryFilter'
 import { useUserLocation } from '../lib/useUserLocation'
+import { useAuth } from '../lib/useAuth'
+import { exportStockReportPDF } from '../lib/stockReportExport'
 import type { Page } from '../lib/types'
 
 interface DBProduct {
@@ -40,6 +42,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   if (n === 'out')     return <svg {...p}><polyline points="8 7 12 3 16 7"/><line x1="12" y1="3" x2="12" y2="15"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
   if (n === 'filter')  return <svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
   if (n === 'loc')     return <svg {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+  if (n === 'printer') return <svg {...p}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
   return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
 }
 
@@ -57,6 +60,7 @@ const ENTRY_TYPE_LABELS: Record<string, { label: string; color: string; dr: stri
 
 export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
   const userLoc = useUserLocation()
+  const { user } = useAuth()
   const [products, setProducts] = useState<DBProduct[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [search, setSearch] = useState('')
@@ -271,6 +275,47 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
 
   const totalIn = filteredLedger.filter(e => (e.qty || 0) > 0).reduce((s, e) => s + Math.abs(e.qty || 0), 0)
   const totalOut = filteredLedger.filter(e => (e.qty || 0) < 0).reduce((s, e) => s + Math.abs(e.qty || 0), 0)
+
+  // ── Print stock summary ─────────────────────────────────────────────
+  // Same shared exporter used by the Stock Valuation Report, but here
+  // we deliberately OMIT cost / selling / value / revenue / margin so
+  // the printout focuses on stock levels. Reasoning: the Inventory page
+  // is used by warehouse staff and operators day-to-day; finance data
+  // belongs on the Stock Valuation Report instead. If they need that
+  // view, the dedicated finance report has it.
+  const exportPDF = () => {
+    const locName = filterLoc === 'all'
+      ? 'All locations'
+      : (locations.find(l => l.code === filterLoc)?.name || filterLoc)
+    const catName = filterCat === 'all'
+      ? 'All categories'
+      : (categories.find(c => c.name === filterCat)?.name || filterCat)
+    const statusLabel = filterStatus === 'all' ? 'All' : filterStatus === 'out' ? 'Out of stock only' : filterStatus === 'low' ? 'Low stock only' : 'Healthy stock only'
+    exportStockReportPDF(
+      filtered.map(p => ({
+        sku: p.sku,
+        name: p.name,
+        category: p.category,
+        unit: p.unit,
+        qty_on_hand: getEffectiveQty(p.id, p.qty_on_hand),
+        reorder_point: p.reorder_point,
+        // intentionally NOT passing cost/selling/value/revenue/margin —
+        // the exporter hides those columns when undefined.
+      })),
+      {
+        reportType: 'inventory',
+        title: 'Stock Summary',
+        asAt: new Date().toISOString().split('T')[0],
+        filters: [
+          { label: 'Location', value: locName },
+          { label: 'Category', value: catName },
+          { label: 'Status', value: statusLabel },
+          ...(search ? [{ label: 'Search', value: search }] : []),
+        ],
+        generatedBy: user?.full_name,
+      }
+    )
+  }
 
   // ── EDIT VIEW ───────────────────────────────────────────────────────────
   if (view === 'edit') {
@@ -499,6 +544,15 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={loadProducts}><Ic n="refresh" /> Refresh</button>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ display:'flex',alignItems:'center',gap:6 }}
+            onClick={exportPDF}
+            disabled={filtered.length === 0}
+            title={filtered.length === 0 ? 'No items in the current filter' : 'Open print dialog — choose Save as PDF or send to printer'}
+          >
+            <Ic n="printer" /> Print Stock Summary
+          </button>
           <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add Product</button>
         </div>
       </div>
