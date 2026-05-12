@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import { useUserLocation } from '../lib/useUserLocation'
+import { useAuth } from '../lib/useAuth'
+import { exportStockReportPDF } from '../lib/stockReportExport'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
 interface StockItem { id: string; sku: string; name: string; category: string; unit: string; qty_on_hand: number; cost_price: number; selling_price: number; value: number; potential_revenue: number; margin: number }
@@ -18,6 +20,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 
 export default function StockValuationReport() {
   const userLoc = useUserLocation()
+  const { user } = useAuth()
   const [items, setItems] = useState<StockItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showExport, setShowExport] = useState(false)
@@ -102,6 +105,39 @@ export default function StockValuationReport() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=`Stock_Valuation_${asAt}.csv`; a.click()
   }
 
+  // ── PDF / print export ──────────────────────────────────────────────
+  // Opens a branded print-ready window with the current filter applied.
+  // The user picks paper or PDF from the print dialog. Same module is
+  // shared with the Inventory page, but the Valuation variant exposes
+  // cost / selling / value / revenue / margin columns since this is a
+  // finance-facing report.
+  const exportPDF = () => {
+    const locName = filterLoc === 'all'
+      ? 'All locations'
+      : (locations.find(l => l.code === filterLoc)?.name || filterLoc)
+    const catName = filterCat === 'all'
+      ? 'All categories'
+      : (categories.find(c => c.name === filterCat)?.name || filterCat)
+    exportStockReportPDF(
+      filtered.map(i => ({
+        sku: i.sku, name: i.name, category: i.category, unit: i.unit,
+        qty_on_hand: i.qty_on_hand,
+        cost_price: i.cost_price, selling_price: i.selling_price,
+        value: i.value, potential_revenue: i.potential_revenue, margin: i.margin,
+      })),
+      {
+        reportType: 'valuation',
+        title: 'Stock Valuation Report',
+        asAt,
+        filters: [
+          { label: 'Location', value: locName },
+          { label: 'Category', value: catName },
+        ],
+        generatedBy: user?.full_name,
+      }
+    )
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -126,7 +162,8 @@ export default function StockValuationReport() {
           <div style={{ position:'relative' }}>
             <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => setShowExport(!showExport)}><Ic n="pdf" /> Export</button>
             {showExport && (
-              <div style={{ position:'absolute',top:'100%',right:0,marginTop:6,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--r)',boxShadow:'0 8px 32px rgba(0,0,0,.4)',zIndex:50,minWidth:190,overflow:'hidden' }}>
+              <div style={{ position:'absolute',top:'100%',right:0,marginTop:6,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--r)',boxShadow:'0 8px 32px rgba(0,0,0,.4)',zIndex:50,minWidth:210,overflow:'hidden' }}>
+                <button onClick={() => { exportPDF(); setShowExport(false) }} style={{ width:'100%',display:'flex',alignItems:'center',gap:8,padding:'10px 14px',background:'none',border:'none',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--border)' }} onMouseEnter={e=>(e.currentTarget.style.background='var(--surface2)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}><Ic n="pdf" s={13} c="var(--red)" /> Print / Save as PDF</button>
                 <button onClick={() => { exportCSV(); setShowExport(false) }} style={{ width:'100%',display:'flex',alignItems:'center',gap:8,padding:'10px 14px',background:'none',border:'none',cursor:'pointer',fontSize:12 }} onMouseEnter={e=>(e.currentTarget.style.background='var(--surface2)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}><Ic n="csv" s={13} c="var(--green)" /> Export CSV / Excel</button>
               </div>
             )}
