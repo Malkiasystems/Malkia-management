@@ -85,12 +85,20 @@ export interface Customer {
 /** Top-level life stage. NULL until manually classified by CRM team. */
 export type LifeStage = 'ttc' | 'pregnancy' | 'postpartum' | 'parenting'
 
-/** Sub-stage codes, computed from anchor dates by compute_life_substage(). */
+/** Sub-stage codes — uses the canonical 12-stage taxonomy from customer_metrics view.
+ *  For TTC, the value is `ttc_<duration>` where <duration> is free text like
+ *  '3_months', '6_months', '1_year', etc. */
 export type LifeSubstage =
-  | 'ttc_early' | 'ttc_extended' | 'ttc_long'
-  | 'pregnancy_t1' | 'pregnancy_t2' | 'pregnancy_t3'
-  | 'postpartum_acute' | 'postpartum_recovery' | 'postpartum_transition'
-  | 'parenting_infant' | 'parenting_toddler' | 'parenting_school'
+  // TTC sub-stages are dynamic: 'ttc_<duration>' (e.g. 'ttc_3_months')
+  | `ttc_${string}`
+  // Pre-pregnancy (anchor known but >9 months out)
+  | 'pre_pregnancy'
+  // Pregnancy
+  | 'first_trimester' | 'second_trimester' | 'third_trimester'
+  // Postpartum + Parenting (continuous bucketing by baby age)
+  | 'newborn_0_4w' | 'baby_1_3m' | 'baby_3_6m' | 'baby_6_12m'
+  | 'toddler_1_2y' | 'toddler_2_3y' | 'past_3y'
+  | 'unknown'
 
 /** Relationship stage: where she is with Malkia operationally. */
 export type RelationshipStage =
@@ -129,18 +137,24 @@ export interface CustomerRecord {
   notes?: string | null
   created_at: string
 
-  // Legacy free-text descriptor preserved from pre-007 schema.
-  // Used by receipts and exports. e.g. "28 weeks Pregnant", "1 month postpartum".
-  pregnancy_stage_legacy?: string | null
+  // Free-text descriptor used by receipts, sales day book, cash sale UI.
+  // Stores human-readable strings like "28 weeks Pregnant", "1 month postpartum".
+  // Coexists with the structured life_stage / life_substage fields:
+  //   • pregnancy_stage = display string (what shows on receipts)
+  //   • life_stage / life_substage = logic fields (drive automation)
+  pregnancy_stage?: string | null
 
-  // Structured life stage (new in 007)
+  // Structured life stage (new in 007; reconciled with pre-existing fields in 008)
   life_stage: LifeStage | null
   life_substage: LifeSubstage | null
 
-  // Anchor dates that drive substage computation
-  ttc_start_date?: string | null
-  expected_due_date?: string | null
-  actual_delivery_date?: string | null
+  // Anchor dates and journey fields (pre-existing on customers, reused by 008)
+  edd?: string | null                 // expected due date (pregnancy)
+  edd_source?: string | null          // how the EDD was captured
+  delivery_date?: string | null       // actual delivery date (postpartum/parenting anchor)
+  ttc_duration?: string | null        // free text e.g. '3_months', '6_months', '1_year'
+  birthday?: string | null            // for Crown birthday bonus
+  context_status?: string | null      // CRM action queue status
 
   // Relationship stage
   relationship_stage: RelationshipStage | null
@@ -163,7 +177,7 @@ export interface CustomerRecord {
 
   // Ambassador program
   ambassador_code: string
-  referred_by_customer_id?: string | null
+  referred_by?: string | null         // pre-existing UUID FK to referring customer
 
   // Existing tier field; for Session 1 we keep single-tier semantics
   // (all members are simply "crown"). Field reserved for future tiering.
@@ -263,20 +277,44 @@ export const LIFE_STAGE_LABELS: Record<LifeStage, string> = {
   parenting: 'Parenting',
 }
 
-/** Display-friendly labels for sub-stages. */
-export const LIFE_SUBSTAGE_LABELS: Record<LifeSubstage, string> = {
-  ttc_early: 'TTC · early (0-6 months)',
-  ttc_extended: 'TTC · extended (6-12 months)',
-  ttc_long: 'TTC · long (12+ months)',
-  pregnancy_t1: 'Pregnancy · 1st trimester',
-  pregnancy_t2: 'Pregnancy · 2nd trimester',
-  pregnancy_t3: 'Pregnancy · 3rd trimester',
-  postpartum_acute: 'Postpartum · acute (0-2 weeks)',
-  postpartum_recovery: 'Postpartum · recovery (2-6 weeks)',
-  postpartum_transition: 'Postpartum · transition (6-12 weeks)',
-  parenting_infant: 'Parenting · infant (0-12 months)',
-  parenting_toddler: 'Parenting · toddler (1-3 years)',
-  parenting_school: 'Parenting · school age (3+ years)',
+/** Display-friendly labels for sub-stages (12-stage canonical taxonomy).
+ *  TTC sub-stages are dynamic (`ttc_<duration>`) and handled by
+ *  formatLifeSubstage() rather than a fixed map. */
+export const LIFE_SUBSTAGE_LABELS: Partial<Record<LifeSubstage, string>> = {
+  pre_pregnancy:    'Pre-pregnancy',
+  first_trimester:  'Pregnancy · 1st trimester',
+  second_trimester: 'Pregnancy · 2nd trimester',
+  third_trimester:  'Pregnancy · 3rd trimester',
+  newborn_0_4w:     'Newborn (0-4 weeks)',
+  baby_1_3m:        'Baby (1-3 months)',
+  baby_3_6m:        'Baby (3-6 months)',
+  baby_6_12m:       'Baby (6-12 months)',
+  toddler_1_2y:     'Toddler (1-2 years)',
+  toddler_2_3y:     'Toddler (2-3 years)',
+  past_3y:          'Past 3 years',
+  unknown:          'Stage unknown',
+}
+
+/** Map a canonical sub-stage to its parent 4-stage life_stage.
+ *  Returns null if the substage doesn't have a parent (e.g. pre_pregnancy). */
+export function parentLifeStage(sub: LifeSubstage | null): LifeStage | null {
+  if (!sub) return null
+  if (sub.startsWith('ttc_')) return 'ttc'
+  if (sub === 'first_trimester' || sub === 'second_trimester' || sub === 'third_trimester') return 'pregnancy'
+  if (sub === 'newborn_0_4w') return 'postpartum'
+  if (sub === 'baby_1_3m' || sub === 'baby_3_6m' || sub === 'baby_6_12m'
+      || sub === 'toddler_1_2y' || sub === 'toddler_2_3y' || sub === 'past_3y') return 'parenting'
+  return null
+}
+
+/** Render a sub-stage as a human-readable string, including dynamic TTC values. */
+export function formatLifeSubstage(sub: LifeSubstage | null): string {
+  if (!sub) return ''
+  if (sub.startsWith('ttc_')) {
+    const duration = sub.slice(4).replace(/_/g, ' ')
+    return `TTC · ${duration}`
+  }
+  return LIFE_SUBSTAGE_LABELS[sub] ?? sub
 }
 
 /** Display labels for relationship stages. */
@@ -290,111 +328,62 @@ export const RELATIONSHIP_STAGE_LABELS: Record<RelationshipStage, string> = {
 }
 
 /**
- * Client-side mirror of the SQL compute_life_substage() function.
- * Useful for UI display before the DB has stored the latest value.
- * Returns null if anchor date is missing or stage has no substage.
- */
-export function computeLifeSubstage(
-  stage: LifeStage | null,
-  anchorDate: string | null,
-  today: Date = new Date()
-): LifeSubstage | null {
-  if (!stage || !anchorDate) return null
-  const anchor = new Date(anchorDate)
-  if (isNaN(anchor.getTime())) return null
-
-  const msPerDay = 24 * 60 * 60 * 1000
-  const daysDiff = Math.floor((today.getTime() - anchor.getTime()) / msPerDay)
-  const monthsDiff = Math.floor(
-    (today.getFullYear() - anchor.getFullYear()) * 12 +
-    (today.getMonth() - anchor.getMonth())
-  )
-
-  if (stage === 'ttc') {
-    if (monthsDiff < 6) return 'ttc_early'
-    if (monthsDiff < 12) return 'ttc_extended'
-    return 'ttc_long'
-  }
-
-  if (stage === 'pregnancy') {
-    // anchor here is expected_due_date; positive daysUntilDue if still future
-    const daysUntilDue = -daysDiff
-    let week = 40 - Math.max(0, Math.floor(daysUntilDue / 7))
-    week = Math.max(1, Math.min(42, week))
-    if (week <= 13) return 'pregnancy_t1'
-    if (week <= 27) return 'pregnancy_t2'
-    return 'pregnancy_t3'
-  }
-
-  if (stage === 'postpartum') {
-    const weeksSince = Math.floor(daysDiff / 7)
-    if (weeksSince < 2) return 'postpartum_acute'
-    if (weeksSince < 6) return 'postpartum_recovery'
-    return 'postpartum_transition'
-  }
-
-  if (stage === 'parenting') {
-    if (monthsDiff < 12) return 'parenting_infant'
-    if (monthsDiff < 36) return 'parenting_toddler'
-    return 'parenting_school'
-  }
-
-  return null
-}
-
-/**
  * Returns the relevant anchor date for a given life stage.
- * Pregnancy uses due date; Postpartum and Parenting both use delivery date.
+ *   Pregnancy → edd (expected due date)
+ *   Postpartum / Parenting → delivery_date (actual delivery)
+ *   TTC has no single anchor date; ttc_duration is a free-text descriptor.
  */
 export function anchorDateFor(
   stage: LifeStage | null,
-  customer: Pick<CustomerRecord, 'ttc_start_date' | 'expected_due_date' | 'actual_delivery_date'>
+  customer: Pick<CustomerRecord, 'edd' | 'delivery_date'>
 ): string | null {
   if (!stage) return null
   switch (stage) {
-    case 'ttc':        return customer.ttc_start_date ?? null
-    case 'pregnancy':  return customer.expected_due_date ?? null
-    case 'postpartum': return customer.actual_delivery_date ?? null
-    case 'parenting':  return customer.actual_delivery_date ?? null
+    case 'ttc':        return null
+    case 'pregnancy':  return customer.edd ?? null
+    case 'postpartum': return customer.delivery_date ?? customer.edd ?? null
+    case 'parenting':  return customer.delivery_date ?? customer.edd ?? null
   }
 }
 
 /**
- * Friendly display string for receipts/exports.
- * e.g. "28 weeks pregnant", "3 weeks postpartum", "baby 8 months"
+ * Friendly display string for receipts and exports.
+ * e.g. "28 weeks pregnant", "3 weeks postpartum", "baby 8 months", "TTC · 6 months"
  * Returns the legacy free-text if present and no structured stage exists.
  */
 export function formatLifeStageDisplay(
   customer: Pick<
     CustomerRecord,
-    'life_stage' | 'expected_due_date' | 'actual_delivery_date' | 'ttc_start_date' | 'pregnancy_stage_legacy'
+    'life_stage' | 'edd' | 'delivery_date' | 'ttc_duration' | 'pregnancy_stage'
   >,
   today: Date = new Date()
 ): string {
-  // Fall back to legacy free-text if no structured data
-  if (!customer.life_stage) return customer.pregnancy_stage_legacy ?? ''
+  // Fall back to free-text descriptor if no structured stage
+  if (!customer.life_stage) return customer.pregnancy_stage ?? ''
 
   const msPerDay = 24 * 60 * 60 * 1000
   const stage = customer.life_stage
 
-  if (stage === 'pregnancy' && customer.expected_due_date) {
-    const due = new Date(customer.expected_due_date)
+  if (stage === 'pregnancy' && customer.edd) {
+    const due = new Date(customer.edd)
     const daysUntilDue = Math.floor((due.getTime() - today.getTime()) / msPerDay)
     let week = 40 - Math.max(0, Math.floor(daysUntilDue / 7))
     week = Math.max(1, Math.min(42, week))
     return `${week} weeks pregnant`
   }
 
-  if (stage === 'postpartum' && customer.actual_delivery_date) {
-    const delivered = new Date(customer.actual_delivery_date)
+  const deliveryAnchor = customer.delivery_date ?? customer.edd ?? null
+
+  if (stage === 'postpartum' && deliveryAnchor) {
+    const delivered = new Date(deliveryAnchor)
     const days = Math.floor((today.getTime() - delivered.getTime()) / msPerDay)
     if (days < 14) return `${days} days postpartum`
     const weeks = Math.floor(days / 7)
     return `${weeks} weeks postpartum`
   }
 
-  if (stage === 'parenting' && customer.actual_delivery_date) {
-    const delivered = new Date(customer.actual_delivery_date)
+  if (stage === 'parenting' && deliveryAnchor) {
+    const delivered = new Date(deliveryAnchor)
     const months = (today.getFullYear() - delivered.getFullYear()) * 12 +
                    (today.getMonth() - delivered.getMonth())
     if (months < 24) return `baby ${months} month${months === 1 ? '' : 's'}`
@@ -402,14 +391,11 @@ export function formatLifeStageDisplay(
     return `child ${years} year${years === 1 ? '' : 's'}`
   }
 
-  if (stage === 'ttc' && customer.ttc_start_date) {
-    const start = new Date(customer.ttc_start_date)
-    const months = (today.getFullYear() - start.getFullYear()) * 12 +
-                   (today.getMonth() - start.getMonth())
-    return `TTC · ${months} month${months === 1 ? '' : 's'}`
+  if (stage === 'ttc' && customer.ttc_duration) {
+    return `TTC · ${customer.ttc_duration.replace(/_/g, ' ')}`
   }
 
-  // Stage classified but no anchor date yet
+  // Stage classified but no anchor info yet
   return LIFE_STAGE_LABELS[stage]
 }
 
