@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { tzs } from '../lib/utils'
-import type { Page } from '../lib/types'
+import type { Page, LifeStage } from '../lib/types'
+import { LIFE_STAGE_LABELS } from '../lib/types'
+import { useTableSort } from '../lib/useTableSort'
 import CashCustomerDetail from './customers/CashCustomerDetail'
 
 interface Customer {
@@ -14,6 +16,12 @@ interface Customer {
   balance: number; crown_points: number; is_active: boolean
   last_purchase_date: string; last_purchase_amount: number; notes: string
   created_at: string
+  // Journey fields (populated for cash customers via customer_metrics view join)
+  life_stage?: LifeStage | null
+  lifecycle_stage?: string | null
+  owner_user_id?: string | null
+  owner_name?: string | null
+  stage_paused?: boolean
 }
 
 interface LedgerEntry {
@@ -49,6 +57,8 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
   const [customers, setCustomers] = useState<Customer[]>([])
   const [search, setSearch] = useState('')
   const [segFilter, setSegFilter] = useState('all')
+  const [stageFilter, setStageFilter] = useState<'all'|'unclassified'|LifeStage>('all')
+  const [showPausedOnly, setShowPausedOnly] = useState(false)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
@@ -72,7 +82,29 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
     const { data } = await supabase.from('customers')
       .select('*').eq('customer_type', type).eq('is_active', true)
       .order('name')
-    if (data) setCustomers(data as Customer[])
+    if (!data) { setLoading(false); return }
+
+    let rows = data as Customer[]
+
+    // For cash customers, also pull life_stage/lifecycle_stage from customer_metrics view.
+    // The view only includes active cash customers (matching the WHERE on the page).
+    if (tab === 'cash') {
+      const { data: metrics } = await supabase
+        .from('customer_metrics')
+        .select('customer_id, life_stage, lifecycle_stage')
+      if (metrics) {
+        const byId = new Map<string, { life_stage: LifeStage | null; lifecycle_stage: string | null }>()
+        for (const m of metrics as Array<{ customer_id: string; life_stage: LifeStage | null; lifecycle_stage: string | null }>) {
+          byId.set(m.customer_id, { life_stage: m.life_stage, lifecycle_stage: m.lifecycle_stage })
+        }
+        rows = rows.map(r => {
+          const m = byId.get(r.id)
+          return { ...r, life_stage: m?.life_stage ?? null, lifecycle_stage: m?.lifecycle_stage ?? null }
+        })
+      }
+    }
+
+    setCustomers(rows)
     setLoading(false)
   }
 
@@ -158,8 +190,38 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
   const filtered = customers.filter(c => {
     if (segFilter !== 'all' && c.segment !== segFilter.toLowerCase()) return false
     if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !(c.whatsapp || '').includes(search) && !(c.customer_number || '').toLowerCase().includes(search.toLowerCase())) return false
+    if (tab === 'cash') {
+      if (stageFilter === 'unclassified' && c.life_stage) return false
+      if (stageFilter !== 'all' && stageFilter !== 'unclassified' && c.life_stage !== stageFilter) return false
+      if (showPausedOnly && !c.stage_paused) return false
+    }
     return true
   })
+
+  // ── Sort wiring ────────────────────────────────────────────────────────
+  // Uses useTableSort: click to sort, shift-click for multi-column.
+  // Persisted per-tab so cash and debtors don't fight over the same key.
+  const sortAccessor = (row: Customer, key: string): unknown => {
+    switch (key) {
+      case 'customer_number':   return row.customer_number
+      case 'name':              return row.name
+      case 'company':           return row.company || row.name
+      case 'segment':           return row.segment
+      case 'whatsapp':          return row.whatsapp
+      case 'payment_terms':     return row.payment_terms
+      case 'credit_limit':      return row.credit_limit ?? 0
+      case 'balance':           return row.balance ?? 0
+      case 'last_purchase':     return row.last_purchase_date
+      case 'crown_points':      return row.crown_points ?? 0
+      case 'life_stage':        return row.life_stage
+      default:                  return undefined
+    }
+  }
+
+  const sortStorageKey = tab === 'cash' ? 'malkia.customers.sort.cash' : 'malkia.customers.sort.debtors'
+  const defaultSort = useMemo(() => [{ key: 'name', direction: 'asc' as const }], [])
+  const { sorted, onHeaderClick, getSortIndex, getSortDir } =
+    useTableSort<Customer>(filtered, { storageKey: sortStorageKey, defaultSort, accessor: sortAccessor })
 
   // Running balance for ledger
   const ledgerWithBalance = () => {
@@ -516,7 +578,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
       {/* Tabs */}
       <div style={{ display:'flex',gap:4,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:4,marginBottom:20,width:'fit-content' }}>
         {[{ id:'cash',label:'Cash Contacts (DAR502)' },{ id:'debtors',label:'Debtors' }].map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id as any); setSegFilter('all'); setSearch('') }}
+          <button key={t.id} onClick={() => { setTab(t.id as any); setSegFilter('all'); setSearch(''); setStageFilter('all'); setShowPausedOnly(false) }}
             style={{ padding:'8px 20px',fontSize:12,fontWeight:600,background:tab===t.id?'var(--accent)':'transparent',color:tab===t.id?'#fff':'var(--text3)',border:'none',cursor:'pointer',borderRadius:'var(--r)',transition:'all .15s' }}>
             {t.label}
           </button>
@@ -524,12 +586,44 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
       </div>
 
       {/* Filters */}
-      <div style={{ display:'flex',gap:10,marginBottom:16,alignItems:'center' }}>
+      <div style={{ display:'flex',gap:10,marginBottom:16,alignItems:'center',flexWrap:'wrap' }}>
         <input className="form-input" style={{ width:220,padding:'7px 10px',fontSize:12 }} placeholder={tab==='cash'?'Search name, WA, or CONT…':'Search name, DEB number…'} value={search} onChange={e => setSearch(e.target.value)} />
         <select className="form-input" style={{ fontSize:12,padding:'7px 10px',width:150 }} value={segFilter} onChange={e => setSegFilter(e.target.value)}>
           <option value="all">All Segments</option>
           {SEGMENTS[tab==='cash'?'cash':'debtor'].map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
         </select>
+        {tab==='cash' && (
+          <>
+            <select
+              className="form-input"
+              style={{ fontSize:12,padding:'7px 10px',width:170 }}
+              value={stageFilter}
+              onChange={e => setStageFilter(e.target.value as typeof stageFilter)}
+              title="Filter by life stage"
+            >
+              <option value="all">All Life Stages</option>
+              <option value="unclassified">⚠️ Unclassified</option>
+              <option value="ttc">TTC</option>
+              <option value="pregnancy">Pregnancy</option>
+              <option value="postpartum">Postpartum</option>
+              <option value="parenting">Parenting</option>
+            </select>
+            {/* Classification queue shortcut */}
+            <button
+              type="button"
+              onClick={() => { setStageFilter('unclassified'); setSearch(''); setSegFilter('all'); setShowPausedOnly(false) }}
+              title="Jump to all cash customers without a classified life stage"
+              style={{ background:stageFilter==='unclassified'?'var(--accent)':'var(--surface2)',color:stageFilter==='unclassified'?'#fff':'var(--text3)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:'7px 12px',fontSize:11,fontWeight:600,cursor:'pointer' }}
+            >
+              Classification Queue
+            </button>
+            {/* Paused profiles filter — sensitive exits */}
+            <label style={{ display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--text3)',cursor:'pointer' }}>
+              <input type="checkbox" checked={showPausedOnly} onChange={e => setShowPausedOnly(e.target.checked)} />
+              Paused profiles only
+            </label>
+          </>
+        )}
         <div style={{ fontFamily:'var(--mono)',fontSize:11,color:'var(--text3)',marginLeft:'auto' }}>{filtered.length} of {customers.length} shown</div>
       </div>
 
@@ -547,28 +641,41 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
               <table>
                 <thead>
                   <tr>
-                    <th>Number</th>
-                    <th>{tab==='cash'?'Contact Name':'Customer / Company'}</th>
-                    <th>Segment</th>
-                    {tab==='cash' ? <th>WhatsApp</th> : <th>Payment Terms</th>}
-                    {tab==='debtors' && <th className="td-right">Credit Limit</th>}
-                    <th className="td-right">Balance</th>
-                    <th>Last Purchase</th>
-                    {tab==='cash' && <th className="td-right">Crown Pts</th>}
+                    <SortableTh label="Number" sortKey="customer_number" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
+                    <SortableTh label={tab==='cash'?'Contact Name':'Customer / Company'} sortKey={tab==='cash'?'name':'company'} onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
+                    {tab==='cash' && <SortableTh label="Life Stage" sortKey="life_stage" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
+                    <SortableTh label="Segment" sortKey="segment" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
+                    {tab==='cash'
+                      ? <SortableTh label="WhatsApp" sortKey="whatsapp" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
+                      : <SortableTh label="Payment Terms" sortKey="payment_terms" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
+                    {tab==='debtors' && <SortableTh label="Credit Limit" sortKey="credit_limit" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
+                    <SortableTh label="Balance" sortKey="balance" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
+                    <SortableTh label="Last Purchase" sortKey="last_purchase" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
+                    {tab==='cash' && <SortableTh label="Crown Pts" sortKey="crown_points" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
                     <th style={{ width:80 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((c, i) => (
-                    <tr key={i} style={{ cursor:'pointer' }}
+                  {sorted.map((c, i) => (
+                    <tr key={c.id ?? i} style={{ cursor:'pointer' }}
                       onClick={() => openLedger(c)}
                       onMouseEnter={e => (e.currentTarget.style.background='var(--surface2)')}
                       onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
                       <td className="td-mono" style={{ fontSize:11,fontWeight:700,color:'var(--accent)' }}>{c.customer_number||'—'}</td>
                       <td>
-                        <div style={{ fontWeight:600,fontSize:13 }}>{tab==='debtors' ? (c.company || c.name) : c.name}</div>
+                        <div style={{ fontWeight:600,fontSize:13,display:'flex',alignItems:'center',gap:6 }}>
+                          {tab==='debtors' ? (c.company || c.name) : c.name}
+                          {tab==='cash' && c.stage_paused && (
+                            <span title="Profile paused — sensitive exit" style={{ fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(255,71,87,.12)',color:'var(--red)',fontWeight:700 }}>PAUSED</span>
+                          )}
+                        </div>
                         {tab==='debtors' ? <div style={{ fontSize:10,color:'var(--text3)' }}>{(c as any).contact_person || c.company || '—'}</div> : c.company && <div style={{ fontSize:10,color:'var(--text3)' }}>{c.company}</div>}
                       </td>
+                      {tab==='cash' && (
+                        <td>
+                          <LifeStagePill stage={c.life_stage ?? null} />
+                        </td>
+                      )}
                       <td><span className="pill pill-gray" style={{ fontSize:9,textTransform:'capitalize' }}>{c.segment}</span></td>
                       {tab==='cash'
                         ? <td className="td-mono" style={{ fontSize:11,color:'#25D366' }}>{c.whatsapp||'—'}</td>
@@ -597,5 +704,75 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
       )}
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
+  )
+}
+
+// ─── Sortable table header ──────────────────────────────────────────────
+// Click → sort by this column. Shift-click → add to multi-column sort.
+// Shows a small arrow + priority badge (1, 2, 3) when active.
+function SortableTh({
+  label, sortKey, align, onHeaderClick, getSortIndex, getSortDir,
+}: {
+  label: string
+  sortKey: string
+  align?: 'right'
+  onHeaderClick: (key: string, e?: { shiftKey?: boolean }) => void
+  getSortIndex: (key: string) => number | null
+  getSortDir: (key: string) => 'asc' | 'desc' | null
+}) {
+  const idx = getSortIndex(sortKey)
+  const dir = getSortDir(sortKey)
+  const active = idx !== null
+  const arrow = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : ''
+  return (
+    <th
+      className={align === 'right' ? 'td-right' : undefined}
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+      onClick={(e) => onHeaderClick(sortKey, { shiftKey: e.shiftKey })}
+      title="Click to sort. Shift+click for multi-column sort."
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {label}
+        {active && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--accent)' }}>
+            <span style={{ fontSize: 10 }}>{arrow}</span>
+            <span style={{ fontSize: 8, fontFamily: 'var(--mono)', background: 'var(--accent-dim)', padding: '0 4px', borderRadius: 3 }}>{idx}</span>
+          </span>
+        )}
+      </span>
+    </th>
+  )
+}
+
+// ─── Life stage pill ────────────────────────────────────────────────────
+// Renders the 4-stage parent life_stage as a coloured pill.
+// Unclassified shows a muted "Unclassified" warning pill so Brenda can spot it.
+function LifeStagePill({ stage }: { stage: LifeStage | null }) {
+  if (!stage) {
+    return (
+      <span style={{
+        display: 'inline-block', fontSize: 9, padding: '2px 7px', borderRadius: 4,
+        background: 'rgba(107,114,128,.15)', color: 'var(--text3)', fontWeight: 600,
+        fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.4,
+      }} title="Not yet classified">
+        Unclassified
+      </span>
+    )
+  }
+  const palette: Record<LifeStage, { bg: string; color: string }> = {
+    ttc:        { bg: 'rgba(167,139,250,.18)', color: '#a78bfa' },
+    pregnancy:  { bg: 'rgba(245,158,11,.18)',  color: '#f59e0b' },
+    postpartum: { bg: 'rgba(236,72,153,.18)',  color: '#ec4899' },
+    parenting:  { bg: 'rgba(6,182,212,.18)',   color: '#06b6d4' },
+  }
+  const p = palette[stage]
+  return (
+    <span style={{
+      display: 'inline-block', fontSize: 9, padding: '2px 7px', borderRadius: 4,
+      background: p.bg, color: p.color, fontWeight: 700,
+      fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.4,
+    }}>
+      {LIFE_STAGE_LABELS[stage]}
+    </span>
   )
 }
