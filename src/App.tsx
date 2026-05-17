@@ -108,6 +108,7 @@ const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport')
 
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
+const CRMCommandCenter = lazy(() => import('./pages/crm/CRMCommandCenter'))
 const CRMInbox = lazy(() => import('./pages/CRMInbox'))
 const CRMAutomations = lazy(() => import('./pages/CRMAutomations'))
 const CRMPreorders = lazy(() => import('./pages/CRMPreorders'))
@@ -299,6 +300,7 @@ const AccessDenied = ({ page, onNav }: { page: string; onNav?: (p: any) => void 
 // Extended breadcrumbs for CRM and Settings
 const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-hub': 'CRM Hub',
+  'crm-command-center': 'CRM / Command Center',
   'crm-inbox': 'CRM / Inbox',
   'crm-automations': 'CRM / Automations',
   'crm-preorders': 'CRM / Pre-Orders',
@@ -540,6 +542,7 @@ function AppContent() {
       // CRM Module Routes
       case 'crm':
       case 'crm-hub':           return <CRMHub onNav={navigate} />
+      case 'crm-command-center': return <CRMCommandCenter onNav={navigate} />
       case 'crm-inbox':         return <CRMInbox />
       case 'crm-automations':   return <CRMAutomations onNav={navigate} />
       case 'crm-preorders':     return <CRMPreorders onNav={navigate} />
