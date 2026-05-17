@@ -54,6 +54,12 @@ interface Referrer {
   earned: number
   pointsEarned: number
   joinedAt: string
+  // At-till usage tracking from migration 015. usesCount = how many times the
+  // code has been used so far; usesCap = how many uses it's allowed before
+  // it stops working. Surfaced on the leaderboard so Brenda can flag
+  // ambassadors approaching their cap.
+  usesCount: number
+  usesCap: number
 }
 
 interface ReferralActivity {
@@ -143,6 +149,8 @@ export default function CRMReferrals({ onNav }: Props) {
       joinedAt:     row.first_referral_at
         ? new Date(row.first_referral_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
         : '',
+      usesCount:    Number(row.uses_count ?? 0),
+      usesCap:      Number(row.uses_cap ?? 0),
     }))
 
     // Map activity rows. Status normalisation: a referral with reward_paid=true
@@ -413,6 +421,18 @@ export default function CRMReferrals({ onNav }: Props) {
                   <div style={s.referrerStats}>
                     <div style={s.referrerRefs}>{referrer.referrals} refs</div>
                     <div style={s.referrerConv}>{referrer.conversions} converted</div>
+                    {referrer.usesCap > 0 && (
+                      <div style={{
+                        fontSize: 10, fontFamily: 'var(--mono)', marginTop: 2,
+                        color: referrer.usesCount >= referrer.usesCap
+                          ? '#ef4444'
+                          : referrer.usesCount >= referrer.usesCap * 0.8
+                            ? '#f59e0b'
+                            : 'var(--text3)',
+                      }}>
+                        {referrer.usesCount} / {referrer.usesCap} uses
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#25d366', fontFamily: 'var(--mono)', marginTop: 4 }}>
                       {tzs(referrer.earned)}
                     </div>
