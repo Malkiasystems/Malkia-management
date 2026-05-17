@@ -13,9 +13,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
-import Toast from '../components/Toast'
+import { supabase } from '../../lib/supabase'
+import { tzs } from '../../lib/utils'
+import Toast from '../../components/Toast'
 
 interface Props {
   customerId: string
@@ -233,7 +233,7 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
       .from('customer_auto_tags')
       .select('tag')
       .eq('customer_id', customerId)
-    if (data) setAutoTags(data.map(r => r.tag))
+    if (data) setAutoTags(data.map((r: { tag: string }) => r.tag))
   }
 
   const loadCustomerRow = async () => {
@@ -284,8 +284,11 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
   }
 
   const loadPurchases = async () => {
+    type VoucherRow = { id: string; ref: string; posting_date: string; total_amount: number }
+    type LineRow = { voucher_id: string; line_number: number; description: string | null; qty: number; total: number | null }
+
     // Pull this customer's cash sales (most recent first).
-    const { data: vouchers } = await supabase
+    const { data: vouchersData } = await supabase
       .from('vouchers')
       .select('id, ref, posting_date, total_amount')
       .eq('customer_id', customerId)
@@ -293,27 +296,29 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
       .eq('status', 'posted')
       .order('posting_date', { ascending: false })
       .limit(50)
+    const vouchers = (vouchersData ?? []) as VoucherRow[]
 
-    if (!vouchers || vouchers.length === 0) { setPurchases([]); return }
+    if (vouchers.length === 0) { setPurchases([]); return }
 
     // Pull all line items for those sales in one go, then expand into
     // one row per (voucher × line). The renderer groups them visually.
-    const ids = vouchers.map(v => v.id)
-    const { data: lines } = await supabase
+    const ids = vouchers.map((v: VoucherRow) => v.id)
+    const { data: linesData } = await supabase
       .from('voucher_lines')
       .select('voucher_id, line_number, description, qty, total')
       .in('voucher_id', ids)
       .order('voucher_id', { ascending: false })
       .order('line_number', { ascending: true })
+    const lines = (linesData ?? []) as LineRow[]
 
-    if (!lines) { setPurchases([]); return }
+    if (lines.length === 0) { setPurchases([]); return }
 
     // Index voucher metadata for quick lookup
-    const voucherById: Record<string, typeof vouchers[number]> = {}
+    const voucherById: Record<string, VoucherRow> = {}
     for (const v of vouchers) voucherById[v.id] = v
 
     const expanded: Purchase[] = lines
-      .map(l => {
+      .map((l: LineRow) => {
         const v = voucherById[l.voucher_id]
         if (!v) return null
         return {
@@ -330,7 +335,7 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
       .filter((p): p is Purchase => p !== null)
       // Sort: most recent voucher first (vouchers already came back desc, but
       // the join may have shuffled). Within voucher, by line_number ascending.
-      .sort((a, b) => {
+      .sort((a: Purchase, b: Purchase) => {
         const dateCmp = b.posting_date.localeCompare(a.posting_date)
         if (dateCmp !== 0) return dateCmp
         const refCmp = b.ref.localeCompare(a.ref)
@@ -1087,32 +1092,40 @@ function DiscountsTab({ customerId }: { customerId: string }) {
 
   useEffect(() => {
     (async () => {
+      type DiscVoucher = { id: string; ref: string; posting_date: string }
+      type DiscLine = {
+        voucher_id: string; description: string | null; qty: number;
+        unit_price: number | null; discount_pct: number | null;
+        subtotal: number | null; total: number | null;
+      }
       setLoading(true)
       // Pull voucher_lines with discount > 0 joined to vouchers (this customer's cash sales)
-      const { data: vouchers } = await supabase
+      const { data: vouchersData } = await supabase
         .from('vouchers')
         .select('id, ref, posting_date')
         .eq('customer_id', customerId)
         .eq('type', 'cash_sale')
         .eq('status', 'posted')
         .order('posting_date', { ascending: false })
+      const vouchers = (vouchersData ?? []) as DiscVoucher[]
 
-      if (!vouchers || vouchers.length === 0) {
+      if (vouchers.length === 0) {
         setRows([]); setLoading(false); return
       }
 
-      const ids = vouchers.map(v => v.id)
-      const { data: lines } = await supabase
+      const ids = vouchers.map((v: DiscVoucher) => v.id)
+      const { data: linesData } = await supabase
         .from('voucher_lines')
         .select('voucher_id, description, qty, unit_price, discount_pct, subtotal, total')
         .in('voucher_id', ids)
+      const lines = (linesData ?? []) as DiscLine[]
 
-      const discounted = (lines || []).filter(l => (l.discount_pct || 0) > 0)
-      const byVoucher: Record<string, any> = {}
+      const discounted = lines.filter((l: DiscLine) => (l.discount_pct || 0) > 0)
+      const byVoucher: Record<string, DiscVoucher> = {}
       for (const v of vouchers) byVoucher[v.id] = v
 
       let totalSaved = 0
-      const built = discounted.map(l => {
+      const built = discounted.map((l: DiscLine) => {
         const v = byVoucher[l.voucher_id]
         const saved = (l.subtotal || 0) - (l.total || 0)
         totalSaved += saved
