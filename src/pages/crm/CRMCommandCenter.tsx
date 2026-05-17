@@ -136,9 +136,11 @@ export default function CRMCommandCenter({ onNav, onOpenCustomer }: Props) {
   }
 
   const loadKpis = async () => {
-    // KPIs run as 4 small parallel counts. Could be a single RPC but this is
-    // simple enough and easy to evolve.
-    const [active, paused, unclassified, graduated] = await Promise.all([
+    // Active mamas and paused profiles are universe-level counts that don't
+    // depend on snooze state. Just graduated and Needs classifying are
+    // queue-level counts — we derive them from crm_action_queue so they
+    // stay in sync with what's actually actionable.
+    const [active, paused, queueGroups] = await Promise.all([
       // Active: classified, not paused
       supabase.from('customers')
         .select('id', { count: 'exact', head: true })
@@ -148,21 +150,19 @@ export default function CRMCommandCenter({ onNav, onOpenCustomer }: Props) {
       supabase.from('customers')
         .select('id', { count: 'exact', head: true })
         .eq('customer_type', 'cash').eq('is_active', true).eq('stage_paused', true),
-      // Unclassified active customers with traction
-      supabase.from('customer_metrics')
-        .select('customer_id', { count: 'exact', head: true })
-        .is('life_stage', null).gte('visit_count', 2),
-      // Just graduated (stage changed in last 7 days)
-      supabase.from('customers')
-        .select('id', { count: 'exact', head: true })
-        .gte('current_stage_entered_at', new Date(Date.now() - 7 * 86400_000).toISOString())
-        .not('previous_life_stage', 'is', null),
+      // Queue groups — counts per reason_code, already filtered for snoozes
+      supabase.from('crm_action_queue').select('reason_code'),
     ])
+
+    const groups = (queueGroups.data ?? []) as Array<{ reason_code: string }>
+    const unclassified = groups.filter(g => g.reason_code === 'unclassified').length
+    const graduated    = groups.filter(g => g.reason_code === 'graduated').length
+
     setKpis({
-      active_mamas:    active.count    ?? 0,
-      paused_profiles: paused.count    ?? 0,
-      unclassified:    unclassified.count ?? 0,
-      just_graduated:  graduated.count ?? 0,
+      active_mamas:    active.count ?? 0,
+      paused_profiles: paused.count ?? 0,
+      unclassified,
+      just_graduated:  graduated,
     })
   }
 
