@@ -188,6 +188,12 @@ export default function CRMCommandCenter({ onNav, onOpenCustomer }: Props) {
   // ── Snooze handler ────────────────────────────────────────────────────────
   const handleSnooze = async (customerId: string, days: number) => {
     setSnoozeMenuFor(null)
+
+    // Optimistically remove the row from local state so the UI feels instant.
+    // Even if the server write somehow fails, the next page refresh will
+    // bring her back since the view is the source of truth.
+    setQueue(prev => prev.filter(r => r.customer_id !== customerId))
+
     const { error } = await supabase.rpc('snooze_customer', {
       p_customer_id: customerId,
       p_days:        days,
@@ -195,11 +201,14 @@ export default function CRMCommandCenter({ onNav, onOpenCustomer }: Props) {
     if (error) {
       setToastType('error')
       setToast(`Snooze failed: ${error.message}`)
+      // Roll back the optimistic removal by reloading
+      loadAll()
       return
     }
     setToastType('success')
     setToast(`Snoozed for ${days} day${days === 1 ? '' : 's'}`)
-    setRefreshNonce(n => n + 1)
+    // Refresh KPIs in background; the queue is already updated optimistically.
+    loadKpis()
   }
 
   // ── Open customer profile ────────────────────────────────────────────────
