@@ -63,6 +63,28 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   } | null>(null)
   const [pendingContext, setPendingContext] = useState<CustomerContext>({})
 
+  // Referral code (Malkia Ambassador). Cashier types the code from the new
+  // mama's friend; we call apply_referral_code to validate and preview the
+  // benefit. State flow:
+  //   referralCodeInput  = what the cashier has typed
+  //   referralPreview    = validated result from the RPC (null = not validated)
+  //   referralChecking   = waiting on the RPC
+  //   referralError      = message to show if the code is invalid/at-cap/etc
+  type ReferralPreview = {
+    referrer_id: string
+    referrer_name: string
+    benefit_shape: 'discount_pct' | 'discount_tzs' | 'free_item'
+    benefit_amount?: number
+    benefit_percent?: number
+    free_product_id?: string
+    free_product_name?: string
+    uses_remaining: number
+  }
+  const [referralCodeInput, setReferralCodeInput] = useState('')
+  const [referralPreview, setReferralPreview] = useState<ReferralPreview | null>(null)
+  const [referralChecking, setReferralChecking] = useState(false)
+  const [referralError, setReferralError] = useState<string | null>(null)
+
   // Products
   const [dbProducts, setDbProducts] = useState<DBProduct[]>([])
   const [filterCat, setFilterCat] = useState('all')
@@ -354,6 +376,54 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       .maybeSingle()
     setExistingContext(data || null)
     setPendingContext({})
+    // If a referral code was already typed, re-validate against the newly
+    // selected referee (they may now fail the new-customer check)
+    if (referralCodeInput.trim()) {
+      validateReferralCode(referralCodeInput, c.id)
+    }
+  }
+
+  // Validate a referral code via the apply_referral_code RPC. Updates the
+  // preview state so the totals panel can show the benefit. Called on input
+  // blur, Enter key, or when a customer is selected after a code was typed.
+  const validateReferralCode = async (rawCode: string, refereeId: string | null) => {
+    const code = rawCode.trim()
+    if (!code) {
+      setReferralPreview(null); setReferralError(null); return
+    }
+    setReferralChecking(true); setReferralError(null)
+    const { data, error } = await supabase.rpc('apply_referral_code', {
+      p_code: code,
+      p_referee_id: refereeId,
+      p_sale_subtotal: subtotal,  // current sale subtotal at validation time
+    })
+    setReferralChecking(false)
+    if (error) {
+      setReferralPreview(null)
+      setReferralError(error.message || 'Validation failed')
+      return
+    }
+    const result = data as any
+    if (!result?.ok) {
+      setReferralPreview(null)
+      setReferralError(result?.error || 'Code rejected')
+      return
+    }
+    setReferralPreview({
+      referrer_id:       result.referrer_id,
+      referrer_name:     result.referrer_name,
+      benefit_shape:     result.benefit_shape,
+      benefit_amount:    result.benefit_amount,
+      benefit_percent:   result.benefit_percent,
+      free_product_id:   result.free_product_id,
+      free_product_name: result.free_product_name,
+      uses_remaining:    result.uses_remaining,
+    })
+    setReferralError(null)
+  }
+
+  const clearReferralCode = () => {
+    setReferralCodeInput(''); setReferralPreview(null); setReferralError(null)
   }
 
   const updateLine = (i: number, field: keyof SaleLine, val: string | number) => {
@@ -389,7 +459,14 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
   const discountGiven = Math.max(0, grossSubtotal - subtotal)
   const deliveryTotal = (parseFloat(townDelivery) || 0) + (parseFloat(upcountryShipping) || 0)
-  const total = subtotal + deliveryTotal
+
+  // Referral discount (% or flat) reduces the cash collected. Free-item shape
+  // doesn't reduce the total — the free item rides as a separate line at zero
+  // price, with COGS still hitting normally (handled in cashSalePost).
+  const referralDiscount = (referralPreview && referralPreview.benefit_shape !== 'free_item')
+    ? Math.min(referralPreview.benefit_amount || 0, subtotal + deliveryTotal)
+    : 0
+  const total = subtotal + deliveryTotal - referralDiscount
   const crownPoints = Math.round(subtotal / 1000)
 
   // Payment amounts
@@ -412,6 +489,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     setTendered(''); setPaymentRef(''); setIsPOD(false)
     setTownDelivery(''); setUpcountryShipping(''); setShowDelivery(false)
     setIsEditMode(false); setEditVoucherData(null); setAppliedBundle(null)
+    setReferralCodeInput(''); setReferralPreview(null); setReferralError(null)
     if (onClearEdit) onClearEdit()
   }
 
@@ -467,6 +545,10 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       userId: user?.id,
       appliedBundle, subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
       customerContext: pendingContext,
+      // Referral (optional). Only sent if the cashier validated a code and
+      // a preview is currently active. cashSalePost re-validates at post time.
+      referralCode:   referralPreview ? referralCodeInput.trim().toUpperCase() : null,
+      referralBenefit: referralPreview,
     })
 
     if (!result.success) {
@@ -786,6 +868,114 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                       onChange={setPendingContext}
                     />
                   )}
+
+                  {/* Referral code — optional. Cashier types the code from
+                      the new mama's friend; the system validates against
+                      apply_referral_code and shows a benefit preview. */}
+                  {(newCustName.trim() || selectedCust) && (
+                    <div style={{ marginTop: 10 }}>
+                      <label style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>
+                        Referral code (optional)
+                      </label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          className="form-input"
+                          style={{
+                            flex: 1,
+                            fontFamily: 'var(--mono)',
+                            textTransform: 'uppercase',
+                            borderColor: referralPreview
+                              ? 'var(--green)'
+                              : referralError
+                                ? '#ef4444'
+                                : 'var(--border)',
+                          }}
+                          placeholder="e.g. MAL-XXXXXX"
+                          value={referralCodeInput}
+                          onChange={e => {
+                            setReferralCodeInput(e.target.value)
+                            // Clear stale preview the moment the input changes
+                            if (referralPreview || referralError) {
+                              setReferralPreview(null); setReferralError(null)
+                            }
+                          }}
+                          onBlur={() => validateReferralCode(referralCodeInput, selectedCust?.id || null)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              validateReferralCode(referralCodeInput, selectedCust?.id || null)
+                            }
+                          }}
+                          disabled={referralChecking}
+                        />
+                        {referralPreview && (
+                          <button
+                            type="button"
+                            onClick={clearReferralCode}
+                            style={{
+                              padding: '0 12px', fontSize: 11, background: 'var(--surface2)',
+                              border: '1px solid var(--border)', borderRadius: 6,
+                              color: 'var(--text3)', cursor: 'pointer',
+                            }}
+                            title="Clear referral code"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {referralChecking && (
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                          Checking code…
+                        </div>
+                      )}
+
+                      {referralPreview && !referralChecking && (
+                        <div style={{
+                          marginTop: 8, padding: '10px 12px',
+                          background: 'rgba(94,168,162,.10)',
+                          border: '1px solid rgba(94,168,162,.4)',
+                          borderRadius: 6, fontSize: 12,
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <div>
+                              <span style={{ color: 'var(--text3)', fontSize: 10 }}>Referred by</span>
+                              <div style={{ fontWeight: 700 }}>{referralPreview.referrer_name}</div>
+                            </div>
+                            <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                              {referralPreview.uses_remaining} uses left
+                            </div>
+                          </div>
+                          {referralPreview.benefit_shape === 'discount_pct' && (
+                            <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)' }}>
+                              −{referralPreview.benefit_percent}% ({tzs(referralPreview.benefit_amount || 0)} off)
+                            </div>
+                          )}
+                          {referralPreview.benefit_shape === 'discount_tzs' && (
+                            <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)' }}>
+                              −{tzs(referralPreview.benefit_amount || 0)} off
+                            </div>
+                          )}
+                          {referralPreview.benefit_shape === 'free_item' && (
+                            <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)' }}>
+                              + Free: {referralPreview.free_product_name}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {referralError && !referralChecking && (
+                        <div style={{
+                          marginTop: 8, padding: '8px 12px',
+                          background: 'rgba(239,68,68,.10)',
+                          border: '1px solid rgba(239,68,68,.4)',
+                          borderRadius: 6, fontSize: 11, color: '#ef4444',
+                        }}>
+                          {referralError}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* STEP 2 — LOCATION */}
@@ -1016,6 +1206,20 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                     </div>
                   )}
                   {deliveryTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Delivery → Float 2085</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)' }}>{deliveryTotal.toLocaleString()}</span></div>}
+                  {referralDiscount > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0' }}>
+                      <span style={{ color: 'var(--accent)' }}>
+                        Referral discount ({referralPreview?.referrer_name})
+                      </span>
+                      <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>−{referralDiscount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {referralPreview?.benefit_shape === 'free_item' && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}>
+                      <span style={{ color: 'var(--accent)' }}>+ Free: {referralPreview.free_product_name}</span>
+                      <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>included</span>
+                    </div>
+                  )}
                   {margin > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 800, padding: '12px 0 0', borderTop: '1px solid var(--border2)', marginTop: 8 }}>
                     <span>TOTAL</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(total)}</span>
