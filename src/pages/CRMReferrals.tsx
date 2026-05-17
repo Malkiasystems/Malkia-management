@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-// supabase import ready for real data
-// import { supabase } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
 
@@ -80,30 +79,95 @@ export default function CRMReferrals({ onNav }: Props) {
   const loadData = async () => {
     setLoading(true)
 
-    // Demo data
-    setReferrers([
-      { id: '1', name: 'Amina Hassan', phone: '+255 712 345 678', tier: 'crown', code: 'MAL-AMINA22', referrals: 8, conversions: 5, revenue: 1250000, earned: 25000, pointsEarned: 2500, joinedAt: 'Oct 2024' },
-      { id: '2', name: 'Grace Mwanza', phone: '+255 754 987 654', tier: 'crown', code: 'MAL-GRACE14', referrals: 5, conversions: 3, revenue: 750000, earned: 15000, pointsEarned: 1500, joinedAt: 'Nov 2024' },
-      { id: '3', name: 'Zainab Ally', phone: '+255 698 111 222', tier: 'gold', code: 'MAL-ZAINAB07', referrals: 3, conversions: 1, revenue: 285000, earned: 5000, pointsEarned: 500, joinedAt: 'Dec 2024' },
-      { id: '4', name: 'Fatuma Iddi', phone: '+255 621 445 889', tier: 'gold', code: 'MAL-FATUMA19', referrals: 4, conversions: 2, revenue: 420000, earned: 10000, pointsEarned: 1000, joinedAt: 'Jan 2025' },
-      { id: '5', name: 'Neema Omari', phone: '+255 765 432 100', tier: 'mama', code: 'MAL-NEEMA03', referrals: 2, conversions: 0, revenue: 0, earned: 0, pointsEarned: 0, joinedAt: 'Feb 2025' },
-      { id: '6', name: 'Halima Juma', phone: '+255 788 222 333', tier: 'mama', code: 'MAL-HALIMA11', referrals: 1, conversions: 1, revenue: 185000, earned: 5000, pointsEarned: 500, joinedAt: 'Mar 2025' },
-    ])
+    // Lazy lifecycle progression. These RPCs are idempotent:
+    //   1. Mark pending referrals as converted if the referee has now bought.
+    //   2. Credit any converted referrals where the return window has passed.
+    // We do this on every page load so the data stays fresh without cron.
+    // If either fails (e.g. RPC missing), we continue with the data we have.
+    try { await supabase.rpc('complete_referral_conversions') } catch { /* noop */ }
+    try { await supabase.rpc('credit_due_referrals') } catch { /* noop */ }
 
-    setActivities([
-      { id: '1', referrer: 'Amina Hassan', referee: 'Sarah Kimaro', status: 'converted', orderValue: 285000, timestamp: '2 hours ago' },
-      { id: '2', referrer: 'Grace Mwanza', referee: 'Mariam Bakari', status: 'pending', timestamp: '5 hours ago' },
-      { id: '3', referrer: 'Amina Hassan', referee: 'Esther Lugano', status: 'converted', orderValue: 185000, timestamp: 'Yesterday' },
-      { id: '4', referrer: 'Zainab Ally', referee: 'Rehema Msangi', status: 'pending', timestamp: 'Yesterday' },
-      { id: '5', referrer: 'Fatuma Iddi', referee: 'Mwajuma Said', status: 'converted', orderValue: 320000, timestamp: '2 days ago' },
-      { id: '6', referrer: 'Neema Omari', referee: 'Joyce Mushi', status: 'expired', timestamp: '1 week ago' },
-    ])
+    // Load referrers (one row per ambassador with rolled-up stats)
+    const { data: leaderboardRows } = await supabase
+      .from('ambassador_leaderboard')
+      .select('*')
+      .limit(100)
 
-    setSelectedReferrer({
-      id: '1', name: 'Amina Hassan', phone: '+255 712 345 678', tier: 'crown', code: 'MAL-AMINA22', referrals: 8, conversions: 5, revenue: 1250000, earned: 25000, pointsEarned: 2500, joinedAt: 'Oct 2024'
-    })
+    // Load recent activity (most recent referrals, any status)
+    const { data: activityRows } = await supabase
+      .from('referrals')
+      .select(`
+        id, referrer_id, referrer_name, referee_id, referee_name,
+        status, reward_paid, first_purchase_amount, created_at, converted_at
+      `)
+      .order('created_at', { ascending: false })
+      .limit(30)
 
+    // Map leaderboard rows to the Referrer shape the JSX expects.
+    // Tier derivation: simple conversion-count thresholds for now.
+    // (Session 5 will unify tier naming across the CRM.)
+    const referrerRows: Referrer[] = (leaderboardRows ?? []).map((row: any) => ({
+      id:           row.customer_id,
+      name:         row.name ?? 'Unknown',
+      phone:        row.whatsapp ?? '',
+      tier:         deriveTier(row.conversions ?? 0),
+      code:         row.ambassador_code ?? '',
+      referrals:    Number(row.total_referrals ?? 0),
+      conversions:  Number(row.conversions ?? 0),
+      revenue:      Number(row.revenue_generated ?? 0),
+      earned:       Number(row.points_earned ?? 0),
+      pointsEarned: Number(row.points_earned ?? 0),
+      joinedAt:     row.first_referral_at
+        ? new Date(row.first_referral_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+        : '',
+    }))
+
+    // Map activity rows. Status normalisation: a referral with reward_paid=true
+    // is shown as 'converted' (treat credited as a finalised conversion) so we
+    // don't add a fourth status the UI doesn't render.
+    const activityList: ReferralActivity[] = (activityRows ?? []).map((r: any) => ({
+      id:         r.id,
+      referrer:   r.referrer_name ?? 'Unknown',
+      referee:    r.referee_name ?? 'Unknown',
+      status:     normaliseStatus(r.status, r.reward_paid),
+      orderValue: r.first_purchase_amount ? Number(r.first_purchase_amount) : undefined,
+      timestamp:  relativeTime(r.created_at),
+    }))
+
+    setReferrers(referrerRows)
+    setActivities(activityList)
+    setSelectedReferrer(referrerRows[0] ?? null)
     setLoading(false)
+  }
+
+  // Derive a tier band from conversion count. Tunable; Session 5 unifies this.
+  function deriveTier(conversions: number): 'mama' | 'gold' | 'crown' {
+    if (conversions >= 5) return 'crown'
+    if (conversions >= 2) return 'gold'
+    return 'mama'
+  }
+
+  function normaliseStatus(
+    raw: string | null,
+    rewardPaid: boolean | null,
+  ): 'pending' | 'converted' | 'expired' {
+    if (raw === 'expired') return 'expired'
+    if (raw === 'converted' || rewardPaid === true) return 'converted'
+    return 'pending'
+  }
+
+  function relativeTime(iso: string | null): string {
+    if (!iso) return ''
+    const ms = Date.now() - new Date(iso).getTime()
+    const mins = Math.floor(ms / 60_000)
+    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`
+    const days = Math.floor(hrs / 24)
+    if (days === 1) return 'Yesterday'
+    if (days < 7) return `${days} days ago`
+    if (days < 30) return `${Math.floor(days / 7)} week${days < 14 ? '' : 's'} ago`
+    return new Date(iso).toLocaleDateString()
   }
 
   const getTierColor = (tier: string) => {
@@ -123,7 +187,10 @@ export default function CRMReferrals({ onNav }: Props) {
   }
 
   const copyCode = (code: string) => {
-    navigator.clipboard.writeText(`malkia.co.tz/r/${code}`)
+    // Share message in Swanglish, matching Malkia voice. The code is what
+    // the till operator types in when posting a new referee's cash sale.
+    const message = `Hujambo dada! 💕\n\nTumia code yangu ${code} ukinunua bidhaa za Malkia. Tutapata zawadi sote!\n\nTafuta Malkia Wellness Group kwenye WhatsApp au Instagram.`
+    navigator.clipboard.writeText(message)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
