@@ -320,6 +320,29 @@ async function executePettyCash(c: ExecuteContext): Promise<ExecutorResult> {
   return { success: true, voucherId: c.referenceId }
 }
 
+// Ambassador Settings Change — applies a config update to the referral program
+// (benefit shape, magnitudes, default cap, referrer reward) after an approver
+// approves it. All the validation + persistence is in the
+// apply_ambassador_settings_change RPC; this executor is just a thin wrapper.
+async function executeAmbassadorSettings(c: ExecuteContext): Promise<ExecutorResult> {
+  const p = c.payload as Record<string, unknown>
+
+  // The payload IS the change set. Pass it straight to the RPC, which
+  // validates fields and updates crm_settings + crown_manual_award_catalog
+  // atomically. Any field that isn't in the payload is left unchanged.
+  const { data, error } = await supabase.rpc('apply_ambassador_settings_change', {
+    p_payload: p,
+  })
+  if (error) {
+    return { success: false, error: 'Ambassador settings: ' + error.message }
+  }
+  const result = data as { ok?: boolean; changes_applied?: number } | null
+  if (!result?.ok) {
+    return { success: false, error: 'Ambassador settings: change rejected' }
+  }
+  return { success: true, voucherId: c.referenceId }
+}
+
 // Bank Transfer — Dr destination bank, Cr source bank
 // Uses account IDs (UUIDs) directly from the payload for simplicity;
 // falls back to codes if IDs not supplied.
@@ -795,6 +818,8 @@ const EXECUTORS: Record<string, Executor> = {
   'sales_discount':       executeCashSale,
   'cash_payment':         executeCashPayment,
   'journal_entry':        executeJournalEntry,
+  // Settings changes — apply the new config when an approver approves.
+  'ambassador_settings_change': executeAmbassadorSettings,
 }
 
 // ─── Main entry point ──────────────────────────────────────────────────────
