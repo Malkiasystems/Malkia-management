@@ -74,6 +74,13 @@ export default function CRMReferrals({ onNav }: Props) {
   const [copied, setCopied] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Live config from crm_settings + crown_manual_award_catalog. We show real
+  // numbers in the Rewards block so it stays accurate when Joe changes config.
+  const [rewardConfig, setRewardConfig] = useState<{
+    pointsPerReferral: number
+    returnWindowDays: number
+  }>({ pointsPerReferral: 200, returnWindowDays: 14 })
+
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
@@ -86,6 +93,22 @@ export default function CRMReferrals({ onNav }: Props) {
     // If either fails (e.g. RPC missing), we continue with the data we have.
     try { await supabase.rpc('complete_referral_conversions') } catch { /* noop */ }
     try { await supabase.rpc('credit_due_referrals') } catch { /* noop */ }
+
+    // Load live reward config so the Rewards panel shows real numbers.
+    // Pulled from crm_settings (return window) and the manual award catalog
+    // (default points per referral). Both have safe fallbacks.
+    const [windowSetting, payoutSetting] = await Promise.all([
+      supabase.from('crm_settings')
+        .select('value')
+        .eq('category', 'ambassador').eq('key', 'return_window_days').maybeSingle(),
+      supabase.from('crown_manual_award_catalog')
+        .select('default_points')
+        .eq('reason_code', 'referral_credit').maybeSingle(),
+    ])
+    setRewardConfig({
+      pointsPerReferral: Number((payoutSetting.data as any)?.default_points ?? 200),
+      returnWindowDays:  Number((windowSetting.data as any)?.value?.days ?? 14),
+    })
 
     // Load referrers (one row per ambassador with rolled-up stats)
     const { data: leaderboardRows } = await supabase
@@ -170,21 +193,12 @@ export default function CRMReferrals({ onNav }: Props) {
     return new Date(iso).toLocaleDateString()
   }
 
-  const getTierColor = (tier: string) => {
-    switch (tier) {
-      case 'crown': return '#f472b6'
-      case 'gold': return '#fbbf24'
-      default: return '#10b981'
-    }
-  }
-
-  const getTierIcon = (tier: string) => {
-    switch (tier) {
-      case 'crown': return 'crown'
-      case 'gold': return 'award'
-      default: return 'heart'
-    }
-  }
+  // Single-tier display until finance defines real tier thresholds. All
+  // ambassadors show with the same teal "Ambassador" badge. We keep the
+  // tier field on the type so the rest of the JSX doesn't need rewriting.
+  const getTierColor = (_tier: string) => 'var(--accent)'
+  const getTierIcon = (_tier: string) => 'share2'
+  const getTierLabel = (_tier: string) => 'Ambassador'
 
   const copyCode = (code: string) => {
     // Share message in Swanglish, matching Malkia voice. The code is what
@@ -393,7 +407,7 @@ export default function CRMReferrals({ onNav }: Props) {
                     <div style={s.referrerCode}>{referrer.code}</div>
                     <span style={s.tierBadge(getTierColor(referrer.tier))}>
                       <Icon name={getTierIcon(referrer.tier)} size={8} />
-                      {referrer.tier.charAt(0).toUpperCase() + referrer.tier.slice(1)}
+                      {getTierLabel(referrer.tier)}
                     </span>
                   </div>
                   <div style={s.referrerStats}>
@@ -422,18 +436,19 @@ export default function CRMReferrals({ onNav }: Props) {
                 <div style={s.detailPhone}>{selectedReferrer.phone}</div>
                 <span style={s.tierBadge(getTierColor(selectedReferrer.tier))}>
                   <Icon name={getTierIcon(selectedReferrer.tier)} size={10} />
-                  {selectedReferrer.tier.charAt(0).toUpperCase() + selectedReferrer.tier.slice(1)} Member
+                  {getTierLabel(selectedReferrer.tier)}
                 </span>
 
                 <div style={s.codeBox}>
-                  <Icon name="link2" size={16} color="var(--text3)" />
-                  <span style={s.codeText}>malkia.co.tz/r/{selectedReferrer.code}</span>
-                  <button 
+                  <Icon name="share2" size={16} color="var(--text3)" />
+                  <span style={s.codeText}>{selectedReferrer.code || 'No code'}</span>
+                  <button
                     style={s.copyBtn(copied)}
                     onClick={() => copyCode(selectedReferrer.code)}
+                    title="Copy a Swanglish share message with this code"
                   >
                     <Icon name={copied ? 'checkCircle' : 'copy'} size={12} />
-                    {copied ? 'Copied' : 'Copy'}
+                    {copied ? 'Copied' : 'Copy share message'}
                   </button>
                 </div>
               </div>
@@ -498,23 +513,23 @@ export default function CRMReferrals({ onNav }: Props) {
             </div>
           </div>
 
-          {/* Rewards info */}
+          {/* Rewards info — driven by live config in crm_settings + catalog */}
           <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="gift" size={16} color="#f59e0b" />
-              Referral Rewards
+              How rewards work
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 8 }}>
               <span style={{ color: 'var(--text3)' }}>Referrer earns</span>
-              <span style={{ fontWeight: 700 }}>TZS 5,000 + 500 pts</span>
+              <span style={{ fontWeight: 700 }}>{rewardConfig.pointsPerReferral} Crown points</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 8 }}>
-              <span style={{ color: 'var(--text3)' }}>New customer gets</span>
-              <span style={{ fontWeight: 700 }}>TZS 3,000 discount</span>
+              <span style={{ color: 'var(--text3)' }}>Credited after</span>
+              <span style={{ fontWeight: 700 }}>{rewardConfig.returnWindowDays} days (return window)</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-              <span style={{ color: 'var(--text3)' }}>Link expires</span>
-              <span style={{ fontWeight: 700 }}>30 days</span>
+            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 8, lineHeight: 1.5 }}>
+              Outcome-based: the referrer only earns once the new mama has bought
+              and the return window has passed without a refund.
             </div>
           </div>
         </div>

@@ -273,6 +273,8 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
       type: 'custom',
       ref: `STMT-${customer.customer_number}-${range.to}`,
       customer_name: customer.name,
+      customer_id: customer.id,
+      is_transactional: true,
     })
     setSendingWA(false)
     if (res.success) { setToast('Statement sent via WhatsApp'); setToastType('success') }

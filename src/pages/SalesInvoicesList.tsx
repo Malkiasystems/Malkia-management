@@ -222,6 +222,8 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
       to: previewVoucher.customers.whatsapp, message: msg,
       type: 'invoice', ref: previewVoucher.ref,
       customer_name: previewVoucher.customers?.name,
+      customer_id: previewVoucher.customer_id,
+      is_transactional: true,
     })
     setSending(false)
     if (result.success) {

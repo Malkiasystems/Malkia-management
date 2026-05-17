@@ -389,6 +389,8 @@ export default function ProformasList({ onNav, onEdit }: Props) {
       message: msg, type: 'custom',
       ref: previewVoucher.ref,
       customer_name: previewVoucher.customers?.name,
+      customer_id: previewVoucher.customer_id,
+      is_transactional: true,
     })
     setSending(false)
     if (res.success) { setToast('Proforma sent via WhatsApp'); setWaSent(true) }
