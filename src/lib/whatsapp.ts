@@ -64,6 +64,15 @@ export interface WASendPayload {
   ref: string          // Voucher ref for logging
   customer_id?: string
   customer_name?: string
+  /**
+   * When TRUE the send is treated as transactional (receipt, invoice, payment
+   * confirmation) and bypasses the stage_paused check. When FALSE or omitted
+   * the send is treated as marketing/automation and is BLOCKED if the
+   * customer's profile is paused (sensitive exit). Manual Brenda-typed
+   * messages from CRM Inbox should also pass true since she's handling the
+   * sensitive case herself.
+   */
+  is_transactional?: boolean
 }
 
 export interface WASendResult {
@@ -221,6 +230,37 @@ export const sendWhatsApp = async (
   }
   if (!payload.to || payload.to.length < 8) {
     return { success: false, error: 'Invalid phone number' }
+  }
+
+  // ── Sensitive exit enforcement ─────────────────────────────────────────
+  // Paused profiles never receive non-transactional messages. This is the
+  // single chokepoint for all WhatsApp sends so we know automations,
+  // feedback requests, ambassador messages etc. all respect the rule.
+  // Receipts and invoices pass is_transactional=true to bypass.
+  if (payload.customer_id && !payload.is_transactional) {
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('stage_paused')
+      .eq('id', payload.customer_id)
+      .maybeSingle()
+    if (customer?.stage_paused === true) {
+      // Log the blocked send so Brenda can audit if needed
+      await supabase.from('whatsapp_sends').insert({
+        customer_id: payload.customer_id,
+        customer_name: payload.customer_name || null,
+        phone: formatPhone(payload.to),
+        message_type: payload.type,
+        voucher_ref: payload.ref,
+        provider: config.provider,
+        status: 'blocked_paused',
+        error: 'Profile paused (sensitive exit) — automated send suppressed',
+        sent_at: new Date().toISOString(),
+      })
+      return {
+        success: false,
+        error: 'Customer profile is paused. Automated sends are suppressed for sensitive exits.',
+      }
+    }
   }
 
   let result: WASendResult
