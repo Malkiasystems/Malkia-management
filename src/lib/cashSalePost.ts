@@ -515,6 +515,16 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       }).catch(err => console.error('Bundle sale log failed:', err))
     }
 
+    // Schedule feedback follow-ups. Fire-and-forget — a scheduling failure
+    // must never break a posted sale. The RPC respects stage_paused and
+    // is idempotent (won't double-schedule for the same lines).
+    if (!isPOD && customerId) {
+      supabase.rpc('schedule_feedback_followups', { p_voucher_id: voucher.id })
+        .then(({ error }) => {
+          if (error) console.warn('schedule_feedback_followups failed:', error.message)
+        })
+    }
+
     // Build receipt data
     if (!isPOD) {
       const receiptData = {
@@ -522,6 +532,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         description: `Cash Sale — ${newCustName}`,
         total_amount: total, subtotal,
         payment_method: currentMethod.label, notes: '', posted_by: userName,
+        customer_id: selectedCust ? selectedCust.id : null,
         customers: selectedCust ? { name: selectedCust.name, whatsapp: selectedCust.whatsapp, pregnancy_stage: selectedCust.pregnancy_stage, crown_points: (selectedCust.crown_points || 0) + crownPoints } : { name: newCustName, whatsapp: waInput, pregnancy_stage: '', crown_points: crownPoints },
         voucher_lines: lines.filter(l => l.productId).map(l => {
           const prod = dbProducts.find(p => p.id === l.productId)
