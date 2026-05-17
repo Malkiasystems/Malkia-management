@@ -198,6 +198,25 @@ export interface PostParams {
     delivery_date?: string | null
     notes?:         string | null
   }
+  // Optional Malkia Ambassador referral applied at the till.
+  // referralCode is the trimmed/uppercased code; referralBenefit is the
+  // preview returned by apply_referral_code (shape + amount + referrer).
+  // When present, cashSalePost will:
+  //   - add a discount journal line (Dr 4040 Sales Discounts) for percent/flat
+  //   - add a giveaway voucher_line + Dr 5081 Marketing Expense for free-item
+  //   - call record_referral_use(...) after the voucher posts to:
+  //       atomically increment uses_count, create the credited referrals row,
+  //       and award Crown points to the referrer
+  referralCode?: string | null
+  referralBenefit?: {
+    referrer_id: string
+    referrer_name: string
+    benefit_shape: 'discount_pct' | 'discount_tzs' | 'free_item'
+    benefit_amount?: number
+    benefit_percent?: number
+    free_product_id?: string
+    free_product_name?: string
+  } | null
 }
 
 export interface PostResult {
@@ -218,6 +237,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     locationCode, locations, invSettings, userName, userId, appliedBundle,
     subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
     customerContext,
+    referralCode, referralBenefit,
   } = params
 
   const currentMethod = PAYMENT_METHODS.find(m => m.id === selectedMethod)!
@@ -322,12 +342,14 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     if (custData) customerId = custData.id
 
     // Get accounts
-    const neededCodes = ['4010', '5010', '1110', '1050', '2085']
+    const neededCodes = ['4010', '5010', '1110', '1050', '2085', '4040', '5081']
     const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', neededCodes)
     const acct = (code: string) => acctData?.find(a => a.code === code)?.id
     const revenueId = acct('4010'); const cogsId = acct('5010')
     const inventoryId = acct('1110')
     const arId = acct('1050'); const delivFloatId = acct('2085') || deliveryAccountId
+    const salesDiscountsId = acct('4040')    // Dr for referral discounts
+    const marketingExpId = acct('5081')      // Dr for referral free items
     if (!revenueId || !cogsId || !inventoryId) throw new Error('Required accounts not found')
     // If we collected delivery money but have nowhere to credit it, the
     // journal will silently go out of balance. Fail loudly instead.
@@ -353,6 +375,44 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       return s + (p ? p.cost_price * l.qty : 0)
     }, 0)
 
+    // ─── Referral benefit (applied at till) ────────────────────────────────
+    // Two flavours:
+    //   (a) percent / flat discount → reduces cash collected; Dr 4040 balances
+    //       the gross-revenue credit against the reduced cash debit.
+    //   (b) free item → cash unchanged; freebie leaves inventory at cost,
+    //       full retail cost recognized as marketing expense (Dr 5081 / Cr 1110).
+    // Only one shape is active per sale.
+    let referralDiscountAmount = 0
+    let freebieCost = 0
+    let freebieProductId: string | null = null
+    let freebieProductName = ''
+
+    if (referralBenefit && referralCode) {
+      if (referralBenefit.benefit_shape === 'discount_pct' ||
+          referralBenefit.benefit_shape === 'discount_tzs') {
+        referralDiscountAmount = Math.min(
+          referralBenefit.benefit_amount || 0,
+          subtotal + deliveryTotal
+        )
+      } else if (referralBenefit.benefit_shape === 'free_item' && referralBenefit.free_product_id) {
+        freebieProductId = referralBenefit.free_product_id
+        freebieProductName = referralBenefit.free_product_name || ''
+        // Look up the freebie's cost. If it's not in dbProducts (because the
+        // cashier didn't add it as a line), fetch it directly.
+        const fromList = dbProducts.find(p => p.id === freebieProductId)
+        if (fromList) {
+          freebieCost = fromList.cost_price
+        } else {
+          const { data: prod } = await supabase
+            .from('products')
+            .select('cost')
+            .eq('id', freebieProductId)
+            .maybeSingle()
+          freebieCost = Number((prod as any)?.cost ?? 0)
+        }
+      }
+    }
+
     // Build journal lines using the shared helper
     const { lines: receiptLines, nextLineNumber } = buildReceiptJournalLines({
       journalId: journal.id, startLineNumber: 1,
@@ -370,6 +430,43 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     jLines.push({ journal_id: journal.id, line_number: ln++, account_id: inventoryId, description: `Inventory out — ${ref}`, debit: 0, credit: cogsTotal })
     if (deliveryTotal > 0 && delivFloatId) {
       jLines.push({ journal_id: journal.id, line_number: ln++, account_id: delivFloatId, description: `Delivery float — ${ref}`, debit: 0, credit: deliveryTotal })
+    }
+
+    // Referral discount line (Dr 4040 Sales Discounts).
+    // The cash debit was already reduced by referralDiscountAmount (because
+    // `total` came in reduced); this 4040 debit re-balances the journal
+    // against the gross revenue credit. Net P&L effect: revenue stays at
+    // gross, the discount shows as a contra-revenue line — Joe can report
+    // "how much did the referral program cost us this month?" cleanly.
+    if (referralDiscountAmount > 0) {
+      if (!salesDiscountsId) {
+        throw new Error('Sales Discounts account (4040) not found in Chart of Accounts')
+      }
+      jLines.push({
+        journal_id: journal.id, line_number: ln++, account_id: salesDiscountsId,
+        description: `Referral discount — ${ref}`,
+        debit: referralDiscountAmount, credit: 0,
+      })
+    }
+
+    // Free-item giveaway: freebie left inventory; full cost expensed as
+    // marketing. Does NOT touch revenue (nothing was sold).
+    //   Dr 5081 Marketing Expense (cost)
+    //   Cr 1110 Inventory          (cost)
+    if (freebieCost > 0) {
+      if (!marketingExpId) {
+        throw new Error('Sample & Marketing Expense account (5081) not found')
+      }
+      jLines.push({
+        journal_id: journal.id, line_number: ln++, account_id: marketingExpId,
+        description: `Referral giveaway: ${freebieProductName} — ${ref}`,
+        debit: freebieCost, credit: 0,
+      })
+      jLines.push({
+        journal_id: journal.id, line_number: ln++, account_id: inventoryId,
+        description: `Giveaway out: ${freebieProductName} — ${ref}`,
+        debit: 0, credit: freebieCost,
+      })
     }
 
     const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
@@ -453,6 +550,52 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       }
     }
 
+    // ─── Freebie voucher line (Malkia Ambassador free-item benefit) ────────
+    // The freebie isn't in `lines` (cashier didn't add it; the system did).
+    // We insert it as a special voucher_line with is_referral_giveaway=true,
+    // price=0 (so it doesn't inflate revenue), and deduct stock atomically.
+    if (freebieProductId && freebieCost > 0) {
+      await supabase.from('voucher_lines').insert({
+        voucher_id: voucher.id,
+        line_number: lines.length + 1,
+        product_id: freebieProductId,
+        description: `[FREE] ${freebieProductName}`,
+        qty: 1,
+        unit_cost: freebieCost,
+        unit_price: 0,
+        subtotal: 0,
+        total: 0,
+        is_referral_giveaway: true,
+      })
+
+      // Atomic stock deduction for the freebie
+      const { error: stockErr } = await supabase.rpc('deduct_stock_allow_negative', {
+        p_product_id: freebieProductId, p_qty: 1
+      })
+      if (stockErr) {
+        console.warn('Freebie stock deduction failed:', stockErr.message)
+      }
+
+      // Ledger entry so stock-movement reports see the giveaway
+      const locObj = locations.find(l => l.code === locationCode)
+      await postLedgerEntry({
+        product_id: freebieProductId, entry_type: 'sale',
+        document_type: 'cash_sale', document_ref: ref,
+        posting_date: postingDate, qty: -1,
+        cost_amount: freebieCost,
+        location: locObj || null,
+      })
+      if (locObj) {
+        const { data: existingLoc } = await supabase.from('product_locations')
+          .select('qty_on_hand').eq('product_id', freebieProductId).eq('location_id', locObj.id).maybeSingle()
+        const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - 1)
+        await supabase.from('product_locations').upsert(
+          { product_id: freebieProductId, location_id: locObj.id, location_code: locationCode, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+          { onConflict: 'product_id,location_id' }
+        )
+      }
+    }
+
     if (isPOD && customerId && arId) {
       await supabase.from('customer_ledger_entries').insert({ customer_id: customerId, posting_date: postingDate, document_type: 'invoice', document_ref: ref, description: `POD — ${newCustName}`, amount: total, remaining_amount: total, is_open: true, journal_id: journal.id })
     }
@@ -523,6 +666,28 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         .then(({ error }) => {
           if (error) console.warn('schedule_feedback_followups failed:', error.message)
         })
+    }
+
+    // ─── Record the referral use (atomic finalization) ─────────────────────
+    // Calls record_referral_use which: locks the referrer row, increments
+    // uses_count (with cap re-check), inserts the referrals row as 'credited',
+    // stamps voucher.referral_id, and awards Crown points to the referrer.
+    // We await because we want the result back for the receipt + because if
+    // the cap was just hit by a concurrent cashier, we still want to log.
+    if (!isPOD && customerId && referralCode && referralBenefit) {
+      try {
+        const { data: refId, error: refErr } = await supabase.rpc('record_referral_use', {
+          p_code:           referralCode,
+          p_referee_id:     customerId,
+          p_voucher_id:     voucher.id,
+          p_benefit_amount: referralDiscountAmount || freebieCost || 0,
+          p_benefit_shape:  referralBenefit.benefit_shape,
+        })
+        if (refErr) console.warn('record_referral_use failed:', refErr.message)
+        else if (!refId) console.warn('record_referral_use returned NULL (cap reached or code invalidated mid-sale)')
+      } catch (err) {
+        console.warn('record_referral_use threw:', err)
+      }
     }
 
     // Build receipt data
