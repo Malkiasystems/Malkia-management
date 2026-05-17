@@ -549,6 +549,10 @@ export default function CRMHub({ onNav }: Props) {
             <div style={s.statusDot} />
             <span style={s.statusText}>WhatsApp Connected</span>
           </div>
+          <button style={s.btnPrimary} onClick={() => onNav('crm-command-center')}>
+            <Icon name="zap" size={16} />
+            Command Center
+          </button>
           <button style={s.btnPrimary} onClick={() => onNav('crm-inbox')}>
             <Icon name="messageCircle" size={16} />
             Open Inbox
