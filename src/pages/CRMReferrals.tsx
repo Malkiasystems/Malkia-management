@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
+import { useAuth } from '../lib/useAuth'
+import { submitForApproval } from '../lib/useApproval'
 
 interface Props {
   onNav: (p: Page) => void // used for navigation actions
@@ -73,6 +75,7 @@ interface ReferralActivity {
 
 export default function CRMReferrals({ onNav }: Props) {
   void onNav // available for future navigation
+  const { user } = useAuth()
   const [referrers, setReferrers] = useState<Referrer[]>([])
   const [activities, setActivities] = useState<ReferralActivity[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,12 +83,26 @@ export default function CRMReferrals({ onNav }: Props) {
   const [copied, setCopied] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Live config from crm_settings + crown_manual_award_catalog. We show real
-  // numbers in the Rewards block so it stays accurate when Joe changes config.
-  const [rewardConfig, setRewardConfig] = useState<{
-    pointsPerReferral: number
-    returnWindowDays: number
-  }>({ pointsPerReferral: 200, returnWindowDays: 14 })
+  // Live ambassador settings, loaded from get_ambassador_settings RPC.
+  // This is the FULL config the edit modal binds to. The smaller "How rewards
+  // work" panel reads from this directly too.
+  type AmbassadorSettings = {
+    benefit_shape: 'discount_pct' | 'discount_tzs' | 'free_item' | null
+    benefit_percent: number | null
+    benefit_tzs: number | null
+    free_product_id: string | null
+    free_product_name: string | null  // hydrated client-side
+    default_max_uses: number | null
+    referrer_reward_points: number | null
+  }
+  const [ambSettings, setAmbSettings] = useState<AmbassadorSettings | null>(null)
+
+  // Edit modal state (form mirrors AmbassadorSettings, plus a busy flag)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState<AmbassadorSettings | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [editProducts, setEditProducts] = useState<{ id: string; name: string }[]>([])
 
   useEffect(() => { loadData() }, [])
 
@@ -100,21 +117,33 @@ export default function CRMReferrals({ onNav }: Props) {
     try { await supabase.rpc('complete_referral_conversions') } catch { /* noop */ }
     try { await supabase.rpc('credit_due_referrals') } catch { /* noop */ }
 
-    // Load live reward config so the Rewards panel shows real numbers.
-    // Pulled from crm_settings (return window) and the manual award catalog
-    // (default points per referral). Both have safe fallbacks.
-    const [windowSetting, payoutSetting] = await Promise.all([
-      supabase.from('crm_settings')
-        .select('value')
-        .eq('category', 'ambassador').eq('key', 'return_window_days').maybeSingle(),
-      supabase.from('crown_manual_award_catalog')
-        .select('default_points')
-        .eq('reason_code', 'referral_credit').maybeSingle(),
-    ])
-    setRewardConfig({
-      pointsPerReferral: Number((payoutSetting.data as any)?.default_points ?? 200),
-      returnWindowDays:  Number((windowSetting.data as any)?.value?.days ?? 14),
-    })
+    // Load live ambassador settings via get_ambassador_settings RPC. The RPC
+    // is SECURITY DEFINER so it bypasses the crm_settings RLS that blocks
+    // direct selects from authenticated users.
+    const { data: settingsData } = await supabase.rpc('get_ambassador_settings')
+    let settings: AmbassadorSettings | null = null
+    if (settingsData) {
+      const raw = settingsData as any
+      settings = {
+        benefit_shape:          raw.benefit_shape ?? null,
+        benefit_percent:        raw.benefit_percent !== null && raw.benefit_percent !== undefined ? Number(raw.benefit_percent) : null,
+        benefit_tzs:            raw.benefit_tzs !== null && raw.benefit_tzs !== undefined ? Number(raw.benefit_tzs) : null,
+        free_product_id:        raw.free_product_id ?? null,
+        free_product_name:      null,  // hydrated below
+        default_max_uses:       raw.default_max_uses !== null && raw.default_max_uses !== undefined ? Number(raw.default_max_uses) : null,
+        referrer_reward_points: raw.referrer_reward_points !== null && raw.referrer_reward_points !== undefined ? Number(raw.referrer_reward_points) : null,
+      }
+      // Hydrate the configured free product's name for display
+      if (settings.free_product_id) {
+        const { data: prod } = await supabase
+          .from('products')
+          .select('name')
+          .eq('id', settings.free_product_id)
+          .maybeSingle()
+        settings.free_product_name = (prod as any)?.name ?? null
+      }
+    }
+    setAmbSettings(settings)
 
     // Load referrers (one row per ambassador with rolled-up stats)
     const { data: leaderboardRows } = await supabase
@@ -215,6 +244,94 @@ export default function CRMReferrals({ onNav }: Props) {
     navigator.clipboard.writeText(message)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Open the edit modal — seeds form with current live settings and loads
+  // the product list for the free-item picker.
+  const openEditModal = async () => {
+    if (!ambSettings) return
+    setEditForm({ ...ambSettings })
+    setEditError(null)
+    setEditOpen(true)
+
+    // Load products lazily on first open. Cache survives across modal re-opens
+    // within the same page lifetime.
+    if (editProducts.length === 0) {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name')
+        .limit(500)
+      setEditProducts((data ?? []) as { id: string; name: string }[])
+    }
+  }
+
+  // Compute the change set (only fields that differ from live) and submit
+  // it for approval. The approval executor will apply the change once an
+  // approver approves it. The live config stays unchanged until approval.
+  const saveEditChanges = async () => {
+    if (!editForm || !ambSettings || !user) return
+    setEditSaving(true); setEditError(null)
+
+    // Diff: only include fields whose values changed
+    const changes: Record<string, unknown> = {}
+    if (editForm.benefit_shape !== ambSettings.benefit_shape) {
+      changes.benefit_shape = editForm.benefit_shape
+    }
+    if (editForm.benefit_percent !== ambSettings.benefit_percent) {
+      changes.benefit_percent = editForm.benefit_percent
+    }
+    if (editForm.benefit_tzs !== ambSettings.benefit_tzs) {
+      changes.benefit_tzs = editForm.benefit_tzs
+    }
+    if (editForm.free_product_id !== ambSettings.free_product_id) {
+      changes.free_product_id = editForm.free_product_id
+    }
+    if (editForm.default_max_uses !== ambSettings.default_max_uses) {
+      changes.default_max_uses = editForm.default_max_uses
+    }
+    if (editForm.referrer_reward_points !== ambSettings.referrer_reward_points) {
+      changes.referrer_reward_points = editForm.referrer_reward_points
+    }
+
+    if (Object.keys(changes).length === 0) {
+      setEditError('No changes to submit')
+      setEditSaving(false)
+      return
+    }
+
+    // Build a human-readable summary so the approver can decide at a glance
+    const summaryParts: string[] = []
+    if ('benefit_shape' in changes) summaryParts.push(`Benefit shape → ${changes.benefit_shape}`)
+    if ('benefit_percent' in changes) summaryParts.push(`Discount % → ${changes.benefit_percent}`)
+    if ('benefit_tzs' in changes) summaryParts.push(`Flat discount TZS → ${changes.benefit_tzs}`)
+    if ('free_product_id' in changes) summaryParts.push(`Free product changed`)
+    if ('default_max_uses' in changes) summaryParts.push(`Default cap → ${changes.default_max_uses}`)
+    if ('referrer_reward_points' in changes) summaryParts.push(`Referrer reward → ${changes.referrer_reward_points} pts`)
+
+    const result = await submitForApproval({
+      typeCode:        'ambassador_settings_change',
+      referenceType:   'other',
+      referenceId:     crypto.randomUUID(),  // synthetic — no voucher to attach to
+      referenceNumber: `AMB-CFG-${new Date().toISOString().slice(0, 10)}`,
+      summary:         summaryParts.join(' · '),
+      payload:         changes,
+      requestedBy:     user.id,
+    })
+
+    setEditSaving(false)
+
+    if (!result.success) {
+      setEditError(result.error || 'Submission failed')
+      return
+    }
+
+    // Success — the request is now in the approvals queue. Close the modal
+    // and show a one-shot toast via the simple alert pattern used elsewhere.
+    setEditOpen(false)
+    const who = result.assignedToName ? ` (${result.assignedToName})` : ''
+    alert(`Change submitted for approval${who}. The new settings will go live once approved.`)
   }
 
   const totalReferrals = referrers.reduce((sum, r) => sum + r.referrals, 0)
@@ -535,25 +652,213 @@ export default function CRMReferrals({ onNav }: Props) {
 
           {/* Rewards info — driven by live config in crm_settings + catalog */}
           <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="gift" size={16} color="#f59e0b" />
-              How rewards work
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="gift" size={16} color="#f59e0b" />
+                Ambassador rewards
+              </div>
+              <button
+                onClick={openEditModal}
+                disabled={!ambSettings}
+                style={{
+                  padding: '4px 10px', fontSize: 10, fontWeight: 700,
+                  background: 'var(--surface2)', border: '1px solid var(--border)',
+                  borderRadius: 6, color: 'var(--text)',
+                  cursor: ambSettings ? 'pointer' : 'not-allowed',
+                  opacity: ambSettings ? 1 : 0.5,
+                  letterSpacing: 0.5, textTransform: 'uppercase',
+                }}
+                title="Edit ambassador program settings (requires approval)"
+              >
+                Edit
+              </button>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 8 }}>
-              <span style={{ color: 'var(--text3)' }}>Referrer earns</span>
-              <span style={{ fontWeight: 700 }}>{rewardConfig.pointsPerReferral} Crown points</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 8 }}>
-              <span style={{ color: 'var(--text3)' }}>Credited after</span>
-              <span style={{ fontWeight: 700 }}>{rewardConfig.returnWindowDays} days (return window)</span>
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 8, lineHeight: 1.5 }}>
-              Outcome-based: the referrer only earns once the new mama has bought
-              and the return window has passed without a refund.
-            </div>
+            {ambSettings && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 8 }}>
+                  <span style={{ color: 'var(--text3)' }}>New mama gets</span>
+                  <span style={{ fontWeight: 700 }}>
+                    {ambSettings.benefit_shape === 'discount_pct' &&
+                      `${ambSettings.benefit_percent ?? 0}% off`}
+                    {ambSettings.benefit_shape === 'discount_tzs' &&
+                      `${tzs(ambSettings.benefit_tzs ?? 0)} off`}
+                    {ambSettings.benefit_shape === 'free_item' &&
+                      (ambSettings.free_product_name || 'Free item (not configured)')}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 8 }}>
+                  <span style={{ color: 'var(--text3)' }}>Referrer earns</span>
+                  <span style={{ fontWeight: 700 }}>{ambSettings.referrer_reward_points ?? 0} Crown points</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 8 }}>
+                  <span style={{ color: 'var(--text3)' }}>Default cap per code</span>
+                  <span style={{ fontWeight: 700 }}>{ambSettings.default_max_uses ?? 0} uses</span>
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 8, lineHeight: 1.5 }}>
+                  Credited immediately at till. Edits require approval.
+                </div>
+              </>
+            )}
+            {!ambSettings && (
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Loading…</div>
+            )}
           </div>
+
+          {/* ─── Edit Modal ─── */}
+          {editOpen && editForm && (
+            <div
+              onClick={() => !editSaving && setEditOpen(false)}
+              style={{
+                position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                zIndex: 1000,
+              }}
+            >
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                  background: 'var(--card)', border: '1px solid var(--border)',
+                  borderRadius: 12, padding: 24, width: 480, maxHeight: '85vh',
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+                  Edit ambassador rewards
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 16, lineHeight: 1.5 }}>
+                  Changes are queued for approval. The live config stays the same until an approver reviews and approves it.
+                </div>
+
+                {/* Benefit shape */}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={modalLabel}>Benefit shape</label>
+                  <select
+                    style={modalInput}
+                    value={editForm.benefit_shape ?? 'discount_pct'}
+                    onChange={e => setEditForm({ ...editForm, benefit_shape: e.target.value as AmbassadorSettings['benefit_shape'] })}
+                  >
+                    <option value="discount_pct">Percentage discount</option>
+                    <option value="discount_tzs">Flat TZS discount</option>
+                    <option value="free_item">Free item</option>
+                  </select>
+                </div>
+
+                {/* Conditional magnitude */}
+                {editForm.benefit_shape === 'discount_pct' && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={modalLabel}>Discount percent (0–100)</label>
+                    <input
+                      type="number" min={0} max={100} step="0.5"
+                      style={modalInput}
+                      value={editForm.benefit_percent ?? 0}
+                      onChange={e => setEditForm({ ...editForm, benefit_percent: Number(e.target.value) })}
+                    />
+                  </div>
+                )}
+                {editForm.benefit_shape === 'discount_tzs' && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={modalLabel}>Flat discount (TZS)</label>
+                    <input
+                      type="number" min={0} step={500}
+                      style={modalInput}
+                      value={editForm.benefit_tzs ?? 0}
+                      onChange={e => setEditForm({ ...editForm, benefit_tzs: Number(e.target.value) })}
+                    />
+                  </div>
+                )}
+                {editForm.benefit_shape === 'free_item' && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={modalLabel}>Free product</label>
+                    <select
+                      style={modalInput}
+                      value={editForm.free_product_id ?? ''}
+                      onChange={e => setEditForm({ ...editForm, free_product_id: e.target.value || null })}
+                    >
+                      <option value="">— select a product —</option>
+                      {editProducts.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Default cap */}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={modalLabel}>Default cap per code (uses)</label>
+                  <input
+                    type="number" min={1} step={1}
+                    style={modalInput}
+                    value={editForm.default_max_uses ?? 50}
+                    onChange={e => setEditForm({ ...editForm, default_max_uses: Number(e.target.value) })}
+                  />
+                  <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
+                    Inherited by every ambassador unless they have a per-code override.
+                  </div>
+                </div>
+
+                {/* Referrer reward */}
+                <div style={{ marginBottom: 18 }}>
+                  <label style={modalLabel}>Referrer reward (Crown points per credited referral)</label>
+                  <input
+                    type="number" min={0} step={10}
+                    style={modalInput}
+                    value={editForm.referrer_reward_points ?? 0}
+                    onChange={e => setEditForm({ ...editForm, referrer_reward_points: Number(e.target.value) })}
+                  />
+                </div>
+
+                {editError && (
+                  <div style={{
+                    padding: '8px 12px', marginBottom: 12,
+                    background: 'rgba(239,68,68,.10)',
+                    border: '1px solid rgba(239,68,68,.4)',
+                    borderRadius: 6, fontSize: 11, color: '#ef4444',
+                  }}>
+                    {editError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setEditOpen(false)}
+                    disabled={editSaving}
+                    style={{
+                      padding: '8px 14px', fontSize: 12, fontWeight: 700,
+                      background: 'var(--surface2)', border: '1px solid var(--border)',
+                      borderRadius: 6, color: 'var(--text)', cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveEditChanges}
+                    disabled={editSaving}
+                    style={{
+                      padding: '8px 14px', fontSize: 12, fontWeight: 700,
+                      background: 'var(--accent)', border: 'none',
+                      borderRadius: 6, color: '#000', cursor: 'pointer',
+                      opacity: editSaving ? 0.6 : 1,
+                    }}
+                  >
+                    {editSaving ? 'Submitting…' : 'Submit for approval'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
+}
+
+// Modal-local input styles
+const modalLabel: React.CSSProperties = {
+  fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)',
+  textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4,
+}
+const modalInput: React.CSSProperties = {
+  width: '100%', background: 'var(--surface)', color: 'var(--text)',
+  border: '1px solid var(--border)', borderRadius: 6,
+  padding: '8px 10px', fontSize: 13, fontFamily: 'var(--mono)',
 }
