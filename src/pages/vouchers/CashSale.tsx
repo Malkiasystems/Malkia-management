@@ -1085,7 +1085,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                     items: lastVoucher.voucher_lines?.map((l: any) => ({ name: l.products?.name || '—', qty: l.qty, amount: l.total })) || [],
                     total: lastVoucher.total_amount,
                   })
-                  const result = await sendWhatsApp(waConfig, { to: phone, message: msg, type: 'receipt', ref: lastVoucher.ref, customer_name: lastVoucher.customers?.name })
+                  const result = await sendWhatsApp(waConfig, { to: phone, message: msg, type: 'receipt', ref: lastVoucher.ref, customer_name: lastVoucher.customers?.name, customer_id: lastVoucher.customer_id, is_transactional: true })
                   setSending(false)
                   if (result.success) { setWaSent(true) } else { alert('Send failed: ' + result.error) }
                 }}>

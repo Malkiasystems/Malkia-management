@@ -1599,7 +1599,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                     outstanding: lastInvoice.customers?.balance || 0,
                     bank_account: waConfig ? '22510074972 (NMB)' : '—',
                   })
-                  const result = await sendWhatsApp(waConfig, { to: lastInvoice.customers.whatsapp, message: msg, type: 'invoice', ref: lastInvoice.ref, customer_name: lastInvoice.customers?.name })
+                  const result = await sendWhatsApp(waConfig, { to: lastInvoice.customers.whatsapp, message: msg, type: 'invoice', ref: lastInvoice.ref, customer_name: lastInvoice.customers?.name, customer_id: lastInvoice.customer_id, is_transactional: true })
                   setSending(false)
                   if (result.success) setWaSent(true)
                 }}>

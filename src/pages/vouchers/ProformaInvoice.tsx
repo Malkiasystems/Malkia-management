@@ -547,6 +547,7 @@ _Malkia Wellness Group Ltd_`
       type: 'custom',
       ref: lastVoucher.ref,
       customer_name: lastVoucher.customers.name,
+      is_transactional: true,
     })
     setSending(false)
     if (result.success) { setWaSent(true); showToast('Proforma sent via WhatsApp') }
