@@ -32,6 +32,7 @@ export type ApprovalTypeCode =
   | 'overdue_invoice' | 'credit_limit_override'
   | 'void_transaction' | 'backdated_posting'
   | 'hrm_leave' | 'hrm_payroll_run'
+  | 'ambassador_settings_change'
 
 export type ThresholdType = 'any' | 'amount' | 'percentage' | 'quantity' | 'days' | 'never'
 export type ThresholdOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
