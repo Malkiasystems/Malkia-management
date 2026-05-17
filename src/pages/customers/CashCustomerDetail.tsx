@@ -32,6 +32,8 @@ interface Metrics {
   crown_points: number
   edd: string | null
   edd_source: string | null
+  delivery_date: string | null
+  ttc_duration: string | null
   birthday: string | null
   first_purchase_at: string | null
   visit_count: number
@@ -43,6 +45,7 @@ interface Metrics {
   days_since_last: number | null
   visits_per_30d: number
   lifecycle_stage: string
+  life_stage: 'ttc' | 'pregnancy' | 'postpartum' | 'parenting' | null
   days_to_edd: number | null
   baby_age_months: number | null
 }
@@ -77,6 +80,47 @@ interface CustomerRow {
   id: string
   manual_tags: string[] | null
   internal_notes: string | null
+  // Journey anchor fields (source of truth — view derives lifecycle_stage from these)
+  edd: string | null
+  delivery_date: string | null
+  ttc_duration: string | null
+  pregnancy_stage: string | null
+  // Stage management
+  life_stage: 'ttc' | 'pregnancy' | 'postpartum' | 'parenting' | null
+  relationship_stage:
+    | 'inquiry' | 'onboarding' | 'check_in' | 'crown' | 'malkia_ambassador' | 're_engagement'
+    | null
+  owner_user_id: string | null
+  stage_paused: boolean
+  stage_paused_reason: string | null
+  stage_paused_at: string | null
+}
+
+interface StageHistoryEntry {
+  id: string
+  customer_id: string
+  from_life_stage: string | null
+  to_life_stage: string | null
+  changed_at: string
+  changed_by: string | null
+  reason: string | null
+}
+
+interface CrownAwardCatalogEntry {
+  reason_code: string
+  label: string
+  description: string | null
+  default_points: number
+  requires_approval: boolean
+  approval_threshold: number | null
+  is_active: boolean
+  icon: string | null
+}
+
+interface AppUser {
+  id: string
+  full_name: string | null
+  email: string | null
 }
 
 const STAGE_LABELS: Record<string, { label: string; emoji: string; color: string }> = {
@@ -146,7 +190,13 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
   // Tag editor
   const [newTagInput, setNewTagInput] = useState('')
 
-  useEffect(() => { loadAll() }, [customerId])
+  // Stage management
+  const [stageHistory, setStageHistory] = useState<StageHistoryEntry[]>([])
+  const [crownCatalog, setCrownCatalog] = useState<CrownAwardCatalogEntry[]>([])
+  const [users, setUsers] = useState<AppUser[]>([])
+  const [stageRefreshNonce, setStageRefreshNonce] = useState(0)
+
+  useEffect(() => { loadAll() }, [customerId, stageRefreshNonce])
 
   const loadAll = async () => {
     setLoading(true)
@@ -157,9 +207,15 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
       loadPurchases(),
       loadTopProducts(),
       loadWaTemplate(),
+      loadStageHistory(),
+      loadCrownCatalog(),
+      loadUsers(),
     ])
     setLoading(false)
   }
+
+  // Called by child panels after they save changes
+  const refreshStageData = () => setStageRefreshNonce(n => n + 1)
 
   const loadMetrics = async () => {
     const { data } = await supabase
@@ -181,13 +237,47 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
   const loadCustomerRow = async () => {
     const { data } = await supabase
       .from('customers')
-      .select('id, manual_tags, internal_notes')
+      .select(`
+        id, manual_tags, internal_notes,
+        edd, delivery_date, ttc_duration, pregnancy_stage,
+        life_stage, relationship_stage, owner_user_id,
+        stage_paused, stage_paused_reason, stage_paused_at
+      `)
       .eq('id', customerId)
       .maybeSingle()
     if (data) {
       setCustomerRow(data as CustomerRow)
       setNotesDraft(data.internal_notes || '')
     }
+  }
+
+  const loadStageHistory = async () => {
+    const { data } = await supabase
+      .from('customer_stage_history')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('changed_at', { ascending: false })
+      .limit(20)
+    if (data) setStageHistory(data as StageHistoryEntry[])
+  }
+
+  const loadCrownCatalog = async () => {
+    const { data } = await supabase
+      .from('crown_manual_award_catalog')
+      .select('*')
+      .eq('is_active', true)
+      .order('label')
+    if (data) setCrownCatalog(data as CrownAwardCatalogEntry[])
+  }
+
+  const loadUsers = async () => {
+    // Pull staff list for the Owner picker.
+    const { data } = await supabase
+      .from('users')
+      .select('id, full_name, email')
+      .eq('is_active', true)
+      .order('full_name')
+    if (data) setUsers(data as AppUser[])
   }
 
   const loadPurchases = async () => {
@@ -482,9 +572,14 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
       {activeTab === 'overview' && (
         <OverviewTab
           metrics={metrics}
+          customer={customerRow}
           purchases={purchases}
           topProducts={topProducts}
           autoTags={autoTags}
+          users={users}
+          stageHistory={stageHistory}
+          crownCatalog={crownCatalog}
+          onStageSaved={refreshStageData}
           onViewStatement={onViewStatement ? () => onViewStatement(customerId) : undefined}
         />
       )}
@@ -627,11 +722,19 @@ function Kpi({ label, value, accent, onClick }: { label: string; value: string; 
 
 // ─── Overview Tab ────────────────────────────────────────────────────────
 
-function OverviewTab({ metrics, purchases, topProducts, autoTags, onViewStatement }: {
+function OverviewTab({
+  metrics, customer, purchases, topProducts, autoTags,
+  users, stageHistory, crownCatalog, onStageSaved, onViewStatement,
+}: {
   metrics: Metrics
+  customer: CustomerRow | null
   purchases: Purchase[]
   topProducts: TopProduct[]
   autoTags: string[]
+  users: AppUser[]
+  stageHistory: StageHistoryEntry[]
+  crownCatalog: CrownAwardCatalogEntry[]
+  onStageSaved: () => void
   onViewStatement?: () => void
 }) {
   const overdueCount = topProducts.filter(p =>
@@ -639,7 +742,22 @@ function OverviewTab({ metrics, purchases, topProducts, autoTags, onViewStatemen
   ).length
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* ─── DATA MISSING BANNER ─────────────────────────────────── */}
+      <DataMissingBanner metrics={metrics} customer={customer} />
+
+      {/* ─── STAGE PANEL (full width, top of page) ───────────────── */}
+      <StagePanel
+        metrics={metrics}
+        customer={customer}
+        users={users}
+        crownCatalog={crownCatalog}
+        onSaved={onStageSaved}
+      />
+
+      {/* ─── Existing two-column grid: Actions + Snapshot ──────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
       <div style={panelStyle}>
         <h4 style={panelTitleStyle}>Recommended Actions</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
@@ -728,6 +846,12 @@ function OverviewTab({ metrics, purchases, topProducts, autoTags, onViewStatemen
           </div>
         )}
       </div>
+      </div>
+      {/* ─── end inner two-column grid ─────────────────────────── */}
+
+      {/* ─── STAGE HISTORY TIMELINE ────────────────────────────── */}
+      <StageHistoryTimeline history={stageHistory} users={users} />
+
     </div>
   )
 }
@@ -1248,4 +1372,645 @@ const timelineRow: React.CSSProperties = {
   gap: 10,
   padding: '10px 0',
   borderBottom: '1px solid var(--border)',
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STAGE PANEL — full-width editor at top of Overview
+// ═══════════════════════════════════════════════════════════════════════════
+
+const PAUSE_REASONS = [
+  { code: 'pregnancy_loss',     label: 'Pregnancy loss' },
+  { code: 'stillbirth',          label: 'Stillbirth / infant loss' },
+  { code: 'medical_pause',       label: 'Medical / health concern' },
+  { code: 'customer_request',    label: 'Customer requested pause' },
+  { code: 'unreachable',         label: 'Unreachable / inactive' },
+  { code: 'other',               label: 'Other (see notes)' },
+]
+
+const LIFE_STAGE_OPTIONS: Array<{ value: 'ttc'|'pregnancy'|'postpartum'|'parenting'|''; label: string }> = [
+  { value: '',           label: 'Not yet classified' },
+  { value: 'ttc',        label: 'TTC (trying to conceive)' },
+  { value: 'pregnancy',  label: 'Pregnancy' },
+  { value: 'postpartum', label: 'Postpartum (first 6 weeks)' },
+  { value: 'parenting',  label: 'Parenting' },
+]
+
+const RELATIONSHIP_STAGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '',                   label: 'Not set' },
+  { value: 'inquiry',            label: 'Inquiry' },
+  { value: 'onboarding',         label: 'Onboarding' },
+  { value: 'check_in',           label: 'Check-in (active customer)' },
+  { value: 'crown',              label: 'Crown member' },
+  { value: 'malkia_ambassador',  label: 'Malkia Ambassador' },
+  { value: 're_engagement',      label: 'Re-engagement' },
+]
+
+function StagePanel({
+  metrics, customer, users, crownCatalog, onSaved,
+}: {
+  metrics: Metrics
+  customer: CustomerRow | null
+  users: AppUser[]
+  crownCatalog: CrownAwardCatalogEntry[]
+  onSaved: () => void
+}) {
+  // Local form state. Initialised from customer; reset when customer changes.
+  const [lifeStage, setLifeStage] = useState<string>('')
+  const [relationshipStage, setRelationshipStage] = useState<string>('')
+  const [edd, setEdd] = useState('')
+  const [deliveryDate, setDeliveryDate] = useState('')
+  const [ttcDuration, setTtcDuration] = useState('')
+  const [pregnancyStage, setPregnancyStage] = useState('')
+  const [ownerUserId, setOwnerUserId] = useState<string>('')
+  const [stagePaused, setStagePaused] = useState(false)
+  const [pauseReason, setPauseReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [showCrownModal, setShowCrownModal] = useState(false)
+  const [toast, setToast] = useState('')
+  const [toastType, setToastType] = useState<'success' | 'error'>('success')
+
+  // Sync local state when customer row changes (e.g. after refresh).
+  useEffect(() => {
+    if (!customer) return
+    setLifeStage(customer.life_stage ?? '')
+    setRelationshipStage(customer.relationship_stage ?? '')
+    setEdd(customer.edd ?? '')
+    setDeliveryDate(customer.delivery_date ?? '')
+    setTtcDuration(customer.ttc_duration ?? '')
+    setPregnancyStage(customer.pregnancy_stage ?? '')
+    setOwnerUserId(customer.owner_user_id ?? '')
+    setStagePaused(customer.stage_paused ?? false)
+    setPauseReason(customer.stage_paused_reason ?? '')
+  }, [customer])
+
+  if (!customer) return null
+
+  // Has the form drifted from the saved state?
+  const dirty =
+    lifeStage !== (customer.life_stage ?? '') ||
+    relationshipStage !== (customer.relationship_stage ?? '') ||
+    edd !== (customer.edd ?? '') ||
+    deliveryDate !== (customer.delivery_date ?? '') ||
+    ttcDuration !== (customer.ttc_duration ?? '') ||
+    pregnancyStage !== (customer.pregnancy_stage ?? '') ||
+    ownerUserId !== (customer.owner_user_id ?? '') ||
+    stagePaused !== (customer.stage_paused ?? false) ||
+    pauseReason !== (customer.stage_paused_reason ?? '')
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      // Build update payload. Empty strings → NULL.
+      const payload: Record<string, unknown> = {
+        life_stage:         lifeStage || null,
+        relationship_stage: relationshipStage || null,
+        edd:                edd || null,
+        delivery_date:      deliveryDate || null,
+        ttc_duration:       ttcDuration || null,
+        pregnancy_stage:    pregnancyStage || null,
+        owner_user_id:      ownerUserId || null,
+        stage_paused:       stagePaused,
+        stage_paused_reason: stagePaused ? (pauseReason || null) : null,
+        stage_paused_at:    stagePaused && !customer.stage_paused
+          ? new Date().toISOString()
+          : (stagePaused ? customer.stage_paused_at : null),
+      }
+      // Note: the BEFORE UPDATE trigger trg_customers_stage_change in migration 007
+      // automatically writes a row to customer_stage_history when life_stage changes,
+      // captures previous_life_stage, and increments graduation_count / pregnancy_count.
+      const { error } = await supabase
+        .from('customers')
+        .update(payload)
+        .eq('id', customer.id)
+      if (error) {
+        setToastType('error')
+        setToast(`Save failed: ${error.message}`)
+      } else {
+        setToastType('success')
+        setToast('Stage saved')
+        onSaved()
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancel = () => {
+    if (!customer) return
+    setLifeStage(customer.life_stage ?? '')
+    setRelationshipStage(customer.relationship_stage ?? '')
+    setEdd(customer.edd ?? '')
+    setDeliveryDate(customer.delivery_date ?? '')
+    setTtcDuration(customer.ttc_duration ?? '')
+    setPregnancyStage(customer.pregnancy_stage ?? '')
+    setOwnerUserId(customer.owner_user_id ?? '')
+    setStagePaused(customer.stage_paused ?? false)
+    setPauseReason(customer.stage_paused_reason ?? '')
+  }
+
+  const fieldStyle: React.CSSProperties = {
+    display: 'flex', flexDirection: 'column', gap: 4,
+  }
+  const labelStyle: React.CSSProperties = {
+    fontSize: 9, fontWeight: 700, letterSpacing: 0.6,
+    textTransform: 'uppercase', color: 'var(--text3)',
+  }
+  const inputStyle: React.CSSProperties = {
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 6, padding: '6px 8px', fontSize: 12, color: 'var(--text)',
+  }
+
+  return (
+    <div style={{ ...panelStyle, borderLeft: '3px solid var(--accent)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h4 style={{ ...panelTitleStyle, margin: 0 }}>Mom Stage & Ownership</h4>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{
+            fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)',
+          }}>
+            Computed: <span style={{ color: 'var(--accent)' }}>
+              {STAGE_LABELS[metrics.lifecycle_stage]?.label ?? metrics.lifecycle_stage}
+            </span>
+          </div>
+          <button
+            onClick={() => setShowCrownModal(true)}
+            style={{
+              background: 'rgba(200,169,110,.15)', color: '#C8A96E',
+              border: '1px solid #C8A96E', borderRadius: 6,
+              padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            👑 Award Crown Points
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+
+        {/* Row 1: Life stage + EDD + Delivery date */}
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Life Stage</label>
+          <select
+            value={lifeStage}
+            onChange={e => setLifeStage(e.target.value)}
+            style={inputStyle}
+          >
+            {LIFE_STAGE_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Expected Due Date (EDD)</label>
+          <input
+            type="date"
+            value={edd}
+            onChange={e => setEdd(e.target.value)}
+            style={inputStyle}
+            disabled={lifeStage === 'ttc' || lifeStage === ''}
+          />
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Delivery Date (actual)</label>
+          <input
+            type="date"
+            value={deliveryDate}
+            onChange={e => setDeliveryDate(e.target.value)}
+            style={inputStyle}
+            disabled={lifeStage === 'ttc' || lifeStage === 'pregnancy' || lifeStage === ''}
+          />
+        </div>
+
+        {/* Row 2: TTC duration + Pregnancy stage display + Owner */}
+        <div style={fieldStyle}>
+          <label style={labelStyle}>TTC Duration (free text)</label>
+          <input
+            type="text"
+            value={ttcDuration}
+            placeholder={lifeStage === 'ttc' ? 'e.g. 6_months, 1_year' : '—'}
+            onChange={e => setTtcDuration(e.target.value)}
+            style={inputStyle}
+            disabled={lifeStage !== 'ttc'}
+          />
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Display Descriptor (receipts)</label>
+          <input
+            type="text"
+            value={pregnancyStage}
+            placeholder="e.g. 28 weeks pregnant, 3 months postpartum"
+            onChange={e => setPregnancyStage(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
+
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Owner (CRM contact person)</label>
+          <select
+            value={ownerUserId}
+            onChange={e => setOwnerUserId(e.target.value)}
+            style={inputStyle}
+          >
+            <option value="">Unassigned (default: Brenda)</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.full_name || u.email}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Row 3: Relationship stage */}
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Relationship Stage</label>
+          <select
+            value={relationshipStage}
+            onChange={e => setRelationshipStage(e.target.value)}
+            style={inputStyle}
+          >
+            {RELATIONSHIP_STAGE_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Row 3 cols 2-3: Pause toggle */}
+        <div style={{ ...fieldStyle, gridColumn: 'span 2' }}>
+          <label style={labelStyle}>Sensitive Pause</label>
+          <div style={{
+            display: 'flex', gap: 10, alignItems: 'center',
+            background: stagePaused ? 'rgba(255,71,87,.08)' : 'var(--surface)',
+            border: `1px solid ${stagePaused ? 'rgba(255,71,87,.4)' : 'var(--border)'}`,
+            borderRadius: 6, padding: '6px 10px',
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={stagePaused}
+                onChange={e => setStagePaused(e.target.checked)}
+              />
+              Pause this profile
+            </label>
+            {stagePaused && (
+              <select
+                value={pauseReason}
+                onChange={e => setPauseReason(e.target.value)}
+                style={{ ...inputStyle, flex: 1, padding: '4px 6px' }}
+              >
+                <option value="">Select reason…</option>
+                {PAUSE_REASONS.map(r => (
+                  <option key={r.code} value={r.code}>{r.label}</option>
+                ))}
+              </select>
+            )}
+            {stagePaused && (
+              <span style={{ fontSize: 10, color: 'var(--text3)' }}>
+                Pausing stops all automations. Only Brenda/Jane may respond personally.
+              </span>
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      {/* Save / cancel buttons */}
+      {dirty && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+          <button
+            onClick={handleCancel}
+            disabled={saving}
+            style={{
+              background: 'transparent', color: 'var(--text3)',
+              border: '1px solid var(--border)', borderRadius: 6,
+              padding: '6px 14px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            }}
+          >Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              background: 'var(--accent)', color: '#fff', border: 'none',
+              borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 700,
+              cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
+            }}
+          >{saving ? 'Saving…' : 'Save changes'}</button>
+        </div>
+      )}
+
+      {showCrownModal && (
+        <CrownAwardModal
+          customerId={customer.id}
+          catalog={crownCatalog}
+          onClose={() => setShowCrownModal(false)}
+          onAwarded={() => {
+            setShowCrownModal(false)
+            onSaved()
+            setToastType('success')
+            setToast('Crown points awarded')
+          }}
+        />
+      )}
+
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATA MISSING BANNER — flags edge cases needing classification
+// ═══════════════════════════════════════════════════════════════════════════
+
+function DataMissingBanner({
+  metrics, customer,
+}: { metrics: Metrics; customer: CustomerRow | null }) {
+  if (!customer) return null
+
+  const today = new Date()
+  const issues: string[] = []
+
+  // EDD passed without delivery_date being entered
+  if (customer.edd && !customer.delivery_date) {
+    const eddDate = new Date(customer.edd)
+    if (eddDate < today) {
+      const daysPast = Math.floor((today.getTime() - eddDate.getTime()) / 86400000)
+      issues.push(
+        `EDD was ${customer.edd} (${daysPast} day${daysPast === 1 ? '' : 's'} ago) and no delivery date is recorded. Capture the actual delivery date.`
+      )
+    }
+  }
+
+  // life_stage set but no anchor data (e.g. pregnancy with no EDD)
+  if (customer.life_stage === 'pregnancy' && !customer.edd) {
+    issues.push('Classified as Pregnancy but EDD is missing. Capture due date.')
+  }
+  if ((customer.life_stage === 'postpartum' || customer.life_stage === 'parenting') && !customer.delivery_date) {
+    issues.push(`Classified as ${customer.life_stage} but delivery date is missing.`)
+  }
+  if (customer.life_stage === 'ttc' && !customer.ttc_duration) {
+    issues.push('Classified as TTC but duration is missing. Add how long she\'s been trying.')
+  }
+
+  // Active customer with 2+ visits and no life_stage classified
+  if (!customer.life_stage && metrics.visit_count >= 2) {
+    issues.push(`Active customer (${metrics.visit_count} visits) but life stage is not yet classified.`)
+  }
+
+  if (issues.length === 0) return null
+
+  return (
+    <div style={{
+      background: 'rgba(245,158,11,.08)',
+      border: '1px solid rgba(245,158,11,.35)',
+      borderRadius: 8,
+      padding: '10px 14px',
+      display: 'flex',
+      gap: 10,
+      alignItems: 'flex-start',
+    }}>
+      <span style={{ fontSize: 18 }}>⚠️</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
+          Data missing
+        </div>
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {issues.map((msg, i) => (
+            <li key={i} style={{ fontSize: 12, color: 'var(--text)' }}>• {msg}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STAGE HISTORY TIMELINE — collapsible list of past stage changes
+// ═══════════════════════════════════════════════════════════════════════════
+
+function StageHistoryTimeline({
+  history, users,
+}: { history: StageHistoryEntry[]; users: AppUser[] }) {
+  const [expanded, setExpanded] = useState(false)
+  if (history.length === 0) return null
+
+  const userById = new Map(users.map(u => [u.id, u]))
+  const stageLabel = (s: string | null) => {
+    if (!s) return 'Unclassified'
+    return LIFE_STAGE_OPTIONS.find(o => o.value === s)?.label ?? s
+  }
+
+  return (
+    <div style={panelStyle}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
+          padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}
+      >
+        <h4 style={{ ...panelTitleStyle, margin: 0 }}>
+          Stage History ({history.length})
+        </h4>
+        <span style={{ fontSize: 14, color: 'var(--text3)' }}>{expanded ? '▾' : '▸'}</span>
+      </button>
+      {expanded && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {history.map(h => {
+            const user = h.changed_by ? userById.get(h.changed_by) : null
+            return (
+              <div key={h.id} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '8px 10px', background: 'var(--surface)',
+                borderRadius: 6, fontSize: 12,
+              }}>
+                <span style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 10, minWidth: 110 }}>
+                  {new Date(h.changed_at).toLocaleString()}
+                </span>
+                <span style={{ color: 'var(--text)' }}>
+                  <span style={{ color: 'var(--text3)' }}>{stageLabel(h.from_life_stage)}</span>
+                  <span style={{ color: 'var(--accent)', margin: '0 8px' }}>→</span>
+                  <span style={{ fontWeight: 700 }}>{stageLabel(h.to_life_stage)}</span>
+                </span>
+                <span style={{ flex: 1 }} />
+                <span style={{ fontSize: 10, color: 'var(--text3)' }}>
+                  {user ? (user.full_name || user.email) : 'System'}
+                </span>
+                {h.reason && (
+                  <span style={{ fontSize: 10, color: 'var(--text3)', fontStyle: 'italic' }}>
+                    {h.reason}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CROWN AWARD MODAL — manual Crown points with approval routing
+// ═══════════════════════════════════════════════════════════════════════════
+
+function CrownAwardModal({
+  customerId, catalog, onClose, onAwarded,
+}: {
+  customerId: string
+  catalog: CrownAwardCatalogEntry[]
+  onClose: () => void
+  onAwarded: () => void
+}) {
+  const [reasonCode, setReasonCode] = useState<string>(catalog[0]?.reason_code ?? '')
+  const [points, setPoints] = useState<number>(catalog[0]?.default_points ?? 0)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [errMsg, setErrMsg] = useState<string | null>(null)
+
+  const selected = catalog.find(c => c.reason_code === reasonCode) ?? null
+
+  // When reason changes, snap points to its default
+  useEffect(() => {
+    if (selected) setPoints(selected.default_points)
+  }, [reasonCode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSubmit = async () => {
+    setSaving(true)
+    setErrMsg(null)
+    try {
+      // award_crown_points() RPC handles approval routing based on the catalog's
+      // requires_approval flag and the configured manual_approval_threshold.
+      const { error } = await supabase.rpc('award_crown_points', {
+        p_customer_id: customerId,
+        p_points:      points,
+        p_reason_code: reasonCode,
+        p_reason_note: note || null,
+      })
+      if (error) {
+        setErrMsg(error.message)
+      } else {
+        onAwarded()
+      }
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Note: requires approval if either the catalog entry says so OR points are
+  // unusually high (the DB function compares against crm_settings threshold).
+  const willRouteToApproval =
+    (selected?.requires_approval ?? false) || points >= 500
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: 24, maxWidth: 480, width: '90vw',
+        }}
+      >
+        <h3 style={{ margin: '0 0 16px 0', color: '#C8A96E', display: 'flex', alignItems: 'center', gap: 8 }}>
+          👑 Award Crown Points
+        </h3>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Reason</label>
+            <select
+              value={reasonCode}
+              onChange={e => setReasonCode(e.target.value)}
+              style={{
+                width: '100%', marginTop: 4, padding: '8px 10px',
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 6, fontSize: 12, color: 'var(--text)',
+              }}
+            >
+              {catalog.map(c => (
+                <option key={c.reason_code} value={c.reason_code}>
+                  {c.label} ({c.default_points} pts{c.requires_approval ? ' · needs approval' : ''})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Points</label>
+            <input
+              type="number"
+              value={points}
+              onChange={e => setPoints(Number(e.target.value))}
+              style={{
+                width: '100%', marginTop: 4, padding: '8px 10px',
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 6, fontSize: 14, fontWeight: 700, color: '#C8A96E',
+                fontFamily: 'var(--mono)',
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Note (optional)</label>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              rows={2}
+              placeholder="Context for this award…"
+              style={{
+                width: '100%', marginTop: 4, padding: '8px 10px',
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 6, fontSize: 12, color: 'var(--text)', resize: 'vertical',
+              }}
+            />
+          </div>
+
+          {willRouteToApproval && (
+            <div style={{
+              background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.3)',
+              borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#f59e0b',
+            }}>
+              ⚠️ This award will be routed for approval before points are credited.
+            </div>
+          )}
+
+          {errMsg && (
+            <div style={{
+              background: 'rgba(255,71,87,.1)', border: '1px solid rgba(255,71,87,.3)',
+              borderRadius: 6, padding: '8px 10px', fontSize: 11, color: 'var(--red)',
+            }}>
+              {errMsg}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            style={{
+              background: 'transparent', color: 'var(--text3)',
+              border: '1px solid var(--border)', borderRadius: 6,
+              padding: '8px 16px', fontSize: 12, cursor: 'pointer',
+            }}
+          >Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving || !reasonCode || points <= 0}
+            style={{
+              background: '#C8A96E', color: '#fff', border: 'none',
+              borderRadius: 6, padding: '8px 16px', fontSize: 12, fontWeight: 700,
+              cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
+            }}
+          >{saving ? 'Awarding…' : willRouteToApproval ? 'Request Approval' : 'Award Points'}</button>
+        </div>
+      </div>
+    </div>
+  )
 }
