@@ -463,11 +463,31 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   // Referral discount (% or flat) reduces the cash collected. Free-item shape
   // doesn't reduce the total — the free item rides as a separate line at zero
   // price, with COGS still hitting normally (handled in cashSalePost).
-  const referralDiscount = (referralPreview && referralPreview.benefit_shape !== 'free_item')
-    ? Math.min(referralPreview.benefit_amount || 0, subtotal + deliveryTotal)
-    : 0
+  //
+  // IMPORTANT: We compute the discount LIVE from the current subtotal, NOT
+  // from referralPreview.benefit_amount. The benefit_amount in the preview
+  // was computed at validation time, which is often before products have
+  // been added (subtotal=0 → discount=0). Recomputing here keeps the totals
+  // panel accurate as the cashier adds/removes items after applying the code.
+  // For 'discount_pct' the percent is the source of truth; for 'discount_tzs'
+  // the flat amount is, clamped to never exceed the bill.
+  let referralDiscount = 0
+  if (referralPreview) {
+    if (referralPreview.benefit_shape === 'discount_pct') {
+      const pct = referralPreview.benefit_percent || 0
+      referralDiscount = Math.round((subtotal + deliveryTotal) * pct / 100)
+    } else if (referralPreview.benefit_shape === 'discount_tzs') {
+      // benefit_amount is the configured flat TZS; clamp to bill so we
+      // never go negative.
+      referralDiscount = Math.min(
+        referralPreview.benefit_amount || 0,
+        subtotal + deliveryTotal
+      )
+    }
+    // 'free_item' contributes no cash discount; freebie is added in cashSalePost.
+  }
   const total = subtotal + deliveryTotal - referralDiscount
-  const crownPoints = Math.round(subtotal / 1000)
+  const crownPoints = Math.round(total / 1000)
 
   // Payment amounts
   const currentMethod = PAYMENT_METHODS.find(m => m.id === selectedMethod)!
@@ -948,12 +968,12 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                           </div>
                           {referralPreview.benefit_shape === 'discount_pct' && (
                             <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)' }}>
-                              −{referralPreview.benefit_percent}% ({tzs(referralPreview.benefit_amount || 0)} off)
+                              −{referralPreview.benefit_percent}% ({tzs(referralDiscount)} off)
                             </div>
                           )}
                           {referralPreview.benefit_shape === 'discount_tzs' && (
                             <div style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)' }}>
-                              −{tzs(referralPreview.benefit_amount || 0)} off
+                              −{tzs(referralDiscount)} off
                             </div>
                           )}
                           {referralPreview.benefit_shape === 'free_item' && (
