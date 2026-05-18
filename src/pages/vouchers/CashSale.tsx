@@ -555,6 +555,32 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   }
 
   const post = async () => {
+    // Referral safety guard. If the cashier typed a code but it was rejected
+    // (red error chip showing, no preview), don't silently swallow it. Make
+    // them explicitly confirm they want to post without any referral
+    // applied. This prevents the failure mode where the customer was
+    // promised a discount that never made it onto the receipt.
+    if (referralCodeInput.trim() && !referralPreview && referralError) {
+      const ok = window.confirm(
+        `Referral code "${referralCodeInput.trim()}" is not valid:\n\n${referralError}\n\nPost the sale WITHOUT applying any referral?`
+      )
+      if (!ok) return
+    }
+    // Don't allow posting while a referral validation is in flight — the
+    // cashier might hit Post a split-second before the preview lands.
+    if (referralChecking) {
+      showToast('Wait — still checking referral code', 'error')
+      return
+    }
+    // Also guard the case where a code was typed but never validated
+    // (no preview AND no error AND not currently checking). Could happen if
+    // the cashier never blurred or pressed Enter on the code field.
+    if (referralCodeInput.trim() && !referralPreview && !referralError) {
+      const ok = window.confirm(
+        `Referral code "${referralCodeInput.trim()}" was entered but never confirmed.\n\nPost the sale WITHOUT applying any referral?`
+      )
+      if (!ok) return
+    }
     setPosting(true)
     const result = await postCashSale({
       newCustName, waInput, lines, dbProducts, selectedCust,
