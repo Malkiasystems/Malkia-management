@@ -388,8 +388,17 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     let freebieProductName = ''
 
     if (referralBenefit && referralCode) {
-      if (referralBenefit.benefit_shape === 'discount_pct' ||
-          referralBenefit.benefit_shape === 'discount_tzs') {
+      if (referralBenefit.benefit_shape === 'discount_pct') {
+        // Compute discount LIVE from current subtotal. The benefit_amount on
+        // the validation snapshot may be stale (e.g. validated before items
+        // were added). benefit_percent is the source of truth.
+        const pct = referralBenefit.benefit_percent || 0
+        referralDiscountAmount = Math.min(
+          Math.round((subtotal + deliveryTotal) * pct / 100),
+          subtotal + deliveryTotal
+        )
+      } else if (referralBenefit.benefit_shape === 'discount_tzs') {
+        // Flat TZS — benefit_amount is the configured value (not subtotal-dependent).
         referralDiscountAmount = Math.min(
           referralBenefit.benefit_amount || 0,
           subtotal + deliveryTotal
