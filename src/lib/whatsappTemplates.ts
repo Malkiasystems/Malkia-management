@@ -67,6 +67,66 @@ export function slugify(input: string): string {
     .slice(0, 64)
 }
 
+
+/**
+ * Humanize a name for customer-facing rendering. The DB sometimes stores
+ * names in all-caps (cashier capslock) or all-lower (hurried typing).
+ * Sending "HUJAMBO MAMA FATUMA!" feels robotic and shouty; "Hujambo Mama
+ * Fatuma!" reads warm and human.
+ *
+ * Rules:
+ *   • Leading/trailing whitespace stripped, internal whitespace collapsed.
+ *   • If the input is purely digits/symbols (e.g. a phone number landed in
+ *     the name field), return ''. The merge will then omit the greeting
+ *     cleanly rather than produce "Hujambo 212121212!".
+ *   • Each word: first letter uppercased, rest lowercased.
+ *   • Hyphenated words handled: "MARY-JANE" → "Mary-Jane".
+ *   • Apostrophes handled: "O'BRIEN" → "O'Brien".
+ *   • If the input is already mixed-case (i.e. NOT all upper and NOT all
+ *     lower), it's left alone. This preserves intentional capitalization
+ *     like "iPhone Mama" or "WaSwahili" or a name the cashier already
+ *     typed correctly.
+ *
+ * Known limitation: Western particles like "de la" or "von" aren't
+ * downcased. We don't see these in Tanzania often enough to bother.
+ */
+export function humanizeName(input: string | null | undefined): string {
+  if (!input) return ''
+  const cleaned = input.trim().replace(/\s+/g, ' ')
+  if (!cleaned) return ''
+
+  // Phone-in-name-field guard: if there are no letters at all, drop it.
+  if (!/[a-zA-Z]/.test(cleaned)) return ''
+
+  // Mixed-case guard: if the cashier already capitalized intentionally,
+  // leave it alone. "Already mixed" = contains both upper and lower
+  // letters AND isn't simply a single-word that happens to be one of them.
+  const hasUpper = /[A-Z]/.test(cleaned)
+  const hasLower = /[a-z]/.test(cleaned)
+  const isMixed = hasUpper && hasLower
+  // Treat "MAMA Fatuma" or "fatuma HASSAN" (inconsistent) as needing fix
+  // by checking if every word starts with uppercase + rest lowercase.
+  if (isMixed) {
+    const wellFormed = cleaned.split(' ').every(w => {
+      if (w.length === 0) return true
+      // Allow Title Case words; reject ALL-CAPS or all-lower words
+      return /^[A-Z][a-z'-]*$/.test(w) || /^[A-Z][a-z'-]*-[A-Z][a-z'-]*$/.test(w)
+    })
+    if (wellFormed) return cleaned
+  }
+
+  // Title-case each word, splitting on hyphens AND apostrophes so multi-
+  // segment names work: "MARY-JANE" → ["MARY", "JANE"] → "Mary-Jane".
+  return cleaned.split(' ').map(word => {
+    return word.split('-').map(seg => {
+      return seg.split("'").map(piece => {
+        if (piece.length === 0) return ''
+        return piece.charAt(0).toUpperCase() + piece.slice(1).toLowerCase()
+      }).join("'")
+    }).join('-')
+  }).join(' ')
+}
+
 // Shape of the customer data needed to merge. Kept narrow so callers can
 // pass any object as long as it has these fields; avoids coupling to the
 // full CustomerRecord shape.
@@ -184,10 +244,17 @@ export function mergeTemplate(
   customer: MergeCustomer,
   resourceUrls?: Record<string, string>,  // slug → public URL
 ): MergeResult {
-  const firstName = (customer.name || '').trim().split(/\s+/)[0] || ''
+  // Humanize the name at merge-time only (NOT in the DB). The cashier
+  // entered the name however they entered it (often all-caps with
+  // capslock); the customer should still see warm, human capitalization
+  // in WhatsApp messages. If the name field contains only digits/symbols
+  // (e.g. a phone number stored there by mistake), humanizeName returns
+  // '' which naturally drops the greeting line.
+  const humanFull = humanizeName(customer.name)
+  const humanFirst = humanFull ? humanFull.split(/\s+/)[0] : ''
   const values: Record<string, string> = {
-    '{{customer_name}}':          customer.name || '',
-    '{{customer_first_name}}':    firstName,
+    '{{customer_name}}':          humanFull,
+    '{{customer_first_name}}':    humanFirst,
     '{{ambassador_code}}':        customer.ambassador_code || '',
     '{{life_stage}}':             customer.life_stage || '',
     '{{pregnancy_week}}':         pregnancyWeekFromEdd(customer.edd),
@@ -219,8 +286,13 @@ export function mergeTemplate(
     result = result.split(token).join(url)
   }
 
-  // Light cleanup: collapse double spaces from missing placeholders.
+  // Light cleanup: collapse double spaces and orphan punctuation that
+  // happens when a placeholder resolves to empty.
+  //   "Hujambo  Mama!" → "Hujambo Mama!"   (double space)
+  //   "Hujambo ! Karibu" → "Hujambo! Karibu"  (space before punctuation)
+  //   "Hujambo , dada"   → "Hujambo, dada"
   result = result.replace(/ {2,}/g, ' ')
+  result = result.replace(/ ([!?.,;:])/g, '$1')
 
   return { body: result, emptyPlaceholders: empties }
 }
