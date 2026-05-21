@@ -185,18 +185,39 @@ export function mergeTemplate(body: string, customer: MergeCustomer): MergeResul
 // ─── WhatsApp URL builder ─────────────────────────────────────────────────
 
 /**
- * Build a wa.me link. Phone is normalized via formatPhone (Tanzania-aware)
- * then stripped of the leading + because wa.me wants digits only.
+ * Build a WhatsApp pre-filled message URL.
+ *
+ * IMPORTANT: We use api.whatsapp.com/send instead of wa.me. Both endpoints
+ * exist but they differ in how they handle the `text` parameter:
+ *   - wa.me/<phone>?text=<msg>     — Landing page intended for short ASCII
+ *                                    links. Strips or mangles emojis and
+ *                                    other non-BMP UTF-8 in some browsers,
+ *                                    especially when opened via window.open
+ *                                    from another tab.
+ *   - api.whatsapp.com/send?phone=<phone>&text=<msg>
+ *                                    Legacy programmatic endpoint that
+ *                                    reliably preserves UTF-8 including
+ *                                    emoji (U+1F000+). This is what
+ *                                    Customer.io / Trengo / Manychat use.
+ *
+ * Phone is normalized via formatPhone (Tanzania-aware) then stripped of
+ * the leading + because the endpoint wants digits only.
  *
  * Returns null if the phone is empty or normalizes to something too short
- * to be a real number. UI should hide the Send button in that case.
+ * to be a real number, or if the resulting URL would exceed 3,500 chars
+ * (WhatsApp's effective limit on pre-filled message length).
  */
 export function buildWhatsAppUrl(phone: string | null | undefined, message: string): string | null {
   if (!phone) return null
   const normalized = formatPhone(phone).replace(/[^0-9]/g, '')
   if (normalized.length < 9) return null  // too short to be a real intl number
   const encoded = encodeURIComponent(message)
-  return `https://wa.me/${normalized}?text=${encoded}`
+  const url = `https://api.whatsapp.com/send?phone=${normalized}&text=${encoded}`
+  // Defensive cap: WhatsApp truncates pre-filled messages somewhere around
+  // 3,500-4,000 chars post-encoding. If we're approaching that, prefer
+  // null and let the UI surface a "message too long" error.
+  if (url.length > 3500) return null
+  return url
 }
 
 
