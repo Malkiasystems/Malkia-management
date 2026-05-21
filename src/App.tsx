@@ -116,6 +116,7 @@ const CRMReferrals = lazy(() => import('./pages/CRMReferrals'))
 const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
 const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
 const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
+const WhatsAppTemplates = lazy(() => import('./pages/crm/WhatsAppTemplates'))
 
 // HRM Module (lazy - loads on first HRM page visit)
 const HRMDashboard = lazy(() => import('./pages/hrm/HRMDashboard'))
@@ -308,6 +309,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-loyalty': 'CRM / Crown Rewards',
   'crm-feedback': 'CRM / Feedback',
   'crm-upsell': 'CRM / Upsell Engine',
+  'crm-whatsapp-templates': 'CRM / WhatsApp Templates',
   'users': 'Settings / User Management',
   'approvals': 'Settings / Approval Workflows',
   'approvals-settings': 'Settings / Approval Rules',
@@ -550,6 +552,7 @@ function AppContent() {
       case 'crm-loyalty':       return <CRMLoyalty onNav={navigate} />
       case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
+      case 'crm-whatsapp-templates': return <WhatsAppTemplates onNav={navigate} />
       case 'crm-customers':     return <Customers onNav={navigate} onViewStatement={navigateToStatement} />
       
       // HRM Module Routes — pass mode, linked employee, and manage permission
