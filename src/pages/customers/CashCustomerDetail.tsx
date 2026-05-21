@@ -16,11 +16,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { tzs } from '../../lib/utils'
 import Toast from '../../components/Toast'
+import type { Page } from '../../lib/types'
 
 interface Props {
   customerId: string
   onBack: () => void
   onViewStatement?: (id: string) => void
+  onNav?: (p: Page) => void  // for "Send template" jumping to crm-whatsapp-templates
 }
 
 interface Metrics {
@@ -165,7 +167,7 @@ const buildWhatsAppLink = (whatsapp: string | null, message: string) => {
   return `https://wa.me/${n}?text=${encodeURIComponent(message)}`
 }
 
-export default function CashCustomerDetail({ customerId, onBack, onViewStatement }: Props) {
+export default function CashCustomerDetail({ customerId, onBack, onViewStatement, onNav }: Props) {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [autoTags, setAutoTags] = useState<string[]>([])
   const [customerRow, setCustomerRow] = useState<CustomerRow | null>(null)
@@ -497,6 +499,35 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
             color: 'var(--text)', fontSize: 12, fontWeight: 600,
           }}
         >← Back</button>
+
+        {/* Send WhatsApp template — opens the templates page with this
+            customer pre-selected via the sessionStorage shuttle. Hidden
+            when onNav isn't available (defensive). */}
+        {onNav && (
+          <button
+            onClick={() => {
+              sessionStorage.setItem('wa_template_target_customer', JSON.stringify({
+                id:               metrics.customer_id,
+                name:             metrics.name,
+                whatsapp:         metrics.whatsapp,
+                phone:            metrics.whatsapp,  // metrics view only has whatsapp; fine
+                ambassador_code:  customerRow?.ambassador_code ?? null,
+                life_stage:       customerRow?.life_stage ?? null,
+                edd:              customerRow?.edd ?? null,
+                delivery_date:    customerRow?.delivery_date ?? null,
+                crown_points:     metrics.crown_points ?? 0,
+                stage_paused:     customerRow?.stage_paused ?? false,
+              }))
+              onNav('crm-whatsapp-templates')
+            }}
+            style={{
+              background: '#25d36620', border: '1px solid #25d366',
+              borderRadius: 8, padding: '8px 12px', cursor: 'pointer',
+              color: '#25d366', fontSize: 12, fontWeight: 700,
+            }}
+            title="Open WhatsApp templates with this customer pre-selected"
+          >📱 Send template</button>
+        )}
 
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
