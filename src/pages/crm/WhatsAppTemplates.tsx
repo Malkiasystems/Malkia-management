@@ -247,7 +247,11 @@ export default function WhatsAppTemplates({ onNav }: Props) {
     setCustomerSearchResults([])
   }
 
-  // Customer search inside the sender modal
+  // Customer search inside the sender modal.
+  // We use Promise.all over individual .ilike() queries instead of .or()
+  // because .or() requires PostgREST-specific syntax that breaks if the
+  // user types a comma, parenthesis, or other special character. The
+  // overhead of 3-4 parallel queries is negligible at our row counts.
   useEffect(() => {
     if (!senderOpen) return
     const q = customerSearchQ.trim()
@@ -257,15 +261,46 @@ export default function WhatsAppTemplates({ onNav }: Props) {
     }
     let cancelled = false
     setCustomerSearchLoading(true)
+
     const run = async () => {
-      const { data } = await supabase
-        .from('customers')
-        .select('id, name, whatsapp, phone, ambassador_code, life_stage, edd, delivery_date, crown_points, stage_paused')
-        .or(`name.ilike.%${q}%,whatsapp.ilike.%${q}%,phone.ilike.%${q}%,ambassador_code.ilike.%${q}%`)
-        .eq('is_active', true)
-        .limit(20)
+      // Sanitize: PostgREST treats certain chars as syntax in filter values.
+      // For ilike, only % and , are real risks. We strip them.
+      const safe = q.replace(/[,%]/g, ' ').trim()
+      if (!safe) {
+        setCustomerSearchResults([])
+        setCustomerSearchLoading(false)
+        return
+      }
+      const pattern = `%${safe}%`
+      const cols = 'id, name, whatsapp, phone, ambassador_code, life_stage, edd, delivery_date, crown_points, stage_paused'
+
+      // Fire all 4 lookups in parallel, then merge + dedupe client-side.
+      const [byName, byWA, byPhone, byCode] = await Promise.all([
+        supabase.from('customers').select(cols).ilike('name', pattern).eq('is_active', true).limit(20),
+        supabase.from('customers').select(cols).ilike('whatsapp', pattern).eq('is_active', true).limit(20),
+        supabase.from('customers').select(cols).ilike('phone', pattern).eq('is_active', true).limit(20),
+        supabase.from('customers').select(cols).ilike('ambassador_code', pattern).eq('is_active', true).limit(20),
+      ])
+
+      // Surface any errors for debugging instead of silently returning []
+      const err = byName.error || byWA.error || byPhone.error || byCode.error
+      if (err) {
+        console.error('Customer search failed:', err.message)
+      }
+
+      const seen = new Set<string>()
+      const merged: MergeCustomer[] = []
+      for (const res of [byName.data, byWA.data, byPhone.data, byCode.data]) {
+        for (const row of (res ?? [])) {
+          if (!seen.has(row.id)) {
+            seen.add(row.id)
+            merged.push(row as MergeCustomer)
+          }
+        }
+      }
+
       if (!cancelled) {
-        setCustomerSearchResults((data ?? []) as MergeCustomer[])
+        setCustomerSearchResults(merged.slice(0, 20))
         setCustomerSearchLoading(false)
       }
     }
