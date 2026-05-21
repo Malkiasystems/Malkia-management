@@ -177,7 +177,7 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
     'Habari {name} 🌸, salama? Ni muda wa kuongeza {product} tena. Naomba ujibu hapa.'
   )
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'purchases' | 'top_products' | 'discounts' | 'notes'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'purchases' | 'top_products' | 'discounts' | 'notes' | 'wa_history'>('overview')
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -592,6 +592,7 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
           { k: 'top_products', label: 'Top Products & Reorder' },
           { k: 'discounts',    label: 'Discounts' },
           { k: 'notes',        label: 'Notes & Tags' },
+          { k: 'wa_history',   label: 'WhatsApp History' },
         ].map(t => (
           <button
             key={t.k}
@@ -652,6 +653,10 @@ export default function CashCustomerDetail({ customerId, onBack, onViewStatement
           onAddTag={addManualTag}
           onRemoveTag={removeManualTag}
         />
+      )}
+
+      {activeTab === 'wa_history' && (
+        <WhatsAppHistoryTab customerId={customerId} />
       )}
 
       {/* ─── EDD Modal ──────────────────────────────────────────── */}
@@ -1451,6 +1456,155 @@ const RELATIONSHIP_STAGE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'malkia_ambassador',  label: 'Malkia Ambassador' },
   { value: 're_engagement',      label: 'Re-engagement' },
 ]
+
+// ────────────────────────────────────────────────────────────────────────
+// WhatsApp History tab — shows every send_log entry for this customer,
+// most recent first. Each row links the template (if it still exists),
+// when, by whom, and the merged body that was sent. Useful for Brenda to
+// see at a glance: "When did we last reach out to her?"
+// ────────────────────────────────────────────────────────────────────────
+function WhatsAppHistoryTab({ customerId }: { customerId: string }) {
+  const [rows, setRows] = useState<Array<{
+    id: string
+    sent_at: string
+    sent_by: string | null
+    sent_by_name: string | null
+    merged_body: string
+    template_id: string | null
+    template_name: string | null
+    template_category: string | null
+  }>>([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    const run = async () => {
+      // Pull log + join template name/category. We rely on the FK
+      // relationship for template_id; for sent_by we fetch names in a
+      // second query because users live in a different schema in some
+      // Supabase setups.
+      const { data: logs, error } = await supabase
+        .from('whatsapp_send_log')
+        .select('id, sent_at, sent_by, merged_body, template_id, whatsapp_templates(name, category)')
+        .eq('customer_id', customerId)
+        .order('sent_at', { ascending: false })
+        .limit(100)
+      if (error) {
+        console.error('WA history load failed:', error.message)
+        if (!cancelled) { setRows([]); setLoading(false) }
+        return
+      }
+
+      // Collect sent_by user ids to look up display names in one go
+      const userIds = Array.from(new Set((logs ?? []).map((l: any) => l.sent_by).filter(Boolean)))
+      let userNames: Record<string, string> = {}
+      if (userIds.length > 0) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, full_name, email')
+          .in('id', userIds)
+        for (const u of (users ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>) {
+          userNames[u.id] = u.full_name || u.email || u.id.slice(0, 8)
+        }
+      }
+
+      if (!cancelled) {
+        setRows((logs ?? []).map((l: any) => ({
+          id: l.id,
+          sent_at: l.sent_at,
+          sent_by: l.sent_by,
+          sent_by_name: l.sent_by ? (userNames[l.sent_by] || null) : null,
+          merged_body: l.merged_body,
+          template_id: l.template_id,
+          template_name: l.whatsapp_templates?.name ?? null,
+          template_category: l.whatsapp_templates?.category ?? null,
+        })))
+        setLoading(false)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [customerId])
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)' }}>Loading WhatsApp history…</div>
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div style={{
+        padding: 40, textAlign: 'center', color: 'var(--text3)',
+        background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 12,
+      }}>
+        No WhatsApp messages logged yet for this customer.
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 12, overflow: 'hidden',
+    }}>
+      <div style={{
+        padding: '12px 16px', borderBottom: '1px solid var(--border)',
+        fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)',
+        textTransform: 'uppercase', letterSpacing: 1,
+      }}>
+        {rows.length} message{rows.length === 1 ? '' : 's'} logged
+      </div>
+      {rows.map(r => {
+        const isExpanded = expandedId === r.id
+        return (
+          <div key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
+            <div
+              onClick={() => setExpandedId(isExpanded ? null : r.id)}
+              style={{
+                padding: '12px 16px', cursor: 'pointer',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>
+                    {r.template_name || <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Template removed</span>}
+                  </div>
+                  {r.template_category && (
+                    <span style={{
+                      fontSize: 9, fontFamily: 'var(--mono)', padding: '2px 6px',
+                      background: 'var(--surface2)', border: '1px solid var(--border)',
+                      borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5,
+                      color: 'var(--text3)',
+                    }}>{r.template_category.replace(/_/g, ' ')}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text3)' }}>
+                  {new Date(r.sent_at).toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                  {r.sent_by_name && ` · by ${r.sent_by_name}`}
+                </div>
+              </div>
+              <span style={{ fontSize: 14, color: 'var(--text3)' }}>{isExpanded ? '▼' : '▶'}</span>
+            </div>
+            {isExpanded && (
+              <div style={{
+                padding: '12px 16px', background: 'var(--surface2)',
+                fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                borderTop: '1px solid var(--border)', fontFamily: 'system-ui, sans-serif',
+              }}>
+                {r.merged_body}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function StagePanel({
   metrics, customer, users, crownCatalog, onSaved,
