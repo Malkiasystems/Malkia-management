@@ -72,6 +72,11 @@ export default function WhatsAppTemplates({ onNav }: Props) {
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState<TemplateCategory | 'all'>('all')
 
+  // Resource URL map by slug. Loaded once and passed to mergeTemplate so
+  // {{resource:slug}} placeholders resolve to public URLs in previews and
+  // sent messages. Only is_public=true resources are eligible.
+  const [resourceUrls, setResourceUrls] = useState<Record<string, string>>({})
+
   // ─── Editor modal state ──────────────────────────────────────────────
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorTemplate, setEditorTemplate] = useState<WhatsAppTemplate | null>(null)
@@ -88,7 +93,20 @@ export default function WhatsAppTemplates({ onNav }: Props) {
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false)
 
   // ─── Initial load ─────────────────────────────────────────────────────
-  useEffect(() => { loadTemplates() }, [])
+  useEffect(() => { loadTemplates(); loadResources() }, [])
+
+  const loadResources = async () => {
+    const { data } = await supabase
+      .from('whatsapp_resources')
+      .select('slug, public_url, is_public, is_active')
+      .eq('is_public', true)
+      .eq('is_active', true)
+    const map: Record<string, string> = {}
+    for (const r of (data ?? []) as Array<{ slug: string; public_url: string }>) {
+      map[r.slug] = r.public_url
+    }
+    setResourceUrls(map)
+  }
 
   // Check for a customer pre-selected from CashCustomerDetail. We use
   // sessionStorage as a one-shot shuttle because the app navigates by
@@ -326,8 +344,8 @@ export default function WhatsAppTemplates({ onNav }: Props) {
   const senderTemplate = templates.find(t => t.id === senderTemplateId) || null
   const senderMerge = useMemo(() => {
     if (!senderTemplate || !senderCustomer) return null
-    return mergeTemplate(senderTemplate.body, senderCustomer)
-  }, [senderTemplate, senderCustomer])
+    return mergeTemplate(senderTemplate.body, senderCustomer, resourceUrls)
+  }, [senderTemplate, senderCustomer, resourceUrls])
 
   // Build the WhatsApp URL (or null if unsendable)
   const senderUrl = useMemo(() => {
@@ -568,7 +586,7 @@ export default function WhatsAppTemplates({ onNav }: Props) {
                 whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto',
                 fontFamily: 'system-ui, sans-serif',
               }}>
-                {mergeTemplate(editorTemplate.body, SAMPLE_CUSTOMER).body || (
+                {mergeTemplate(editorTemplate.body, SAMPLE_CUSTOMER, resourceUrls).body || (
                   <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Preview appears here as you type…</span>
                 )}
               </div>
