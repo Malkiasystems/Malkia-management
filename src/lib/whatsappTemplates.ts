@@ -39,6 +39,34 @@ export interface WhatsAppTemplate {
   updated_at: string
 }
 
+// Resource registry row. Files live in the crm-resources Supabase Storage
+// bucket; we keep metadata here and reference by slug from templates.
+export interface WhatsAppResource {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  storage_path: string
+  public_url: string
+  mime_type: string
+  size_bytes: number
+  is_public: boolean
+  is_active: boolean
+  created_at: string
+}
+
+// Slugify helper used by the resource upload form. Forces the
+// machine-safe charset declared in the table CHECK constraint.
+export function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize('NFKD')                 // strip accents
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64)
+}
+
 // Shape of the customer data needed to merge. Kept narrow so callers can
 // pass any object as long as it has these fields; avoids coupling to the
 // full CustomerRecord shape.
@@ -142,13 +170,20 @@ function formatCrownBalance(points: number | null | undefined): string {
  *
  * Returns the merged message AND a list of any placeholder tokens that
  * resolved to empty so the UI can warn the user before they send.
+ *
+ * Resources: tokens of the form {{resource:slug}} are resolved from the
+ * resourceUrls map, which the caller pre-fetches from whatsapp_resources.
  */
 export interface MergeResult {
   body: string
   emptyPlaceholders: string[]
 }
 
-export function mergeTemplate(body: string, customer: MergeCustomer): MergeResult {
+export function mergeTemplate(
+  body: string,
+  customer: MergeCustomer,
+  resourceUrls?: Record<string, string>,  // slug → public URL
+): MergeResult {
   const firstName = (customer.name || '').trim().split(/\s+/)[0] || ''
   const values: Record<string, string> = {
     '{{customer_name}}':          customer.name || '',
@@ -164,18 +199,27 @@ export function mergeTemplate(body: string, customer: MergeCustomer): MergeResul
 
   const empties: string[] = []
   let result = body
+
+  // 1. Customer-field placeholders
   for (const [token, value] of Object.entries(values)) {
     if (result.includes(token)) {
       if (!value) empties.push(token)
-      // Replace all occurrences (split/join is faster + safer than a global regex
-      // for arbitrary user text)
       result = result.split(token).join(value)
     }
   }
 
-  // Light cleanup: if any token had an empty value and was followed by a
-  // space + punctuation (e.g. "uko wiki ya  sasa"), collapse the double
-  // space into a single space.
+  // 2. Resource placeholders: {{resource:slug}} → public URL
+  // We find all {{resource:...}} tokens in the body and replace each.
+  // Unresolved (slug not in the map) → empty + warn.
+  const resourceTokens = result.match(/\{\{resource:[a-z0-9_-]+\}\}/g) ?? []
+  for (const token of resourceTokens) {
+    const slug = token.slice('{{resource:'.length, -2)  // strip `{{resource:` and `}}`
+    const url = resourceUrls?.[slug] ?? ''
+    if (!url) empties.push(token)
+    result = result.split(token).join(url)
+  }
+
+  // Light cleanup: collapse double spaces from missing placeholders.
   result = result.replace(/ {2,}/g, ' ')
 
   return { body: result, emptyPlaceholders: empties }
@@ -234,11 +278,15 @@ export const TEMPLATE_BODY_MAX_LENGTH = 1500
 /**
  * Returns the list of placeholder tokens used in a template body, in order
  * of first appearance. Useful for the editor's "this template uses:" chip.
+ * Handles both simple tokens like {{customer_name}} and namespaced ones
+ * like {{resource:onboarding_guide}}.
  */
 export function extractUsedPlaceholders(body: string): string[] {
   const found: string[] = []
   const seen = new Set<string>()
-  const re = /\{\{[a-z_]+\}\}/g
+  // Match {{anything}} where "anything" is alphanumeric, underscore, dash,
+  // or colon (for resource:slug syntax). Greedy until the closing }}.
+  const re = /\{\{[a-z0-9_:-]+\}\}/g
   let m: RegExpExecArray | null
   while ((m = re.exec(body)) !== null) {
     if (!seen.has(m[0])) {
