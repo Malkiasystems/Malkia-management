@@ -244,6 +244,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
         customerId={selected.id}
         onBack={() => setView('list')}
         onViewStatement={onViewStatement}
+        onNav={onNav}
       />
     )
   }
