@@ -553,6 +553,10 @@ export default function CRMHub({ onNav }: Props) {
             <Icon name="zap" size={16} />
             Command Center
           </button>
+          <button style={s.btnPrimary} onClick={() => onNav('crm-whatsapp-templates')}>
+            <Icon name="messageCircle" size={16} />
+            WA Templates
+          </button>
           <button style={s.btnPrimary} onClick={() => onNav('crm-inbox')}>
             <Icon name="messageCircle" size={16} />
             Open Inbox
