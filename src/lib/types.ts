@@ -22,7 +22,7 @@ export type Page =
   | 'crm-referrals' | 'crm-ambassador'  // crm-referrals kept as alias; new code uses crm-ambassador
   | 'crm-loyalty' | 'crm-feedback' | 'crm-upsell'
   | 'crm-customers' | 'crm-command-center'
-  | 'crm-whatsapp-templates'
+  | 'crm-whatsapp-templates' | 'crm-whatsapp-resources'
   // Settings Pages
   | 'accounting-settings' | 'display-settings' | 'report-templates'
   | 'company-finance-settings' | 'users-access-settings' | 'sales-inventory-settings'
