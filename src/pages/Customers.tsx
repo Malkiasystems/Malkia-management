@@ -74,6 +74,100 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
   const [saving, setSaving] = useState(false)
   const setF = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
+  // Bulk selection of customers for "Send template to many" / "Log as sent"
+  // workflows. Selection is cash-only (the bulk WhatsApp flow doesn't apply
+  // to wholesale debtors).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkActionOpen, setBulkActionOpen] = useState<'send' | 'log' | null>(null)
+  const [bulkTemplates, setBulkTemplates] = useState<Array<{ id: string; name: string; category: string; body: string; is_transactional: boolean }>>([])
+  const [bulkSelectedTemplateId, setBulkSelectedTemplateId] = useState<string>('')
+  const [bulkAdvanceStage, setBulkAdvanceStage] = useState<string>('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+
+  // Reset selection when switching tab or filters that change the row set
+  useEffect(() => { setSelectedIds(new Set()) }, [tab, search, segFilter, stageFilter, showPausedOnly])
+
+  // Lazy-load templates the first time a bulk action modal opens
+  useEffect(() => {
+    if (bulkActionOpen && bulkTemplates.length === 0) {
+      supabase
+        .from('whatsapp_templates')
+        .select('id, name, category, body, is_transactional')
+        .eq('is_active', true)
+        .order('category')
+        .order('name')
+        .then(({ data }) => setBulkTemplates((data ?? []) as any))
+    }
+  }, [bulkActionOpen])
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAllVisible = (visibleIds: string[]) => {
+    setSelectedIds(prev => {
+      const allSelected = visibleIds.every(id => prev.has(id))
+      if (allSelected) {
+        const next = new Set(prev)
+        visibleIds.forEach(id => next.delete(id))
+        return next
+      }
+      const next = new Set(prev)
+      visibleIds.forEach(id => next.add(id))
+      return next
+    })
+  }
+
+  // Single-row WhatsApp button — opens the templates page with this
+  // customer pre-loaded via the sessionStorage shuttle (same pattern as
+  // the "Send template" button on the customer detail page).
+  const openWhatsAppForCustomer = (c: Customer) => {
+    if (!onNav) return
+    if (c.customer_type !== 'cash') {
+      setToast('WhatsApp templates are for cash customers only'); setToastType('error'); return
+    }
+    sessionStorage.setItem('wa_template_target_customer', JSON.stringify({
+      id:               c.id,
+      name:             c.name,
+      whatsapp:         c.whatsapp,
+      phone:            c.whatsapp,
+      ambassador_code:  (c as any).ambassador_code ?? null,
+      life_stage:       c.life_stage ?? null,
+      edd:              (c as any).edd ?? null,
+      delivery_date:    (c as any).delivery_date ?? null,
+      crown_points:     c.crown_points ?? 0,
+      stage_paused:     c.stage_paused ?? false,
+    }))
+    onNav('crm-whatsapp-templates')
+  }
+
+  const submitBulkLog = async () => {
+    if (!bulkSelectedTemplateId || selectedIds.size === 0) return
+    setBulkSaving(true)
+    const { error } = await supabase.rpc('log_whatsapp_send_bulk', {
+      p_template_id:      bulkSelectedTemplateId,
+      p_customer_ids:     Array.from(selectedIds),
+      p_merged_body:      null,  // backfill: use template body as-is
+      p_advance_stage_to: bulkAdvanceStage || null,
+    })
+    setBulkSaving(false)
+    if (error) {
+      setToast('Bulk log failed: ' + error.message); setToastType('error')
+      return
+    }
+    setToast(`Logged ${selectedIds.size} send${selectedIds.size === 1 ? '' : 's'}`); setToastType('success')
+    setBulkActionOpen(null)
+    setBulkSelectedTemplateId('')
+    setBulkAdvanceStage('')
+    setSelectedIds(new Set())
+    load()  // refresh in case stage was advanced
+  }
+
+
   useEffect(() => { load() }, [tab])
 
   const load = async () => {
@@ -639,9 +733,44 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
             </div>
           ) : (
             <div className="table-wrap">
+              {/* Bulk action bar — only renders when at least one customer is selected */}
+              {tab === 'cash' && selectedIds.size > 0 && (
+                <div style={{
+                  background: 'var(--accent)', color: '#000',
+                  padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12,
+                  fontSize: 12, fontWeight: 700, marginBottom: 8, borderRadius: 8,
+                }}>
+                  <span>{selectedIds.size} customer{selectedIds.size === 1 ? '' : 's'} selected</span>
+                  <button
+                    onClick={() => setBulkActionOpen('log')}
+                    style={{
+                      background: '#000', color: 'var(--accent)', border: 'none',
+                      borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    }}
+                  >📋 Log template as sent</button>
+                  <button
+                    onClick={() => setSelectedIds(new Set())}
+                    style={{
+                      background: 'transparent', color: '#000', border: '1px solid #000',
+                      borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    }}
+                  >Clear selection</button>
+                </div>
+              )}
               <table>
                 <thead>
                   <tr>
+                    {tab === 'cash' && (
+                      <th style={{ width: 30 }}>
+                        <input
+                          type="checkbox"
+                          checked={sorted.length > 0 && sorted.every(c => c.id && selectedIds.has(c.id))}
+                          onChange={() => toggleAllVisible(sorted.map(c => c.id).filter(Boolean) as string[])}
+                          onClick={e => e.stopPropagation()}
+                          title="Select all visible"
+                        />
+                      </th>
+                    )}
                     <SortableTh label="Number" sortKey="customer_number" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
                     <SortableTh label={tab==='cash'?'Contact Name':'Customer / Company'} sortKey={tab==='cash'?'name':'company'} onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
                     {tab==='cash' && <SortableTh label="Life Stage" sortKey="life_stage" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
@@ -662,6 +791,15 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                       onClick={() => openLedger(c)}
                       onMouseEnter={e => (e.currentTarget.style.background='var(--surface2)')}
                       onMouseLeave={e => (e.currentTarget.style.background='transparent')}>
+                      {tab === 'cash' && (
+                        <td onClick={e => e.stopPropagation()} style={{ width: 30 }}>
+                          <input
+                            type="checkbox"
+                            checked={!!c.id && selectedIds.has(c.id)}
+                            onChange={() => c.id && toggleSelected(c.id)}
+                          />
+                        </td>
+                      )}
                       <td className="td-mono" style={{ fontSize:11,fontWeight:700,color:'var(--accent)' }}>{c.customer_number||'—'}</td>
                       <td>
                         <div style={{ fontWeight:600,fontSize:13,display:'flex',alignItems:'center',gap:6 }}>
@@ -691,9 +829,22 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                       <td style={{ fontSize:11,color:'var(--text3)' }}>{c.last_purchase_date||'—'}</td>
                       {tab==='cash' && <td className="td-right td-mono" style={{ fontSize:11,color:'var(--yellow)' }}>{(c.crown_points||0).toLocaleString()}</td>}
                       <td onClick={e => e.stopPropagation()}>
-                        <button onClick={() => openEdit(c)} style={{ background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',cursor:'pointer',fontSize:11,color:'var(--text3)',display:'flex',alignItems:'center',gap:4 }}>
-                          <Ic n="edit" s={11} /> Edit
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {tab === 'cash' && c.whatsapp && (
+                            <button
+                              onClick={() => openWhatsAppForCustomer(c)}
+                              title="Send WhatsApp template"
+                              style={{
+                                background: '#25D36622', border: '1px solid #25D366',
+                                borderRadius: 6, padding: '4px 8px', cursor: 'pointer',
+                                fontSize: 11, color: '#25D366', fontWeight: 700,
+                              }}
+                            >📱 WA</button>
+                          )}
+                          <button onClick={() => openEdit(c)} style={{ background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',cursor:'pointer',fontSize:11,color:'var(--text3)',display:'flex',alignItems:'center',gap:4 }}>
+                            <Ic n="edit" s={11} /> Edit
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -703,6 +854,96 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
           )}
         </div>
       )}
+
+      {/* Bulk log-as-sent modal */}
+      {bulkActionOpen === 'log' && (
+        <div
+          onClick={() => !bulkSaving && setBulkActionOpen(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: 12, padding: 24, width: 520, maxHeight: '90vh', overflowY: 'auto',
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>
+              Log template as sent
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 16, lineHeight: 1.5 }}>
+              Backfill: mark this template as already sent to {selectedIds.size} customer{selectedIds.size === 1 ? '' : 's'} via WhatsApp directly (outside our app). Optionally advance their relationship stage.
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Template</label>
+              <select
+                value={bulkSelectedTemplateId}
+                onChange={e => {
+                  setBulkSelectedTemplateId(e.target.value)
+                  // Smart default: if template category implies next stage, propose it
+                  const t = bulkTemplates.find(x => x.id === e.target.value)
+                  if (t) {
+                    if (t.category === 'onboarding') setBulkAdvanceStage('onboarding')
+                    else if (t.category === 'check_in') setBulkAdvanceStage('check_in')
+                    else if (t.category === 'win_back') setBulkAdvanceStage('re_engagement')
+                    else if (t.category === 'referral') setBulkAdvanceStage('malkia_ambassador')
+                    else setBulkAdvanceStage('')
+                  }
+                }}
+                style={{ width: '100%', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, fontFamily: 'var(--mono)' }}
+              >
+                <option value="">— pick a template —</option>
+                {bulkTemplates.map(t => (
+                  <option key={t.id} value={t.id}>[{t.category}] {t.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Advance relationship stage (optional)</label>
+              <select
+                value={bulkAdvanceStage}
+                onChange={e => setBulkAdvanceStage(e.target.value)}
+                style={{ width: '100%', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, fontFamily: 'var(--mono)' }}
+              >
+                <option value="">— no stage change —</option>
+                <option value="inquiry">Inquiry</option>
+                <option value="onboarding">Onboarding</option>
+                <option value="check_in">Check-in</option>
+                <option value="crown">Crown</option>
+                <option value="malkia_ambassador">Malkia Ambassador</option>
+                <option value="re_engagement">Re-engagement</option>
+              </select>
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
+                Pre-filled based on template category. Will update all {selectedIds.size} selected customer{selectedIds.size === 1 ? '' : 's'}.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => setBulkActionOpen(null)}
+                disabled={bulkSaving}
+                style={{ padding: '8px 14px', fontSize: 12, fontWeight: 700, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', cursor: 'pointer' }}
+              >Cancel</button>
+              <button
+                onClick={submitBulkLog}
+                disabled={bulkSaving || !bulkSelectedTemplateId}
+                style={{
+                  padding: '8px 14px', fontSize: 12, fontWeight: 700,
+                  background: 'var(--accent)', border: 'none',
+                  borderRadius: 6, color: '#000', cursor: bulkSelectedTemplateId ? 'pointer' : 'not-allowed',
+                  opacity: bulkSaving || !bulkSelectedTemplateId ? 0.5 : 1,
+                }}
+              >{bulkSaving ? 'Logging…' : `Log for ${selectedIds.size} customer${selectedIds.size === 1 ? '' : 's'}`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
   )
