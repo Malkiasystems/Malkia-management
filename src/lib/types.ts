@@ -23,6 +23,7 @@ export type Page =
   | 'crm-loyalty' | 'crm-feedback' | 'crm-upsell'
   | 'crm-customers' | 'crm-command-center'
   | 'crm-whatsapp-templates' | 'crm-whatsapp-resources'
+  | 'crm-waitlist'
   // Settings Pages
   | 'accounting-settings' | 'display-settings' | 'report-templates'
   | 'company-finance-settings' | 'users-access-settings' | 'sales-inventory-settings'
