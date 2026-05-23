@@ -108,6 +108,17 @@ export default function WhatsAppTemplates({ onNav }: Props) {
     setResourceUrls(map)
   }
 
+  // Document URLs supplied by the source page (e.g. CustomerStatement
+  // generates a statement PDF and stashes the signed URL here). Merged
+  // into the template via the resourceUrls map under exact key names:
+  // 'statement_url', 'invoice_url', 'receipt_url', etc.
+  const [documentUrls, setDocumentUrls] = useState<Record<string, string>>({})
+
+  // Preferred template category to pre-filter the picker (e.g. when
+  // arriving from CustomerStatement we want to show 'statement' and
+  // 'payment_reminder' templates near the top).
+  const [preferredCategory, setPreferredCategory] = useState<TemplateCategory | null>(null)
+
   // Check for a customer pre-selected from CashCustomerDetail. We use
   // sessionStorage as a one-shot shuttle because the app navigates by
   // Page enum (not URL params). Clear after read so it doesn't re-fire.
@@ -120,6 +131,23 @@ export default function WhatsAppTemplates({ onNav }: Props) {
         setSenderCustomer(c)
         setSenderOpen(true)
       } catch { /* ignore malformed */ }
+    }
+
+    // Document URLs (statement, invoice, receipt PDFs generated upstream)
+    const docRaw = sessionStorage.getItem('wa_template_document_urls')
+    if (docRaw) {
+      sessionStorage.removeItem('wa_template_document_urls')
+      try {
+        const urls = JSON.parse(docRaw) as Record<string, string>
+        setDocumentUrls(urls)
+      } catch { /* ignore */ }
+    }
+
+    // Preferred category for picker pre-filter
+    const catRaw = sessionStorage.getItem('wa_template_preferred_category')
+    if (catRaw) {
+      sessionStorage.removeItem('wa_template_preferred_category')
+      setPreferredCategory(catRaw as TemplateCategory)
     }
   }, [])
 
@@ -342,10 +370,17 @@ export default function WhatsAppTemplates({ onNav }: Props) {
 
   // Compute the merge preview for the sender modal
   const senderTemplate = templates.find(t => t.id === senderTemplateId) || null
+
+  // Combine resource URLs (from whatsapp_resources slugs) with document
+  // URLs (from upstream PDF generation, e.g. statement_url) into one map.
+  // The merge engine reads both kinds from the same record.
+  const mergedUrlMap = useMemo(() => ({ ...resourceUrls, ...documentUrls }),
+    [resourceUrls, documentUrls])
+
   const senderMerge = useMemo(() => {
     if (!senderTemplate || !senderCustomer) return null
-    return mergeTemplate(senderTemplate.body, senderCustomer, resourceUrls)
-  }, [senderTemplate, senderCustomer, resourceUrls])
+    return mergeTemplate(senderTemplate.body, senderCustomer, mergedUrlMap)
+  }, [senderTemplate, senderCustomer, mergedUrlMap])
 
   // Build the WhatsApp URL (or null if unsendable)
   const senderUrl = useMemo(() => {
@@ -586,7 +621,7 @@ export default function WhatsAppTemplates({ onNav }: Props) {
                 whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto',
                 fontFamily: 'system-ui, sans-serif',
               }}>
-                {mergeTemplate(editorTemplate.body, SAMPLE_CUSTOMER, resourceUrls).body || (
+                {mergeTemplate(editorTemplate.body, SAMPLE_CUSTOMER, mergedUrlMap).body || (
                   <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Preview appears here as you type…</span>
                 )}
               </div>
@@ -634,23 +669,48 @@ export default function WhatsAppTemplates({ onNav }: Props) {
             {/* Step 1: Template */}
             <div style={{ marginBottom: 16 }}>
               <label style={modalLabel}>1. Template</label>
+              {preferredCategory && (
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>
+                  Suggested: {CATEGORY_LABELS[preferredCategory] || preferredCategory} templates appear first
+                </div>
+              )}
               <select
                 style={modalInput}
                 value={senderTemplateId ?? ''}
                 onChange={e => setSenderTemplateId(e.target.value || null)}
               >
                 <option value="">— pick a template —</option>
-                {CATEGORY_ORDER.map(cat => {
-                  const inCat = templates.filter(t => t.is_active && t.category === cat)
-                  if (inCat.length === 0) return null
-                  return (
-                    <optgroup key={cat} label={CATEGORY_LABELS[cat]}>
-                      {inCat.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
-                    </optgroup>
-                  )
-                })}
+                {/* When a preferred category is set (e.g. arrived from
+                    CustomerStatement page → 'statement'), surface those
+                    templates and related ones first. */}
+                {(() => {
+                  // Build the category render order: preferred first, then
+                  // related, then the rest (in CATEGORY_ORDER order).
+                  const preferred: TemplateCategory[] = []
+                  if (preferredCategory === 'statement') {
+                    preferred.push('statement', 'payment_reminder', 'invoice_share')
+                  } else if (preferredCategory === 'payment_reminder') {
+                    preferred.push('payment_reminder', 'statement', 'invoice_share')
+                  } else if (preferredCategory) {
+                    preferred.push(preferredCategory)
+                  }
+                  const seen = new Set(preferred)
+                  const ordered: TemplateCategory[] = [
+                    ...preferred,
+                    ...CATEGORY_ORDER.filter(c => !seen.has(c)),
+                  ]
+                  return ordered.map(cat => {
+                    const inCat = templates.filter(t => t.is_active && t.category === cat)
+                    if (inCat.length === 0) return null
+                    return (
+                      <optgroup key={cat} label={CATEGORY_LABELS[cat]}>
+                        {inCat.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </optgroup>
+                    )
+                  })
+                })()}
               </select>
             </div>
 
