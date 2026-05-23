@@ -281,6 +281,88 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
     else { setToast(res.error || 'WhatsApp send failed'); setToastType('error') }
   }
 
+  // ─── Send statement via WhatsApp template ───────────────────────────────
+  // New, template-based flow. Generates the statement PDF, uploads to the
+  // crm-customer-docs Storage bucket, gets a 7-day signed URL, and stashes
+  // it in sessionStorage for the templates page to pick up. The templates
+  // page then resolves {{statement_url}} from this stash and opens
+  // WhatsApp Web with the merged message.
+  //
+  // This is Pass 1 of the customer-doc-send feature. Per-debtor only;
+  // bulk send and other doc types come later.
+  const [generatingDoc, setGeneratingDoc] = useState(false)
+
+  const sendStatementViaTemplate = async () => {
+    if (!customer) return
+    if (!customer.whatsapp) { setToast('No WhatsApp number on file'); setToastType('error'); return }
+
+    setGeneratingDoc(true)
+    setToast('Generating statement PDF…'); setToastType('success')
+
+    try {
+      const el = document.getElementById('customer-statement')
+      if (!el) throw new Error('Statement DOM element not found')
+
+      // Generate PDF + upload + sign
+      const { generateAndUploadDocumentFromElement } = await import('../lib/customerDocuments')
+      const doc = await generateAndUploadDocumentFromElement(el, customer.id, 'statement', null)
+
+      // Compute AR summary fields for the merge (these power the
+      // {{outstanding_balance}}, {{open_invoice_count}}, etc. placeholders).
+      // We pull them from the already-loaded ledger rows rather than
+      // re-querying — cheap and consistent with what's on screen.
+      const today = new Date()
+      const openInvoices = rows.filter(r => r.is_open && r.amount > 0)
+      const oldestInvoice = openInvoices.length > 0
+        ? openInvoices.reduce((a, b) => new Date(a.posting_date) < new Date(b.posting_date) ? a : b)
+        : null
+      const oldestAgeDays = oldestInvoice
+        ? Math.floor((today.getTime() - new Date(oldestInvoice.posting_date).getTime()) / (1000 * 60 * 60 * 24))
+        : null
+
+      // Stash everything the templates page needs into sessionStorage.
+      // This is the same shuttle pattern we use elsewhere (Customers list,
+      // Waitlist) — keeps the templates page free of route-coupling.
+      sessionStorage.setItem('wa_template_target_customer', JSON.stringify({
+        id:               customer.id,
+        name:             customer.name,
+        whatsapp:         customer.whatsapp,
+        phone:            customer.whatsapp,
+        ambassador_code:  null,  // debtors don't have ambassador codes
+        life_stage:       null,
+        edd:              null,
+        delivery_date:    null,
+        crown_points:     0,
+        stage_paused:     false,
+        // AR-specific fields for template merging
+        balance:                  closingBalance,
+        open_invoice_count:       openInvoices.length,
+        oldest_invoice_ref:       oldestInvoice?.document_ref ?? null,
+        oldest_invoice_age_days:  oldestAgeDays,
+      }))
+
+      // Stash the generated PDF URL keyed by the merge-engine convention.
+      // The templates page reads this on mount and supplies it to
+      // mergeTemplate via the resourceUrls map under 'statement_url'.
+      sessionStorage.setItem('wa_template_document_urls', JSON.stringify({
+        statement_url: doc.url,
+      }))
+
+      // Hint which template category is most relevant. The templates page
+      // can use this to pre-filter the picker.
+      sessionStorage.setItem('wa_template_preferred_category', 'statement')
+
+      setGeneratingDoc(false)
+      setToast('PDF ready. Opening template picker…'); setToastType('success')
+      // Small delay so the toast registers before navigation
+      setTimeout(() => onNav('crm-whatsapp-templates'), 400)
+    } catch (e: any) {
+      console.error('Statement send failed:', e)
+      setGeneratingDoc(false)
+      setToast(`Failed: ${e?.message ?? 'unknown error'}`); setToastType('error')
+    }
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────
 
   if (loading && !customer) {
@@ -319,14 +401,21 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
           </div>
         </div>
         <div className="page-actions">
-          {customer.whatsapp && waConfig?.enabled && waConfig?.api_key && (
-            <button className="btn btn-ghost btn-sm" disabled={sendingWA}
-              onClick={sendStatementWA}
+          {customer.whatsapp && (
+            <button className="btn btn-ghost btn-sm" disabled={generatingDoc}
+              onClick={sendStatementViaTemplate}
               style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#25D366', border: '1px solid rgba(37,211,102,.3)' }}>
               <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                 <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
               </svg>
-              {sendingWA ? 'Sending…' : 'Send WhatsApp'}
+              {generatingDoc ? 'Generating PDF…' : '📄 Send via WA template'}
+            </button>
+          )}
+          {customer.whatsapp && waConfig?.enabled && waConfig?.api_key && (
+            <button className="btn btn-ghost btn-sm" disabled={sendingWA}
+              onClick={sendStatementWA}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text3)', border: '1px solid var(--border)', fontSize: 11 }}>
+              {sendingWA ? 'Sending…' : 'Send text-only'}
             </button>
           )}
           <button className="btn btn-ghost btn-sm" onClick={downloadPNG}
