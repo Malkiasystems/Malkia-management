@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode, createElement } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode, createElement } from 'react'
 import { supabase } from './supabase'
 
 export interface User {
@@ -58,9 +58,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const loadUser = useCallback(async () => {
+  // Use a ref to track whether we've completed at least one successful load.
+  // Once we have a user, subsequent re-loads (triggered by SIGNED_IN events
+  // when Chrome unparks a backgrounded tab, etc.) should run silently in
+  // the background rather than flashing the full-page "Loading..." splash.
+  // This was Joe's complaint: switching to another Chrome tab and back was
+  // showing a loading flash even though the actual user/permissions hadn't
+  // changed at all.
+  const hasLoadedOnceRef = useRef(false)
+
+  // Mirror the latest `user` value into a ref so the auth event handler
+  // can compare without re-creating the subscription. Used to detect
+  // SIGNED_IN echo events that fire on tab refocus with the same user.
+  const currentUserRef = useRef<User | null>(null)
+  useEffect(() => { currentUserRef.current = user }, [user])
+
+  const loadUser = useCallback(async (options: { silent?: boolean } = {}) => {
+    // First load (or explicit non-silent reload) shows the splash.
+    // Background refreshes don't flip `loading` so the UI stays mounted.
+    const silent = options.silent ?? hasLoadedOnceRef.current
     try {
-      setLoading(true)
+      if (!silent) setLoading(true)
       setError(null)
       
       const { data: { session } } = await supabase.auth.getSession()
@@ -113,6 +131,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(currentUser)
       setPermissions(userData.permissions || [])
       setLoading(false)
+      // Mark that we've completed at least one successful load. Future
+      // `loadUser()` calls (e.g. from SIGNED_IN on tab refocus) will
+      // default to silent mode and not flash the splash.
+      hasLoadedOnceRef.current = true
 
     } catch (err) {
       console.error('Auth error:', err)
@@ -174,14 +196,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // here flips `loading` back to true and causes the entire UI to flash
       // a spinner / re-mount. We deliberately ignore that event.
       //
+      // SIGNED_IN ALSO fires on tab refocus in many Supabase versions (the
+      // SDK re-verifies the session and re-emits SIGNED_IN with the same
+      // user). We skip re-loading in that case by comparing the session
+      // email to the user we already have. Only re-load if it's a genuinely
+      // different identity (logout-then-login as someone else).
+      //
       // INITIAL_SESSION also fires on every reload but the initial loadUser()
       // call above already covers that case.
       if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-        if (session) loadUser()
+        if (!session) return
+        // Compare against currently-loaded user. If the email matches what
+        // we already have, the SIGNED_IN is a refocus echo — skip it.
+        // (Using a ref to read the latest user inside the closure.)
+        const sessionEmail = session.user?.email?.toLowerCase() ?? null
+        const currentEmail = currentUserRef.current?.email?.toLowerCase() ?? null
+        if (event === 'SIGNED_IN' && sessionEmail && currentEmail && sessionEmail === currentEmail) {
+          // Same user, just a refocus. Ignore.
+          return
+        }
+        loadUser()
       } else if (event === 'SIGNED_OUT') {
         setUser(null)
         setPermissions([])
         setLoading(false)
+        hasLoadedOnceRef.current = false
       }
       // TOKEN_REFRESHED, INITIAL_SESSION, PASSWORD_RECOVERY, MFA_CHALLENGE_VERIFIED
       // → no-op. Do not touch the user state.
