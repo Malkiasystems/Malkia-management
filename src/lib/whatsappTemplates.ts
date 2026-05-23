@@ -24,6 +24,9 @@ export type TemplateCategory =
   | 'referral'
   | 'pregnancy_tips'
   | 'postpartum_tips'
+  | 'statement'              // AR statement send-out
+  | 'payment_reminder'       // Payment chase, overdue invoice
+  | 'invoice_share'          // Specific invoice sharing
   | 'general'
 
 export interface WhatsAppTemplate {
@@ -141,6 +144,14 @@ export interface MergeCustomer {
   delivery_date?: string | null
   crown_points?: number | null
   stage_paused?: boolean | null
+
+  // AR-related fields, populated when merging templates for debtors.
+  // These power the {{outstanding_balance}}, {{open_invoice_count}}, etc.
+  // placeholders. NULL/undefined → renders as empty.
+  balance?: number | null               // current AR balance in TZS
+  open_invoice_count?: number | null    // how many open invoices
+  oldest_invoice_ref?: string | null    // e.g. 'SI-10-0012'
+  oldest_invoice_age_days?: number | null  // days since oldest open invoice
 }
 
 
@@ -157,28 +168,46 @@ export const PLACEHOLDERS: Array<{ token: string; description: string; sample: s
   { token: '{{baby_age_months}}',       description: 'Baby age in months, from delivery_date',      sample: '3' },
   { token: '{{crown_points}}',          description: 'Raw integer points balance',                  sample: '1250' },
   { token: '{{crown_balance_formatted}}',description: 'Formatted with thousands separator and pts', sample: '1,250 pts' },
+  // AR / debtor placeholders. Render as empty for non-debtor customers.
+  { token: '{{outstanding_balance}}',   description: 'AR balance formatted in TZS',                 sample: 'TZS 761,952' },
+  { token: '{{open_invoice_count}}',    description: 'Number of open invoices',                     sample: '3' },
+  { token: '{{oldest_invoice_ref}}',    description: 'Reference of the oldest open invoice',        sample: 'SI-10-0012' },
+  { token: '{{oldest_invoice_age_days}}',description: 'Days since the oldest open invoice was issued',sample: '23' },
+  // Document URL placeholders. Resolved at send time to signed PDF URLs.
+  // The send flow generates the corresponding PDFs and supplies the URLs
+  // to mergeTemplate via the resourceUrls map (under these exact keys).
+  { token: '{{statement_url}}',         description: 'Link to current AR statement PDF',            sample: 'https://…/statement.pdf' },
+  { token: '{{invoice_url}}',           description: 'Link to a specific invoice PDF',              sample: 'https://…/invoice.pdf' },
+  { token: '{{receipt_url}}',           description: 'Link to a specific receipt PDF',              sample: 'https://…/receipt.pdf' },
+  { token: '{{payment_reminder_url}}',  description: 'Link to payment reminder PDF',                sample: 'https://…/reminder.pdf' },
+  { token: '{{order_reminder_url}}',    description: 'Link to order reminder PDF',                  sample: 'https://…/order.pdf' },
 ]
 
 
 // ─── Category metadata for the UI ─────────────────────────────────────────
 
 export const CATEGORY_LABELS: Record<TemplateCategory, string> = {
-  onboarding:      'Onboarding',
-  check_in:        'Check-in',
-  feedback:        'Feedback',
-  birthday:        'Birthday',
-  crown_reward:    'Crown reward',
-  win_back:        'Win-back',
-  referral:        'Referral',
-  pregnancy_tips:  'Pregnancy tips',
-  postpartum_tips: 'Postpartum tips',
-  general:         'General',
+  onboarding:       'Onboarding',
+  check_in:         'Check-in',
+  feedback:         'Feedback',
+  birthday:         'Birthday',
+  crown_reward:     'Crown reward',
+  win_back:         'Win-back',
+  referral:         'Referral',
+  pregnancy_tips:   'Pregnancy tips',
+  postpartum_tips:  'Postpartum tips',
+  statement:        'AR statement',
+  payment_reminder: 'Payment reminder',
+  invoice_share:    'Invoice share',
+  general:          'General',
 }
 
 export const CATEGORY_ORDER: TemplateCategory[] = [
   'onboarding', 'check_in', 'feedback', 'birthday',
   'crown_reward', 'referral', 'win_back',
-  'pregnancy_tips', 'postpartum_tips', 'general',
+  'pregnancy_tips', 'postpartum_tips',
+  'statement', 'payment_reminder', 'invoice_share',
+  'general',
 ]
 
 
@@ -223,6 +252,17 @@ function formatCrownBalance(points: number | null | undefined): string {
 }
 
 /**
+ * Format a TZS amount with thousands separators and prefix. Returns empty
+ * string for null/undefined so the merge engine drops the placeholder
+ * cleanly rather than printing "TZS undefined" or "TZS 0" when no balance
+ * is on file.
+ */
+function formatTzs(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined) return ''
+  return `TZS ${Math.round(amount).toLocaleString('en-US')}`
+}
+
+/**
  * The merge step. Replaces all {{token}} placeholders in the template body
  * with values resolved from the customer. Missing data → empty string (per
  * Joe's spec: if a placeholder can't be resolved, send without it rather
@@ -262,6 +302,22 @@ export function mergeTemplate(
     '{{crown_points}}':           customer.crown_points !== null && customer.crown_points !== undefined
                                     ? String(customer.crown_points) : '0',
     '{{crown_balance_formatted}}': formatCrownBalance(customer.crown_points),
+    // AR fields. Render as empty when not supplied (i.e. non-debtor customer).
+    '{{outstanding_balance}}':    formatTzs(customer.balance),
+    '{{open_invoice_count}}':     customer.open_invoice_count !== null && customer.open_invoice_count !== undefined
+                                    ? String(customer.open_invoice_count) : '',
+    '{{oldest_invoice_ref}}':     customer.oldest_invoice_ref || '',
+    '{{oldest_invoice_age_days}}':customer.oldest_invoice_age_days !== null && customer.oldest_invoice_age_days !== undefined
+                                    ? String(customer.oldest_invoice_age_days) : '',
+    // Document URL placeholders. Caller is responsible for generating the
+    // PDFs ahead of time and passing the URLs in the resourceUrls map under
+    // keys that match the token names below (without the braces).
+    // Example: resourceUrls['statement_url'] = 'https://....'
+    '{{statement_url}}':          resourceUrls?.['statement_url'] || '',
+    '{{invoice_url}}':            resourceUrls?.['invoice_url'] || '',
+    '{{receipt_url}}':            resourceUrls?.['receipt_url'] || '',
+    '{{payment_reminder_url}}':   resourceUrls?.['payment_reminder_url'] || '',
+    '{{order_reminder_url}}':     resourceUrls?.['order_reminder_url'] || '',
   }
 
   const empties: string[] = []
