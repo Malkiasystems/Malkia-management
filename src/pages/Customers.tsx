@@ -443,7 +443,12 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
         customerId={selected.id}
         onBack={() => setView('list')}
         onViewStatement={onViewStatement}
-        onNav={onNav}
+        // Only forward onNav when the parent actually gave us one. Passing
+        // an explicit `undefined` into a prop that's optional-but-typed
+        // works in most TS configs but trips the stricter Vercel build,
+        // which infers `(p:Page)=>void` from the destructured default and
+        // refuses the union.
+        {...(onNav ? { onNav } : {})}
       />
     )
   }
