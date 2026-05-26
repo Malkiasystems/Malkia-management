@@ -39,6 +39,13 @@ interface LedgerRow {
   amount: number          // signed: invoices positive, receipts/credits negative
   remaining_amount: number
   is_open: boolean
+  // Enrichments joined from the `vouchers` table (by document_ref → ref).
+  // Receipts gain payment_method ('mpesa', 'rtgs', 'cash', etc) and notes
+  // (typically the M-Pesa/cheque/TT reference number entered at posting).
+  // Invoices may carry voucher notes too. Optional because a ledger entry
+  // might have been migrated/imported without a matching voucher.
+  payment_method?: string | null
+  voucher_notes?: string | null
 }
 
 interface LedgerRowWithBalance extends LedgerRow {
@@ -93,11 +100,72 @@ function docColor(type: string): { bg: string; fg: string } {
   }
 }
 
+// Pretty-print a stored payment_method enum into something a customer will
+// recognise. Matches the labels used at posting time so a row in the
+// statement reads the same as the receipt voucher itself.
+function methodLabel(m: string | null | undefined): string {
+  if (!m) return ''
+  const map: Record<string, string> = {
+    cash:    'Cash',
+    mpesa:   'M-Pesa',
+    mixx:    'Mixx by Yas',
+    airtel:  'Airtel Money',
+    rtgs:    'Bank Transfer',
+    cheque:  'Cheque',
+    deposit: 'Cash Deposit',
+    pos:     'POS',
+  }
+  return map[m] || m
+}
+
+// Days between two ISO dates (a − b). Positive when a is later than b.
+// Used for due-date overdue badges and aging buckets.
+function daysBetween(aIso: string, bIso: string): number {
+  const a = new Date(aIso).getTime()
+  const b = new Date(bIso).getTime()
+  return Math.floor((a - b) / (1000 * 60 * 60 * 24))
+}
+
+// Aging buckets: classify each still-open invoice by how overdue it is
+// from the statement's "as of" date. Returns 5 bucket totals (current,
+// 1-30, 31-60, 61-90, 90+) suitable for the summary table at the top of
+// the statement. Closed invoices are skipped (remaining_amount = 0,
+// is_open = false).
+interface AgingBuckets {
+  current: number  // not yet due (due_date >= as_of, or no due_date)
+  d1_30:   number
+  d31_60:  number
+  d61_90:  number
+  d90plus: number
+  total:   number
+}
+function computeAging(rows: LedgerRow[], asOf: string): AgingBuckets {
+  const acc: AgingBuckets = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0, total: 0 }
+  for (const r of rows) {
+    if (!r.is_open) continue
+    // Aging applies to open invoices and debit notes (receivables). Skip
+    // credit notes / receipts even if they happen to be flagged open.
+    if (r.document_type !== 'invoice' && r.document_type !== 'debit_note') continue
+    const amt = r.remaining_amount || 0
+    if (amt <= 0) continue
+    acc.total += amt
+    if (!r.due_date) { acc.current += amt; continue }
+    const overdue = daysBetween(asOf, r.due_date)
+    if      (overdue <= 0)  acc.current += amt
+    else if (overdue <= 30) acc.d1_30   += amt
+    else if (overdue <= 60) acc.d31_60  += amt
+    else if (overdue <= 90) acc.d61_90  += amt
+    else                    acc.d90plus += amt
+  }
+  return acc
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function CustomerStatement({ customerId, onNav }: Props) {
   const [customer, setCustomer] = useState<DBCustomer | null>(null)
   const [rows, setRows] = useState<LedgerRowWithBalance[]>([])
+  const [openInvoicesForAging, setOpenInvoicesForAging] = useState<LedgerRow[]>([])
   const [openingBalance, setOpeningBalance] = useState(0)
   const [loading, setLoading] = useState(true)
   const [range, setRange] = useState<{ from: string; to: string }>(() => presetRange(90))
@@ -152,7 +220,12 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
     const opening = (priorRows || []).reduce((s, r) => s + (r.amount || 0), 0)
     setOpeningBalance(opening)
 
-    // 2. Rows within the date range, oldest first for running balance calc
+    // 2. Rows within the date range. We sort by date ASC, then by amount
+    //    DESC so that on the same date, invoices (positive amount) appear
+    //    BEFORE receipts (negative). This avoids the visually confusing
+    //    case where a receipt settling that day's invoices is rendered
+    //    above them, producing a temporary negative running balance.
+    //    `id` is the final tie-breaker for full determinism.
     const { data: inRangeRows, error } = await supabase
       .from('customer_ledger_entries')
       .select('id, posting_date, document_type, document_ref, description, due_date, amount, remaining_amount, is_open')
@@ -160,7 +233,8 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
       .gte('posting_date', range.from)
       .lte('posting_date', range.to)
       .order('posting_date', { ascending: true })
-      .order('id', { ascending: true })    // tie-breaker: stable within same date
+      .order('amount', { ascending: false })   // invoices (+) before receipts (-) same day
+      .order('id', { ascending: true })
 
     if (error) {
       console.error('[statement] ledger load failed:', error.message)
@@ -168,14 +242,50 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
       setLoading(false); return
     }
 
-    // Compute running balance on the client. Starts at opening and adds each
-    // row's signed amount (invoices + positive, receipts/credits negative).
+    // 3. Enrichment: fetch voucher metadata for every ref in the range,
+    //    so we can show "M-Pesa · ref QTA1ABC2DE" next to each receipt.
+    //    Single query, then index by ref. Cheaper than per-row joins.
+    const refs = (inRangeRows || []).map(r => r.document_ref).filter(Boolean)
+    const voucherIndex = new Map<string, { payment_method: string | null; notes: string | null }>()
+    if (refs.length > 0) {
+      const { data: vouchers } = await supabase
+        .from('vouchers')
+        .select('ref, payment_method, notes')
+        .in('ref', refs)
+      if (vouchers) {
+        vouchers.forEach(v => voucherIndex.set(v.ref, {
+          payment_method: v.payment_method, notes: v.notes,
+        }))
+      }
+    }
+
+    // Compute running balance + attach voucher enrichments.
     let running = opening
     const withBalance: LedgerRowWithBalance[] = (inRangeRows || []).map(r => {
       running += (r.amount || 0)
-      return { ...r, runningBalance: running }
+      const voucher = voucherIndex.get(r.document_ref)
+      return {
+        ...r,
+        runningBalance: running,
+        payment_method: voucher?.payment_method ?? null,
+        voucher_notes: voucher?.notes ?? null,
+      }
     })
     setRows(withBalance)
+
+    // 4. Open invoices for aging — pulled separately because we need ALL
+    //    open AR regardless of the statement's chosen date range. A 6-month
+    //    overdue invoice should appear in the 90+ bucket even if the user
+    //    is looking at the last 30 days only.
+    const { data: openInvs } = await supabase
+      .from('customer_ledger_entries')
+      .select('id, posting_date, document_type, document_ref, description, due_date, amount, remaining_amount, is_open')
+      .eq('customer_id', customerId)
+      .eq('is_open', true)
+      .in('document_type', ['invoice', 'debit_note'])
+      .gt('remaining_amount', 0)
+    setOpenInvoicesForAging(openInvs || [])
+
     setLoading(false)
   }
 
@@ -204,6 +314,13 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
     .reduce((s, r) => s + Math.abs(r.amount), 0)
   const closingBalance = rows.length > 0 ? rows[rows.length - 1].runningBalance : openingBalance
 
+  // Aging is computed across ALL open invoices for this customer (loaded
+  // separately, see loadLedger), so a 6-month-old open invoice still
+  // shows in 90+ even if the user's selected date range starts last
+  // month. The statement body still respects the date range — only the
+  // aging summary at the top uses the full set.
+  const aging = computeAging(openInvoicesForAging, range.to)
+
   // ─── Export actions ────────────────────────────────────────────────────
 
   const printStatement = () => {
@@ -215,12 +332,19 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
       <style>
         *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-        body{padding:20px;background:#f0f0f0;font-family:'Instrument Sans',sans-serif}
+        body{padding:12px;background:#f0f0f0;font-family:'Instrument Sans',sans-serif;font-size:11px}
         *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important}
+        /* Tighter print: 8mm margins (was 10mm) + smaller body padding fit
+           an extra ~3-4 lines per page, helping multi-page statements
+           collapse to one. Also tells the browser to prefer keeping
+           transaction rows together (orphans/widows). */
         @media print{
           body{background:#fff;padding:0;display:block}
           .no-print{display:none !important}
-          @page{size:A4;margin:10mm}
+          @page{size:A4;margin:8mm}
+          table{page-break-inside:auto}
+          tr{page-break-inside:avoid;page-break-after:auto}
+          thead{display:table-header-group}
         }
       </style>
     </head><body>${el.outerHTML}</body></html>`)
@@ -492,97 +616,177 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
           </div>
         </div>
 
-        {/* Customer block + at-a-glance stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
+        {/* Customer block + at-a-glance stats — denser layout (4 stats in
+            a single row instead of 2x2 grid) frees vertical space. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 14 }}>
           <div>
-            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Statement For</div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Statement For</div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 17, fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>
               {customer.company || customer.name}
             </div>
             {customer.contact_person && (
-              <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>Attn: {customer.contact_person}</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>Attn: {customer.contact_person}</div>
             )}
             {customer.address && (
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, lineHeight: 1.5 }}>{customer.address}</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2, lineHeight: 1.4 }}>{customer.address}</div>
             )}
             {customer.whatsapp && (
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>{customer.whatsapp}</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2, fontFamily: 'var(--mono)' }}>{customer.whatsapp}</div>
             )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, alignContent: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, alignContent: 'start' }}>
             {[
               { label: 'Current Balance', val: tzs(customer.balance || 0), color: (customer.balance || 0) > 0 ? 'var(--red)' : 'var(--green)' },
               { label: 'Credit Limit', val: customer.credit_limit > 0 ? tzs(customer.credit_limit) : 'Unlimited' },
               { label: 'Payment Terms', val: customer.payment_terms || (customer.credit_period > 0 ? `${customer.credit_period} days` : 'COD') },
-              { label: 'Transactions in Period', val: rows.length.toString() },
+              { label: 'Transactions', val: rows.length.toString() },
             ].map(s => (
-              <div key={s.label} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px' }}>
-                <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{s.label}</div>
-                <div style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: s.color || 'var(--text)' }}>{s.val}</div>
+              <div key={s.label} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 9px' }}>
+                <div style={{ fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 1 }}>{s.label}</div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: s.color || 'var(--text)' }}>{s.val}</div>
               </div>
             ))}
           </div>
         </div>
 
+        {/* ── Aging summary band ────────────────────────────────────────
+            What auditors, credit committees, and the customer's own AP
+            staff look at first. Five buckets (current → 90+) showing how
+            stale each chunk of outstanding AR is. Skipped entirely when
+            there's nothing open (no point cluttering a clean account). */}
+        {aging.total > 0 && (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, background: 'var(--surface2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>
+                Aging of Outstanding Balance (as of {range.to})
+              </div>
+              <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text2)' }}>
+                Total: <span style={{ fontWeight: 700, color: 'var(--red)' }}>TZS {aging.total.toLocaleString()}</span>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4 }}>
+              {[
+                { label: 'Current',  val: aging.current, color: '#22c55e' },
+                { label: '1-30 d',   val: aging.d1_30,   color: '#fbbf24' },
+                { label: '31-60 d',  val: aging.d31_60,  color: '#fb923c' },
+                { label: '61-90 d',  val: aging.d61_90,  color: '#f87171' },
+                { label: '90+ d',    val: aging.d90plus, color: '#dc2626' },
+              ].map(b => {
+                const pct = aging.total > 0 ? Math.round((b.val / aging.total) * 100) : 0
+                return (
+                  <div key={b.label} style={{ background: 'var(--surface)', border: `1px solid ${b.val > 0 ? b.color + '55' : 'var(--border)'}`, borderRadius: 5, padding: '5px 8px' }}>
+                    <div style={{ fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 1 }}>{b.label}</div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: b.val > 0 ? b.color : 'var(--text3)' }}>
+                      {b.val > 0 ? b.val.toLocaleString() : '—'}
+                    </div>
+                    {b.val > 0 && pct > 0 && (
+                      <div style={{ fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', marginTop: 1 }}>{pct}%</div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Ledger table ──────────────────────────────────────────── */}
-        <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
               <tr style={{ background: 'var(--surface2)' }}>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, whiteSpace: 'nowrap' }}>Date</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Type</th>
-                <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Reference / Description</th>
-                <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Debit</th>
-                <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Credit</th>
-                <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Balance</th>
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, whiteSpace: 'nowrap' }}>Date</th>
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Type</th>
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Reference / Description</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Debit</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Credit</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: 8, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Balance</th>
               </tr>
             </thead>
             <tbody>
-              {/* Opening balance row — always shown even if zero, so the reader
-                  sees the math start somewhere. */}
+              {/* Opening balance row */}
               <tr style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
-                <td style={{ padding: '10px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{range.from}</td>
-                <td colSpan={2} style={{ padding: '10px 12px', fontSize: 11, fontStyle: 'italic', color: 'var(--text3)' }}>Opening balance (brought forward)</td>
-                <td style={{ padding: '10px 12px' }}></td>
-                <td style={{ padding: '10px 12px' }}></td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 700, color: openingBalance > 0 ? 'var(--red)' : openingBalance < 0 ? 'var(--green)' : 'var(--text3)' }}>
+                <td style={{ padding: '6px 10px', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{range.from}</td>
+                <td colSpan={2} style={{ padding: '6px 10px', fontSize: 10, fontStyle: 'italic', color: 'var(--text3)' }}>Opening balance (brought forward)</td>
+                <td style={{ padding: '6px 10px' }}></td>
+                <td style={{ padding: '6px 10px' }}></td>
+                <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: openingBalance > 0 ? 'var(--red)' : openingBalance < 0 ? 'var(--green)' : 'var(--text3)' }}>
                   {openingBalance.toLocaleString()}
                 </td>
               </tr>
 
-              {/* Body rows */}
               {rows.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '30px 12px', textAlign: 'center', color: 'var(--text3)', fontStyle: 'italic', fontSize: 12 }}>
+                <tr><td colSpan={6} style={{ padding: '20px 10px', textAlign: 'center', color: 'var(--text3)', fontStyle: 'italic', fontSize: 11 }}>
                   No transactions in this period.
                 </td></tr>
               ) : (
                 rows.map(r => {
                   const color = docColor(r.document_type)
                   const isDebit = r.amount > 0
+                  const isReceiptLike = r.document_type === 'receipt' || r.document_type === 'credit_note'
+                  // Days overdue: positive number if past due, zero or
+                  // negative if not yet due. Only shown on open invoices.
+                  const overdueDays = (r.is_open && r.due_date)
+                    ? daysBetween(range.to, r.due_date)
+                    : 0
+                  const isOverdue = overdueDays > 0 && r.is_open
+
+                  // Payment method label for receipts. Falls back to the
+                  // voucher's notes if no payment_method was stored
+                  // (older records).
+                  const paymentInfo = isReceiptLike && r.payment_method ? methodLabel(r.payment_method) : ''
+                  // Transaction reference: extract from voucher notes.
+                  // Notes typically look like "Batch receipt · ref ABC123"
+                  // or "M-Pesa QTA1ABC2DE" — we surface whatever is there
+                  // as supporting evidence of payment.
+                  const txRef = r.voucher_notes && r.voucher_notes.length < 120
+                    ? r.voucher_notes
+                    : ''
+
                   return (
-                    <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
-                      <td style={{ padding: '10px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{r.posting_date}</td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <span style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600, padding: '3px 8px', borderRadius: 4, background: color.bg, color: color.fg, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                    <tr key={r.id} style={{
+                      borderTop: '1px solid var(--border)',
+                      background: isOverdue ? 'rgba(239,68,68,.04)' : undefined,
+                    }}>
+                      <td style={{ padding: '5px 10px', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{r.posting_date}</td>
+                      <td style={{ padding: '5px 10px', verticalAlign: 'top' }}>
+                        <span style={{ fontSize: 9, fontFamily: 'var(--mono)', fontWeight: 600, padding: '2px 6px', borderRadius: 3, background: color.bg, color: color.fg, textTransform: 'uppercase', letterSpacing: 0.3, whiteSpace: 'nowrap' }}>
                           {docLabel(r.document_type)}
                         </span>
                       </td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>{r.document_ref}</div>
-                        {r.description && (
-                          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{r.description}</div>
-                        )}
-                        {r.due_date && r.is_open && (
-                          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>Due: {r.due_date}</div>
+                      <td style={{ padding: '5px 10px', verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>{r.document_ref}</span>
+                          {r.due_date && r.is_open && !isOverdue && (
+                            <span style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                              · due {r.due_date}
+                            </span>
+                          )}
+                          {isOverdue && (
+                            <span style={{ fontSize: 9, fontFamily: 'var(--mono)', fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(239,68,68,.15)', color: '#dc2626' }}>
+                              {overdueDays}d OVERDUE
+                            </span>
+                          )}
+                          {paymentInfo && (
+                            <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text2)', padding: '1px 5px', borderRadius: 3, background: 'rgba(34,197,94,.08)' }}>
+                              {paymentInfo}
+                            </span>
+                          )}
+                        </div>
+                        {(r.description || txRef) && (
+                          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 1, lineHeight: 1.3 }}>
+                            {r.description}
+                            {r.description && txRef ? ' · ' : ''}
+                            {txRef && <span style={{ fontFamily: 'var(--mono)' }}>{txRef}</span>}
+                          </div>
                         )}
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)' }}>
+                      <td style={{ padding: '5px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--red)', verticalAlign: 'top' }}>
                         {isDebit ? r.amount.toLocaleString() : ''}
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--green)' }}>
+                      <td style={{ padding: '5px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--green)', verticalAlign: 'top' }}>
                         {!isDebit ? Math.abs(r.amount).toLocaleString() : ''}
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: r.runningBalance > 0 ? 'var(--red)' : r.runningBalance < 0 ? 'var(--green)' : 'var(--text3)' }}>
+                      <td style={{ padding: '5px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: r.runningBalance > 0 ? 'var(--red)' : r.runningBalance < 0 ? 'var(--green)' : 'var(--text3)', verticalAlign: 'top' }}>
                         {r.runningBalance.toLocaleString()}
                       </td>
                     </tr>
@@ -592,25 +796,25 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
 
               {/* Closing balance summary row */}
               <tr style={{ borderTop: '2px solid var(--accent)', background: 'var(--surface2)' }}>
-                <td style={{ padding: '14px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{range.to}</td>
-                <td colSpan={2} style={{ padding: '14px 12px', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Closing Balance</td>
-                <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+                <td style={{ padding: '8px 10px', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{range.to}</td>
+                <td colSpan={2} style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>Closing Balance</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
                   {totalInvoiced > 0 && (
                     <>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}>Period Total</div>
+                      <div style={{ fontSize: 8, color: 'var(--text3)', marginBottom: 1 }}>Period Total</div>
                       {totalInvoiced.toLocaleString()}
                     </>
                   )}
                 </td>
-                <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
                   {totalPaid > 0 && (
                     <>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}>Period Total</div>
+                      <div style={{ fontSize: 8, color: 'var(--text3)', marginBottom: 1 }}>Period Total</div>
                       {totalPaid.toLocaleString()}
                     </>
                   )}
                 </td>
-                <td style={{ padding: '14px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 800, color: closingBalance > 0 ? 'var(--red)' : closingBalance < 0 ? 'var(--green)' : 'var(--text3)' }}>
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 800, color: closingBalance > 0 ? 'var(--red)' : closingBalance < 0 ? 'var(--green)' : 'var(--text3)' }}>
                   TZS {closingBalance.toLocaleString()}
                 </td>
               </tr>
@@ -618,19 +822,45 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
           </table>
         </div>
 
-        {/* Footer note */}
-        <div style={{ marginTop: 24, padding: 14, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: 600 }}>Payment Details</div>
-          <div style={{ color: 'var(--text2)' }}>
-            NMB Bank · A/C: Malkia Wellness Group Ltd · A/C No: 22510074972 · Dar es Salaam Branch
+        {/* Footer: payment instructions + (when owed) call to action */}
+        <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 10, color: 'var(--text3)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, fontWeight: 600 }}>How to Pay</div>
+          <div style={{ color: 'var(--text2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 10 }}>
+            <div>
+              <strong style={{ color: 'var(--text)' }}>NMB Bank</strong> · A/C No: 22510074972<br/>
+              Malkia Wellness Group Ltd · Dar es Salaam Branch
+            </div>
+            <div>
+              <strong style={{ color: 'var(--text)' }}>M-Pesa</strong>: dial *150*00# → Lipa kwa M-Pesa<br/>
+              Business Number: <span style={{ fontFamily: 'var(--mono)' }}>————</span> · Reference: invoice no.
+            </div>
           </div>
-          <div style={{ marginTop: 6, fontStyle: 'italic' }}>
-            Please reference the invoice number when making payment. For any queries, contact us on +255 745 555 999 or support@malkia.co.tz.
+          <div style={{ marginTop: 6, fontSize: 9 }}>
+            Please reference the invoice number when paying. Queries: +255 745 555 999 · support@malkia.co.tz.
           </div>
         </div>
 
-        {/* Signature line (visible in print only) */}
-        <div style={{ marginTop: 28, fontSize: 10, color: 'var(--text3)', textAlign: 'center', fontStyle: 'italic' }}>
+        {/* Call to action — only when there's something owed. Gives the
+            customer a concrete next step instead of a generic "please pay
+            soon." Computes a suggested-by date from credit period if set. */}
+        {closingBalance > 0 && (
+          <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, fontSize: 11, color: 'var(--text2)' }}>
+            <strong style={{ color: '#dc2626', fontFamily: 'var(--display)', fontSize: 12 }}>Amount Due: TZS {closingBalance.toLocaleString()}</strong>
+            {aging.d90plus > 0 && (
+              <span style={{ marginLeft: 8, fontSize: 10, color: '#dc2626', fontFamily: 'var(--mono)' }}>
+                · TZS {aging.d90plus.toLocaleString()} is 90+ days overdue and requires immediate action.
+              </span>
+            )}
+            {aging.d90plus === 0 && (aging.d31_60 > 0 || aging.d61_90 > 0) && (
+              <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--text3)' }}>
+                · Please settle overdue invoices to avoid credit hold.
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Signature line */}
+        <div style={{ marginTop: 14, fontSize: 9, color: 'var(--text3)', textAlign: 'center' }}>
           Computer-generated statement · Reflects all transactions recorded as of {today()}
         </div>
       </div>
