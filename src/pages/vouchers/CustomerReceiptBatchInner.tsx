@@ -14,25 +14,37 @@ import {
 // CustomerReceiptBatch page so it can be embedded inside the unified Receipt
 // Voucher page as one of three modes (customer / batch / other).
 //
-// This component owns its own row state but accepts the SHARED header
-// fields (posting date, deposit account, AR account) as props. The
-// parent (CashReceipt.tsx) renders the date/deposit pickers above; this
-// component just renders the row grid and the per-row posting loop.
+// Design (revised):
+//   Each ROW carries its own Deposit Account and Method, not the batch
+//   header. This lets a single batch session reconcile payments that
+//   landed in different bank accounts (NMB row, CRDB row, M-Pesa row).
+//   New rows default to the last-used account so a long run of receipts
+//   into the same account stays fast.
 //
-// Why split: the unified page already has a Voucher Ref + Date +
-// Deposit Account block at the top. Duplicating those inside the batch
-// component would make the UI shout. Sharing them keeps the page
-// consistent regardless of mode.
+//   The Method label per row is derived from that row's deposit account
+//   code (101x → cash, 102x → mpesa/mixx/airtel, 103x → rtgs). No
+//   per-row Method dropdown anymore — that was visually confusing because
+//   the account already implies the method.
 //
-// Posting model unchanged from the standalone page: each row → its own
-// Cash Receipt voucher, its own journal. See the long comment in the
-// original CustomerReceiptBatch.tsx for the full reasoning.
+//   The parent (CashReceipt.tsx) passes the *initial* deposit account
+//   (typically the first Cash & Bank account from loadAccounts) so row 1
+//   has a sensible default. After that, the inner component manages
+//   per-row accounts on its own.
+//
+// Posting model unchanged: each row → its own Cash Receipt voucher,
+// its own journal. Same accounting helpers as the single Cash Receipt.
 // ════════════════════════════════════════════════════════════════════════
 
 interface Props {
   postingDate: string
-  depositAccountId: string
+  // Default deposit account for row 1 (and for subsequent rows until the
+  // user picks something different). Comes from the parent's Cash & Bank
+  // loader — typically 1001 (cash till) unless the user changed it.
+  initialDepositAccountId: string
   arAccountId: string
+  // All Cash & Bank accounts the user can choose from. Passed down from
+  // the parent so we don't query supabase twice.
+  cashAccounts: Array<{ id: string; code: string; name: string; category: string }>
   // Tells the parent when something happened (mainly so the parent can
   // show toasts / disable its single-receipt Post button while batch
   // posting is in progress). Optional — component works fine without it.
@@ -51,7 +63,9 @@ interface BatchRow {
   id: string
   customer: Debtor | null
   amount: string
-  paymentMethod: string
+  // Per-row deposit account. The Method label is derived from this on
+  // render and at posting time, so there's no separate method field.
+  depositAccountId: string
   transactionId: string
   narration: string
   openInvoices: OpenInvoice[]
@@ -61,24 +75,36 @@ interface BatchRow {
   expanded: boolean
 }
 
-const PAYMENT_METHODS = [
-  { value: 'cash',    label: 'Cash' },
-  { value: 'mpesa',   label: 'M-Pesa' },
-  { value: 'mixx',    label: 'Mixx by Yas' },
-  { value: 'airtel',  label: 'Airtel Money' },
-  { value: 'rtgs',    label: 'RTGS / Bank Transfer' },
-  { value: 'cheque',  label: 'Cheque' },
-  { value: 'deposit', label: 'Cash Deposit at Bank' },
-  { value: 'pos',     label: 'POS' },
-]
+// Derive the human-readable payment method label from a Cash & Bank
+// account's code/name. Mirrors the logic in the single CashReceipt page
+// so a batch row and a single receipt for the same account show the
+// same Method label.
+//   101x = cash tills    → "Cash"
+//   1040 = petty cash    → "Cash"
+//   102x M-Pesa/Mixx/Air → "M-Pesa" / "Mixx by Yas" / "Airtel Money"
+//   103x = bank accounts → "RTGS / Bank Transfer"
+//   else                 → "Cash" (safe fallback)
+function deriveMethod(code: string, name: string): { value: string; label: string } {
+  if (!code) return { value: 'cash', label: 'Cash' }
+  const c = code.trim()
+  const n = (name || '').toLowerCase()
+  if (c.startsWith('101') || c === '1040') return { value: 'cash', label: 'Cash' }
+  if (c.startsWith('102')) {
+    if (n.includes('mixx')) return { value: 'mixx', label: 'Mixx by Yas' }
+    if (n.includes('airtel')) return { value: 'airtel', label: 'Airtel Money' }
+    return { value: 'mpesa', label: 'M-Pesa' }
+  }
+  if (c.startsWith('103')) return { value: 'rtgs', label: 'RTGS / Bank Transfer' }
+  return { value: 'cash', label: 'Cash' }
+}
 
 const newRowId = () => `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
-const emptyRow = (paymentMethod = 'cash'): BatchRow => ({
+const emptyRow = (depositAccountId = ''): BatchRow => ({
   id: newRowId(),
   customer: null,
   amount: '',
-  paymentMethod,
+  depositAccountId,
   transactionId: '',
   narration: '',
   openInvoices: [],
@@ -87,15 +113,29 @@ const emptyRow = (paymentMethod = 'cash'): BatchRow => ({
 })
 
 export default function CustomerReceiptBatchInner({
-  postingDate, depositAccountId, arAccountId,
+  postingDate, initialDepositAccountId, arAccountId, cashAccounts,
   onStatusChange, onReady, showToast,
 }: Props) {
   const [contacts, setContacts] = useState<Debtor[]>([])
   const [contactsLoading, setContactsLoading] = useState(true)
-  const [rows, setRows] = useState<BatchRow[]>([emptyRow()])
+  const [rows, setRows] = useState<BatchRow[]>([emptyRow(initialDepositAccountId)])
   const [openPickerRowId, setOpenPickerRowId] = useState<string | null>(null)
   const [pickerSearch, setPickerSearch] = useState('')
   const [posting, setPosting] = useState(false)
+
+  // If the parent's default deposit account loads AFTER the component
+  // mounts (async loadAccounts), apply it to row 1 if row 1 doesn't
+  // already have one. Avoids the awkward "first row has no account
+  // selected" state right after page load.
+  useEffect(() => {
+    if (!initialDepositAccountId) return
+    setRows(prev => {
+      if (prev.length === 1 && !prev[0].depositAccountId && !prev[0].customer && !prev[0].amount) {
+        return [{ ...prev[0], depositAccountId: initialDepositAccountId }]
+      }
+      return prev
+    })
+  }, [initialDepositAccountId])
 
   // Load wholesale contacts (and legacy debtors). Excludes is_hidden.
   useEffect(() => {
@@ -127,20 +167,23 @@ export default function CustomerReceiptBatchInner({
     if (!onReady) return
     onReady(postBatch)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, depositAccountId, arAccountId, postingDate])
+  }, [rows, arAccountId, postingDate])
 
   const updateRow = (id: string, patch: Partial<BatchRow>) => {
     setRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
   }
 
   const addRow = () => {
-    const lastMethod = rows[rows.length - 1]?.paymentMethod || 'cash'
-    setRows(prev => [...prev, emptyRow(lastMethod)])
+    // Inherit the previous row's deposit account so a long run of
+    // receipts into the same account (e.g. 20 M-Pesa payments) doesn't
+    // require re-picking. User can change any row independently.
+    const lastAccount = rows[rows.length - 1]?.depositAccountId || initialDepositAccountId
+    setRows(prev => [...prev, emptyRow(lastAccount)])
   }
 
   const removeRow = (id: string) => {
     setRows(prev => {
-      if (prev.length === 1) return [emptyRow(prev[0].paymentMethod)]
+      if (prev.length === 1) return [emptyRow(prev[0].depositAccountId || initialDepositAccountId)]
       const target = prev.find(r => r.id === id)
       if (target?.status === 'posted') return prev
       return prev.filter(r => r.id !== id)
@@ -153,7 +196,7 @@ export default function CustomerReceiptBatchInner({
       const ok = window.confirm(`This batch has ${rows.filter(r => r.status === 'posted').length} posted receipt(s). Clearing won't undo them — they remain in the books. Continue?`)
       if (!ok) return
     }
-    setRows([emptyRow()])
+    setRows([emptyRow(initialDepositAccountId)])
   }
 
   const pickCustomer = async (rowId: string, c: Debtor) => {
@@ -221,6 +264,7 @@ export default function CustomerReceiptBatchInner({
     if (!r.customer) return 'Pick a customer'
     const amt = parseFloat(r.amount) || 0
     if (amt <= 0) return 'Amount must be > 0'
+    if (!r.depositAccountId) return 'Pick a deposit account'
     const allocated = r.openInvoices.reduce((s, i) => s + i.allocation, 0)
     if (allocated > amt + 0.5) return `Allocated TZS ${allocated.toLocaleString()} > amount TZS ${amt.toLocaleString()}`
     return null
@@ -238,8 +282,9 @@ export default function CustomerReceiptBatchInner({
   })()
 
   // Post the batch. Called by the parent's Post button via onReady.
+  // Each row uses ITS OWN deposit account (set per row in the grid).
+  // Method label is derived from that account's code/name.
   const postBatch = async (): Promise<{ ok: number; fail: number }> => {
-    if (!depositAccountId) { showToast('Pick a deposit account first', 'error'); return { ok: 0, fail: 0 } }
     if (!arAccountId) { showToast('AR control account (1050) not found', 'error'); return { ok: 0, fail: 0 } }
 
     const toPost = rows.filter(r => r.status !== 'posted')
@@ -271,6 +316,11 @@ export default function CustomerReceiptBatchInner({
         const custName = cust.company || cust.name
         const ref = await nextRef('cash_receipt')
 
+        // Resolve this row's deposit account + derive method label.
+        const rowAcc = cashAccounts.find(a => a.id === r.depositAccountId)
+        if (!rowAcc) throw new Error('Deposit account not found in chart of accounts')
+        const method = deriveMethod(rowAcc.code, rowAcc.name)
+
         const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
           ref: 'JV-' + ref, posting_date: postingDate,
           description: `Customer Receipt — ${custName} — ${ref} (batch)`,
@@ -280,7 +330,7 @@ export default function CustomerReceiptBatchInner({
         if (jErr || !journalRaw) throw new Error(jErr?.message || 'Journal insert failed')
 
         const lines = buildCustomerReceiptJournalLines({
-          depositAccountId, arAccountId, amount, customerName: custName, narration: r.narration,
+          depositAccountId: r.depositAccountId, arAccountId, amount, customerName: custName, narration: r.narration,
         }).map(l => ({ ...l, journal_id: journalRaw.id }))
 
         const { error: jlErr } = await supabase.from('journal_lines').insert(lines)
@@ -302,7 +352,7 @@ export default function CustomerReceiptBatchInner({
           ref, type: 'cash_receipt', posting_date: postingDate,
           description: `Customer Receipt — ${custName} (batch)`,
           total_amount: amount, status: 'posted', journal_id: journalRaw.id,
-          payment_method: r.paymentMethod,
+          payment_method: method.value,
           notes: r.narration || `Batch receipt · ${r.transactionId ? `ref ${r.transactionId}` : ''}`,
           posted_by: getPostedBy(), customer_id: cust.id,
         })
@@ -489,22 +539,49 @@ export default function CustomerReceiptBatchInner({
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: 10 }}>Method</label>
-                <select className="form-input" value={r.paymentMethod}
-                  onChange={e => updateRow(r.id, { paymentMethod: e.target.value })}
-                  disabled={locked}>
-                  {PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                <label className="form-label" style={{ fontSize: 10 }}>Deposit Account</label>
+                <select className="form-input" value={r.depositAccountId}
+                  onChange={e => updateRow(r.id, { depositAccountId: e.target.value })}
+                  disabled={locked}
+                  title="Which account did this customer's money land in? Method label is auto-derived.">
+                  <option value="">— Select —</option>
+                  {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                 </select>
+                {r.depositAccountId && (() => {
+                  const acc = cashAccounts.find(a => a.id === r.depositAccountId)
+                  if (!acc) return null
+                  const m = deriveMethod(acc.code, acc.name)
+                  return (
+                    <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>
+                      → {m.label}
+                    </div>
+                  )
+                })()}
               </div>
 
               <div>
                 <label className="form-label" style={{ fontSize: 10 }}>Reference</label>
-                <input className="form-input"
-                  placeholder={r.paymentMethod === 'cheque' ? 'Cheque #' : r.paymentMethod === 'rtgs' ? 'RTGS ref' : r.paymentMethod === 'mpesa' ? 'M-Pesa ref' : 'Optional'}
-                  value={r.transactionId}
-                  onChange={e => updateRow(r.id, { transactionId: e.target.value })}
-                  disabled={locked}
-                />
+                {(() => {
+                  // Reference placeholder depends on the derived method
+                  // for this row's account — cheque needs a cheque #,
+                  // RTGS needs a TT ref, M-Pesa needs the M-Pesa code, etc.
+                  const acc = cashAccounts.find(a => a.id === r.depositAccountId)
+                  const method = acc ? deriveMethod(acc.code, acc.name).value : 'cash'
+                  const placeholder =
+                    method === 'rtgs'   ? 'RTGS / cheque ref' :
+                    method === 'mpesa'  ? 'M-Pesa ref' :
+                    method === 'mixx'   ? 'Mixx ref' :
+                    method === 'airtel' ? 'Airtel ref' :
+                    'Optional'
+                  return (
+                    <input className="form-input"
+                      placeholder={placeholder}
+                      value={r.transactionId}
+                      onChange={e => updateRow(r.id, { transactionId: e.target.value })}
+                      disabled={locked}
+                    />
+                  )
+                })()}
               </div>
             </div>
 
