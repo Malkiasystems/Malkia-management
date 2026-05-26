@@ -279,14 +279,17 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       .eq('is_active', true).order('name').then(({ data }) => { if (data) setProducts(data) })
   }
 
-  // Pull the full list of active debtors once on mount. This lets the user
-  // browse without typing, and filter instantly client-side as they type
-  // (faster than a round-trip to Supabase on every keystroke).
+  // Pull the full list of active wholesale contacts once on mount. This
+  // lets the user browse without typing, and filter instantly client-side
+  // as they type (faster than a round-trip on every keystroke). We
+  // accept both the canonical 'wholesale' label and legacy 'debtor' rows,
+  // and we exclude soft-hidden contacts (kept in reports but not pickers).
   const loadAllCustomers = () => {
     supabase.from('customers')
       .select('*')
-      .eq('customer_type', 'debtor')
+      .in('customer_type', ['wholesale', 'debtor'])
       .eq('is_active', true)
+      .eq('is_hidden', false)
       .order('name')
       .then(({ data }) => { if (data) setAllCustomers(data) })
   }
@@ -566,6 +569,14 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       // advance, the *net* balance change is subtotal − paidNow (invoice
       // adds receivable, receipt reduces it). Both ledger rows are still
       // posted individually for an audit trail.
+      //
+      // Additive update is safe here because netBalanceChange exactly
+      // matches the ledger rows we write below (one invoice row + one
+      // optional receipt row, summing to subtotal - paidNow). The receipt
+      // path was rewritten in CustomerPaymentFlow.postCustomerReceiptLedger
+      // to re-derive from ledger after writing, because that path had a
+      // drift bug where Math.max(0, ...) clamped overpayments and silently
+      // de-synced. Don't replicate that bug here.
       const netBalanceChange = subtotal - paidNow
       await supabase.from('customers').update({
         balance: (selectedCust.balance || 0) + netBalanceChange,
@@ -737,7 +748,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       color="rgba(0,229,160,.12)" onPost={post}
       postLabel={posting ? 'Posting…' : 'Post Invoice'}
       postDisabled={!selectedCust || posting}
-      postDisabledReason={!selectedCust ? 'Select a registered customer before posting. Walk-in or typed names are not accepted on credit invoices.' : undefined}
+      postDisabledReason={!selectedCust ? 'Select a registered customer before posting. Walk-in or typed names are not accepted on wholesale invoices.' : undefined}
       journalNote={vatEnabled
         ? 'Dr AR (1050) · Cr Revenue (4011) · Cr VAT (2020) · Dr COGS (5010) · Cr Inventory (1110)'
         : 'Dr AR (1050) · Cr Revenue (4011) · Dr COGS (5010) · Cr Inventory (1110)'}>
@@ -793,7 +804,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                     searchCustomer(form.customer)  // shows all or current filter
                   }
                 }}
-                title={showDrop ? 'Close list' : 'Browse all debtors'}
+                title={showDrop ? 'Close list' : 'Browse all wholesale contacts'}
                 style={{
                   position: 'absolute', left: 6, top: '50%',
                   transform: 'translateY(-50%)',
@@ -813,7 +824,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                 </svg>
               </button>
               <input className="form-input" style={{ paddingLeft: 44, fontSize: 14, height: 48 }}
-                placeholder="Click the person icon to browse, or type to filter by name / company / DEB number…"
+                placeholder="Click the person icon to browse, or type to filter by name / company / WHL/DEB number…"
                 value={form.customer}
                 onChange={e => searchCustomer(e.target.value)}
               />
@@ -837,7 +848,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                   <span>
                     {form.customer.trim().length > 0
                       ? `${custResults.length} match${custResults.length === 1 ? '' : 'es'}`
-                      : `All registered debtors${allCustomers.length > 50 ? ` (showing 50 of ${allCustomers.length})` : ` (${allCustomers.length})`}`}
+                      : `All wholesale contacts${allCustomers.length > 50 ? ` (showing 50 of ${allCustomers.length})` : ` (${allCustomers.length})`}`}
                   </span>
                   <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text3)' }}>
                     {form.customer.trim().length === 0 && allCustomers.length > 50 && 'Type to filter…'}
@@ -881,7 +892,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                   No customer matches <strong>"{form.customer}"</strong>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>
-                  This customer is not registered in your debtor list. You must register them first before posting an invoice.
+                  This customer is not registered in your wholesale contacts. You must register them first before posting an invoice.
                 </div>
                 <button
                   onClick={() => onNav('customers')}
