@@ -43,17 +43,24 @@ const PAYMENT_METHODS_BANK = [
 
 // Derive the payment method from a Cash & Bank account code/name.
 // 1010, 1011, 1040 → cash · 1020, 1021 → mpesa · 103x, 102x bank → rtgs · etc.
+// Derive the payment method label from a Cash & Bank account.
+// Name-first detection — a Tanzanian Chart of Accounts can put banks in
+// 102x or 103x with no fixed rule, so the account NAME is more reliable
+// than the code prefix. See matching helper in CustomerReceiptBatchInner.tsx.
 const deriveMethod = (code: string, name: string): string => {
-  if (!code) return 'cash'
-  const c = code.trim()
   const n = (name || '').toLowerCase()
-  if (c.startsWith('101') || c === '1040') return 'cash'                  // Cash tills + petty cash
-  if (c.startsWith('102')) {
-    if (n.includes('mixx')) return 'mixx'
-    if (n.includes('airtel')) return 'airtel'
-    return 'mpesa'                                                         // M-Pesa default for 102x
-  }
-  if (c.startsWith('103')) return 'rtgs'                                   // CRDB/NMB/USD bank → bank transfer
+  const c = (code || '').trim()
+
+  if (n.includes('mpesa') || n.includes('m-pesa')) return 'mpesa'
+  if (n.includes('mixx') || n.includes('tigo'))    return 'mixx'
+  if (n.includes('airtel'))                        return 'airtel'
+  if (n.includes('halopesa') || n.includes('halo pesa')) return 'mpesa'
+  const banks = ['nmb', 'crdb', 'nbc', 'stanbic', 'absa', 'dtb', 'exim', 'access', 'i&m', 'kcb', 'azania', 'amana', 'equity', 'tcb', 'mkombozi', 'tib', 'twiga', 'ecobank', 'bank']
+  if (banks.some(b => n.includes(b))) return 'rtgs'
+  if (n.includes('cash') || n.includes('till') || n.includes('petty')) return 'cash'
+
+  if (c.startsWith('101') || c === '1040') return 'cash'
+  if (c.startsWith('103')) return 'rtgs'
   return 'cash'
 }
 const methodLabel = (m: string): string => {
