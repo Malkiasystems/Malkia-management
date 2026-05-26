@@ -157,19 +157,49 @@ export default function SalesDayBook({ onEdit }: Props) {
   const cashPct = totalRevenue > 0 ? Math.round((cashTotal / totalRevenue) * 100) : 0
   const creditPct = totalRevenue > 0 ? Math.round((creditTotal / totalRevenue) * 100) : 0
 
-  // Payment split — use actual amounts from payment_split JSON when available
-  const paymentSplit: Record<string, number> = {}
-  filtered.forEach(s => {
+  // Payment split — split by source (retail cash sales vs wholesale invoices)
+  // so the breakdown doesn't lump them together. Previously, a single
+  // paymentSplit bucket pulled in payment_method values from BOTH cash
+  // sales and sales invoices; pure credit invoices fell through to their
+  // raw payment_method string (often 'Debtor' or 'Credit'), causing a
+  // misleading "Debtor" line to show up in what looked like a cash
+  // breakdown. Now retail and wholesale are computed and rendered separately.
+  const buildSplit = (rows: any[]): Record<string, number> => {
+    const split: Record<string, number> = {}
+    rows.forEach(s => {
+      if (s.payment_split && typeof s.payment_split === 'object') {
+        Object.entries(s.payment_split as Record<string, number>).forEach(([method, amount]) => {
+          split[method] = (split[method] || 0) + (amount || 0)
+        })
+      } else {
+        const method = (s.payment_method || 'Cash').trim()
+        split[method] = (split[method] || 0) + (s.total_amount || 0)
+      }
+    })
+    return split
+  }
+  const retailSplit: Record<string, number> = buildSplit(cashSales)
+  // Wholesale (sales invoice) split. Only count what's actually been
+  // received against the invoice (advance receipts), since the rest is
+  // still AR and shouldn't appear as a "payment received" amount. If a
+  // voucher has payment_split JSON, use it; otherwise treat the invoice
+  // as unpaid and bucket it under 'Open AR (Wholesale)'.
+  const wholesaleSplit: Record<string, number> = {}
+  creditSales.forEach(s => {
     if (s.payment_split && typeof s.payment_split === 'object') {
-      // New vouchers have exact split amounts
       Object.entries(s.payment_split as Record<string, number>).forEach(([method, amount]) => {
-        paymentSplit[method] = (paymentSplit[method] || 0) + (amount || 0)
+        wholesaleSplit[method] = (wholesaleSplit[method] || 0) + (amount || 0)
       })
     } else {
-      // Legacy vouchers without payment_split — single method gets full amount
-      const method = (s.payment_method || 'Cash').trim()
-      paymentSplit[method] = (paymentSplit[method] || 0) + (s.total_amount || 0)
+      wholesaleSplit['Open AR (Wholesale)'] = (wholesaleSplit['Open AR (Wholesale)'] || 0) + (s.total_amount || 0)
     }
+  })
+  // Backward-compat: keep the combined `paymentSplit` for the CSV/PDF
+  // export helpers below (they were written against the old single bucket).
+  // We'll switch them later; for now build the same shape so nothing breaks.
+  const paymentSplit: Record<string, number> = { ...retailSplit }
+  Object.entries(wholesaleSplit).forEach(([k, v]) => {
+    paymentSplit[k] = (paymentSplit[k] || 0) + v
   })
 
   // Expense split by payment method (bank)
@@ -359,26 +389,58 @@ export default function SalesDayBook({ onEdit }: Props) {
         <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>
       </div>
 
-      {/* PAYMENT SPLIT + STATUS */}
+      {/* PAYMENT SPLIT (Retail + Wholesale) + STATUS */}
       <div className="grid g2" style={{ marginBottom: 20 }}>
         <div className="card card-sm">
           <div className="card-title" style={{ marginBottom: 12 }}>Payment Split</div>
-          {Object.keys(paymentSplit).length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>No data</div>
-          ) : Object.entries(paymentSplit).map(([method, amount], i) => {
-            const pct = totalRevenue > 0 ? (amount / totalRevenue) * 100 : 0
-            return (
-              <div key={i} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--text3)' }}>{method.includes('Cash') ? '' : method.includes('Pesa') || method.includes('pesa') ? '' : ''} {method}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(amount)} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
+
+          {/* Retail (cash sales) */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: 700 }}>
+              Retail — Cash Sales <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(cashTotal)})</span>
+            </div>
+            {Object.keys(retailSplit).length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No retail sales in this period</div>
+            ) : Object.entries(retailSplit).map(([method, amount], i) => {
+              const pct = cashTotal > 0 ? (amount / cashTotal) * 100 : 0
+              return (
+                <div key={'r' + i} style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                    <span style={{ color: 'var(--text3)' }}>{method}</span>
+                    <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(amount)} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
+                  </div>
+                  <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3 }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: method.includes('Cash') ? 'var(--green)' : method.includes('Pesa') || method.includes('pesa') ? 'var(--blue)' : 'var(--accent)', borderRadius: 3 }}></div>
+                  </div>
                 </div>
-                <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3 }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: method.includes('Cash') ? 'var(--green)' : method.includes('Pesa') || method.includes('pesa') ? 'var(--blue)' : 'var(--accent)', borderRadius: 3 }}></div>
+              )
+            })}
+          </div>
+
+          {/* Wholesale (sales invoices) — separate block so debtor/AR
+              entries don't get mixed into the cash breakdown. */}
+          <div>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              Wholesale — Sales Invoices <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(creditTotal)})</span>
+            </div>
+            {Object.keys(wholesaleSplit).length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No wholesale invoices in this period</div>
+            ) : Object.entries(wholesaleSplit).map(([method, amount], i) => {
+              const pct = creditTotal > 0 ? (amount / creditTotal) * 100 : 0
+              const isOpenAR = method.startsWith('Open AR')
+              return (
+                <div key={'w' + i} style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                    <span style={{ color: isOpenAR ? 'var(--yellow, #f59e0b)' : 'var(--text3)', fontWeight: isOpenAR ? 600 : 400 }}>{method}</span>
+                    <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(amount)} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
+                  </div>
+                  <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3 }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: isOpenAR ? 'var(--yellow, #f59e0b)' : 'var(--accent)', borderRadius: 3 }}></div>
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
         <div className="card card-sm">
           <div className="card-title" style={{ marginBottom: 12 }}>Voucher Status</div>
