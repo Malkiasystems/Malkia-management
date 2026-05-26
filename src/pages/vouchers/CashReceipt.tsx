@@ -424,7 +424,7 @@ export default function CashReceipt({ onNav: _onNav }: Props) {
               depositAccountId={form.depositAccountId}
               arAccountId={arAccount.id}
               onStatusChange={setBatchStatus}
-              onReady={fn => { batchPostRef.current = fn }}
+              onReady={(fn: () => Promise<{ ok: number; fail: number }>) => { batchPostRef.current = fn }}
               showToast={showToast}
             />
           )}
