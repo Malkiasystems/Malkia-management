@@ -82,7 +82,10 @@ const InvestorsHub = lazy(() => import('./pages/InvestorsHub'))
 const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
 const CashPayment = lazy(() => import('./pages/vouchers/CashPayment'))
 const CashReceipt = lazy(() => import('./pages/vouchers/CashReceipt'))
-const BankReceipt = lazy(() => import('./pages/vouchers/BankReceipt'))
+// BankReceipt was a redundant 14-line wrapper; CustomerReceiptBatch was
+// the standalone batch page. Both functions are now folded into the
+// unified Receipt Voucher (CashReceipt). The route aliases below keep
+// old URLs working.
 const BankTransfer = lazy(() => import('./pages/vouchers/BankTransfer'))
 const ContraEntry = lazy(() => import('./pages/vouchers/ContraEntry'))
 const PettyCash = lazy(() => import('./pages/vouchers/PettyCash'))
@@ -493,8 +496,14 @@ function AppContent() {
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'bank-payment':      return <CashPayment onNav={navigate} />  // legacy alias — single Payment Voucher handles both
-      case 'cash-receipt':      return <CashReceipt onNav={navigate} />
-      case 'bank-receipt':      return <BankReceipt onNav={navigate} />
+      case 'cash-receipt':              return <CashReceipt onNav={navigate} />
+      // Legacy routes: 'bank-receipt' was a redundant variant; the new
+      // unified Receipt Voucher handles cash, bank, and batch. Old URLs
+      // and bookmarks still resolve here. 'customer-receipt-batch' was
+      // the standalone batch page from session 2; its UI is now a tab
+      // inside the unified page.
+      case 'bank-receipt':              return <CashReceipt onNav={navigate} />
+      case 'customer-receipt-batch':    return <CashReceipt onNav={navigate} />
       case 'bank-transfer':     return <BankTransfer onNav={navigate} />
       case 'petty-cash':        return <PettyCash onNav={navigate} />
       case 'contra':            return <ContraEntry onNav={navigate} />
