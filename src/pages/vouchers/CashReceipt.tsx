@@ -163,9 +163,9 @@ export default function CashReceipt({ onNav: _onNav }: Props) {
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
 
     // Batch mode delegates to the grid component. The grid owns its own
-    // amount-per-row validation, so we don't check form.amount here.
+    // per-row validation (each row needs a deposit account, customer,
+    // and amount), so we only check the batch-level prerequisites here.
     if (receiptType === 'batch') {
-      if (!form.depositAccountId) { showToast('Select a deposit account', 'error'); return }
       if (!arAccount) { showToast('Accounts Receivable (1050) not found — check Chart of Accounts', 'error'); return }
       if (!batchPostRef.current) { showToast('Batch grid not ready yet — try again in a second', 'error'); return }
       await batchPostRef.current()
@@ -321,15 +321,16 @@ export default function CashReceipt({ onNav: _onNav }: Props) {
   const pageSubtitle = 'Record money received from customers or other sources'
 
   const canPost = (() => {
-    if (!form.depositAccountId) return false
     if (receiptType === 'batch') {
-      // Batch validity is owned by the grid. Enable Post as long as we
-      // have the shared accounting context (deposit + AR) and at least
-      // one row is pending.
+      // Batch validity is owned by the grid: each row carries its own
+      // deposit account. Enable Post as long as AR exists and at least
+      // one row is pending. The grid surfaces per-row "pick a deposit
+      // account" errors itself.
       if (!arAccount) return false
       if (batchStatus.posting) return false
       return batchStatus.pendingCount > 0
     }
+    if (!form.depositAccountId) return false
     if (amount <= 0) return false
     if (receiptType === 'customer') {
       if (!paymentState.selectedCustomer) return false
@@ -400,29 +401,26 @@ export default function CashReceipt({ onNav: _onNav }: Props) {
 
       {receiptType === 'batch' ? (
         <>
-          {/* Slim shared header for batch mode */}
+          {/* Slim shared header for batch mode — only Date + Ref Prefix.
+              Deposit Account is now per-row (each customer may have paid
+              into a different bank), so it doesn't belong in the header. */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 12 }}>Batch Header</div>
             <div className="form-row">
               <FG label="Voucher Ref Prefix" req><input className="form-input" value={form.ref} readOnly /></FG>
               <FG label="Posting Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
-              <FG label="Deposit Account" req>
-                <select className="form-input" value={form.depositAccountId} onChange={e => set('depositAccountId', e.target.value)}>
-                  <option value="">— Select —</option>
-                  {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                </select>
-              </FG>
             </div>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, fontFamily: 'var(--mono)' }}>
-              All receipts in this batch debit the same account. Each row gets its own voucher ref (auto-generated). To deposit some elsewhere, split into separate batches.
+              Each row picks its own deposit account (different customers may have paid into different banks). Method label is auto-derived from the chosen account. New rows default to the last-picked account.
             </div>
           </div>
 
-          {arAccount && form.depositAccountId && (
+          {arAccount && (
             <CustomerReceiptBatchInner
               postingDate={form.date}
-              depositAccountId={form.depositAccountId}
+              initialDepositAccountId={form.depositAccountId}
               arAccountId={arAccount.id}
+              cashAccounts={cashAccounts}
               onStatusChange={setBatchStatus}
               onReady={(fn: () => Promise<{ ok: number; fail: number }>) => { batchPostRef.current = fn }}
               showToast={showToast}
