@@ -50,17 +50,22 @@ const TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET45', 'NET60', 'NET90']
 // Mirrors the logic in CashReceipt — single source of truth for "what kind
 // of money is this?" so the journal narrative and voucher.payment_method
 // stay consistent across the system.
-// 1010, 1011, 1040 → cash · 1020, 1021 → mpesa · 103x → rtgs · etc.
+// Name-first detection — the account name is the source of truth.
+// Code-prefix is only a fallback when the name is generic. See
+// CustomerReceiptBatchInner.tsx for the matching helper.
 const deriveMethod = (code: string, name: string): string => {
-  if (!code) return 'cash'
-  const c = code.trim()
   const n = (name || '').toLowerCase()
+  const c = (code || '').trim()
+
+  if (n.includes('mpesa') || n.includes('m-pesa')) return 'mpesa'
+  if (n.includes('mixx') || n.includes('tigo'))    return 'mixx'
+  if (n.includes('airtel'))                        return 'airtel'
+  if (n.includes('halopesa') || n.includes('halo pesa')) return 'mpesa'
+  const banks = ['nmb', 'crdb', 'nbc', 'stanbic', 'absa', 'dtb', 'exim', 'access', 'i&m', 'kcb', 'azania', 'amana', 'equity', 'tcb', 'mkombozi', 'tib', 'twiga', 'ecobank', 'bank']
+  if (banks.some(b => n.includes(b))) return 'rtgs'
+  if (n.includes('cash') || n.includes('till') || n.includes('petty')) return 'cash'
+
   if (c.startsWith('101') || c === '1040') return 'cash'
-  if (c.startsWith('102')) {
-    if (n.includes('mixx')) return 'mixx'
-    if (n.includes('airtel')) return 'airtel'
-    return 'mpesa'
-  }
   if (c.startsWith('103')) return 'rtgs'
   return 'cash'
 }
