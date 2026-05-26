@@ -401,7 +401,70 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot invoice from ${locationCode}.`, 'error')
       return
     }
-    if (invSettings?.block_negative_stock) {
+
+    // Wrong-location safety check (unlocked users). If the user has a
+    // default location and is posting from a different one, force an
+    // explicit confirm. The picker shows all locations side-by-side and
+    // it's easy to leave the wrong one selected.
+    if (
+      !userLoc.isLocked &&
+      userLoc.defaultLocationCode &&
+      locationCode !== userLoc.defaultLocationCode &&
+      locations.length > 1
+    ) {
+      const chosen = locations.find(l => l.code === locationCode)
+      const myDefault = locations.find(l => l.code === userLoc.defaultLocationCode)
+      const ok = window.confirm(
+        `You are about to invoice from ${chosen?.code || locationCode} (${chosen?.name || '?'}).\n\n` +
+        `Your assigned location is ${myDefault?.code || userLoc.defaultLocationCode} (${myDefault?.name || '?'}).\n\n` +
+        `Continue posting from ${chosen?.code || locationCode}?`
+      )
+      if (!ok) return
+    }
+    // Stock check — UNCONDITIONAL. Previously this was gated on
+    // invSettings?.block_negative_stock, which meant invoices could post
+    // for items we didn't have (and during the brief async window before
+    // invSettings loads, the check was always skipped). A sales invoice
+    // posting unbacked stock corrupts the COGS journal line (cost basis
+    // becomes wrong) and creates negative product_locations rows that
+    // poison downstream stock valuation. Always block.
+    //
+    // We check against BOTH the selected location's qty AND the global qty.
+    // The location check is the operationally correct one (we can't pick
+    // stock that isn't physically in that bin), and the global check is a
+    // safety net for products that haven't been allocated to locations yet.
+    const selectedLocForCheck = locations.find(l => l.code === locationCode)
+    if (selectedLocForCheck) {
+      const productIds = lines.filter(l => l.productId).map(l => l.productId)
+      const { data: locStocks } = await supabase
+        .from('product_locations')
+        .select('product_id, qty_on_hand')
+        .eq('location_id', selectedLocForCheck.id)
+        .in('product_id', productIds)
+      const locStockMap = new Map((locStocks || []).map(r => [r.product_id, r.qty_on_hand || 0]))
+
+      for (const line of lines) {
+        if (!line.productId) continue
+        const prod = products.find(p => p.id === line.productId)
+        if (!prod) continue
+        const locQty = locStockMap.get(line.productId) ?? 0
+        if (locQty < line.qty) {
+          showToast(
+            `Insufficient stock at ${selectedLocForCheck.code} (${selectedLocForCheck.name}): ${prod.name} · Available: ${locQty} · Needed: ${line.qty}. Transfer stock first or change location.`,
+            'error'
+          )
+          return
+        }
+        // Global safety net — should never trip if location check passed,
+        // but catches the rare case where the master qty_on_hand has drifted.
+        if (prod.qty_on_hand < line.qty) {
+          showToast(`Insufficient global stock: ${prod.name} · Available: ${prod.qty_on_hand} · Needed: ${line.qty}`, 'error')
+          return
+        }
+      }
+    } else {
+      // No location selected at all — fall back to the global check so we
+      // still never post unbacked stock.
       for (const line of lines) {
         if (!line.productId) continue
         const prod = products.find(p => p.id === line.productId)
@@ -610,6 +673,14 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         }
       }
 
+      // Post-update balance: what the customer now owes after this invoice
+      // (and after the optional advance receipt, if any). InvoiceTemplate in
+      // view mode reads this as the live current balance and derives prior
+      // debt from it. Reusing the same value the DB update wrote keeps the
+      // first print and the sidebar reprint perfectly in sync.
+      const newCustomerBalance = (selectedCust.balance || 0) + netBalanceChange
+      const thisInvoiceRemaining = Math.max(0, subtotal - paidNow)
+
       const invoiceData = {
         ref: form.ref, posting_date: form.date, due_date: form.dueDate,
         payment_terms: form.paymentTerms, notes: form.notes,
@@ -618,22 +689,26 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         customers: {
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',
-          whatsapp: selectedCust.whatsapp || '', address: '', balance: (selectedCust.balance || 0) + (subtotal - paidNow),
+          whatsapp: selectedCust.whatsapp || '', address: '',
+          balance: newCustomerBalance,
         },
         voucher_lines: lines.filter(l => l.productId).map(l => ({
           qty: l.qty, unit_price: l.price, total: l.amount,
           discount_pct: l.discount, description: l.name,
           products: { name: l.name, sku: products.find(p => p.id === l.productId)?.sku || '' }
         })),
-        // When an advance was captured, switch the preview into view-mode
-        // semantics so the template paints the PAID IN FULL or PARTIAL
-        // PAYMENT badge. The fields below are read by InvoiceTemplate.
-        ...(paidNow > 0 && {
-          _viewMode: true,
-          _invoicePaid: paidNow,
-          _invoiceRemaining: Math.max(0, subtotal - paidNow),
-          _statementDate: form.date,
-        }),
+        // Always enter view mode for the post-save preview. Previously this
+        // was conditional on paidNow > 0, which meant pure credit invoices
+        // fell into the template's "posting mode" branch — that branch adds
+        // total_amount on top of cust.balance to compute totalNowOwed, and
+        // since cust.balance was already the post-update figure, the
+        // outstanding shown on screen was doubled. View mode (matching the
+        // reprint path) reads cust.balance as the live current AR and
+        // derives this invoice's status from _invoiceRemaining.
+        _viewMode: true,
+        _invoicePaid: paidNow,
+        _invoiceRemaining: thisInvoiceRemaining,
+        _statementDate: form.date,
       }
       setLastInvoice(invoiceData)
       setShowInvoice(true)

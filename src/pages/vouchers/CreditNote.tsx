@@ -34,6 +34,7 @@ interface OriginalVoucher {
   customer_id: string | null
   customer_name: string
   payment_method: string | null
+  journal_id: string | null
   lines: OriginalLine[]
 }
 
@@ -145,7 +146,7 @@ export default function CreditNote({ onNav }: Props) {
 
     // Find the voucher
     const { data: voucher } = await supabase.from('vouchers')
-      .select('id, ref, type, posting_date, total_amount, subtotal, customer_id, description, payment_method, notes')
+      .select('id, ref, type, posting_date, total_amount, subtotal, customer_id, description, payment_method, notes, journal_id')
       .eq('ref', ref.trim())
       .in('type', ['cash_sale', 'sales_invoice'])
       .single()
@@ -201,6 +202,7 @@ export default function CreditNote({ onNav }: Props) {
       customer_id: voucher.customer_id,
       customer_name: customerName,
       payment_method: voucher.payment_method,
+      journal_id: voucher.journal_id || null,
       lines,
     })
 
@@ -347,6 +349,11 @@ export default function CreditNote({ onNav }: Props) {
     setPosting(true)
     const amount = creditSubtotal
     const userName = user?.full_name || 'System'
+    // Set true if the credit note's counter-leg was posted against the
+    // original cash/bank account(s) instead of AR. Used to suppress the AR
+    // customer ledger entry below (we never debited AR, so we mustn't
+    // credit it back) and to tailor the success toast.
+    let creditLegPosted = false
 
     try {
       // Fetch required accounts
@@ -376,8 +383,72 @@ export default function CreditNote({ onNav }: Props) {
       // Dr Revenue (4010) — sales reduction
       jLines.push({ journal_id: j.id, line_number: ln++, account_id: revenueId, description: `Revenue reduced — ${form.reason}`, debit: amount, credit: 0 })
 
-      // Cr AR (1050) — customer owes less
-      jLines.push({ journal_id: j.id, line_number: ln++, account_id: arId, description: `AR reduced — ${customerName} — ${form.ref}`, debit: 0, credit: amount })
+      // ── Counter-leg: reverse where the money actually went ───────────
+      // For a sales invoice (credit sale), the original posting hit AR, so
+      // we credit AR to reduce the customer's outstanding balance.
+      //
+      // For a cash sale that was auto-receipted, the original posting hit
+      // cash/bank/M-Pesa accounts (NOT AR). Crediting AR here would leave
+      // the bank untouched and create a phantom AR debit on the customer.
+      // Instead, look up the original journal's cash/bank debit lines and
+      // CREDIT those same accounts proportionally to the credit-note amount.
+      // This is what mirrors a real-world refund: the money leaves the bank
+      // it landed in, and the bank's ledger explains why.
+      if (original && original.type === 'cash_sale' && original.journal_id) {
+        // Fetch the original journal's lines. We want only the bank/cash
+        // legs (accounts in the Cash & Bank category) — the debits that
+        // represent money received. The revenue/COGS/inventory legs are
+        // already handled above.
+        const { data: origLines } = await supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, description, accounts!inner(id, code, name, category)')
+          .eq('journal_id', original.journal_id)
+
+        // Filter for the bank/cash debit legs of the original sale.
+        const cashBankDebits = (origLines || []).filter((l: any) =>
+          (l.accounts?.category === 'Cash & Bank') && (l.debit || 0) > 0
+        )
+
+        if (cashBankDebits.length > 0) {
+          // Sum of original cash/bank debits = original cash received.
+          // We refund `amount` from this pool, distributing the reversal
+          // proportionally across the same accounts the money landed in.
+          // (Handles split payments: if cash sale was 60% cash + 40% MPesa,
+          // a full credit note reverses 60/40 the same way.)
+          const totalOrigCash = cashBankDebits.reduce((s: number, l: any) => s + (l.debit || 0), 0)
+          if (totalOrigCash > 0) {
+            // Build a per-account share. Round to whole TZS and absorb any
+            // 1-shilling rounding error into the first leg so the journal
+            // stays perfectly balanced.
+            let allocated = 0
+            cashBankDebits.forEach((l: any, idx: number) => {
+              const share = idx === cashBankDebits.length - 1
+                ? amount - allocated
+                : Math.round((l.debit / totalOrigCash) * amount)
+              allocated += share
+              const acctName = l.accounts?.name || l.accounts?.code || 'Cash/Bank'
+              jLines.push({
+                journal_id: j.id,
+                line_number: ln++,
+                account_id: l.account_id,
+                // Verbose description so the bank ledger explicitly states
+                // WHY money left the account: a credit note reversing an
+                // auto-receipted cash sale.
+                description: `Refund of cash sale ${original.ref} — Credit Note ${form.ref} — ${customerName} · ${acctName}`,
+                debit: 0,
+                credit: share,
+              })
+            })
+            creditLegPosted = true
+          }
+        }
+      }
+
+      if (!creditLegPosted) {
+        // Default: sales invoice (or cash sale with no cash/bank legs found,
+        // e.g. legacy data). Reduce AR — same behaviour as before.
+        jLines.push({ journal_id: j.id, line_number: ln++, account_id: arId, description: `AR reduced — ${customerName} — ${form.ref}`, debit: 0, credit: amount })
+      }
 
       // If goods returned and we have inventory accounts: Dr Inventory / Cr COGS
       if (hasInventory && cogsId && inventoryId && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back')) {
@@ -415,13 +486,29 @@ export default function CreditNote({ onNav }: Props) {
       }
 
       // ── CUSTOMER LEDGER ENTRY ────────────
+      // Only post an AR ledger entry when the credit-note's counter-leg
+      // actually touched AR. For a refunded cash sale (bank reversal path)
+      // the customer's AR never moved, so we mustn't post a negative AR
+      // entry — it would create a phantom credit balance on their account.
+      // We still post a NON-AR audit line so the credit note appears on the
+      // customer's statement, but with amount=0 and a clear description so
+      // it doesn't affect balance calculations.
       if (customerId) {
-        await supabase.from('customer_ledger_entries').insert({
-          customer_id: customerId, posting_date: form.date,
-          document_type: 'credit_note', document_ref: form.ref,
-          description: `Credit Note — ${form.reason}`,
-          amount: -amount, remaining_amount: -amount, is_open: true, journal_id: j.id,
-        })
+        if (creditLegPosted) {
+          await supabase.from('customer_ledger_entries').insert({
+            customer_id: customerId, posting_date: form.date,
+            document_type: 'credit_note', document_ref: form.ref,
+            description: `Credit Note (cash refund) — ${form.reason} — ${tzs(amount)} refunded to bank/cash`,
+            amount: 0, remaining_amount: 0, is_open: false, journal_id: j.id,
+          })
+        } else {
+          await supabase.from('customer_ledger_entries').insert({
+            customer_id: customerId, posting_date: form.date,
+            document_type: 'credit_note', document_ref: form.ref,
+            description: `Credit Note — ${form.reason}`,
+            amount: -amount, remaining_amount: -amount, is_open: true, journal_id: j.id,
+          })
+        }
       }
 
       // ── RESTORE STOCK (if goods returned) ─
@@ -453,11 +540,16 @@ export default function CreditNote({ onNav }: Props) {
         }
       }
 
-      const journalDesc = hasInventory && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back')
-        ? `Dr Revenue (4010) / Cr AR (1050) + Dr Inventory / Cr COGS — Stock restored`
-        : `Dr Revenue (4010) / Cr AR (1050)`
+      const journalDesc = creditLegPosted
+        ? `Dr Revenue (4010) / Cr Cash/Bank (refund) — ${original?.ref} reversed`
+        : hasInventory && (form.reason === 'Goods returned' || form.reason === 'Damaged goods received back')
+          ? `Dr Revenue (4010) / Cr AR (1050) + Dr Inventory / Cr COGS — Stock restored`
+          : `Dr Revenue (4010) / Cr AR (1050)`
 
-      showToast(`${form.ref} posted · ${journalDesc} · ${customerName} credited ${tzs(amount)}`)
+      const toastMsg = creditLegPosted
+        ? `${form.ref} posted · Cash refund of ${tzs(amount)} reversed from bank · ${journalDesc}`
+        : `${form.ref} posted · ${journalDesc} · ${customerName} credited ${tzs(amount)}`
+      showToast(toastMsg)
       setTimeout(() => onNav('vouchers'), 1500)
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')

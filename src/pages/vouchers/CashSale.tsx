@@ -10,6 +10,7 @@ import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
+import { useUserLocation } from '../../lib/useUserLocation'
 import { useDataCache } from '../../App'
 import BundlePicker from '../../components/BundlePicker'
 import CustomerContextSection from '../../components/CustomerContextSection'
@@ -42,6 +43,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [editVoucherData, setEditVoucherData] = useState<any>(null)
   const [appliedBundle, setAppliedBundle] = useState<Bundle | null>(null)
   const { user } = useAuth()
+  const userLoc = useUserLocation()
 
   // Customer
   const [waInput, setWaInput] = useState('')
@@ -182,7 +184,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       if (cachedLocations) {
         const locs = cachedLocations as {id:string;code:string;name:string}[]
         setLocations(locs)
-        if (locs[0]) setLocationCode(locs[0].code)
+        // Prefer the user's assigned default location over the first one in
+        // the list. Previously this hardcoded locs[0], which meant cashiers
+        // logged in from a satellite branch were silently defaulted to the
+        // main warehouse and could deduct stock from the wrong bin if they
+        // didn't notice the picker.
+        const preferred = userLoc.defaultLocationCode && locs.find(l => l.code === userLoc.defaultLocationCode)
+          ? userLoc.defaultLocationCode
+          : locs[0]?.code
+        if (preferred) setLocationCode(preferred)
       }
 
       await Promise.all([
@@ -191,7 +201,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
         cachedAcctMap ? Promise.resolve() : loadAccountMap(),
         loadReceiptSettings(),
         loadWAConfig().then(setWaConfig),
-        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{ if(data) { setLocations(data); setCache('cs_locations', data); if(data[0]) setLocationCode(data[0].code) } }),
+        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{
+          if(data) {
+            setLocations(data); setCache('cs_locations', data)
+            const preferred = userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)
+              ? userLoc.defaultLocationCode
+              : data[0]?.code
+            if (preferred) setLocationCode(preferred)
+          }
+        }),
         supabase.from('system_settings').select('value').eq('key','inventory_settings').single().then(({data})=>{ if(data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} }),
         loadTodayStats(),
         loadRecentSales(),
@@ -581,6 +599,24 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       )
       if (!ok) return
     }
+
+    // Wrong-location safety check. If the cashier is about to post from a
+    // location that ISN'T their assigned default, force an explicit confirm
+    // before the sale lands. The picker shows all locations side-by-side and
+    // it's easy to miss-tap or simply leave the default selected without
+    // realising they're in a different branch. This makes "wrong location"
+    // a deliberate two-step action instead of a silent slip.
+    if (userLoc.defaultLocationCode && locationCode !== userLoc.defaultLocationCode && locations.length > 1) {
+      const chosen = locations.find(l => l.code === locationCode)
+      const myDefault = locations.find(l => l.code === userLoc.defaultLocationCode)
+      const ok = window.confirm(
+        `You are about to deduct stock from ${chosen?.code || locationCode} (${chosen?.name || '?'}).\n\n` +
+        `Your assigned location is ${myDefault?.code || userLoc.defaultLocationCode} (${myDefault?.name || '?'}).\n\n` +
+        `Continue posting from ${chosen?.code || locationCode}?`
+      )
+      if (!ok) return
+    }
+
     setPosting(true)
     const result = await postCashSale({
       newCustName, waInput, lines, dbProducts, selectedCust,
@@ -1027,15 +1063,45 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                 {/* STEP 2 — LOCATION */}
                 {locations.length > 1 && (
                   <div>
-                    <div className="step-header" style={{ marginBottom: 10 }}><div className="step-num">2</div><div className="step-title">SELL FROM LOCATION</div></div>
+                    <div className="step-header" style={{ marginBottom: 10 }}>
+                      <div className="step-num">2</div>
+                      <div className="step-title">SELL FROM LOCATION</div>
+                      {/* Banner showing the currently active location at a glance,
+                          so the cashier can see in the corner of their eye whether
+                          they're posting from the right bin. */}
+                      {(() => {
+                        const active = locations.find(l => l.code === locationCode)
+                        const isUserDefault = userLoc.defaultLocationCode === locationCode
+                        return active ? (
+                          <div style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: isUserDefault ? 'var(--accent)' : 'var(--yellow, #f59e0b)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {!isUserDefault && <span>⚠</span>}
+                            <span style={{ fontFamily: 'var(--mono)' }}>{active.code}</span>
+                            <span>· {active.name}</span>
+                            {!isUserDefault && <span style={{ fontWeight: 500, fontSize: 10 }}>(not your default)</span>}
+                          </div>
+                        ) : null
+                      })()}
+                    </div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      {locations.map(loc => (
-                        <div key={loc.id} onClick={() => setLocationCode(loc.code)}
-                          style={{ flex: 1, padding: '10px 12px', border: `2px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface2)', transition: 'all .15s' }}>
-                          <div style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800, color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}</div>
-                          <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{loc.name}</div>
-                        </div>
-                      ))}
+                      {locations.map(loc => {
+                        const isActive = locationCode === loc.code
+                        return (
+                          <div key={loc.id} onClick={() => setLocationCode(loc.code)}
+                            style={{
+                              flex: 1,
+                              padding: '12px 14px',
+                              border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+                              borderRadius: 10,
+                              cursor: 'pointer',
+                              background: isActive ? 'var(--accent-dim)' : 'var(--surface2)',
+                              transition: 'all .15s',
+                              boxShadow: isActive ? '0 0 0 3px var(--accent-dim)' : 'none',
+                            }}>
+                            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 800, color: isActive ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}{isActive && ' ✓'}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{loc.name}</div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
