@@ -7,8 +7,7 @@ const SECTIONS = [
   {
     title: 'Money Vouchers', desc: 'Payments, receipts and transfers', items: [
       { icon: 'cash-out', name: 'Payment Voucher', desc: 'Pay any expense or supplier (cash or bank)', color: 'rgba(255,71,87,.12)', page: 'cash-payment' as Page },
-      { icon: 'cash-in', name: 'Cash Receipt', desc: 'Record money received in cash', color: 'rgba(0,229,160,.12)', page: 'cash-receipt' as Page },
-      { icon: 'send', name: 'Bank Receipt', desc: 'Record money received in bank', color: 'rgba(0,229,160,.12)', page: 'bank-receipt' as Page },
+      { icon: 'cash-in', name: 'Receipt Voucher', desc: 'Receive money — single, batch, or other income (cash or bank)', color: 'rgba(0,229,160,.12)', page: 'cash-receipt' as Page },
       { icon: 'transfer', name: 'Bank Transfer', desc: 'Between your own accounts', color: 'rgba(61,139,255,.12)', page: 'bank-transfer' as Page },
       { icon: 'petty', name: 'Petty Cash', desc: 'Small cash office expenses', color: 'rgba(255,211,42,.12)', page: 'petty-cash' as Page },
       { icon: 'contra', name: 'Contra Entry', desc: 'Cash deposit to bank or withdrawal', color: 'rgba(168,85,247,.12)', page: 'contra' as Page },
@@ -17,7 +16,7 @@ const SECTIONS = [
   {
     title: 'Sales', desc: 'Sales invoices, cash sales and returns', items: [
       { icon: 'cash-sale', name: 'Cash Sale', desc: 'Counter POS — WhatsApp receipt', color: 'rgba(212,135,74,.12)', page: 'cash-sale' as Page },
-      { icon: 'invoice', name: 'Sales Invoice', desc: 'Credit sale — creates AR entry', color: 'rgba(0,229,160,.12)', page: 'sales-invoice' as Page },
+      { icon: 'invoice', name: 'Sales Invoice', desc: 'Wholesale sale — creates AR entry', color: 'rgba(0,229,160,.12)', page: 'sales-invoice' as Page },
       { icon: 'invoice', name: 'Proforma Invoice', desc: 'Quotation · Convert to Sales Invoice', color: 'rgba(94,168,162,.12)', page: 'proforma' as Page },
       { icon: 'invoice', name: 'Proformas List', desc: 'Browse · Edit · Reprint · Convert', color: 'rgba(94,168,162,.12)', page: 'proformas-list' as Page },
       { icon: 'return', name: 'Sales Return', desc: 'Customer return / refund', color: 'rgba(255,71,87,.12)', page: 'sales-return' as Page },
