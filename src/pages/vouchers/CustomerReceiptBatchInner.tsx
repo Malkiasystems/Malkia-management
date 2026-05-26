@@ -79,22 +79,34 @@ interface BatchRow {
 // account's code/name. Mirrors the logic in the single CashReceipt page
 // so a batch row and a single receipt for the same account show the
 // same Method label.
-//   101x = cash tills    → "Cash"
-//   1040 = petty cash    → "Cash"
-//   102x M-Pesa/Mixx/Air → "M-Pesa" / "Mixx by Yas" / "Airtel Money"
-//   103x = bank accounts → "RTGS / Bank Transfer"
-//   else                 → "Cash" (safe fallback)
+//
+// Priority: the account NAME is the source of truth (it's what the
+// human typed when they set up the Chart of Accounts). Code prefixes
+// are only used as a fallback when the name is generic. This avoids
+// the "1022 NMB Bank → M-Pesa" bug that came from assuming all 102x
+// accounts were mobile money — a Tanzanian CoA often puts banks in
+// 102x or 1020-1030 range, not strictly 103x.
 function deriveMethod(code: string, name: string): { value: string; label: string } {
-  if (!code) return { value: 'cash', label: 'Cash' }
-  const c = code.trim()
   const n = (name || '').toLowerCase()
+  const c = (code || '').trim()
+
+  // Name-based detection first — handles any code numbering scheme.
+  if (n.includes('mpesa') || n.includes('m-pesa')) return { value: 'mpesa', label: 'M-Pesa' }
+  if (n.includes('mixx') || n.includes('tigo'))    return { value: 'mixx',  label: 'Mixx by Yas' }
+  if (n.includes('airtel'))                        return { value: 'airtel', label: 'Airtel Money' }
+  if (n.includes('halopesa') || n.includes('halo pesa')) return { value: 'mpesa', label: 'HaloPesa' }
+  // Specific bank names common in Tanzania — if the user named their
+  // account after a bank, that's a bank account regardless of code.
+  const banks = ['nmb', 'crdb', 'nbc', 'stanbic', 'absa', 'dtb', 'exim', 'access', 'i&m', 'kcb', 'azania', 'amana', 'equity', 'tcb', 'mkombozi', 'tib', 'twiga', 'ecobank', 'bank']
+  if (banks.some(b => n.includes(b))) return { value: 'rtgs', label: 'RTGS / Bank Transfer' }
+  if (n.includes('cash') || n.includes('till') || n.includes('petty')) return { value: 'cash', label: 'Cash' }
+
+  // Fallback: code-prefix heuristics for accounts with generic names.
   if (c.startsWith('101') || c === '1040') return { value: 'cash', label: 'Cash' }
-  if (c.startsWith('102')) {
-    if (n.includes('mixx')) return { value: 'mixx', label: 'Mixx by Yas' }
-    if (n.includes('airtel')) return { value: 'airtel', label: 'Airtel Money' }
-    return { value: 'mpesa', label: 'M-Pesa' }
-  }
   if (c.startsWith('103')) return { value: 'rtgs', label: 'RTGS / Bank Transfer' }
+
+  // Safe final fallback. Marked as cash so the placeholder reads
+  // "Optional" rather than something potentially misleading.
   return { value: 'cash', label: 'Cash' }
 }
 
