@@ -246,7 +246,37 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
   if (!newCustName.trim()) return { success: false, error: 'Customer name required' }
   if (lines.every(l => !l.productId)) return { success: false, error: 'Add at least one product' }
 
-  if (invSettings?.block_negative_stock) {
+  // Stock check — UNCONDITIONAL and location-aware. Previously gated on
+  // invSettings?.block_negative_stock, which meant cash sales could post
+  // unbacked stock during the brief async window before invSettings loaded,
+  // or any time the setting was off. We always block. We also check the
+  // SELECTED location's bin qty (not just the global products.qty_on_hand),
+  // because picking from an empty bin corrupts product_locations and the
+  // cashier may have left the location picker on its default value.
+  const selectedLocForCheck = locations.find(l => l.code === locationCode)
+  if (selectedLocForCheck) {
+    const productIds = lines.filter(l => l.productId).map(l => l.productId)
+    const { data: locStocks } = await supabase
+      .from('product_locations')
+      .select('product_id, qty_on_hand')
+      .eq('location_id', selectedLocForCheck.id)
+      .in('product_id', productIds)
+    const locStockMap = new Map((locStocks || []).map(r => [r.product_id, r.qty_on_hand || 0]))
+
+    for (const line of lines) {
+      if (!line.productId) continue
+      const prod = dbProducts.find(p => p.id === line.productId)
+      if (!prod) continue
+      const locQty = locStockMap.get(line.productId) ?? 0
+      if (locQty < line.qty) {
+        return { success: false, error: `Insufficient stock at ${selectedLocForCheck.code} (${selectedLocForCheck.name}) for ${prod.name}. Available: ${locQty} · Needed: ${line.qty}. Transfer stock first or change location.` }
+      }
+      if (prod.qty_on_hand < line.qty) {
+        return { success: false, error: `Insufficient global stock for ${prod.name}. Available: ${prod.qty_on_hand} units` }
+      }
+    }
+  } else {
+    // No location resolved — fall back to global qty only.
     for (const line of lines) {
       if (!line.productId) continue
       const prod = dbProducts.find(p => p.id === line.productId)
