@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs, today } from '../lib/utils'
+import { useCompanySettings } from '../lib/useCompanySettings'
 import { loadWAConfig, sendWhatsApp } from '../lib/whatsapp'
 import type { WAConfig } from '../lib/whatsapp'
 import type { Page } from '../lib/types'
@@ -163,6 +164,12 @@ function computeAging(rows: LedgerRow[], asOf: string): AgingBuckets {
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function CustomerStatement({ customerId, onNav }: Props) {
+  // Company branding — logo, name, address, bank details, footer notes.
+  // Read once on mount via a module-cached singleton. Edits in the
+  // settings page invalidate the cache so the next render of any
+  // statement pulls fresh values.
+  const { settings: brand } = useCompanySettings()
+
   const [customer, setCustomer] = useState<DBCustomer | null>(null)
   const [rows, setRows] = useState<LedgerRowWithBalance[]>([])
   const [openInvoicesForAging, setOpenInvoicesForAging] = useState<LedgerRow[]>([])
@@ -390,7 +397,7 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
     const body = closingBalance > 0
       ? `Your account statement as of ${range.to}:\n\n*Opening Balance:* TZS ${openingBalance.toLocaleString()}\n*Total Billed:* TZS ${totalInvoiced.toLocaleString()}\n*Total Paid:* TZS ${totalPaid.toLocaleString()}\n\n*Current Balance Owed:* TZS ${closingBalance.toLocaleString()}\n\nPlease settle at your earliest convenience.`
       : `Your account is up to date as of ${range.to}. Thank you for your business!`
-    const msg = `${greeting}\n\n${body}\n\n— Malkia Wellness Group`
+    const msg = `${greeting}\n\n${body}\n\n— ${brand.company_name}`
     const res = await sendWhatsApp(waConfig, {
       to: customer.whatsapp,
       message: msg,
@@ -590,27 +597,54 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
       {/* Everything inside this div is what gets exported to PDF / PNG.    */}
       <div id="customer-statement" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '28px 32px' }}>
 
-        {/* Statement header block */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--border)', paddingBottom: 20, marginBottom: 20 }}>
-          <div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: -0.5, marginBottom: 4 }}>
-              Malkia Wellness Group Ltd
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', lineHeight: 1.6 }}>
-              Dar es Salaam, Tanzania · +255 745 555 999<br/>
-              support@malkia.co.tz · www.malkia.co.tz<br/>
-              TIN: 174-205-078
+        {/* Statement header — layout flips based on logo_position setting.
+            • left  : logo + company info on left, statement meta on right
+            • right : company info on left, logo + statement meta on right
+            • center: logo centered above company info, statement meta still right
+            For prints/PDFs the logo loads from a public Supabase Storage URL. */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--border)', paddingBottom: 16, marginBottom: 16, flexDirection: brand.logo_position === 'center' ? 'column' : 'row', gap: brand.logo_position === 'center' ? 10 : 0 }}>
+          {brand.logo_position === 'center' && brand.logo_url && (
+            <img src={brand.logo_url} alt={brand.company_name}
+              style={{ height: brand.logo_height_px, alignSelf: 'center' }}
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+            />
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, order: brand.logo_position === 'right' ? 1 : 0 }}>
+            {brand.logo_position === 'left' && brand.logo_url && (
+              <img src={brand.logo_url} alt={brand.company_name}
+                style={{ height: brand.logo_height_px }}
+                onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+              />
+            )}
+            <div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 20, fontWeight: 800, color: 'var(--text)', letterSpacing: -0.5, marginBottom: 2 }}>
+                {brand.company_name}
+              </div>
+              {brand.tagline && (
+                <div style={{ fontSize: 11, color: 'var(--text2)', fontStyle: 'italic', marginBottom: 4 }}>{brand.tagline}</div>
+              )}
+              <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', lineHeight: 1.5 }}>
+                {brand.address && <>{brand.address}{(brand.phone || brand.email) && ' · '}{brand.phone}<br/></>}
+                {brand.email && <>{brand.email}{brand.website && ` · ${brand.website}`}<br/></>}
+                {brand.tin && <>TIN: {brand.tin}</>}
+              </div>
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1 }}>Statement</div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginTop: 2 }}>
+          <div style={{ textAlign: 'right', order: brand.logo_position === 'right' ? 0 : 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: brand.logo_position === 'right' ? 6 : 0 }}>
+            {brand.logo_position === 'right' && brand.logo_url && (
+              <img src={brand.logo_url} alt={brand.company_name}
+                style={{ height: brand.logo_height_px, marginBottom: 4 }}
+                onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+              />
+            )}
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1 }}>Statement</div>
+            <div style={{ fontFamily: 'var(--display)', fontSize: 16, fontWeight: 800, color: 'var(--accent)', marginTop: 2 }}>
               {customer.customer_number}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, lineHeight: 1.4 }}>
               Period: <span style={{ color: 'var(--text2)' }}>{range.from}</span> → <span style={{ color: 'var(--text2)' }}>{range.to}</span>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>
+            <div style={{ fontSize: 9, color: 'var(--text3)' }}>
               Generated: {today()}
             </div>
           </div>
@@ -822,22 +856,38 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
           </table>
         </div>
 
-        {/* Footer: payment instructions + (when owed) call to action */}
+        {/* Footer: payment instructions read from Company Branding settings.
+            Bank block always shown. M-Pesa block hidden unless a till or
+            business number is configured. Footer note uses statement_footer_note
+            from settings (set in Templates → Company Branding). */}
         <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 10, color: 'var(--text3)', lineHeight: 1.5 }}>
           <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, fontWeight: 600 }}>How to Pay</div>
-          <div style={{ color: 'var(--text2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 10 }}>
-            <div>
-              <strong style={{ color: 'var(--text)' }}>NMB Bank</strong> · A/C No: 22510074972<br/>
-              Malkia Wellness Group Ltd · Dar es Salaam Branch
-            </div>
-            <div>
-              <strong style={{ color: 'var(--text)' }}>M-Pesa</strong>: dial *150*00# → Lipa kwa M-Pesa<br/>
-              Business Number: <span style={{ fontFamily: 'var(--mono)' }}>————</span> · Reference: invoice no.
-            </div>
+          <div style={{ color: 'var(--text2)', display: 'grid', gridTemplateColumns: (brand.mpesa_till_number || brand.mpesa_business_number) ? '1fr 1fr' : '1fr', gap: 8, fontSize: 10 }}>
+            {brand.bank_name && (
+              <div>
+                <strong style={{ color: 'var(--text)' }}>{brand.bank_name}</strong>
+                {brand.bank_account_number && <> · A/C No: {brand.bank_account_number}</>}<br/>
+                {brand.bank_account_name}
+                {brand.bank_branch && <> · {brand.bank_branch}</>}
+              </div>
+            )}
+            {(brand.mpesa_till_number || brand.mpesa_business_number) && (
+              <div>
+                <strong style={{ color: 'var(--text)' }}>M-Pesa</strong>: Lipa kwa M-Pesa<br/>
+                {brand.mpesa_till_number && <>Till: <span style={{ fontFamily: 'var(--mono)' }}>{brand.mpesa_till_number}</span></>}
+                {brand.mpesa_till_number && brand.mpesa_business_number && <> · </>}
+                {brand.mpesa_business_number && <>Business: <span style={{ fontFamily: 'var(--mono)' }}>{brand.mpesa_business_number}</span></>}
+                {' · Reference: invoice no.'}
+              </div>
+            )}
           </div>
-          <div style={{ marginTop: 6, fontSize: 9 }}>
-            Please reference the invoice number when paying. Queries: +255 745 555 999 · support@malkia.co.tz.
-          </div>
+          {brand.statement_footer_note && (
+            <div style={{ marginTop: 6, fontSize: 9 }}>
+              {brand.statement_footer_note}
+              {brand.phone && <> Queries: {brand.phone}</>}
+              {brand.email && <> · {brand.email}.</>}
+            </div>
+          )}
         </div>
 
         {/* Call to action — only when there's something owed. Gives the

@@ -11,6 +11,10 @@ interface Props { onNav: (p: Page) => void }
 interface TemplateCard { title: string; description: string; page: Page; color: string }
 
 const TEMPLATES: TemplateCard[] = [
+  // Company Branding sits first because every other template inherits its
+  // logo, address, bank details. Set this up before tweaking individual
+  // doc templates.
+  { title: 'Company Branding', description: 'Logo · company info · bank details · M-Pesa · per-doc footers',     page: 'company-branding',  color: '#85c2be' },
   { title: 'Receipt Template',  description: 'Cash sale receipts · customer-facing · thermal & A4',         page: 'receipt-template',  color: '#00e5a0' },
   { title: 'Invoice Template',  description: 'Tax invoices for credit sales · VAT breakdown · bank details', page: 'invoice-template',  color: '#3d8bff' },
   { title: 'Proforma Template', description: 'Quotes and proformas · validity period · terms',               page: 'proforma-template', color: '#a855f7' },
