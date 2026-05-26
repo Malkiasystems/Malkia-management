@@ -61,6 +61,7 @@ const CompanyFinanceSettings = lazy(() => import('./pages/CompanyFinanceSettings
 const UsersAccessSettings = lazy(() => import('./pages/UsersAccessSettings'))
 const SalesInventorySettings = lazy(() => import('./pages/SalesInventorySettings'))
 const TemplatesHub = lazy(() => import('./pages/TemplatesHub'))
+const CompanyBranding = lazy(() => import('./pages/CompanyBranding'))
 const IntegrationsSettings = lazy(() => import('./pages/IntegrationsSettings'))
 const RegionalBackupSettings = lazy(() => import('./pages/RegionalBackupSettings'))
 
@@ -547,6 +548,7 @@ function AppContent() {
       case 'users-access-settings':     return <UsersAccessSettings onNav={navigate} />
       case 'sales-inventory-settings':  return <SalesInventorySettings onNav={navigate} />
       case 'templates-hub':             return <TemplatesHub onNav={navigate} />
+      case 'company-branding':          return <CompanyBranding onNav={navigate} />
       case 'integrations-settings':     return <IntegrationsSettings onNav={navigate} />
       case 'regional-backup-settings':  return <RegionalBackupSettings onNav={navigate} />
 
