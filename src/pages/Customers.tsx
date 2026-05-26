@@ -773,6 +773,11 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
           {[
             { icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z', label: 'Cash Sale', page: 'cash-sale' as Page },
             { icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8', label: 'Sales Invoice', page: 'sales-invoice' as Page },
+            // Receipt Voucher sits next to Sales Invoice because it's the
+            // counterpart: invoice creates AR, receipt settles it. Clerks
+            // looking at a customer with an open balance can jump straight
+            // here to take payment (single or batch mode).
+            { icon: 'M12 5v14M5 12h14', label: 'Receipt Voucher', page: 'cash-receipt' as Page },
             { icon: 'M18 20V10M12 20V4M6 20v-6', label: 'AR Aging', page: 'ar-aging' as Page },
             { icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', label: 'Sales Register', page: 'sales-register' as Page },
             { icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5', label: 'CRM Hub', page: 'crm-hub' as Page },
