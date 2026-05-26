@@ -76,17 +76,21 @@ export function CustomerPaymentFlow({
   const [loadingInvoices, setLoadingInvoices] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
 
-  // Load all active debtors once on mount. Lets the user click the browse
-  // icon and see everyone immediately, instead of having to guess at
-  // search terms.
+  // Load all active wholesale contacts once on mount. Lets the user click
+  // the browse icon and see everyone immediately, instead of having to
+  // guess at search terms. We pull BOTH 'wholesale' (canonical) and
+  // 'debtor' (legacy) so a partially-migrated DB still works, and we
+  // filter out is_hidden rows because pickers should not surface
+  // soft-hidden contacts (reports / statements still see them).
   useEffect(() => {
     let cancelled = false
     const loadAll = async () => {
       const { data } = await supabase
         .from('customers')
         .select('id, name, company, contact_person, customer_number, balance, whatsapp')
-        .eq('customer_type', 'debtor')
+        .in('customer_type', ['wholesale', 'debtor'])
         .eq('is_active', true)
+        .eq('is_hidden', false)
         .order('name')
       if (!cancelled && data) setAllDebtors(data)
     }
@@ -575,18 +579,38 @@ export async function postCustomerReceiptLedger(args: PostReceiptArgs): Promise<
     if (updateErr) return { success: false, error: `Allocation to ${inv.document_ref}: ${updateErr.message}` }
   }
 
-  // 3. Update the customer's top-level balance (reduces by the amount paid)
-  //    Uses an RPC if one exists, otherwise falls back to a SELECT-then-UPDATE.
-  //    We do the simpler fetch-and-update path for portability.
-  const { data: custRow } = await supabase
-    .from('customers')
-    .select('balance')
-    .eq('id', customerId)
-    .single()
-  if (custRow) {
+  // 3. Update the customer's top-level balance.
+  //
+  //    Previously: blind subtraction with `Math.max(0, balance - amount)`.
+  //    That had two bugs:
+  //      a) drift accumulated silently — if a single posting wrote both an
+  //         allocation update AND a customers.balance subtraction, but the
+  //         allocation update was for a different amount than `amount`
+  //         (over-allocation / under-allocation), the two paths diverged
+  //         and the stored balance gradually fell out of sync with the
+  //         ledger sum. We saw this on Afeni Baby Shop where the stored
+  //         balance was 250K lower than the true AR.
+  //      b) the Math.max(0, ...) floor masked overpayments: receiving more
+  //         than the customer owed silently clamped balance to 0 instead of
+  //         leaving a negative AR (= credit on account), so the credit
+  //         disappeared from the header card but still existed in the
+  //         ledger — accounting drift from the GL side.
+  //
+  //    Now: after writing the receipt + allocation rows above, re-derive
+  //    the customer's balance as the SUM of THEIR ledger entries. The
+  //    ledger is the source of truth (it's also what statements and AR
+  //    aging read), so the stored balance just mirrors that sum. No
+  //    drift possible; no clamping; overpayments survive as negative
+  //    balances (credit on account).
+  const { data: sumRow } = await supabase
+    .from('customer_ledger_entries')
+    .select('amount')
+    .eq('customer_id', customerId)
+  if (sumRow) {
+    const total = sumRow.reduce((s: number, r: { amount: number }) => s + (r.amount || 0), 0)
     await supabase
       .from('customers')
-      .update({ balance: Math.max(0, (custRow.balance || 0) - amount) })
+      .update({ balance: total })
       .eq('id', customerId)
   }
 
