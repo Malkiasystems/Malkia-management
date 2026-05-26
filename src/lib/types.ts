@@ -1,6 +1,6 @@
 export type Page =
   | 'dashboard' | 'vouchers' | 'chart-of-accounts'
-  | 'cash-sale' | 'cash-payment' | 'cash-receipt'
+  | 'cash-sale' | 'cash-payment' | 'cash-receipt' | 'customer-receipt-batch'
   | 'bank-payment' | 'bank-receipt' | 'bank-transfer'
   | 'petty-cash' | 'contra' | 'sales-invoice' | 'proforma' | 'proformas-list' | 'quotation'
   | 'sales-return' | 'debit-note' | 'credit-note'
@@ -122,18 +122,29 @@ export interface CustomerRecord {
   name: string
   company?: string | null
   contact_person?: string | null
-  customer_type: 'cash' | 'debtor'
+  // Customer kind. 'wholesale' replaces the older 'debtor' label as of
+  // migration 009 (the previous "debtor" framing wrongly implied every
+  // sales-invoice customer carries credit; many prepay or COD). The
+  // 'debtor' literal is still accepted in the type union for transition
+  // safety — old code paths and any rows not yet migrated still resolve.
+  customer_type: 'cash' | 'debtor' | 'wholesale'
   segment?: string | null
   whatsapp?: string | null
   email?: string | null
   phone?: string | null
   address?: string | null
+  tin_number?: string | null            // Tanzanian TIN, format NNN-NNN-NNN; nullable
   credit_limit: number
   credit_period: number
   payment_terms?: string | null
   balance: number
   crown_points: number
   is_active: boolean
+  // Soft-hide flag (from migration 009). Distinct from is_active:
+  //   is_active=false → hard-deactivated, kept only for FK integrity.
+  //   is_hidden=true  → still usable, but excluded from pickers/dropdowns.
+  // Reports, statements, and AR aging IGNORE is_hidden so history is preserved.
+  is_hidden?: boolean
   last_purchase_date?: string | null
   last_purchase_amount?: number | null
   notes?: string | null
