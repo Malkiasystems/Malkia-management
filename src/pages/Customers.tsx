@@ -10,10 +10,17 @@ import CashCustomerDetail from './customers/CashCustomerDetail'
 
 interface Customer {
   id: string; customer_number: string; name: string; company: string; contact_person: string
-  customer_type: 'cash' | 'debtor'; segment: string
+  // 'wholesale' replaces 'debtor' as the canonical label. We still accept
+  // 'debtor' in the union for any rows that weren't migrated (e.g. by
+  // forgetting to run migration 009) so they remain readable rather than
+  // silently dropped from queries.
+  customer_type: 'cash' | 'debtor' | 'wholesale'; segment: string
   whatsapp: string; email: string; phone: string
+  address: string                  // physical / postal address
+  tin_number: string | null        // Tanzanian TIN, raw entry, format NNN-NNN-NNN
   credit_limit: number; credit_period: number; payment_terms: string
   balance: number; crown_points: number; is_active: boolean
+  is_hidden?: boolean              // soft hide flag — excluded from pickers, kept in reports
   last_purchase_date: string; last_purchase_amount: number; notes: string
   created_at: string
   // Journey fields (populated for cash customers via customer_metrics view join)
@@ -30,7 +37,13 @@ interface LedgerEntry {
   amount: number; remaining_amount: number; is_open: boolean; due_date: string
 }
 
-const SEGMENTS = { cash: ['Retail', 'Wholesale'], debtor: ['Corporate', 'Wholesale'] }
+// Keyed by the customer_type literal. The dictionary still maps the legacy
+// 'debtor' key to the same list so transitional rows render correctly.
+const SEGMENTS: Record<'cash' | 'wholesale' | 'debtor', string[]> = {
+  cash:      ['Retail', 'Wholesale'],
+  wholesale: ['Corporate', 'Wholesale'],
+  debtor:    ['Corporate', 'Wholesale'],
+}
 const PAYMENT_TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET60', 'NET90']
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
@@ -47,18 +60,30 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 }
 
 const EMPTY_FORM = {
-  name: '', company: '', contact_person: '', customer_type: 'cash' as 'cash'|'debtor', segment: 'Retail',
+  name: '', company: '', contact_person: '',
+  // Includes 'debtor' in the union to accept legacy rows opened for edit.
+  // On save we coerce non-cash values to 'wholesale' so editing migrates
+  // the row.
+  customer_type: 'cash' as 'cash' | 'wholesale' | 'debtor',
+  segment: 'Retail',
   whatsapp: '', email: '', phone: '', address: '',
+  tin_number: '',
   credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: ''
 }
 
 export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void }) {
-  const [tab, setTab] = useState<'cash'|'debtors'>('cash')
+  // Tabs: 'cash' = retail walk-ins; 'wholesale' = sales-invoice customers
+  // (formerly labelled "Debtors"; see migration 009).
+  const [tab, setTab] = useState<'cash'|'wholesale'>('cash')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [search, setSearch] = useState('')
   const [segFilter, setSegFilter] = useState('all')
   const [stageFilter, setStageFilter] = useState<'all'|'unclassified'|LifeStage>('all')
   const [showPausedOnly, setShowPausedOnly] = useState(false)
+  // When true, the wholesale list shows soft-hidden contacts too. Hidden
+  // rows are kept fully usable for reports but excluded by default so the
+  // active roster stays tidy.
+  const [showHidden, setShowHidden] = useState(false)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
@@ -172,10 +197,16 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
 
   const load = async () => {
     setLoading(true)
-    const type = tab === 'cash' ? 'cash' : 'debtor'
-    const { data } = await supabase.from('customers')
-      .select('*').eq('customer_type', type).eq('is_active', true)
-      .order('name')
+    // For the wholesale tab, accept BOTH 'wholesale' (canonical) AND
+    // 'debtor' (legacy) so a partially-migrated DB still renders correctly.
+    // We pull hidden rows in the query and filter them out in `filtered`
+    // below so the "Show hidden" toggle is a client-side flip rather than
+    // a round-trip.
+    const { data } = tab === 'cash'
+      ? await supabase.from('customers').select('*')
+          .eq('customer_type', 'cash').eq('is_active', true).order('name')
+      : await supabase.from('customers').select('*')
+          .in('customer_type', ['wholesale', 'debtor']).eq('is_active', true).order('name')
     if (!data) { setLoading(false); return }
 
     let rows = data as Customer[]
@@ -214,50 +245,73 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
   }
 
   const openAdd = () => {
-    setForm({ ...EMPTY_FORM, customer_type: tab === 'cash' ? 'cash' : 'debtor', segment: tab === 'cash' ? 'Retail' : 'Corporate' })
+    setForm({ ...EMPTY_FORM, customer_type: tab === 'cash' ? 'cash' : 'wholesale', segment: tab === 'cash' ? 'Retail' : 'Corporate' })
     setSelected(null); setView('form')
   }
 
   const openEdit = (c: Customer) => {
     setSelected(c)
+    // Always coerce legacy 'debtor' to 'wholesale' on the form so saving
+    // an edited legacy row auto-migrates it. Avoids leaving 'debtor' in
+    // the DB after the user has touched the record.
+    const ct: 'cash' | 'wholesale' = c.customer_type === 'cash' ? 'cash' : 'wholesale'
     setForm({
-      name: c.name, company: c.company || '', contact_person: c.contact_person || '', customer_type: c.customer_type,
+      name: c.name, company: c.company || '', contact_person: c.contact_person || '',
+      customer_type: ct,
       segment: c.segment, whatsapp: c.whatsapp || '', email: c.email || '',
       phone: (c as any).phone || '', address: (c as any).address || '',
+      tin_number: (c as any).tin_number || '',
       credit_limit: String(c.credit_limit || 0), credit_period: String(c.credit_period || 0),
       payment_terms: c.payment_terms || 'COD', notes: c.notes || ''
     })
     setView('form')
   }
 
-  const generateNumber = async (type: 'cash'|'debtor'): Promise<string> => {
+  const generateNumber = async (type: 'cash'|'wholesale'): Promise<string> => {
     if (type === 'cash') {
       const { count } = await supabase.from('customers').select('*', { count: 'exact', head: true }).eq('customer_type', 'cash')
       return `CONT-${String((count || 0) + 10001)}`
     } else {
-      const { data } = await supabase.from('customers').select('customer_number').eq('customer_type', 'debtor').order('customer_number', { ascending: false }).limit(1)
-      const last = data?.[0]?.customer_number
-      const lastNum = last ? parseInt(last.replace('DEB-10-', '')) || 0 : 0
-      return `DEB-10-${String(lastNum + 1).padStart(4, '0')}`
+      // Look at BOTH WHL- prefixed (new) and DEB- prefixed (legacy) numbers
+      // so the next sequence never collides with a pre-migration row.
+      const { data } = await supabase.from('customers')
+        .select('customer_number')
+        .in('customer_type', ['wholesale', 'debtor'])
+        .order('customer_number', { ascending: false })
+        .limit(50)
+      let maxNum = 0
+      for (const row of (data || []) as { customer_number: string }[]) {
+        const m = row.customer_number?.match(/^(WHL|DEB)-10-(\d+)$/)
+        if (m) {
+          const n = parseInt(m[2], 10)
+          if (!isNaN(n) && n > maxNum) maxNum = n
+        }
+      }
+      return `WHL-10-${String(maxNum + 1).padStart(4, '0')}`
     }
   }
 
   const save = async () => {
-    const isDebtor = form.customer_type === 'debtor'
-    const displayName = isDebtor ? form.company.trim() : form.name.trim()
-    if (!displayName) { showToast(isDebtor ? 'Company name required' : 'Customer name required', 'error'); return }
-    if (isDebtor && !(form as any).contact_person?.trim()) { showToast('Contact person required', 'error'); return }
+    const isWholesale = form.customer_type !== 'cash'  // 'wholesale' or legacy 'debtor'
+    const displayName = isWholesale ? form.company.trim() : form.name.trim()
+    if (!displayName) { showToast(isWholesale ? 'Company name required' : 'Customer name required', 'error'); return }
+    if (isWholesale && !(form as any).contact_person?.trim()) { showToast('Contact person required', 'error'); return }
     if (form.customer_type === 'cash' && !form.whatsapp.trim()) { showToast('WhatsApp number required for cash contacts', 'error'); return }
     setSaving(true)
     try {
-      const customerNumber = selected?.customer_number || await generateNumber(form.customer_type)
+      const customerNumber = selected?.customer_number || await generateNumber(form.customer_type as 'cash'|'wholesale')
       const payload: any = {
-        // For debtors: name = company name for searching; for cash: name = person name
-        name: isDebtor ? form.company.trim() : form.name.trim(),
+        // For wholesale: name = company name for searching; for cash: name = person name
+        name: isWholesale ? form.company.trim() : form.name.trim(),
         company: form.company.trim() || null,
         contact_person: (form as any).contact_person?.trim() || null,
-        customer_type: form.customer_type, segment: form.segment.toLowerCase(),
-        whatsapp: form.whatsapp.trim() || null, email: form.email.trim() || null,
+        customer_type: form.customer_type,
+        segment: form.segment.toLowerCase(),
+        whatsapp: form.whatsapp.trim() || null,
+        email: form.email.trim() || null,
+        phone: (form as any).phone?.trim() || null,
+        address: (form as any).address?.trim() || null,
+        tin_number: (form as any).tin_number?.trim() || null,
         credit_limit: parseFloat(form.credit_limit) || 0,
         credit_period: parseInt(form.credit_period) || 0,
         payment_terms: form.payment_terms, notes: form.notes.trim() || null,
@@ -277,11 +331,62 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
     finally { setSaving(false) }
   }
 
+  // ── Hide / unhide a wholesale contact ────────────────────────────────
+  // Soft-hide: removes the contact from future pickers (Cash Sale, Sales
+  // Invoice, batch receipts) but keeps every historical ledger entry,
+  // statement, and AR row exactly as it was. Reversible via the same
+  // button when "Show hidden" is on.
+  const toggleHidden = async (c: Customer) => {
+    const goingHidden = !c.is_hidden
+    const ok = window.confirm(
+      goingHidden
+        ? `Hide "${c.company || c.name}" from pickers?\n\nThis only affects new vouchers. Existing AR balance, statements, and reports will continue to show this contact.`
+        : `Un-hide "${c.company || c.name}"? It will appear in pickers again.`
+    )
+    if (!ok) return
+    const { error } = await supabase.from('customers').update({ is_hidden: goingHidden }).eq('id', c.id)
+    if (error) { showToast(error.message, 'error'); return }
+    showToast(goingHidden ? `${c.company || c.name} hidden` : `${c.company || c.name} restored`)
+    load()
+  }
+
+  // ── Delete (hard) ─────────────────────────────────────────────────────
+  // We only allow delete when balance == 0 and no historical vouchers
+  // reference the customer. Otherwise the FK on customer_ledger_entries
+  // would refuse, leaving the user confused. We refuse pre-flight with a
+  // clear message and suggest Hide instead.
+  const deleteCustomer = async (c: Customer) => {
+    if ((c.balance || 0) > 0) {
+      showToast(`Cannot delete: ${c.company || c.name} has outstanding balance of ${tzs(c.balance)}. Hide instead, or settle the balance first.`, 'error')
+      return
+    }
+    // Check for ledger entries referencing this customer. A real prior
+    // relationship (even if balanced to zero) deserves preservation.
+    const { count } = await supabase.from('customer_ledger_entries')
+      .select('id', { count: 'exact', head: true }).eq('customer_id', c.id)
+    if ((count || 0) > 0) {
+      const fallback = window.confirm(
+        `${c.company || c.name} has ${count} ledger entries. Deleting would corrupt audit history.\n\nHide instead? (Removes from pickers, preserves all reports.)`
+      )
+      if (fallback) toggleHidden({ ...c, is_hidden: false })
+      return
+    }
+    const ok = window.confirm(`PERMANENTLY delete "${c.company || c.name}"?\n\nThis cannot be undone. (No history attached, so nothing else will break.)`)
+    if (!ok) return
+    const { error } = await supabase.from('customers').delete().eq('id', c.id)
+    if (error) { showToast(error.message, 'error'); return }
+    showToast(`${c.company || c.name} deleted`)
+    load()
+  }
+
   // Stats
   const totalBalance = customers.reduce((s, c) => s + (c.balance || 0), 0)
   const totalCredit = customers.reduce((s, c) => s + (c.credit_limit || 0), 0)
 
   const filtered = customers.filter(c => {
+    // On the wholesale tab, hide soft-hidden contacts unless the toggle
+    // is on. The cash tab ignores this flag (no hide UI on cash side).
+    if (tab === 'wholesale' && !showHidden && c.is_hidden) return false
     if (segFilter !== 'all' && c.segment !== segFilter.toLowerCase()) return false
     if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !(c.whatsapp || '').includes(search) && !(c.customer_number || '').toLowerCase().includes(search.toLowerCase())) return false
     if (tab === 'cash') {
@@ -312,7 +417,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
     }
   }
 
-  const sortStorageKey = tab === 'cash' ? 'malkia.customers.sort.cash' : 'malkia.customers.sort.debtors'
+  const sortStorageKey = tab === 'cash' ? 'malkia.customers.sort.cash' : 'malkia.customers.sort.wholesale'
   const defaultSort = useMemo(() => [{ key: 'name', direction: 'asc' as const }], [])
   const { sorted, onHeaderClick, getSortIndex, getSortDir } =
     useTableSort<Customer>(filtered, { storageKey: sortStorageKey, defaultSort, accessor: sortAccessor })
@@ -406,8 +511,8 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
           ))}
         </div>
 
-        {/* Credit usage bar — debtors only */}
-        {selected.customer_type === 'debtor' && selected.credit_limit > 0 && (
+        {/* Credit usage bar — wholesale contacts (and legacy debtor rows) */}
+        {selected.customer_type !== 'cash' && selected.credit_limit > 0 && (
           <div style={{ marginBottom:16,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px' }}>
             <div style={{ display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:12 }}>
               <span style={{ color:'var(--text3)' }}>Credit Used</span>
@@ -501,7 +606,13 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
 
   // ── FORM VIEW ────────────────────────────────────────────────────────────
   if (view === 'form') {
-    const isDebtor = form.customer_type === 'debtor'
+    // Treat legacy 'debtor' the same as the canonical 'wholesale' on the
+    // form. On save we coerce to 'wholesale', completing the migration row
+    // by row as the user touches existing records.
+    const isWholesale = form.customer_type !== 'cash'
+    // Form select needs to render with one of the two canonical values
+    // even if the underlying record still has 'debtor'.
+    const formTypeValue = form.customer_type === 'debtor' ? 'wholesale' : form.customer_type
     return (
       <div className="page">
         <div className="page-header">
@@ -510,7 +621,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
               <Ic n="back" /> Customers
             </button>
             <div style={{ width:1,height:24,background:'var(--border)' }}></div>
-            <div className="page-title">{selected ? `Edit — ${selected.name}` : `Add ${isDebtor ? 'Debtor' : 'Cash Contact'}`}</div>
+            <div className="page-title">{selected ? `Edit — ${selected.name}` : `Add ${isWholesale ? 'Wholesale Contact' : 'Cash Contact'}`}</div>
           </div>
           <div className="page-actions">
             <button className="btn btn-ghost" onClick={() => setView('list')}>Cancel</button>
@@ -523,18 +634,18 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
             <div className="card-title" style={{ marginBottom:16 }}>Customer Details</div>
             <div className="form-row">
               <FG label="Customer Type" req>
-                <select className="form-input" value={form.customer_type} onChange={e => { setF('customer_type', e.target.value); setF('segment', e.target.value==='cash'?'Retail':'Corporate') }}>
+                <select className="form-input" value={formTypeValue} onChange={e => { setF('customer_type', e.target.value); setF('segment', e.target.value==='cash'?'Retail':'Corporate') }}>
                   <option value="cash">Cash Contact (Dar HQ)</option>
-                  <option value="debtor">Debtor (Credit Account)</option>
+                  <option value="wholesale">Wholesale Contact</option>
                 </select>
               </FG>
               <FG label="Segment" req>
                 <select className="form-input" value={form.segment} onChange={e => setF('segment', e.target.value)}>
-                  {SEGMENTS[form.customer_type].map(s => <option key={s}>{s}</option>)}
+                  {SEGMENTS[(formTypeValue as 'cash'|'wholesale')].map(s => <option key={s}>{s}</option>)}
                 </select>
               </FG>
             </div>
-            {isDebtor ? (
+            {isWholesale ? (
               <>
                 <FG label="Company / Organization" req><input className="form-input" placeholder="e.g. Aga Khan Health Services" value={form.company} onChange={e => setF('company', e.target.value)} /></FG>
                 <FG label="Contact Person" req><input className="form-input" placeholder="e.g. Dr. Sarah Kimani" value={(form as any).contact_person || ''} onChange={e => setF('contact_person', e.target.value)} /></FG>
@@ -543,16 +654,39 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
               <FG label="Full Name" req><input className="form-input" placeholder="e.g. Mama Fatuma Hassan" value={form.name} onChange={e => setF('name', e.target.value)} /></FG>
             )}
             <div className="form-row">
-              <FG label={`WhatsApp Number${!isDebtor?' (required)':''}`}>
+              <FG label={`WhatsApp Number${!isWholesale?' (required)':''}`}>
                 <input className="form-input" placeholder="+255 7XX XXX XXX" value={form.whatsapp} onChange={e => setF('whatsapp', e.target.value)} />
               </FG>
-              <FG label="Email"><input className="form-input" placeholder="email@example.com" value={form.email} onChange={e => setF('email', e.target.value)} /></FG>
+              <FG label={isWholesale ? 'Office Phone' : 'Email'}>
+                {isWholesale
+                  ? <input className="form-input" placeholder="+255 22 XXX XXXX" value={(form as any).phone || ''} onChange={e => setF('phone', e.target.value)} />
+                  : <input className="form-input" placeholder="email@example.com" value={form.email} onChange={e => setF('email', e.target.value)} />}
+              </FG>
             </div>
+            {isWholesale && (
+              <>
+                <FG label="Email">
+                  <input className="form-input" placeholder="accounts@example.co.tz" value={form.email} onChange={e => setF('email', e.target.value)} />
+                </FG>
+                <div className="form-row">
+                  <FG label="TIN Number">
+                    <input className="form-input" placeholder="123-456-789 (TRA)" style={{ fontFamily:'var(--mono)' }}
+                      title="Tanzania Revenue Authority TIN — 9 digits, NNN-NNN-NNN"
+                      value={(form as any).tin_number || ''} onChange={e => setF('tin_number', e.target.value)} />
+                  </FG>
+                  <FG label="Physical Address">
+                    <input className="form-input" placeholder="Plot 45, Masaki, Dar es Salaam"
+                      title="Used on invoices and statements"
+                      value={(form as any).address || ''} onChange={e => setF('address', e.target.value)} />
+                  </FG>
+                </div>
+              </>
+            )}
             <FG label="Notes"><textarea className="form-input" rows={2} style={{ resize:'none' }} value={form.notes} onChange={e => setF('notes', e.target.value)} /></FG>
           </div>
 
           <div style={{ display:'flex',flexDirection:'column',gap:16 }}>
-            {isDebtor && (
+            {isWholesale && (
               <div className="card">
                 <div className="card-title" style={{ marginBottom:14 }}>Credit Terms</div>
                 <div className="form-row">
@@ -569,12 +703,12 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                   </select>
                 </FG>
                 <div style={{ background:'var(--surface2)',borderRadius:8,padding:'10px 12px',fontSize:11,color:'var(--text3)',marginTop:8 }}>
-                  Set credit limit to 0 for unlimited credit (configurable in Settings).
+                  Set credit limit to 0 for unlimited credit. Wholesale contacts can prepay, COD, or take credit — credit terms only matter when the contact actually buys on terms.
                 </div>
               </div>
             )}
 
-            {!isDebtor && (
+            {!isWholesale && (
               <div className="card" style={{ background:'rgba(37,211,102,.06)',border:'1px solid rgba(37,211,102,.15)' }}>
                 <div className="card-title" style={{ marginBottom:8 }}>Cash Contact Note</div>
                 <div style={{ fontSize:12,color:'var(--text3)',lineHeight:1.7 }}>
@@ -614,11 +748,11 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
       <div className="page-header">
         <div>
           <div className="page-title">Customers</div>
-          <div className="page-sub">AR · Cash contacts · Debtors · <span className="sync-dot"></span> Live</div>
+          <div className="page-sub">AR · Cash contacts · Wholesale contacts · <span className="sync-dot"></span> Live</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
-          <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add {tab==='cash'?'Contact':'Debtor'}</button>
+          <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add {tab==='cash'?'Contact':'Wholesale Contact'}</button>
         </div>
       </div>
 
@@ -645,14 +779,14 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
       <div style={{ background:'linear-gradient(135deg,rgba(133,194,190,.08) 0%,rgba(133,194,190,.04) 100%)',border:'1px solid rgba(133,194,190,.2)',borderRadius:12,padding:'14px 20px',marginBottom:20,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
         <div>
           <div style={{ fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',letterSpacing:1,marginBottom:4 }}>
-            {tab==='cash' ? 'Master AR Account' : 'AR — Debtors Control Account'}
+            {tab==='cash' ? 'Master AR Account' : 'AR — Wholesale Control Account'}
           </div>
           <div style={{ display:'flex',alignItems:'center',gap:10 }}>
             <span style={{ fontFamily:'var(--mono)',fontSize:16,fontWeight:800,color:'var(--accent)',background:'var(--accent-dim)',padding:'3px 10px',borderRadius:6 }}>
-              {tab==='cash' ? 'DAR502' : '1050-DEB'}
+              {tab==='cash' ? 'DAR502' : '1050-WHL'}
             </span>
             <span style={{ fontFamily:'var(--display)',fontSize:15,fontWeight:700 }}>
-              {tab==='cash' ? 'Dar HQ Cash Sales' : 'Accounts Receivable — Debtors'}
+              {tab==='cash' ? 'Dar HQ Cash Sales' : 'Accounts Receivable — Wholesale'}
             </span>
           </div>
         </div>
@@ -660,7 +794,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
           {[
             { label:'Total Customers', val: customers.length },
             { label:'Total AR Balance', val: tzs(totalBalance), color: totalBalance>0?'var(--red)':'var(--green)' },
-            tab==='debtors' ? { label:'Total Credit Extended', val: tzs(totalCredit), color:'var(--accent)' } : { label:'With Balance', val: customers.filter(c=>(c.balance||0)>0).length },
+            tab==='wholesale' ? { label:'Total Credit Extended', val: tzs(totalCredit), color:'var(--accent)' } : { label:'With Balance', val: customers.filter(c=>(c.balance||0)>0).length },
           ].map((item,i) => (
             <div key={i}>
               <div style={{ fontSize:9,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',marginBottom:4 }}>{item.label}</div>
@@ -672,8 +806,8 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
 
       {/* Tabs */}
       <div style={{ display:'flex',gap:4,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:4,marginBottom:20,width:'fit-content' }}>
-        {[{ id:'cash',label:'Cash Contacts (DAR502)' },{ id:'debtors',label:'Debtors' }].map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id as any); setSegFilter('all'); setSearch(''); setStageFilter('all'); setShowPausedOnly(false) }}
+        {[{ id:'cash',label:'Cash Contacts (DAR502)' },{ id:'wholesale',label:'Wholesale Contacts' }].map(t => (
+          <button key={t.id} onClick={() => { setTab(t.id as any); setSegFilter('all'); setSearch(''); setStageFilter('all'); setShowPausedOnly(false); setShowHidden(false) }}
             style={{ padding:'8px 20px',fontSize:12,fontWeight:600,background:tab===t.id?'var(--accent)':'transparent',color:tab===t.id?'#fff':'var(--text3)',border:'none',cursor:'pointer',borderRadius:'var(--r)',transition:'all .15s' }}>
             {t.label}
           </button>
@@ -682,11 +816,18 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
 
       {/* Filters */}
       <div style={{ display:'flex',gap:10,marginBottom:16,alignItems:'center',flexWrap:'wrap' }}>
-        <input className="form-input" style={{ width:220,padding:'7px 10px',fontSize:12 }} placeholder={tab==='cash'?'Search name, WA, or CONT…':'Search name, DEB number…'} value={search} onChange={e => setSearch(e.target.value)} />
+        <input className="form-input" style={{ width:220,padding:'7px 10px',fontSize:12 }} placeholder={tab==='cash'?'Search name, WA, or CONT…':'Search name, WHL/DEB number…'} value={search} onChange={e => setSearch(e.target.value)} />
         <select className="form-input" style={{ fontSize:12,padding:'7px 10px',width:150 }} value={segFilter} onChange={e => setSegFilter(e.target.value)}>
           <option value="all">All Segments</option>
-          {SEGMENTS[tab==='cash'?'cash':'debtor'].map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
+          {SEGMENTS[tab==='cash'?'cash':'wholesale'].map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
         </select>
+        {tab==='wholesale' && (
+          <label style={{ display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--text3)',cursor:'pointer' }}
+            title="Hidden contacts are excluded from pickers but still appear in reports and statements">
+            <input type="checkbox" checked={showHidden} onChange={e => setShowHidden(e.target.checked)} />
+            Show hidden
+          </label>
+        )}
         {tab==='cash' && (
           <>
             <select
@@ -729,7 +870,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
         <div className="card">
           {filtered.length === 0 ? (
             <div style={{ textAlign:'center',padding:'40px 0',color:'var(--text3)' }}>
-              No {tab==='cash'?'cash contacts':'debtors'} found. Click + to add one.
+              No {tab==='cash'?'cash contacts':'wholesale contacts'} found. Click + to add one.
             </div>
           ) : (
             <div className="table-wrap">
@@ -778,7 +919,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                     {tab==='cash'
                       ? <SortableTh label="WhatsApp" sortKey="whatsapp" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
                       : <SortableTh label="Payment Terms" sortKey="payment_terms" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
-                    {tab==='debtors' && <SortableTh label="Credit Limit" sortKey="credit_limit" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
+                    {tab==='wholesale' && <SortableTh label="Credit Limit" sortKey="credit_limit" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
                     <SortableTh label="Balance" sortKey="balance" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
                     <SortableTh label="Last Purchase" sortKey="last_purchase" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
                     {tab==='cash' && <SortableTh label="Crown Pts" sortKey="crown_points" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
@@ -803,12 +944,15 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                       <td className="td-mono" style={{ fontSize:11,fontWeight:700,color:'var(--accent)' }}>{c.customer_number||'—'}</td>
                       <td>
                         <div style={{ fontWeight:600,fontSize:13,display:'flex',alignItems:'center',gap:6 }}>
-                          {tab==='debtors' ? (c.company || c.name) : c.name}
+                          {tab==='wholesale' ? (c.company || c.name) : c.name}
                           {tab==='cash' && c.stage_paused && (
                             <span title="Profile paused — sensitive exit" style={{ fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(255,71,87,.12)',color:'var(--red)',fontWeight:700 }}>PAUSED</span>
                           )}
+                          {tab==='wholesale' && c.is_hidden && (
+                            <span title="Hidden from pickers — still appears in reports" style={{ fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(255,211,42,.12)',color:'var(--yellow,#f59e0b)',fontWeight:700 }}>HIDDEN</span>
+                          )}
                         </div>
-                        {tab==='debtors' ? <div style={{ fontSize:10,color:'var(--text3)' }}>{(c as any).contact_person || c.company || '—'}</div> : c.company && <div style={{ fontSize:10,color:'var(--text3)' }}>{c.company}</div>}
+                        {tab==='wholesale' ? <div style={{ fontSize:10,color:'var(--text3)' }}>{(c as any).contact_person || c.company || '—'}</div> : c.company && <div style={{ fontSize:10,color:'var(--text3)' }}>{c.company}</div>}
                       </td>
                       {tab==='cash' && (
                         <td>
@@ -820,7 +964,7 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                         ? <td className="td-mono" style={{ fontSize:11,color:'#25D366' }}>{c.whatsapp||'—'}</td>
                         : <td style={{ fontSize:11,color:'var(--text3)' }}>{c.payment_terms||'COD'}</td>
                       }
-                      {tab==='debtors' && (
+                      {tab==='wholesale' && (
                         <td className="td-right td-mono" style={{ fontSize:11 }}>{c.credit_limit>0?tzs(c.credit_limit):'Unlimited'}</td>
                       )}
                       <td className="td-right td-mono" style={{ fontWeight:700,color:(c.balance||0)>0?'var(--red)':'var(--text3)',fontSize:12 }}>
@@ -844,6 +988,22 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                           <button onClick={() => openEdit(c)} style={{ background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',cursor:'pointer',fontSize:11,color:'var(--text3)',display:'flex',alignItems:'center',gap:4 }}>
                             <Ic n="edit" s={11} /> Edit
                           </button>
+                          {/* Hide / Restore — wholesale only, distinct from delete */}
+                          {tab === 'wholesale' && (
+                            <button onClick={() => toggleHidden(c)}
+                              title={c.is_hidden ? 'Restore to pickers' : 'Hide from pickers (keep in reports)'}
+                              style={{ background:c.is_hidden?'rgba(255,211,42,.12)':'var(--surface2)', border:`1px solid ${c.is_hidden?'var(--yellow,#f59e0b)':'var(--border)'}`, borderRadius:6, padding:'4px 8px', cursor:'pointer', fontSize:11, color:c.is_hidden?'var(--yellow,#f59e0b)':'var(--text3)', fontWeight:600 }}>
+                              {c.is_hidden ? 'Show' : 'Hide'}
+                            </button>
+                          )}
+                          {/* Delete — wholesale only, only allowed if no history */}
+                          {tab === 'wholesale' && (
+                            <button onClick={() => deleteCustomer(c)}
+                              title="Delete permanently (only allowed if no balance and no ledger history)"
+                              style={{ background:'rgba(255,71,87,.08)', border:'1px solid rgba(255,71,87,.3)', borderRadius:6, padding:'4px 8px', cursor:'pointer', fontSize:11, color:'var(--red)', fontWeight:600 }}>
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
