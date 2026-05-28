@@ -6,7 +6,7 @@ import { tzs } from '../lib/utils'
 import type { Page, LifeStage } from '../lib/types'
 import { LIFE_STAGE_LABELS } from '../lib/types'
 import { useTableSort } from '../lib/useTableSort'
-// import CashCustomerDetail from './customers/CashCustomerDetail'  // temporarily disabled — see note in cash-customer ledger branch below
+import CashCustomerDetailView from './customers/CashCustomerDetailView'  // cash-customer purchase history + loyalty view (reads vouchers directly)
 
 interface Customer {
   id: string; customer_number: string; name: string; company: string; contact_person: string
@@ -445,19 +445,24 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
   // view (below) is safe — cash customers will just see the standard
   // ledger instead of the CRM-focused page until this is restored.
   //
-  // To re-enable: replace the props below with whatever the current
-  // CashCustomerDetail's `interface Props` actually expects.
-  //
-  // if (view === 'ledger' && selected && selected.customer_type === 'cash') {
-  //   return (
-  //     <CashCustomerDetail
-  //       customerId={selected.id}
-  //       onBack={() => setView('list')}
-  //       onViewStatement={onViewStatement}
-  //       {...(onNav ? { onNav } : {})}
-  //     />
-  //   )
-  // }
+  // Cash customers settle at point of sale, so they have no AR ledger rows.
+  // Route them to the purchase-history + loyalty view instead of the (always
+  // empty) AR ledger. CashCustomerDetailView reads vouchers/voucher_lines
+  // directly, so it does not depend on any reporting view being present.
+  if (view === 'ledger' && selected && selected.customer_type === 'cash') {
+    return (
+      <CashCustomerDetailView
+        customerId={selected.id}
+        customerName={selected.name}
+        customerNumber={selected.customer_number}
+        crownPoints={selected.crown_points}
+        whatsapp={selected.whatsapp}
+        onBack={() => setView('list')}
+        {...(onViewStatement ? { onViewStatement } : {})}
+        {...(onNav ? { onNav } : {})}
+      />
+    )
+  }
 
   // ── LEDGER VIEW ─────────────────────────────────────────────────────────
   if (view === 'ledger' && selected) {
