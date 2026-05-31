@@ -11,6 +11,8 @@ export interface MoneyDelta {
   deltaPct: number | null   // null when previous is 0 (can't compute %)
 }
 
+export interface PnlLine { code: string; name: string; value: number }
+
 // Sensitive tier — only populated when canViewFinancials is true.
 export interface FinancialData {
   revenue: MoneyDelta
@@ -18,6 +20,8 @@ export interface FinancialData {
   marginPct: number          // current-month GP / revenue * 100
   expenses: MoneyDelta
   netProfit: MoneyDelta
+  // Per-account P&L for the current month (the actual line items).
+  pnlBreakdown: { revenue: PnlLine[]; cogs: PnlLine[]; expenses: PnlLine[] }
   cashPosition: number        // snapshot across tills, mobile money, banks
   inventoryValue: number      // GL account 1110 balance
   payrollCost: number         // current-month salary expense (60xx)
