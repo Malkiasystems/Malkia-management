@@ -22,6 +22,7 @@ const Icon = ({ name, size = 20, color = 'currentColor', strokeWidth = 1.8, styl
   const props = { width: size, height: size, fill: 'none', stroke: color, strokeWidth, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24', style }
   const paths: Record<string, React.ReactNode> = {
     plus: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+    arrowLeft: <><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></>,
     x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
     users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
     alertCircle: <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>,
@@ -35,13 +36,13 @@ const Icon = ({ name, size = 20, color = 'currentColor', strokeWidth = 1.8, styl
   return <svg {...props}>{paths[name] || <circle cx="12" cy="12" r="10"/>}</svg>
 }
 
-interface Props { onNav: (p: Page) => void }
+interface Props { onNav?: (p: Page) => void; embedded?: boolean; onBack?: () => void }
 type Tab = 'pipeline' | 'customers' | 'lost'
 
 const fmtDate = (d?: string | null) =>
   d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
 
-export default function B2BPipeline(_: Props) {
+export default function B2BPipeline({ embedded, onBack }: Props) {
   const { user } = useAuth()
   const actor: b2b.Actor = { id: user?.id || null, name: user?.full_name || null }
   const { accounts, loading, error, reload } = useB2B()
@@ -77,7 +78,7 @@ export default function B2BPipeline(_: Props) {
   ]
 
   const s = {
-    page: { padding: 24, maxWidth: 1600, margin: '0 auto' } as React.CSSProperties,
+    page: { padding: embedded ? '4px 0 24px' : 24, maxWidth: 1600, margin: '0 auto' } as React.CSSProperties,
     head: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18, gap: 12, flexWrap: 'wrap' as const },
     title: { fontFamily: 'var(--display)', fontSize: 24, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 } as React.CSSProperties,
     sub: { fontSize: 13, color: 'var(--text3)', marginTop: 2 },
@@ -119,6 +120,11 @@ export default function B2BPipeline(_: Props) {
     <div style={s.page}>
       <div style={s.head}>
         <div>
+          {onBack && (
+            <button className="btn-ghost" style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }} onClick={onBack}>
+              <Icon name="arrowLeft" size={14} /> Wholesale customers
+            </button>
+          )}
           <div style={s.title}><Icon name="briefcase" size={24} color="var(--accent)" /> B2B CRM</div>
           <div style={s.sub}>Pharmacies, hospitals, clinics, midwife practices, resellers and corporate accounts.</div>
         </div>
