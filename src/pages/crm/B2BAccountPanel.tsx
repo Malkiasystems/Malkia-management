@@ -173,7 +173,7 @@ export default function B2BAccountPanel({ account, actor, onClose, onReload, sho
               <input style={s.input} placeholder="Role (e.g. procurement, pharmacist)" value={cRole} onChange={e => setCRole(e.target.value)} />
               <input style={s.input} placeholder="Phone / WhatsApp" value={cPhone} onChange={e => setCPhone(e.target.value)} />
               <button className="btn-primary" disabled={busy || !cName.trim()} style={{ padding: '8px', borderRadius: 8 }}
-                onClick={() => run(() => b2b.addContact({ account_id: account.id, name: cName, role: cRole, phone: cPhone, is_primary: (account.contacts || []).length === 0 }), 'Contact added').then(() => { setCName(''); setCRole(''); setCPhone(''); setShowAddContact(false) })}>
+                onClick={() => run(async () => { await b2b.addContact({ account_id: account.id, name: cName, role: cRole, phone: cPhone, is_primary: (account.contacts || []).length === 0 }) }, 'Contact added').then(() => { setCName(''); setCRole(''); setCPhone(''); setShowAddContact(false) })}>
                 Save contact
               </button>
             </div>
