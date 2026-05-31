@@ -138,7 +138,7 @@ async function loadFinancial(b: ReturnType<typeof monthBounds>): Promise<Financi
   const [lineRes, acctRes, arRes, supRes] = await Promise.all([
     // Posted journal lines for prev-month-start..today, with account type/code.
     supabase.from('journal_lines')
-      .select('debit, credit, journals!inner(posting_date, status), accounts!inner(type, code)')
+      .select('debit, credit, journals!inner(posting_date, status), accounts!inner(type, code, name)')
       .eq('journals.status', 'posted')
       .gte('journals.posting_date', b.prevStart)
       .lte('journals.posting_date', b.today),
@@ -172,6 +172,32 @@ async function loadFinancial(b: ReturnType<typeof monthBounds>): Promise<Financi
 
   const gpCur = revCur - cogsCur, gpPrev = revPrev - cogsPrev
   const netCur = gpCur - expCur, netPrev = gpPrev - expPrev
+
+  // ---- Per-account P&L breakdown (current month only) ----
+  const byAcct: Record<string, { code: string; name: string; type: string; value: number }> = {}
+  for (const l of lines) {
+    const j = Array.isArray(l.journals) ? l.journals[0] : l.journals
+    const a = Array.isArray(l.accounts) ? l.accounts[0] : l.accounts
+    const pd = j?.posting_date
+    if (!pd || pd < b.monthStart) continue   // current month only
+    const type = a?.type || ''
+    if (type !== 'revenue' && type !== 'cogs' && type !== 'expense') continue
+    const code = a?.code || '', name = a?.name || code
+    const signed = type === 'revenue'
+      ? (l.credit || 0) - (l.debit || 0)
+      : (l.debit || 0) - (l.credit || 0)
+    if (!byAcct[code]) byAcct[code] = { code, name, type, value: 0 }
+    byAcct[code].value += signed
+  }
+  const breakdownOf = (t: string) =>
+    Object.values(byAcct).filter(x => x.type === t && Math.abs(x.value) > 0.5)
+      .sort((a, b) => b.value - a.value)
+      .map(x => ({ code: x.code, name: x.name, value: x.value }))
+  const pnlBreakdown = {
+    revenue: breakdownOf('revenue'),
+    cogs: breakdownOf('cogs'),
+    expenses: breakdownOf('expense'),
+  }
 
   // ---- Snapshot balances ----
   const accts = (acctRes.data || []) as { code: string; balance: number }[]
@@ -215,6 +241,7 @@ async function loadFinancial(b: ReturnType<typeof monthBounds>): Promise<Financi
     marginPct: revCur > 0 ? (gpCur / revCur) * 100 : 0,
     expenses: delta(expCur, expPrev),
     netProfit: delta(netCur, netPrev),
+    pnlBreakdown,
     cashPosition,
     inventoryValue,
     payrollCost,
