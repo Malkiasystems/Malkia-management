@@ -54,14 +54,17 @@ export default function Dashboard({ onNav }: Props) {
   }
 
   const loadStats = async () => {
-    // Revenue from accounts
-    const { data: revenueAcct } = await supabase.from('accounts').select('balance').eq('code', '4010').single()
-    const { data: cogsAcct } = await supabase.from('accounts').select('balance').eq('code', '5010').single()
+    // Revenue & COGS summed across ALL revenue/cogs accounts (matches the P&L).
+    // The old code hardcoded code '4010', so it missed B2B sales (4011) and any
+    // future revenue/COGS account.
+    const { data: pnlAccts } = await supabase
+      .from('accounts').select('type, balance').in('type', ['revenue', 'cogs'])
     const { data: products } = await supabase.from('products').select('qty_on_hand, reorder_point').eq('is_active', true)
     const { count: voucherCount } = await supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('status', 'draft')
 
-    const revenue = Math.abs(revenueAcct?.balance || 0)
-    const cogs = cogsAcct?.balance || 0
+    const acctRows = (pnlAccts || []) as { type: string; balance: number }[]
+    const revenue = acctRows.filter(a => a.type === 'revenue').reduce((s, a) => s + Math.abs(a.balance || 0), 0)
+    const cogs = acctRows.filter(a => a.type === 'cogs').reduce((s, a) => s + (a.balance || 0), 0)
     const productList = products || []
 
     setStats({
