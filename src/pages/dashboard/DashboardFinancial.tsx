@@ -97,6 +97,41 @@ export default function DashboardFinancial({ fin, monthLabel }: { fin: Financial
           <div style={{ fontSize: 11, color: 'var(--text3)' }}>Suppliers {tzs(fin.ap.suppliers)} · Loans {tzs(fin.ap.loans)}</div>
         </div>
       </div>
+
+      {/* Month P&L breakdown by account */}
+      <div style={card}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Profit &amp; Loss · {monthLabel}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20 }}>
+          <PnlGroup title="Revenue" lines={fin.pnlBreakdown.revenue} total={fin.revenue.current} color="#10b981" />
+          <PnlGroup title="Cost of Goods Sold" lines={fin.pnlBreakdown.cogs} total={fin.revenue.current - fin.grossProfit.current} color="#ef4444" negative />
+          <PnlGroup title="Operating Expenses" lines={fin.pnlBreakdown.expenses} total={fin.expenses.current} color="#e0a458" negative />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 10, fontWeight: 800 }}>
+          <span>Net Profit · {monthLabel}</span>
+          <span style={{ color: fin.netProfit.current < 0 ? '#ef4444' : '#10b981' }}>{tzs(fin.netProfit.current)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PnlGroup({ title, lines, total, color, negative = false }: { title: string; lines: { code: string; name: string; value: number }[]; total: number; color: string; negative?: boolean }) {
+  return (
+    <div>
+      <div style={{ ...label, color }}>{title}</div>
+      <div style={{ margin: '6px 0' }}>
+        {lines.map(l => (
+          <div key={l.code} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', gap: 8 }}>
+            <span style={{ color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</span>
+            <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', whiteSpace: 'nowrap' }}>{negative ? `(${tzs(l.value)})` : tzs(l.value)}</span>
+          </div>
+        ))}
+        {lines.length === 0 && <div style={{ fontSize: 12, color: 'var(--text3)' }}>None this month</div>}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, fontWeight: 700, fontSize: 12.5 }}>
+        <span>Total</span>
+        <span style={{ fontFamily: 'var(--mono)', color }}>{negative ? `(${tzs(total)})` : tzs(total)}</span>
+      </div>
     </div>
   )
 }
