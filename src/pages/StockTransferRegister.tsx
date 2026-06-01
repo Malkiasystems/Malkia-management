@@ -34,7 +34,9 @@ export default function StockTransferRegister() {
   const userLoc = useUserLocation()
   const [records, setRecords] = useState<TransferRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
+  // Default to start of the current year (not current month) so the register
+  // shows transfer history by default instead of hiding it behind a 1-day window.
+  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0])
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
   const [locFilter, setLocFilter] = useState('all')
   const [filterCat, setFilterCat] = useState('all')
