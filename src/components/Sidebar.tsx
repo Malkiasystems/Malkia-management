@@ -20,7 +20,7 @@ const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'cr
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
-const HRM_PAGES: Page[] = ['hrm', 'hrm-employees', 'hrm-assets', 'hrm-payroll', 'hrm-payslips', 'hrm-payslip-template', 'hrm-leave', 'hrm-attendance', 'hrm-performance', 'hrm-recruitment', 'hrm-events', 'hrm-settings']
+const HRM_PAGES: Page[] = ['hrm', 'hrm-employees', 'hrm-assets', 'hrm-payroll', 'hrm-payslips', 'hrm-payslip-template', 'hrm-leave', 'hrm-attendance', 'hrm-performance', 'hrm-recruitment', 'hrm-events', 'hrm-settings', 'hrm-kpi']
 
 const HRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Dashboard', page: 'hrm',             icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
@@ -29,6 +29,7 @@ const HRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Leave',     page: 'hrm-leave',        icon: 'M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z' },
   { label: 'Attend',    page: 'hrm-attendance',   icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2' },
   { label: 'Events',    page: 'hrm-events',       icon: 'M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z M16 2v4 M8 2v4 M3 10h18' },
+  { label: 'KPIs',      page: 'hrm-kpi',          icon: 'M3 3v18h18 M7 14l4-4 3 3 5-6' },
 ]
 
 const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
