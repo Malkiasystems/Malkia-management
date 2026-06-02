@@ -134,6 +134,7 @@ const HRMPayslipTemplate = lazy(() => import('./pages/hrm/HRMPayslipTemplate'))
 const HRMLeave = lazy(() => import('./pages/hrm/HRMLeave'))
 const HRMAttendance = lazy(() => import('./pages/hrm/HRMAttendance'))
 const HRMPerformance = lazy(() => import('./pages/hrm/HRMPerformance'))
+const HRMKpi = lazy(() => import('./pages/hrm/HRMKpi'))
 const HRMRecruitment = lazy(() => import('./pages/hrm/HRMRecruitment'))
 const HRMEvents = lazy(() => import('./pages/hrm/HRMEvents'))
 const HRMSettings = lazy(() => import('./pages/hrm/HRMSettings'))
@@ -340,6 +341,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'hrm-leave': 'HRM / Leave',
   'hrm-attendance': 'HRM / Attendance',
   'hrm-performance': 'HRM / Performance',
+  'hrm-kpi': 'HRM / KPI Scorecards',
   'hrm-recruitment': 'HRM / Recruitment',
   'hrm-events': 'HRM / Events',
   'hrm-settings': 'HRM / Settings',
@@ -582,6 +584,7 @@ function AppContent() {
       case 'hrm-leave':         return <HRMLeave onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-attendance':    return <HRMAttendance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-performance':   return <HRMPerformance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm-kpi':           return <HRMKpi onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-recruitment':   return <HRMRecruitment onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-events':        return <HRMEvents onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
       case 'hrm-settings':      return <HRMSettings onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
