@@ -144,7 +144,7 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
                 { label: 'Employees', page: 'hrm-employees' as const },
                 { label: 'Asset Allocation', page: 'hrm-assets' as const },
                 { label: 'Leave Management', page: 'hrm-leave' as const },
-                { label: 'Performance', page: 'hrm-performance' as const },
+                { label: 'Performance', page: 'hrm-kpi' as const },
                 { label: 'Events & Birthdays', page: 'hrm-events' as const },
                 { label: 'Recruitment', page: 'hrm-recruitment' as const },
               ].map(item => (
