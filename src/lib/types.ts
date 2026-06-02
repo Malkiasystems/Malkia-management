@@ -39,7 +39,7 @@ export type Page =
   | 'hrm' | 'hrm-employees' | 'hrm-assets' | 'hrm-payroll' | 'hrm-payslips'
   | 'hrm-payslip-template'
   | 'hrm-leave' | 'hrm-attendance' | 'hrm-performance' | 'hrm-recruitment'
-  | 'hrm-events' | 'hrm-settings'
+  | 'hrm-events' | 'hrm-settings' | 'hrm-kpi'
 
 export interface Product {
   id: string
