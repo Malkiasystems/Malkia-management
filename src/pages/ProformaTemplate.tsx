@@ -568,7 +568,7 @@ export function MalkiaProforma({ voucher, settings }: {
 
         {/* Right: Totals block */}
         <div>
-          {s.show_vat_breakdown && (
+          {s.show_vat_breakdown && vat > 0 && (
             <div style={{ padding: '10px 4px', borderBottom: '1px solid #f0f0f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#666' }}>
                 <span>Subtotal (excl. VAT)</span>
