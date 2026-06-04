@@ -21,6 +21,7 @@ interface Props {
   // deposit account differed) and confused users with two hub entries
   // for one feature. Removed; old bank-receipt routes still resolve here.
   onNav: (p: Page) => void
+  prefill?: { customerId?: string; amount?: number }   // from the Receipt button on the customer page
 }
 interface DBAccount { id: string; code: string; name: string; category: string }
 
@@ -68,7 +69,7 @@ const methodLabel = (m: string): string => {
   return all.find(x => x.value === m)?.label || m
 }
 
-export default function CashReceipt({ onNav: _onNav }: Props) {
+export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
   const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -98,6 +99,12 @@ export default function CashReceipt({ onNav: _onNav }: Props) {
   }>({ selectedCustomer: null, allocatedTotal: 0, unallocatedCredit: 0, allocations: [] })
 
   const handlePaymentChange = useCallback((s: typeof paymentState) => setPaymentState(s), [])
+
+  // Prefill the amount from a customer's outstanding balance (Receipt button).
+  // The customer itself is auto-selected by CustomerPaymentFlow via initialCustomerId.
+  useEffect(() => {
+    if (prefill?.amount != null) setForm(f => ({ ...f, amount: String(prefill.amount) }))
+  }, [prefill])
 
   useEffect(() => { loadAccounts(); loadNextRef() }, [])
 
@@ -547,6 +554,7 @@ export default function CashReceipt({ onNav: _onNav }: Props) {
                 narration={form.narration}
                 depositAccountId={form.depositAccountId}
                 onChange={handlePaymentChange}
+                initialCustomerId={prefill?.customerId}
               />
             </div>
           )}
