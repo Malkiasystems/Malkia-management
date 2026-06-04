@@ -1,4 +1,4 @@
-// ─── Customer Payment Flow (shared between Cash Receipt + Bank Receipt) ───
+Rm // ─── Customer Payment Flow (shared between Cash Receipt + Bank Receipt) ───
 // A reusable component that handles the full "receive payment from debtor"
 // workflow: debtor search, open-invoice allocation with FIFO auto-apply,
 // transaction-id capture, and journal/ledger posting.
@@ -56,12 +56,13 @@ interface Props {
     unallocatedCredit: number
     allocations: OpenInvoice[]
   }) => void
+  initialCustomerId?: string   // when set, auto-selects this customer on mount (Receipt prefill)
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export function CustomerPaymentFlow({
-  amount, onChange,
+  amount, onChange, initialCustomerId,
 }: Props) {
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Debtor[]>([])
@@ -97,6 +98,16 @@ export function CustomerPaymentFlow({
     loadAll()
     return () => { cancelled = true }
   }, [])
+
+  // Auto-select a customer when one is prefilled (Receipt button on the customer page).
+  // Runs once, after the debtor list has loaded, and only if nothing is selected yet.
+  const autoPicked = useRef(false)
+  useEffect(() => {
+    if (autoPicked.current || !initialCustomerId || selected) return
+    const match = allDebtors.find(d => d.id === initialCustomerId)
+    if (match) { autoPicked.current = true; pickCustomer(match) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCustomerId, allDebtors, selected])
 
   // Close dropdown on outside click
   useEffect(() => {
