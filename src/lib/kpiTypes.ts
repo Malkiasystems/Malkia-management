@@ -1,11 +1,12 @@
 /**
  * KPI Scorecard module — shared types.
- * Mirrors tables created in migration 009_kpi_scorecards.sql.
+ * Mirrors tables in migrations 009_kpi_scorecards.sql and 010_kpi_gates.sql.
  */
-import type { Direction } from './kpiScoring'
+import type { Direction, GateScope } from './kpiScoring'
 
 export type KpiValueType = 'percent' | 'currency' | 'number'
 export type AssignmentStatus = 'draft' | 'self_rated' | 'approved' | 'rejected'
+export type { GateScope } from './kpiScoring'
 
 export interface KpiTemplate {
   id: string
@@ -27,7 +28,7 @@ export interface KpiKra {
   weight: number
   sort_order: number
   created_at?: string
-  kpis?: KpiKpi[]   // hydrated client-side
+  kpis?: KpiKpi[]
 }
 
 export interface KpiKpi {
@@ -41,6 +42,20 @@ export interface KpiKpi {
   created_at?: string
 }
 
+export interface KpiGate {
+  id: string
+  template_id: string
+  kra_name: string
+  threshold: number          // fraction, e.g. 0.70
+  scope: GateScope           // 'this_kra' | 'whole_prp'
+  label: string | null
+  sort_order: number
+  created_at?: string
+}
+
+// snapshot shape stored on an assignment's `gates` jsonb column
+export interface GateSnapshot { kra: string; threshold: number; scope: GateScope; label?: string }
+
 export interface KpiAssignment {
   id: string
   template_id: string | null
@@ -51,6 +66,7 @@ export interface KpiAssignment {
   payout_cap: number
   sales_gate: number
   sales_kra: string | null
+  gates: GateSnapshot[] | null   // snapshot of gates in force on this card
   status: AssignmentStatus
   overall_score: number | null
   rating: string | null
@@ -63,7 +79,7 @@ export interface KpiAssignment {
   approved_by: string | null
   approved_at: string | null
   created_at: string
-  employee?: { id: string; full_name: string; job_title?: string; department?: string }
+  employee?: { id: string; full_name: string; job_title?: string; department?: string; phone?: string | null; whatsapp?: string | null }
   lines?: KpiAssignmentLine[]
 }
 
@@ -98,4 +114,13 @@ export function formatValue(v: number | null, type: KpiValueType): string {
   if (type === 'percent') return `${+(v * 100).toFixed(1)}%`
   if (type === 'currency') return `${Math.round(v).toLocaleString()} TZS`
   return `${v}`
+}
+
+// normalize a phone number for a wa.me link (digits only, drop leading 0/+ noise)
+export function waNumber(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  let d = raw.replace(/[^\d]/g, '')
+  if (!d) return null
+  if (d.startsWith('0')) d = '255' + d.slice(1)   // Tanzania local -> intl
+  return d
 }
