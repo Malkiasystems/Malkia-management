@@ -373,6 +373,7 @@ function AppContent() {
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
   const [statementCustomerId, setStatementCustomerId] = useState<string | null>(null)
+  const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string; amount?: number } | null>(null)
   const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, canAny, isSuperAdmin } = useAuth()
   useInactivityLogout()
 
@@ -424,6 +425,7 @@ function AppContent() {
   const effectiveHrmMode = hrmSelfOnly ? 'self' : hrmMode
 
   const navigate = (p: Page) => {
+    if (p !== 'cash-receipt') setReceiptPrefill(null)   // clear stale prefill when leaving the receipt page
     setHistory(h => [...h.slice(-19), page])
     setPage(p)
     pageToHash(p)
@@ -437,6 +439,10 @@ function AppContent() {
   const navigateToStatement = (customerId: string) => {
     setStatementCustomerId(customerId)
     navigate('customer-statement')
+  }
+  const navigateToReceipt = (customerId: string, amount: number) => {
+    setReceiptPrefill({ customerId, amount })
+    navigate('cash-receipt')
   }
 
   const goBack = () => {
@@ -499,7 +505,7 @@ function AppContent() {
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'bank-payment':      return <CashPayment onNav={navigate} />  // legacy alias — single Payment Voucher handles both
-      case 'cash-receipt':              return <CashReceipt onNav={navigate} />
+      case 'cash-receipt':              return <CashReceipt onNav={navigate} prefill={receiptPrefill ?? undefined} />
       // Legacy routes: 'bank-receipt' was a redundant variant; the new
       // unified Receipt Voucher handles cash, bank, and batch. Old URLs
       // and bookmarks still resolve here. 'customer-receipt-batch' was
@@ -527,7 +533,7 @@ function AppContent() {
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-register': return <StockTransferRegister />
-      case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} />
+      case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} />
       case 'customer-statement':
         if (!statementCustomerId) { navigate('customers'); return null }
         return <CustomerStatement customerId={statementCustomerId} onNav={navigate} />
@@ -572,7 +578,7 @@ function AppContent() {
       case 'crm-whatsapp-templates': return <WhatsAppTemplates onNav={navigate} />
       case 'crm-whatsapp-resources': return <WhatsAppResources onNav={navigate} />
       case 'crm-waitlist': return <Waitlist onNav={navigate} />
-      case 'crm-customers':     return <Customers onNav={navigate} onViewStatement={navigateToStatement} />
+      case 'crm-customers':     return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} />
       
       // HRM Module Routes — pass mode, linked employee, and manage permission
       case 'hrm':               return <HRMDashboard onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
