@@ -71,7 +71,7 @@ const EMPTY_FORM = {
   credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: ''
 }
 
-export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void }) {
+export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string, amount: number) => void }) {
   // Tabs: 'cash' = retail walk-ins; 'wholesale' = sales-invoice customers
   // (formerly labelled "Debtors"; see migration 009).
   const [tab, setTab] = useState<'cash'|'wholesale'>('cash')
@@ -485,6 +485,15 @@ export default function Customers({ onNav, onViewStatement }: { onNav?: (p: Page
                   <line x1="16" y1="17" x2="8" y2="17"/>
                 </svg>
                 View Statement
+              </button>
+            )}
+            {onReceipt && (selected.balance || 0) > 0 && (
+              <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }}
+                onClick={() => onReceipt(selected.id, selected.balance || 0)} title="Record a receipt against this balance">
+                <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <path d="M4 3h16v18l-3-2-2 2-3-2-3 2-2-2-3 2z"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/>
+                </svg>
+                Receipt
               </button>
             )}
             {selected.whatsapp && (
