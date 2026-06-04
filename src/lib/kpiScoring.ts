@@ -1,41 +1,55 @@
 /**
  * KPI Scorecard scoring engine (pure, no I/O).
- * Mirrors the exact math used in the Malkia PRP spreadsheets:
+ * Mirrors the math used in the Malkia PRP spreadsheets, now with MULTIPLE gates.
+ *
  *   - attainment (actual/target, or target/actual for "lower is better"), capped
  *   - KRA score = average of its KPI attainments
- *   - overall   = sum of (KRA weight x KRA score)
+ *   - overall   = sum of (KRA weight x KRA score)   [gates do NOT change this]
  *   - rating    = 1-5 band
  *   - PRP       = pool split by KRA weight, paid by KRA score
- *   - sales gate: if the named Sales KRA scores below the gate, final PRP = 0
+ *   - gates     = each gate watches one KRA; if that KRA's score is below the
+ *                 gate's threshold it either zeroes JUST that KRA's payout
+ *                 (scope 'this_kra') or zeroes the WHOLE PRP (scope 'whole_prp').
  */
 
 export type Direction = 'H' | 'L'
+export type GateScope = 'this_kra' | 'whole_prp'
+
+export interface Gate {
+  kra: string
+  threshold: number   // fraction, e.g. 0.70
+  scope: GateScope
+  label?: string
+}
 
 export interface ScoringLine {
   kra: string
-  kra_weight: number      // fraction, e.g. 0.45
+  kra_weight: number
   kpi: string
   direction: Direction
   target: number | null
-  actual: number | null   // use the final actual (admin) or self_actual for previews
+  actual: number | null
 }
 
 export interface KraResult {
   kra: string
   weight: number
-  score: number | null    // fraction (0..cap), null if no scorable KPIs
-  weighted: number        // weight * score (0 if score null)
-  slice: number           // pool * weight
-  payout: number          // slice * score
+  score: number | null
+  weighted: number
+  slice: number
+  payout: number      // AFTER gates applied
 }
+
+export interface FailedGate { kra: string; threshold: number; scope: GateScope; label?: string }
 
 export interface ScorecardResult {
   kras: KraResult[]
-  overall: number         // 0..cap
+  overall: number
   rating: string
-  grossPrp: number
-  gatePass: boolean
-  finalPrp: number
+  grossPrp: number    // before gates
+  finalPrp: number    // after gates
+  gatePass: boolean   // false if any whole_prp gate failed
+  failedGates: FailedGate[]
   weightTotal: number
 }
 
@@ -46,8 +60,7 @@ export function attainment(direction: Direction, target: number | null, actual: 
     if (target === 0) return null
     return Math.min(cap, actual / target)
   }
-  // direction 'L' (lower is better)
-  if (actual === 0) return cap          // zero of a bad thing = perfect (capped)
+  if (actual === 0) return cap
   return Math.min(cap, target / actual)
 }
 
@@ -63,13 +76,14 @@ export function ratingLabel(score: number | null): string {
 export interface ScoreOptions {
   pool: number
   cap: number
-  salesGate: number       // 0 = off
-  salesKra: string | null // name of the KRA the gate measures
+  gates?: Gate[]            // new multi-gate input (preferred)
+  // legacy single-gate fallback (used only when gates is empty):
+  salesGate?: number
+  salesKra?: string | null
 }
 
 export function computeScorecard(lines: ScoringLine[], opts: ScoreOptions): ScorecardResult {
   const cap = opts.cap && opts.cap >= 1 ? opts.cap : 1
-  // group lines by KRA, preserving first-seen order
   const order: string[] = []
   const groups = new Map<string, ScoringLine[]>()
   for (const l of lines) {
@@ -95,23 +109,43 @@ export function computeScorecard(lines: ScoringLine[], opts: ScoreOptions): Scor
     if (score !== null) { overall += weighted; grossPrp += payout }
   }
 
-  // sales gate
-  let gatePass = true
-  if (opts.salesGate && opts.salesGate > 0) {
-    const target = opts.salesKra
-      ? kras.find(k => k.kra === opts.salesKra)
-      : kras.find(k => /sales/i.test(k.kra))
-    const sScore = target?.score ?? null
-    gatePass = sScore !== null && sScore >= opts.salesGate
+  // Resolve effective gates: prefer the new array; otherwise fall back to the
+  // legacy single sales gate so older assignments keep their behaviour.
+  let gates: Gate[] = opts.gates && opts.gates.length ? opts.gates : []
+  if (!gates.length && opts.salesGate && opts.salesGate > 0) {
+    gates = [{ kra: opts.salesKra || '', threshold: opts.salesGate, scope: 'whole_prp', label: 'Sales gate' }]
   }
+
+  const scoreOf = (kraName: string): number | null => {
+    const k = kraName ? kras.find(x => x.kra === kraName) : kras.find(x => /sales/i.test(x.kra))
+    return k ? k.score : null
+  }
+
+  const failedGates: FailedGate[] = []
+  let wholeFail = false
+  for (const g of gates) {
+    const s = scoreOf(g.kra)
+    if (s !== null && s < g.threshold) {
+      failedGates.push({ kra: g.kra, threshold: g.threshold, scope: g.scope, label: g.label })
+      if (g.scope === 'whole_prp') wholeFail = true
+      if (g.scope === 'this_kra') {
+        const target = kras.find(x => x.kra === g.kra)
+        if (target) target.payout = 0
+      }
+    }
+  }
+
+  const finalAfterKraGates = kras.reduce((sum, k) => sum + k.payout, 0)
+  const finalPrp = wholeFail ? 0 : finalAfterKraGates
 
   return {
     kras,
     overall,
     rating: ratingLabel(overall),
     grossPrp,
-    gatePass,
-    finalPrp: gatePass ? grossPrp : 0,
+    finalPrp,
+    gatePass: !wholeFail,
+    failedGates,
     weightTotal,
   }
 }
