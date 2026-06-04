@@ -1,4 +1,4 @@
-Rm // ─── Customer Payment Flow (shared between Cash Receipt + Bank Receipt) ───
+// ─── Customer Payment Flow (shared between Cash Receipt + Bank Receipt) ───
 // A reusable component that handles the full "receive payment from debtor"
 // workflow: debtor search, open-invoice allocation with FIFO auto-apply,
 // transaction-id capture, and journal/ledger posting.
