@@ -197,6 +197,11 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
       if (paymentState.allocatedTotal > amount + 0.5) {
         showToast('Invoice allocations exceed payment amount. Reduce allocations.', 'error'); return
       }
+      if (paymentState.unallocatedCredit > 0.5) {
+        const nm = (paymentState.selectedCustomer as any).company || paymentState.selectedCustomer.name || 'this customer'
+        const ok = window.confirm(`This receipt is TZS ${Math.round(paymentState.unallocatedCredit).toLocaleString()} more than ${nm} currently owes.\n\nThe extra will sit as a credit on their account (they will show as in credit). Post anyway?`)
+        if (!ok) return
+      }
       await postCustomerReceipt(amount)
     } else {
       if (!form.otherReceivedFrom.trim()) { showToast('Enter who paid', 'error'); return }
