@@ -982,8 +982,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav
                       {tab==='wholesale' && (
                         <td className="td-right td-mono" style={{ fontSize:11 }}>{c.credit_limit>0?tzs(c.credit_limit):'Unlimited'}</td>
                       )}
-                      <td className="td-right td-mono" style={{ fontWeight:700,color:(c.balance||0)>0?'var(--red)':'var(--text3)',fontSize:12 }}>
-                        {(c.balance||0)>0 ? tzs(c.balance) : '—'}
+                      <td className="td-right td-mono" style={{ fontWeight:700,color:(c.balance||0)>0?'var(--red)':(c.balance||0)<0?'var(--green)':'var(--text3)',fontSize:12 }}>
+                        {(c.balance||0)>0 ? tzs(c.balance) : (c.balance||0)<0 ? `${tzs(Math.abs(c.balance))} CR` : '—'}
                       </td>
                       <td style={{ fontSize:11,color:'var(--text3)' }}>{c.last_purchase_date||'—'}</td>
                       {tab==='cash' && <td className="td-right td-mono" style={{ fontSize:11,color:'var(--yellow)' }}>{(c.crown_points||0).toLocaleString()}</td>}
