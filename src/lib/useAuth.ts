@@ -16,6 +16,11 @@ export interface User {
   // posting vouchers and making inventory changes. They can still VIEW
   // other locations' summaries via the inventory page.
   allowed_location_id?: string | null
+  // Which app surface the user lands in.
+  //   'full'  = normal ERP (default, every existing user)
+  //   'stock' = scoped Stock Manager workspace (stock-only sidebar + dashboard
+  //             + hard access gate). Pair with allowed_location_id.
+  workspace_role?: string
 }
 
 export interface AuthContextType {
@@ -126,6 +131,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         avatar_url: userData.avatar_url,
         // Pre-migration users won't have this column; default to null.
         allowed_location_id: userData.allowed_location_id ?? null,
+        // Pre-migration users won't have this column; default to 'full'.
+        workspace_role: userData.workspace_role ?? 'full',
       }
 
       setUser(currentUser)
@@ -275,7 +282,11 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'debit-note': ['accounting.create'],
   'credit-note': ['accounting.create'],
   'purchase-order': ['accounting.create'],
-  'grn': ['inventory.create'],
+  // GRN = receiving goods. Decoupled from inventory.create ("Add Products")
+  // so a Stock Manager can receive stock without also gaining product-CRUD
+  // rights (which are the Inventory-page edit backdoor). Legacy users who
+  // only hold inventory.create still pass, so nothing breaks for them.
+  'grn': ['inventory.grn', 'inventory.create'],
   'purchase-invoice': ['accounting.create'],
   'import-order': ['accounting.create'],
   'purchase-return': ['accounting.create'],
