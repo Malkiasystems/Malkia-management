@@ -44,6 +44,8 @@ interface User {
   // NULL = user can operate from any location.
   // Set = user is locked to this single stock_locations.id.
   allowed_location_id?: string | null
+  // 'full' (default) or 'stock' (scoped Stock Manager workspace).
+  workspace_role?: string
 }
 
 interface StockLocationOption {
@@ -194,6 +196,16 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
 // Get all permission keys
 const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap(g => g.permissions.map(p => p.key))
 
+// Permissions auto-applied when "Stock Manager workspace" is switched on.
+// Deliberately minimal: view (qty), receive (GRN), move (transfer), count.
+// NO inventory.adjust (super-admin only), NO product CRUD, NO money/reports.
+const STOCK_MANAGER_PRESET = [
+  'inventory.view',
+  'inventory.transfer',
+  'inventory.grn',
+  'inventory.count',
+]
+
 export default function UserManagement({ onNav }: Props) {
   void onNav
   const [users, setUsers] = useState<User[]>([])
@@ -217,6 +229,7 @@ export default function UserManagement({ onNav }: Props) {
     // NULL/empty string = unrestricted (all locations).
     // Set = locked to this stock_locations.id.
     allowed_location_id: '' as string,
+    workspace_role: 'full' as string,
   })
 
   // Stock locations for the location-lock dropdown.
@@ -267,7 +280,7 @@ export default function UserManagement({ onNav }: Props) {
 
   const openNewUser = () => {
     setEditingUser(null)
-    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view_own'], allowed_location_id: '' })
+    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view_own'], allowed_location_id: '', workspace_role: 'full' })
     setActiveTab('details')
     setExpandedGroups([])
     setShowModal(true)
@@ -283,6 +296,7 @@ export default function UserManagement({ onNav }: Props) {
       is_approver: user.is_approver,
       permissions: user.permissions,
       allowed_location_id: user.allowed_location_id ?? '',
+      workspace_role: user.workspace_role ?? 'full',
     })
     setActiveTab('details')
     setExpandedGroups([])
@@ -366,6 +380,7 @@ export default function UserManagement({ onNav }: Props) {
           is_approver: formData.is_approver,
           permissions: formData.permissions,
           allowed_location_id: allowedLocationId,
+          workspace_role: formData.workspace_role || 'full',
           updated_at: new Date().toISOString(),
         })
         .eq('id', editingUser.id)
@@ -389,6 +404,7 @@ export default function UserManagement({ onNav }: Props) {
           is_active: true,
           permissions: formData.permissions,
           allowed_location_id: allowedLocationId,
+          workspace_role: formData.workspace_role || 'full',
         })
 
       if (error) {
@@ -691,6 +707,37 @@ export default function UserManagement({ onNav }: Props) {
                     pull stock IN — for that they must request a transfer).
                     They can still VIEW inventory at every location.
                     ──────────────────────────────────────────────────────── */}
+                <div style={s.formGroup}>
+                  <label style={{ ...s.label, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.workspace_role === 'stock'}
+                      onChange={e => {
+                        const on = e.target.checked
+                        setFormData(prev => ({
+                          ...prev,
+                          workspace_role: on ? 'stock' : 'full',
+                          // Switching ON applies the minimal stock permission set
+                          // (view/receive/transfer/count). No adjust, no product
+                          // CRUD, no money. Switching OFF leaves perms for you to edit.
+                          permissions: on ? [...STOCK_MANAGER_PRESET] : prev.permissions,
+                        }))
+                      }}
+                    />
+                    Stock Manager workspace
+                  </label>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, lineHeight: 1.5 }}>
+                    {formData.workspace_role === 'stock'
+                      ? 'This user lands in the scoped stock workspace: a stock-only sidebar, a quantities-only dashboard, and no access to sales, finance, CRM or settings. They can receive (GRN), transfer, request and count stock at their location, but cannot adjust stock or see any money. Bind a location below.'
+                      : 'Off = the normal full ERP. Turn on to make this user a branch stock keeper.'}
+                  </div>
+                  {formData.workspace_role === 'stock' && !formData.allowed_location_id && (
+                    <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 6, fontWeight: 600 }}>
+                      ⚠ No location bound. The manager will see all locations. Set a location lock below to scope them to one branch.
+                    </div>
+                  )}
+                </div>
+
                 <div style={s.formGroup}>
                   <label style={s.label}>Location lock</label>
                   <select

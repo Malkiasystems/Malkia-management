@@ -257,6 +257,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
 export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'dashboard': ['dashboard.view'],
+  // Stock Manager workspace home. Gated by inventory.view, which every stock
+  // manager holds. The hard stock-only access gate lives in App.tsx.
+  'stock-dashboard': ['inventory.view'],
   'vouchers': ['accounting.view'],
   'chart-of-accounts': ['accounting.coa'],
   'banks': ['accounting.view'],
@@ -330,7 +333,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'purchase-register': ['reports.view'],
   'payment-register': ['reports.view'],
   'expense-register': ['reports.view'],
-  'stock-transfer-register': ['reports.view'],
+  'stock-transfer-register': ['reports.view', 'inventory.view'],
   'data-import': ['settings.edit'],
   'report-templates': ['settings.edit'],
   'investors': ['reports.view'],

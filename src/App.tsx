@@ -16,6 +16,7 @@ import Login from './pages/Login'
 // ============================================================================
 import Dashboard from './pages/Dashboard'
 import ComingSoon from './pages/ComingSoon'
+import StockDashboard from './pages/StockDashboard'
 
 // ============================================================================
 // PERFORMANCE: Lazy load everything else (loaded on demand)
@@ -348,6 +349,22 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 }
 
 // ============================================================================
+// STOCK MANAGER WORKSPACE
+// The only pages a user with workspace_role='stock' may ever reach. Anything
+// else bounces to the stock dashboard (see the gate effect in AppContent).
+// Keep this in sync with the stock sidebar in Sidebar.tsx.
+// ============================================================================
+const STOCK_WORKSPACE_PAGES = new Set<Page>([
+  'stock-dashboard',
+  'inventory',
+  'grn',
+  'stock-transfer',
+  'stock-transfer-request',
+  'stock-transfer-approvals',
+  'stock-transfer-register',
+])
+
+// ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
 
@@ -453,6 +470,20 @@ function AppContent() {
     pageToHash(prev)
   }
 
+  // ── Stock Manager workspace gate ───────────────────────────────────
+  // A user with workspace_role='stock' is hard-confined to the stock pages.
+  // The default 'dashboard', any settings page, or a hand-typed URL like
+  // #/pnl all bounce to the stock dashboard. This is the real enforcement;
+  // the stock sidebar only controls what's visible.
+  const isStockWorkspace = user?.workspace_role === 'stock'
+  useEffect(() => {
+    if (!isStockWorkspace) return
+    if (!STOCK_WORKSPACE_PAGES.has(page)) {
+      setPage('stock-dashboard')
+      pageToHash('stock-dashboard')
+    }
+  }, [isStockWorkspace, page])
+
   // Show loading while checking auth
   if (authLoading) {
     return <PageLoader />
@@ -475,6 +506,7 @@ function AppContent() {
     switch (page) {
       // Eager loaded (no Suspense needed)
       case 'dashboard':         return <Dashboard onNav={navigate} />
+      case 'stock-dashboard':   return <StockDashboard onNav={navigate} />
       
       // Lazy loaded pages
       case 'vouchers':          return <VouchersHub onNav={navigate} />
@@ -607,7 +639,7 @@ function AppContent() {
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
           <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            <Sidebar current={page} onNav={navigate} />
+            <Sidebar current={page} onNav={navigate} stockMode={isStockWorkspace} />
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
               {/* HRM Mode Toggle Bar — only for managers/HR with dual access */}
               {isHrmPage && hrmCanManage && hrmLinked && (

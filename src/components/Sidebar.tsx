@@ -60,7 +60,7 @@ const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
 ]
 
-interface SidebarProps { current: Page; onNav: (p: Page) => void }
+interface SidebarProps { current: Page; onNav: (p: Page) => void; stockMode?: boolean }
 
 const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
   const c = active ? 'var(--accent)' : 'var(--text3)'
@@ -88,7 +88,7 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
   return <>{icon}</>
 }
 
-export default function Sidebar({ current, onNav }: SidebarProps) {
+export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [salesOpen, setSalesOpen] = useState(false)
   const [crmOpen, setCrmOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -97,6 +97,68 @@ export default function Sidebar({ current, onNav }: SidebarProps) {
   const { permissions } = useAuth()
   const company = getActiveCompany()
   const CRM_HIDDEN = new Set(['services', 'konnect', 'crm'])
+
+  // ── Stock Manager workspace sidebar ────────────────────────────────
+  // A completely separate, minimal nav for workspace_role='stock'. The full
+  // sidebar below is left exactly as-is (non-regression). Items still respect
+  // the user's permissions, so a missing permission hides its icon.
+  if (stockMode) {
+    const STOCK_NAV: { label: string; page: Page; icon: string }[] = [
+      { label: 'Home',      page: 'stock-dashboard',          icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10' },
+      { label: 'Inventory', page: 'inventory',                icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12' },
+      { label: 'Receive',   page: 'grn',                      icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3' },
+      { label: 'Transfer',  page: 'stock-transfer',           icon: 'M16 3h5v5 M21 3l-7 7 M8 21H3v-5 M3 21l7-7' },
+      { label: 'Request',   page: 'stock-transfer-request',   icon: 'M12 5v14 M5 12h14' },
+      { label: 'Approvals', page: 'stock-transfer-approvals', icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+      { label: 'Register',  page: 'stock-transfer-register',  icon: 'M18 20V10 M12 20V4 M6 20v-6' },
+    ]
+    const visibleStockNav = STOCK_NAV.filter(it => canAccessPage(it.page, permissions))
+
+    return (
+      <div style={{
+        width: 'var(--sidebar)', background: 'var(--surface)',
+        borderRight: '1px solid var(--border)', display: 'flex',
+        flexDirection: 'column', alignItems: 'center',
+        padding: '10px 0', flexShrink: 0, overflowY: 'auto', scrollbarWidth: 'none',
+        position: 'relative'
+      }}>
+        {visibleStockNav.map(it => {
+          const active = current === it.page
+          return (
+            <div
+              key={it.page}
+              onClick={() => onNav(it.page)}
+              style={{
+                width: 52, height: 52, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: 3,
+                borderRadius: 10,
+                borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                background: active ? 'var(--accent-dim)' : 'transparent',
+                transition: 'all .15s', margin: '1px 0', cursor: 'pointer'
+              }}
+            >
+              <svg width="20" height="20" fill="none" stroke={active ? 'var(--accent)' : 'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d={it.icon} />
+              </svg>
+              <span style={{
+                fontSize: 8, fontWeight: 600,
+                color: active ? 'var(--accent)' : 'var(--text3)',
+                textTransform: 'uppercase', letterSpacing: '.4px'
+              }}>{it.label}</span>
+            </div>
+          )
+        })}
+
+        {/* Company indicator */}
+        <div style={{ marginTop: 'auto', padding: '12px 4px', textAlign: 'center', borderTop: '1px solid var(--border)' }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: company.color, margin: '0 auto 4px' }} />
+          <div style={{ fontSize: 7, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.5px', lineHeight: 1.3 }}>
+            {company.shortName}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Build NAV dynamically based on company
   const NAV: (
