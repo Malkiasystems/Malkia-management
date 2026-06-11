@@ -51,14 +51,21 @@ async function assertCallerIsAdmin(admin: SupabaseClient, bearer: string | undef
   }
   const callerEmail = userData.user.email.toLowerCase()
 
-  // Load the caller's app row to check permissions.
+  // Load the caller's app row to check permissions. ilike = case-insensitive,
+  // so a stored email with stray capitals still matches.
   const { data: row, error: rowErr } = await admin
     .from('users')
     .select('is_active, permissions')
-    .eq('email', callerEmail)
+    .ilike('email', callerEmail)
     .maybeSingle()
 
-  if (rowErr || !row) return { ok: false, status: 403, error: 'Caller has no user profile' }
+  // A query ERROR here almost always means the service-role key is wrong, so
+  // PostgREST rejected the read. Say that plainly instead of "no profile",
+  // which was previously misleading.
+  if (rowErr) {
+    return { ok: false, status: 500, error: 'Admin lookup failed — check SUPABASE_SERVICE_ROLE_KEY in Vercel. (' + rowErr.message + ')' }
+  }
+  if (!row) return { ok: false, status: 403, error: `No admin profile found for ${callerEmail}` }
   if (!row.is_active) return { ok: false, status: 403, error: 'Caller account is deactivated' }
 
   const perms: string[] = Array.isArray(row.permissions) ? row.permissions : []
@@ -97,17 +104,25 @@ export default async function handler(req: any, res: any) {
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'A valid email is required' })
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' })
 
-    // ── RESET PASSWORD ─────────────────────────────────────────────
+    // ── RESET / SET PASSWORD (create-or-reset) ─────────────────────
     if (action === 'reset_password') {
-      // Find the auth user by email (admin listUsers, filtered).
+      // Find the auth login by email (admin listUsers, filtered).
       const { data: list, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-      if (listErr) return res.status(500).json({ error: 'Could not look up users: ' + listErr.message })
+      if (listErr) return res.status(500).json({ error: 'Could not look up logins — check SUPABASE_SERVICE_ROLE_KEY. (' + listErr.message + ')' })
       const authUser = list.users.find(u => (u.email || '').toLowerCase() === email)
-      if (!authUser) return res.status(404).json({ error: 'No login exists for that email yet. Create the user first.' })
 
-      const { error: updErr } = await admin.auth.admin.updateUserById(authUser.id, { password })
-      if (updErr) return res.status(500).json({ error: 'Failed to reset password: ' + updErr.message })
-      return res.status(200).json({ ok: true, action: 'reset_password' })
+      if (authUser) {
+        // Login exists → just change the password.
+        const { error: updErr } = await admin.auth.admin.updateUserById(authUser.id, { password })
+        if (updErr) return res.status(500).json({ error: 'Failed to reset password: ' + updErr.message })
+        return res.status(200).json({ ok: true, action: 'reset_password' })
+      }
+
+      // No login yet for this profile (common for users added before logins
+      // were linked) → provision the login now so they can finally sign in.
+      const { error: createErr } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
+      if (createErr) return res.status(500).json({ error: 'Failed to create login: ' + createErr.message })
+      return res.status(200).json({ ok: true, action: 'login_created' })
     }
 
     // ── CREATE (login + users row together) ────────────────────────
@@ -143,7 +158,7 @@ export default async function handler(req: any, res: any) {
       workspace_role: profile.workspace_role || 'full',
     }
 
-    const { data: existingRow } = await admin.from('users').select('id').eq('email', email).maybeSingle()
+    const { data: existingRow } = await admin.from('users').select('id').ilike('email', email).maybeSingle()
     let rowErr: { message: string } | null = null
     if (existingRow) {
       // A profile already existed (e.g. made before logins were linked).
