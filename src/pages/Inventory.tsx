@@ -60,7 +60,7 @@ const ENTRY_TYPE_LABELS: Record<string, { label: string; color: string; dr: stri
 
 export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
   const userLoc = useUserLocation()
-  const { user } = useAuth()
+  const { user, can } = useAuth()
   const [products, setProducts] = useState<DBProduct[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [search, setSearch] = useState('')
@@ -167,6 +167,18 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
   const showToast = (msg: string, type: 'success'|'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const save = async () => {
+    // Permission gate. Without this, anyone who can VIEW inventory could open
+    // a product and overwrite it on save — the old backdoor. Super admins
+    // pass automatically (can() returns true for them).
+    if (selectedProduct ? !can('inventory.edit') : !can('inventory.create')) {
+      showToast(
+        selectedProduct
+          ? 'You do not have permission to edit products.'
+          : 'You do not have permission to add products.',
+        'error'
+      )
+      return
+    }
     if (!form.sku.trim()) { showToast('SKU is required', 'error'); return }
     if (!form.name.trim()) { showToast('Product name is required', 'error'); return }
     if (!form.cost_price || !form.selling_price) { showToast('Cost and selling price required', 'error'); return }
@@ -182,11 +194,15 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
       await addCategory(newCategory.trim())
     }
     
+    // qty_on_hand is deliberately NOT in the shared payload. Editing an
+    // existing product must never silently rewrite stock — that bypasses the
+    // item ledger, approvals and location locking. Stock only moves through
+    // ledgered vouchers (GRN, Transfer, Adjustment, sales). On CREATE we still
+    // allow an opening quantity as the product's initial value.
     const payload = {
       sku: form.sku.trim().toUpperCase(), name: form.name.trim(),
       category: categoryName, unit: form.unit,
       cost_price: parseFloat(form.cost_price), selling_price: parseFloat(form.selling_price),
-      qty_on_hand: parseFloat(form.qty_on_hand) || 0,
       reorder_point: parseFloat(form.reorder_point) || 10,
       costing_method: 'average', is_active: true,
     }
@@ -196,7 +212,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
         if (error) throw new Error(error.message)
         showToast(`${form.name} updated`)
       } else {
-        const { error } = await supabase.from('products').insert(payload)
+        const { error } = await supabase.from('products').insert({ ...payload, qty_on_hand: parseFloat(form.qty_on_hand) || 0 })
         if (error) throw new Error(error.message)
         showToast(`${form.name} added to inventory`)
       }
@@ -208,6 +224,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
   }
 
   const deactivate = async (p: DBProduct) => {
+    if (!can('inventory.delete')) { showToast('You do not have permission to remove products.', 'error'); return }
     if (!confirm(`Remove ${p.name} from active inventory?`)) return
     await supabase.from('products').update({ is_active: false }).eq('id', p.id)
     showToast(`${p.name} removed`)
@@ -370,7 +387,18 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
               <FG label="Selling Price (TZS)" req><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={form.selling_price} onChange={e => setF('selling_price', e.target.value)} /></FG>
             </div>
             <div className="form-row">
-              <FG label="Qty on Hand"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={form.qty_on_hand} onChange={e => setF('qty_on_hand', e.target.value)} /></FG>
+              <FG label={selectedProduct ? 'Qty on Hand (locked)' : 'Opening Qty'}>
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{ fontFamily: 'var(--mono)', opacity: selectedProduct ? 0.6 : 1, cursor: selectedProduct ? 'not-allowed' : 'text' }}
+                  placeholder="0"
+                  value={form.qty_on_hand}
+                  disabled={!!selectedProduct}
+                  title={selectedProduct ? 'Stock cannot be changed here. Use Stock Adjustment, GRN or Transfer.' : 'Initial quantity for this new product'}
+                  onChange={e => setF('qty_on_hand', e.target.value)}
+                />
+              </FG>
               <FG label="Reorder Point"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="10" value={form.reorder_point} onChange={e => setF('reorder_point', e.target.value)} /></FG>
             </div>
           </div>
