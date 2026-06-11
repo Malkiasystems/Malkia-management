@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { createUserWithLogin, resetUserPassword } from '../lib/adminUserApi'
 import type { Page } from '../lib/types'
 
 interface Props {
@@ -230,6 +231,7 @@ export default function UserManagement({ onNav }: Props) {
     // Set = locked to this stock_locations.id.
     allowed_location_id: '' as string,
     workspace_role: 'full' as string,
+    password: '' as string,
   })
 
   // Stock locations for the location-lock dropdown.
@@ -280,7 +282,7 @@ export default function UserManagement({ onNav }: Props) {
 
   const openNewUser = () => {
     setEditingUser(null)
-    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view_own'], allowed_location_id: '', workspace_role: 'full' })
+    setFormData({ email: '', full_name: '', initials: '', phone: '', is_approver: false, permissions: ['dashboard.view', 'hrm.view_own'], allowed_location_id: '', workspace_role: 'full', password: '' })
     setActiveTab('details')
     setExpandedGroups([])
     setShowModal(true)
@@ -297,6 +299,7 @@ export default function UserManagement({ onNav }: Props) {
       permissions: user.permissions,
       allowed_location_id: user.allowed_location_id ?? '',
       workspace_role: user.workspace_role ?? 'full',
+      password: '',
     })
     setActiveTab('details')
     setExpandedGroups([])
@@ -358,6 +361,25 @@ export default function UserManagement({ onNav }: Props) {
     return 'partial'
   }
 
+  const [resettingPwd, setResettingPwd] = useState(false)
+
+  const handleResetPassword = async () => {
+    if (!editingUser) return
+    if (!formData.password || formData.password.length < 8) {
+      alert('Enter a new password of at least 8 characters.')
+      return
+    }
+    setResettingPwd(true)
+    const result = await resetUserPassword(editingUser.email.toLowerCase(), formData.password)
+    setResettingPwd(false)
+    if (!result.ok) {
+      alert('Failed to reset password: ' + (result.error || 'Unknown error'))
+      return
+    }
+    alert('Password updated.')
+    setFormData(prev => ({ ...prev, password: '' }))
+  }
+
   const saveUser = async () => {
     if (!formData.email || !formData.full_name) {
       alert('Please fill in all required fields')
@@ -391,25 +413,28 @@ export default function UserManagement({ onNav }: Props) {
         return
       }
     } else {
-      // Create new user with permissions
-      const { error } = await supabase
-        .from('users')
-        .insert({
-          id: crypto.randomUUID(),
-          email: formData.email,
+      // Create new user: this provisions the LOGIN (Supabase Auth) AND the
+      // users row together via the secure server endpoint, so the two can
+      // never drift. The endpoint verifies WE are an admin before doing it.
+      if (!formData.password || formData.password.length < 8) {
+        alert("Set a password of at least 8 characters for the new user's login.")
+        return
+      }
+      const result = await createUserWithLogin(
+        formData.email.trim().toLowerCase(),
+        formData.password,
+        {
           full_name: formData.full_name,
           initials: formData.initials,
           phone: formData.phone || null,
           is_approver: formData.is_approver,
-          is_active: true,
           permissions: formData.permissions,
           allowed_location_id: allowedLocationId,
           workspace_role: formData.workspace_role || 'full',
-        })
-
-      if (error) {
-        console.error('Error creating user:', error)
-        alert('Failed to create user')
+        }
+      )
+      if (!result.ok) {
+        alert('Failed to create user: ' + (result.error || 'Unknown error'))
         return
       }
     }
@@ -685,6 +710,50 @@ export default function UserManagement({ onNav }: Props) {
                     placeholder="+255 7XX XXX XXX"
                   />
                 </div>
+
+                {/* Login password. New users: required (creates the Supabase Auth
+                    login + this row together). Existing users: optional reset. */}
+                {!editingUser ? (
+                  <div style={s.formGroup}>
+                    <label style={s.label}>Login Password *</label>
+                    <input
+                      style={s.input}
+                      type="text"
+                      value={formData.password}
+                      onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                      placeholder="At least 8 characters"
+                      autoComplete="new-password"
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, lineHeight: 1.5 }}>
+                      This creates the user's login. Share it with them; they sign in with this email and password. No need to touch the Supabase dashboard.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={s.formGroup}>
+                    <label style={s.label}>Reset Login Password</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        style={{ ...s.input, flex: 1 }}
+                        type="text"
+                        value={formData.password}
+                        onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                        placeholder="New password (min 8 chars)"
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        disabled={resettingPwd}
+                        onClick={handleResetPassword}
+                      >
+                        {resettingPwd ? 'Saving…' : 'Reset'}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, lineHeight: 1.5 }}>
+                      Leave blank to keep their current password. Resetting takes effect immediately.
+                    </div>
+                  </div>
+                )}
 
                 <div style={s.formGroup}>
                   <label style={s.checkbox}>
