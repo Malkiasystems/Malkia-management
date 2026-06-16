@@ -6,6 +6,7 @@ import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { postLedgerEntries } from '../../lib/itemLedger'
+import { printStockTransferNote } from '../../lib/stockTransferPdf'
 import { useAuth } from '../../lib/useAuth'
 import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
@@ -208,6 +209,28 @@ export default function StockTransfer({ onNav }: Props) {
         // Total stock unchanged — no update to products.qty_on_hand needed
       }
       showToast(`${form.ref} posted · ${fromLabel} → ${toLabel} · ${tzs(totalValue)}`)
+
+      // Produce the branded transfer note. Best-effort: a blocked pop-up or
+      // print failure must never undo a successful post. Money is hidden for
+      // stock-workspace (money-blind) users.
+      try {
+        await printStockTransferNote({
+          ref: form.ref,
+          date: form.date,
+          fromLabel, toLabel,
+          notes: form.notes,
+          postedBy: user.full_name,
+          showValues: user?.workspace_role !== 'stock',
+          lines: validLines.map(l => ({
+            name: prodById[l.productId]?.name || l.productId,
+            qty: l.qty,
+            cost: prodById[l.productId]?.cost_price || 0,
+          })),
+        })
+      } catch (e) {
+        console.error('Transfer note print failed (non-blocking):', e)
+      }
+
       setTimeout(() => onNav('vouchers'), 1500)
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
