@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import { useUserLocation } from '../lib/useUserLocation'
+import { useAuth } from '../lib/useAuth'
+import { printStockTransferNote } from '../lib/stockTransferPdf'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
+
+interface TransferLine { name: string; sku: string; qty: number; value: number }
 
 interface TransferRecord {
   ref: string; posting_date: string; description: string
@@ -32,8 +36,14 @@ const parseLocations = (notes: string) => {
 
 export default function StockTransferRegister() {
   const userLoc = useUserLocation()
+  const { user } = useAuth()
+  // Stock-workspace users are money-blind: hide all cost/value figures here too.
+  const hideMoney = user?.workspace_role === 'stock'
   const [records, setRecords] = useState<TransferRecord[]>([])
   const [loading, setLoading] = useState(true)
+  // Which transfer's line items are expanded, and a per-ref cache of lines.
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [linesByRef, setLinesByRef] = useState<Record<string, TransferLine[] | 'loading'>>({})
   // Default to start of the current year (not current month) so the register
   // shows transfer history by default instead of hiding it behind a 1-day window.
   const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0])
@@ -84,6 +94,77 @@ export default function StockTransferRegister() {
     setLoading(false)
   }
 
+  // Fetch the line items for one transfer from the item ledger. The
+  // transfer_out side carries one row per product with the moved qty and the
+  // cost of that line.
+  const loadLines = async (ref: string) => {
+    if (linesByRef[ref]) return
+    setLinesByRef(prev => ({ ...prev, [ref]: 'loading' }))
+    const { data: led } = await supabase
+      .from('item_ledger_entries')
+      .select('product_id, qty, cost_amount')
+      .eq('document_type', 'stock_transfer')
+      .eq('document_ref', ref)
+      .eq('entry_type', 'transfer_out')
+    const rows = led || []
+    const ids = [...new Set(rows.map((r: any) => r.product_id))]
+    const prodMap: Record<string, { name: string; sku: string }> = {}
+    if (ids.length) {
+      const { data: prods } = await supabase.from('products').select('id, name, sku').in('id', ids)
+      ;(prods || []).forEach((p: any) => { prodMap[p.id] = { name: p.name, sku: p.sku } })
+    }
+    const lines: TransferLine[] = rows.map((r: any) => ({
+      name: prodMap[r.product_id]?.name || r.product_id,
+      sku: prodMap[r.product_id]?.sku || '',
+      qty: Math.abs(r.qty || 0),
+      value: Math.abs(r.cost_amount || 0),
+    }))
+    setLinesByRef(prev => ({ ...prev, [ref]: lines }))
+  }
+
+  const toggleExpand = (ref: string) => {
+    if (expanded === ref) { setExpanded(null); return }
+    setExpanded(ref)
+    loadLines(ref)
+  }
+
+  // Print the branded transfer note for a row. Prefers cached lines (so the
+  // print window opens within the click and isn't pop-up-blocked); otherwise
+  // fetches first.
+  const printRow = async (r: TransferRecord) => {
+    let lines = linesByRef[r.ref]
+    if (!Array.isArray(lines)) {
+      await loadLines(r.ref)
+      const { data: led } = await supabase
+        .from('item_ledger_entries')
+        .select('product_id, qty, cost_amount')
+        .eq('document_type', 'stock_transfer').eq('document_ref', r.ref).eq('entry_type', 'transfer_out')
+      const rows = led || []
+      const ids = [...new Set(rows.map((x: any) => x.product_id))]
+      const prodMap: Record<string, { name: string; sku: string }> = {}
+      if (ids.length) {
+        const { data: prods } = await supabase.from('products').select('id, name, sku').in('id', ids)
+        ;(prods || []).forEach((p: any) => { prodMap[p.id] = { name: p.name, sku: p.sku } })
+      }
+      lines = rows.map((x: any) => ({
+        name: prodMap[x.product_id]?.name || x.product_id,
+        sku: prodMap[x.product_id]?.sku || '',
+        qty: Math.abs(x.qty || 0),
+        value: Math.abs(x.cost_amount || 0),
+      }))
+    }
+    await printStockTransferNote({
+      ref: r.ref, date: r.posting_date,
+      fromLabel: r.from_location, toLabel: r.to_location,
+      notes: r.notes, postedBy: r.posted_by,
+      showValues: !hideMoney,
+      lines: (lines as TransferLine[]).map(l => ({
+        name: l.name, sku: l.sku, qty: l.qty,
+        cost: l.qty ? l.value / l.qty : 0,
+      })),
+    })
+  }
+
   const catPredicate = makeCategoryPredicate(filterCat, categories)
   const byLoc = locFilter === 'all'
     ? records
@@ -95,14 +176,17 @@ export default function StockTransferRegister() {
   const uniqueTos = [...new Set(records.map(r => r.to_location))]
 
   const exportCSV = () => {
-    const rows = [['Date', 'Ref', 'From Location', 'To Location', 'Description', 'Value at Cost (TZS)', 'Status']]
-    filtered.forEach(r => rows.push([
-      r.posting_date, r.ref,
-      `"${r.from_location}"`, `"${r.to_location}"`,
-      `"${r.description}"`,
-      String(r.total_amount || 0), r.status
-    ]))
-    rows.push(['TOTAL', '', '', '', '', String(totalValue), ''])
+    const head = ['Date', 'Ref', 'From Location', 'To Location', 'Description']
+    if (!hideMoney) head.push('Value at Cost (TZS)')
+    head.push('Status')
+    const rows = [head]
+    filtered.forEach(r => {
+      const row = [r.posting_date, r.ref, `"${r.from_location}"`, `"${r.to_location}"`, `"${r.description}"`]
+      if (!hideMoney) row.push(String(r.total_amount || 0))
+      row.push(r.status)
+      rows.push(row)
+    })
+    if (!hideMoney) rows.push(['TOTAL', '', '', '', '', String(totalValue), ''])
     const csv = rows.map(r => r.join(',')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -148,11 +232,13 @@ export default function StockTransferRegister() {
           <div className="stat-value">{filtered.length}</div>
           <div className="stat-change">{fromDate} to {toDate}</div>
         </div>
-        <div className="stat-card amber">
-          <div className="stat-label">Total Value Moved</div>
-          <div className="stat-value" style={{ fontSize:18 }}>{tzs(totalValue)}</div>
-          <div className="stat-change">At cost price</div>
-        </div>
+        {!hideMoney && (
+          <div className="stat-card amber">
+            <div className="stat-label">Total Value Moved</div>
+            <div className="stat-value" style={{ fontSize:18 }}>{tzs(totalValue)}</div>
+            <div className="stat-change">At cost price</div>
+          </div>
+        )}
         <div className="stat-card green">
           <div className="stat-label">Unique From Locations</div>
           <div className="stat-value">{uniqueFroms.length}</div>
@@ -172,54 +258,116 @@ export default function StockTransferRegister() {
               <table>
                 <thead>
                   <tr>
+                    <th style={{ width:28 }}></th>
                     <th>Date</th>
                     <th>Ref</th>
                     <th>From</th>
                     <th style={{ width:24 }}></th>
                     <th>To</th>
                     <th>Description</th>
-                    <th className="td-right">Value at Cost</th>
+                    {!hideMoney && <th className="td-right">Value at Cost</th>}
+                    <th>Posted By</th>
                     <th>Status</th>
+                    <th className="td-right">Note</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((r, i) => (
-                    <tr key={i}>
-                      <td className="td-mono" style={{ fontSize:11,color:'var(--text3)' }}>{r.posting_date}</td>
-                      <td className="td-mono td-amber" style={{ fontSize:11,fontWeight:700 }}>{r.ref}</td>
-                      <td>
-                        <div style={{ display:'flex',alignItems:'center',gap:6 }}>
-                          <span style={{ fontFamily:'var(--mono)',fontSize:10,fontWeight:800,color:'var(--accent)',background:'var(--accent-dim)',padding:'1px 6px',borderRadius:4 }}>
-                            {r.from_location.split(' — ')[0]}
-                          </span>
-                          <span style={{ fontSize:11,color:'var(--text3)' }}>{r.from_location.split(' — ')[1] || ''}</span>
-                        </div>
-                      </td>
-                      <td style={{ textAlign:'center' }}>
-                        <Ic n="arrow" s={12} c="var(--blue)" />
-                      </td>
-                      <td>
-                        <div style={{ display:'flex',alignItems:'center',gap:6 }}>
-                          <span style={{ fontFamily:'var(--mono)',fontSize:10,fontWeight:800,color:'var(--green)',background:'rgba(0,229,160,.1)',padding:'1px 6px',borderRadius:4 }}>
-                            {r.to_location.split(' — ')[0]}
-                          </span>
-                          <span style={{ fontSize:11,color:'var(--text3)' }}>{r.to_location.split(' — ')[1] || ''}</span>
-                        </div>
-                      </td>
-                      <td style={{ fontSize:11,color:'var(--text3)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{r.description}</td>
-                      <td className="td-right td-mono" style={{ fontSize:12,fontWeight:600,color:'var(--accent)' }}>{(r.total_amount||0).toLocaleString()}</td>
-                      <td style={{ fontSize:11,color:'var(--text3)' }}>{r.posted_by||'—'}</td>
-                    <td><span className={`pill ${r.status==='posted'?'pill-green':'pill-gray'}`} style={{ fontSize:9 }}>{r.status}</span></td>
-                    </tr>
-                  ))}
+                  {filtered.map((r, i) => {
+                    const isOpen = expanded === r.ref
+                    const lines = linesByRef[r.ref]
+                    const colCount = hideMoney ? 10 : 11
+                    return (
+                      <Fragment key={r.ref || i}>
+                        <tr onClick={() => toggleExpand(r.ref)} style={{ cursor:'pointer' }}>
+                          <td style={{ textAlign:'center',color:'var(--text3)',fontSize:12 }}>{isOpen ? '▾' : '▸'}</td>
+                          <td className="td-mono" style={{ fontSize:11,color:'var(--text3)' }}>{r.posting_date}</td>
+                          <td className="td-mono td-amber" style={{ fontSize:11,fontWeight:700 }}>{r.ref}</td>
+                          <td>
+                            <div style={{ display:'flex',alignItems:'center',gap:6 }}>
+                              <span style={{ fontFamily:'var(--mono)',fontSize:10,fontWeight:800,color:'var(--accent)',background:'var(--accent-dim)',padding:'1px 6px',borderRadius:4 }}>
+                                {r.from_location.split(' — ')[0]}
+                              </span>
+                              <span style={{ fontSize:11,color:'var(--text3)' }}>{r.from_location.split(' — ')[1] || ''}</span>
+                            </div>
+                          </td>
+                          <td style={{ textAlign:'center' }}>
+                            <Ic n="arrow" s={12} c="var(--blue)" />
+                          </td>
+                          <td>
+                            <div style={{ display:'flex',alignItems:'center',gap:6 }}>
+                              <span style={{ fontFamily:'var(--mono)',fontSize:10,fontWeight:800,color:'var(--green)',background:'rgba(0,229,160,.1)',padding:'1px 6px',borderRadius:4 }}>
+                                {r.to_location.split(' — ')[0]}
+                              </span>
+                              <span style={{ fontSize:11,color:'var(--text3)' }}>{r.to_location.split(' — ')[1] || ''}</span>
+                            </div>
+                          </td>
+                          <td style={{ fontSize:11,color:'var(--text3)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{r.description}</td>
+                          {!hideMoney && <td className="td-right td-mono" style={{ fontSize:12,fontWeight:600,color:'var(--accent)' }}>{(r.total_amount||0).toLocaleString()}</td>}
+                          <td style={{ fontSize:11,color:'var(--text3)' }}>{r.posted_by||'—'}</td>
+                          <td><span className={`pill ${r.status==='posted'?'pill-green':'pill-gray'}`} style={{ fontSize:9 }}>{r.status}</span></td>
+                          <td className="td-right" onClick={e => e.stopPropagation()}>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize:11 }} onClick={() => printRow(r)}>PDF</button>
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr>
+                            <td colSpan={colCount} style={{ background:'var(--surface2)', padding:'0 14px 14px' }}>
+                              {lines === undefined || lines === 'loading' ? (
+                                <div style={{ padding:'12px 0',color:'var(--text3)',fontSize:12 }}>Loading items…</div>
+                              ) : lines.length === 0 ? (
+                                <div style={{ padding:'12px 0',color:'var(--text3)',fontSize:12 }}>No line items recorded for this transfer.</div>
+                              ) : (
+                                <div style={{ padding:'10px 0' }}>
+                                  <div style={{ fontSize:10,fontWeight:700,color:'var(--text3)',marginBottom:8,textTransform:'uppercase',letterSpacing:'.5px' }}>
+                                    Items transferred · {r.from_location.split(' — ')[0]} → {r.to_location.split(' — ')[0]}
+                                  </div>
+                                  <table style={{ width:'100%' }}>
+                                    <thead>
+                                      <tr>
+                                        <th style={{ width:110 }}>SKU</th>
+                                        <th>Product</th>
+                                        <th className="td-right" style={{ width:90 }}>Qty</th>
+                                        {!hideMoney && <th className="td-right" style={{ width:120 }}>Value at Cost</th>}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {lines.map((l, li) => (
+                                        <tr key={li}>
+                                          <td className="td-mono" style={{ fontSize:11,color:'var(--text3)' }}>{l.sku || '—'}</td>
+                                          <td style={{ fontSize:12 }}>{l.name}</td>
+                                          <td className="td-right td-mono" style={{ fontSize:12,fontWeight:700 }}>{l.qty.toLocaleString()}</td>
+                                          {!hideMoney && <td className="td-right td-mono" style={{ fontSize:12 }}>{l.value.toLocaleString()}</td>}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  <div style={{ marginTop:10 }}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => printRow(r)}>Print Transfer Note</button>
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
                 <tfoot>
                   <tr style={{ background:'var(--surface2)',fontWeight:800 }}>
-                    <td colSpan={6} style={{ padding:'12px 14px',fontFamily:'var(--mono)',fontSize:11,textTransform:'uppercase',color:'var(--text3)' }}>
-                      TOTAL — {filtered.length} transfers
-                    </td>
-                    <td className="td-right td-mono" style={{ color:'var(--accent)',fontSize:14,padding:'12px 14px',fontWeight:800 }}>{tzs(totalValue)}</td>
-                    <td></td>
+                    {hideMoney ? (
+                      <td colSpan={10} style={{ padding:'12px 14px',fontFamily:'var(--mono)',fontSize:11,textTransform:'uppercase',color:'var(--text3)' }}>
+                        TOTAL — {filtered.length} transfers
+                      </td>
+                    ) : (
+                      <>
+                        <td colSpan={7} style={{ padding:'12px 14px',fontFamily:'var(--mono)',fontSize:11,textTransform:'uppercase',color:'var(--text3)' }}>
+                          TOTAL — {filtered.length} transfers
+                        </td>
+                        <td className="td-right td-mono" style={{ color:'var(--accent)',fontSize:14,padding:'12px 14px',fontWeight:800 }}>{tzs(totalValue)}</td>
+                        <td colSpan={3}></td>
+                      </>
+                    )}
                   </tr>
                 </tfoot>
               </table>
