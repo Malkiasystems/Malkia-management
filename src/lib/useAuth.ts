@@ -76,7 +76,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // can compare without re-creating the subscription. Used to detect
   // SIGNED_IN echo events that fire on tab refocus with the same user.
   const currentUserRef = useRef<User | null>(null)
-  useEffect(() => { currentUserRef.current = user }, [user])
+  useEffect(() => {
+    currentUserRef.current = user
+    // Keep the global that getPostedBy() reads in sync with the real user,
+    // so voucher posted_by stops defaulting to a hardcoded name.
+    ;(window as any).__malkiaUser = user ? { name: user.full_name } : null
+  }, [user])
 
   const loadUser = useCallback(async (options: { silent?: boolean } = {}) => {
     // First load (or explicit non-silent reload) shows the splash.
@@ -342,18 +347,18 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'investors-reports': ['reports.view'],
   'bundles': ['sales.view'],
   // HRM Module — view_own gives self-service access, view_all/manage gives company mode
-  'hrm': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-employees': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-assets': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-payroll': ['hrm.payroll', 'hrm.manage'],
-  'hrm-payslips': ['hrm.payroll', 'hrm.view_own'],
-  'hrm-payslip-template': ['settings.edit', 'hrm.manage'],
-  'hrm-leave': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-attendance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-performance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-recruitment': ['hrm.recruit', 'hrm.manage'],
-  'hrm-events': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage'],
-  'hrm-settings': ['settings.edit', 'hrm.manage'],
+  'hrm': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-employees': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-assets': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-payroll': ['hrm.confidential'],
+  'hrm-payslips': ['hrm.payroll', 'hrm.view_own', 'hrm.confidential'],
+  'hrm-payslip-template': ['hrm.confidential'],
+  'hrm-leave': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-attendance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-performance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-recruitment': ['hrm.recruit', 'hrm.confidential'],
+  'hrm-events': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-settings': ['hrm.confidential'],
 }
 
 export function canAccessPage(page: string, permissions: string[]): boolean {

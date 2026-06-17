@@ -35,6 +35,8 @@ interface InvSettings {
   backdate_super_admin_only: boolean
   // Product defaults
   auto_sku_prefix: string
+  // Invoicing
+  invoice_location_code: string
 }
 
 const DEFAULT: InvSettings = {
@@ -57,6 +59,7 @@ const DEFAULT: InvSettings = {
   lock_posting_to_today: true,
   backdate_super_admin_only: true,
   auto_sku_prefix: 'MK-',
+  invoice_location_code: '',
 }
 
 const USERS = ['Joe Gembe', 'Jane Mwatonoka', 'Barbra Kabendera', 'Lilian Mallya', 'Sophia Kipanta']
@@ -111,8 +114,13 @@ export default function InventorySettings({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [activeTab, setActiveTab] = useState<'stock'|'valuation'|'visibility'|'alerts'|'stocktake'|'products'>('stock')
+  const [locations, setLocations] = useState<{code:string;name:string}[]>([])
 
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    supabase.from('stock_locations').select('code,name').eq('is_active', true).order('code')
+      .then(({ data }) => { if (data) setLocations(data) })
+  }, [])
 
   const load = async () => {
     const { data } = await supabase.from('system_settings').select('value').eq('key', 'inventory_settings').single()
@@ -248,6 +256,17 @@ export default function InventorySettings({ onNav }: Props) {
                   <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', width: 120 }} value={settings.max_discount_pct} onChange={e => set('max_discount_pct', parseFloat(e.target.value) || 0)} />
                 </FG>
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Set to 0 to block all discounts. Max 100.</div>
+              </div>
+            </Section>
+            <Section icon="tag" title="Sales Invoicing">
+              <FG label="Default Invoicing Location">
+                <select className="form-input" value={settings.invoice_location_code || ''} onChange={e => set('invoice_location_code', e.target.value)}>
+                  <option value="">No default — user picks per invoice</option>
+                  {locations.map(l => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
+                </select>
+              </FG>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                When set, every Sales Invoice deducts stock from this one location and the per-invoice location picker is locked. Leave empty to let staff choose.
               </div>
             </Section>
             <Section icon="lock" title="Date & Posting Restrictions">

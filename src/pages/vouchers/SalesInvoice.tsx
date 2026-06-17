@@ -13,6 +13,7 @@ import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/what
 import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useUserLocation } from '../../lib/useUserLocation'
+import { useAuth } from '../../lib/useAuth'
 import { useSettings } from '../../lib/settingsLoader'
 
 interface Props {
@@ -29,6 +30,7 @@ interface DBCustomer {
   id: string; name: string; company: string; contact_person: string
   whatsapp: string; balance: number; credit_limit: number
   credit_period: number; payment_terms: string; customer_number: string
+  tin_number?: string
 }
 
 interface DBProduct {
@@ -91,6 +93,7 @@ function StepHeader({ num, title, helper }: { num: number; title: string; helper
 
 export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
   const userLoc = useUserLocation()
+  const { user } = useAuth()
   const { settings } = useSettings()
   const vatEnabled = settings.tax?.vat_enabled ?? false
   const vatRate = settings.tax?.default_vat_rate ?? 18
@@ -116,13 +119,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const [locationCode, setLocationCode] = useState('1001')
   const [invSettings, setInvSettings] = useState<any>(null)
+  // Active staff names for the Salesperson picker (replaces a stale hardcoded list).
+  const [staff, setStaff] = useState<string[]>([])
   // Per-line search query for the inline searchable product picker. Keyed
   // by line index. `null` = picker closed, string = picker open with query.
   const [productSearch, setProductSearch] = useState<Record<number, string | null>>({})
   const [lines, setLines] = useState<InvLine[]>([{ productId: '', name: '', qty: 1, price: 0, discount: 0, amount: 0, discountMode: 'percent' }])
   const [form, setForm] = useState({
     date: today(), dueDate: '', ref: '',
-    customer: '', wa: '', paymentTerms: 'NET30', notes: '', salesperson: 'Joe Gembe',
+    customer: '', wa: '', paymentTerms: 'NET30', notes: '', salesperson: '',
     poRef: '',                // Customer's PO number (B2B)
     deliveryAddress: '',      // If blank, use customer registered address
     // ── Optional advance payment captured at issue time ────────────────
@@ -164,7 +169,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   useEffect(() => {
-    loadProducts(); loadSettings(); loadAllCustomers(); loadCashAccounts()
+    loadProducts(); loadSettings(); loadAllCustomers(); loadCashAccounts(); loadStaff()
     supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
       .then(({ data }) => {
         if (data) {
@@ -190,6 +195,45 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
 
     return () => document.removeEventListener('mousedown', close)
   }, [editVoucherId])
+
+  // Active staff for the Salesperson picker. Falls back silently if the
+  // column set differs; we only need names.
+  const loadStaff = () => {
+    supabase.from('users').select('full_name').order('full_name')
+      .then(({ data }) => {
+        if (data) setStaff([...new Set(data.map((u: any) => u.full_name).filter(Boolean))])
+      })
+  }
+
+  // Default invoicing location (set in Inventory Settings). When present and
+  // valid, the location is fixed and the picker is read-only.
+  const invoiceLocCode: string | undefined = invSettings?.invoice_location_code
+  const invoiceLocLocked = !!(invoiceLocCode && locations.some(l => l.code === invoiceLocCode))
+
+  // File base for downloads/prints: customer name first, then invoice ref.
+  const invoiceFileBase = () => {
+    const cn = lastInvoice?.customers?.company || lastInvoice?.customers?.name || 'Customer'
+    const safe = String(cn).replace(/[^\w\s.-]/g, '').trim().replace(/\s+/g, '_').slice(0, 40) || 'Customer'
+    return `${safe}-${lastInvoice?.ref || ''}`
+  }
+
+  // Default the salesperson to the logged-in user (not a hardcoded name).
+  // Only fills when empty, so editing/reprint and manual choices are kept.
+  useEffect(() => {
+    if (user?.full_name && !form.salesperson) {
+      setForm(f => (f.salesperson ? f : { ...f, salesperson: user.full_name }))
+    }
+  }, [user, form.salesperson])
+
+  // Default invoicing location: if an admin has set one in Inventory Settings,
+  // every sales invoice deducts stock from THAT location. We force it here once
+  // settings + locations are loaded, instead of letting the user pick freely.
+  useEffect(() => {
+    const code = invSettings?.invoice_location_code
+    if (code && locations.some(l => l.code === code)) {
+      setLocationCode(code)
+    }
+  }, [invSettings, locations])
 
   // Auto-save draft on any meaningful form change. Hook debounces internally
   // so this is cheap — effectively one localStorage write per ~0.5s of typing.
@@ -237,7 +281,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       .from('vouchers')
       .select(`
         *,
-        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_period, payment_terms, customer_number),
+        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_period, payment_terms, customer_number, tin_number),
         voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category))
       `)
       .eq('id', voucherId)
@@ -495,7 +539,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name} — ${form.ref}`,
         journal_type: 'sales_invoice', source_type: 'sales_invoice', source_ref: form.ref,
-        posted_by: getPostedBy(), status: 'posted',
+        posted_by: form.salesperson || getPostedBy(), status: 'posted',
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
@@ -518,7 +562,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
         subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
         status: 'posted', customer_id: customerId, journal_id: journal.id,
-        notes: form.notes || null, posted_by: getPostedBy(),
+        notes: form.notes || null, posted_by: form.salesperson || getPostedBy(),
       }
       if (form.dueDate) voucherPayload.due_date = form.dueDate
       if (form.paymentTerms) voucherPayload.payment_terms = form.paymentTerms
@@ -706,6 +750,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',
           whatsapp: selectedCust.whatsapp || '', address: '',
+          tin_number: selectedCust.tin_number || '',
           balance: newCustomerBalance,
         },
         voucher_lines: lines.filter(l => l.productId).map(l => ({
@@ -1180,8 +1225,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             )},
             { label: 'Salesperson', content: (
               <select className="form-input" value={form.salesperson} onChange={e => set('salesperson', e.target.value)}>
-                <option>Joe Gembe</option><option>Jane Mwatonoka</option>
-                <option>Lilian Mallya</option><option>Barbra Kabendera</option>
+                {form.salesperson && !staff.includes(form.salesperson) && <option>{form.salesperson}</option>}
+                {staff.length === 0 && !form.salesperson && <option value="">— Select —</option>}
+                {staff.map(n => <option key={n}>{n}</option>)}
               </select>
             )},
           ].map(item => (
@@ -1206,12 +1252,25 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
               <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span>Deduct Stock From</span>
-                {userLoc.isLocked && (
+                {invoiceLocLocked && (
+                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--accent-dim)', color: 'var(--accent)', fontWeight: 700, letterSpacing: 0 }}>
+                    DEFAULT
+                  </span>
+                )}
+                {!invoiceLocLocked && userLoc.isLocked && (
                   <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700, letterSpacing: 0 }}>
                     LOCKED
                   </span>
                 )}
               </div>
+              {invoiceLocLocked ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ padding: '5px 12px', border: '1.5px solid var(--accent)', borderRadius: 6, background: 'var(--accent-dim)', fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}>
+                    {(() => { const l = locations.find(x => x.code === invoiceLocCode); return l ? `${l.code} — ${l.name}` : invoiceLocCode })()}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>Default invoicing location · change in Inventory Settings</span>
+                </div>
+              ) : (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {locations.map(loc => {
                   const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === loc.code
@@ -1235,6 +1294,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                   )
                 })}
               </div>
+              )}
             </div>
           )}
         </div>
@@ -1574,7 +1634,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               // Read the active brand color so print CSS can flatten the
               // 3-color bottom gradient to this solid value.
               const brandColor = invoiceSettings?.primary_color || '#85c2be'
-              win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${lastInvoice.ref}</title>
+              win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceFileBase()}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
                 <style>
                   /* Core reset */
@@ -1651,7 +1711,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                 })
                   .then((canvas: HTMLCanvasElement) => {
                     const link = document.createElement('a')
-                    link.download = `Invoice-${lastInvoice.ref}.png`
+                    link.download = `${invoiceFileBase()}.png`
                     link.href = canvas.toDataURL('image/png')
                     link.click()
                     showToast('Image downloaded')

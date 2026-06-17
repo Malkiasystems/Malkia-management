@@ -50,6 +50,7 @@ interface Voucher {
   customers: {
     name: string; company?: string; contact_person?: string
     whatsapp: string; address: string; balance: number
+    tin_number?: string
   } | null
   voucher_lines: {
     qty: number; unit_price: number; total: number
@@ -163,6 +164,7 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
           <div style={{ fontFamily: display, fontSize: 16, fontWeight: 800, color: '#1a1a1a', marginBottom: 3 }}>{cust?.company || cust?.name || '—'}</div>
           {cust?.contact_person && <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Attn: {cust.contact_person}</div>}
           {cust?.address && <div style={{ fontSize: 11, color: '#888', lineHeight: 1.6 }}>{cust.address}</div>}
+          {cust?.tin_number && <div style={{ fontSize: 10, color: '#888', fontFamily: mono, marginTop: 6 }}>TIN: {cust.tin_number}</div>}
           {cust?.whatsapp && <div style={{ fontSize: 10, color: '#aaa', fontFamily: mono, marginTop: 6 }}>{cust.whatsapp}</div>}
         </div>
 
