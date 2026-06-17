@@ -365,6 +365,21 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
 ])
 
 // ============================================================================
+// HRM CONFIDENTIAL PAGES — super-admin only.
+// Purely administrative HRM screens (run company payroll, payslip template,
+// HR settings, recruitment) hold salary/payroll data and have no self-service
+// purpose, so non-super-admins are blocked outright, not just shown a self
+// view. Self-service screens (own profile, payslips, leave, attendance) stay
+// open but are forced into self mode by hrmCanManage below.
+// ============================================================================
+const HRM_SUPERADMIN_ONLY = new Set<Page>([
+  'hrm-payroll',
+  'hrm-payslip-template',
+  'hrm-settings',
+  'hrm-recruitment',
+])
+
+// ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
 
@@ -391,7 +406,7 @@ function AppContent() {
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
   const [statementCustomerId, setStatementCustomerId] = useState<string | null>(null)
   const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string; amount?: number } | null>(null)
-  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, canAny, isSuperAdmin } = useAuth()
+  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, isSuperAdmin } = useAuth()
   useInactivityLogout()
 
   // Keep internal page state in sync with browser back/forward buttons
@@ -417,7 +432,7 @@ function AppContent() {
   const [hrmLinked, setHrmLinked] = useState(false)
 
   // Determine HRM access level
-  const hrmCanManage = isSuperAdmin() || canAny(['hrm.manage', 'hrm.view_all', 'hrm.view', 'hrm.payroll'])
+  const hrmCanManage = isSuperAdmin()
   const hrmSelfOnly = !hrmCanManage && can('hrm.view_own')
 
   // Link logged-in user to their employee record (by email)
@@ -496,10 +511,12 @@ function AppContent() {
 
   // Check if current user can access the page
   const hasAccess = canAccessPage(page, permissions)
+  // Confidential HRM pages are super-admin only, regardless of any HR permission.
+  const hrmBlocked = HRM_SUPERADMIN_ONLY.has(page) && !isSuperAdmin()
 
   const renderPage = () => {
     // Show access denied if user doesn't have permission
-    if (!hasAccess && !authLoading) {
+    if ((!hasAccess || hrmBlocked) && !authLoading) {
       return <AccessDenied page={page} onNav={navigate} />
     }
 
