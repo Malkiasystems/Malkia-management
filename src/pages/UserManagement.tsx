@@ -175,6 +175,7 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'hrm.view_team', label: 'View Team' },
       { key: 'hrm.view_all', label: 'View All Staff' },
       { key: 'hrm.manage', label: 'Manage HRM (read & write all)' },
+      { key: 'hrm.confidential', label: 'Confidential HR (company view, all profiles, salaries & payroll)' },
       { key: 'hrm.payroll', label: 'Payroll (run & post payroll)' },
       { key: 'hrm.recruit', label: 'Recruitment' },
     ]
