@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth } from '../lib/useAuth'
 import { supabase } from '../lib/supabase'
+import { matchPages } from '../lib/pageDirectory'
 
 interface Props {
   breadcrumb: string
@@ -10,30 +11,14 @@ interface Props {
   canGoBack: boolean
 }
 
-// Pages that can be searched
-const SEARCHABLE_PAGES: { page: Page; label: string; keywords: string }[] = [
-  { page: 'dashboard', label: 'Dashboard', keywords: 'home overview stats' },
-  { page: 'cash-sale', label: 'New Cash Sale', keywords: 'sell pos point of sale' },
-  { page: 'sales-day-book', label: 'Sales Day Book', keywords: 'sales register transactions' },
-  { page: 'inventory', label: 'Inventory', keywords: 'stock products items' },
-  { page: 'customers', label: 'Customers', keywords: 'clients contacts' },
-  { page: 'chart-of-accounts', label: 'Chart of Accounts', keywords: 'ledger accounts coa' },
-  { page: 'vouchers', label: 'Vouchers Hub', keywords: 'receipts payments' },
-  { page: 'reports', label: 'Reports Hub', keywords: 'analytics' },
-  { page: 'pnl', label: 'Profit & Loss', keywords: 'income statement' },
-  { page: 'balance-sheet', label: 'Balance Sheet', keywords: 'assets liabilities' },
-  { page: 'trial-balance', label: 'Trial Balance', keywords: 'tb' },
-  { page: 'banks', label: 'Banks & Accounts', keywords: 'bank accounts' },
-  { page: 'settings', label: 'Settings', keywords: 'config preferences' },
-  { page: 'petty-cash', label: 'Petty Cash', keywords: 'expenses' },
-  { page: 'cash-payment', label: 'Payment Voucher', keywords: 'pay expense cash bank' },
-  { page: 'cash-receipt', label: 'Cash Receipt', keywords: 'receive money' },
-  { page: 'credit-note', label: 'Credit Note', keywords: 'refund return' },
-  { page: 'opening-stock', label: 'Opening Stock', keywords: 'initial inventory' },
-  { page: 'stock-adjustment', label: 'Stock Adjustment', keywords: 'adjust inventory' },
-  { page: 'users', label: 'User Management', keywords: 'team staff employees' },
-  { page: 'crm-hub', label: 'CRM Hub', keywords: 'customer relations' },
-]
+// Where each voucher type opens when picked from search.
+const VOUCHER_PAGE: Record<string, Page> = {
+  cash_sale: 'sales-day-book', sales_invoice: 'sales-day-book', sales_return: 'sales-day-book',
+  stock_transfer: 'stock-transfer-register',
+  grn: 'purchase-register', purchase: 'purchase-register', purchase_invoice: 'purchase-register', purchase_return: 'purchase-register',
+  cash_payment: 'payment-register', payment: 'payment-register',
+  cash_receipt: 'payment-register', bank_receipt: 'payment-register',
+}
 
 interface SearchResult {
   type: 'page' | 'voucher' | 'product' | 'customer'
@@ -89,64 +74,74 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
       const q = query.toLowerCase()
       const allResults: SearchResult[] = []
 
-      // Search pages
-      const matchedPages = SEARCHABLE_PAGES.filter(p => 
-        p.label.toLowerCase().includes(q) || p.keywords.toLowerCase().includes(q)
-      ).slice(0, 3)
-      
-      matchedPages.forEach(p => {
+      // Sanitize for PostgREST .or(): commas, parentheses and * break the
+      // filter string and would otherwise silently kill a whole result type.
+      const safe = q.replace(/[,()*]/g, ' ').trim()
+      const isStock = user?.workspace_role === 'stock'
+
+      // Pages — the full app directory, not a hand-picked subset.
+      matchPages(q, 6).forEach(p => {
         allResults.push({ type: 'page', id: p.page, title: p.label, subtitle: 'Page', page: p.page })
       })
 
-      // Search vouchers
-      const { data: vouchers } = await supabase
-        .from('vouchers')
-        .select('id, ref, type, total_amount, posting_date')
-        .or(`ref.ilike.%${q}%,description.ilike.%${q}%`)
-        .order('posting_date', { ascending: false })
-        .limit(4)
-      
-      vouchers?.forEach(v => {
-        allResults.push({
-          type: 'voucher',
-          id: v.id,
-          title: v.ref,
-          subtitle: `${v.type} · TZS ${(v.total_amount || 0).toLocaleString()} · ${v.posting_date}`,
-        })
-      })
+      if (safe) {
+        // Products (active only). Money hidden for money-blind stock users.
+        try {
+          const { data: products } = await supabase
+            .from('products')
+            .select('id, name, sku, selling_price, qty_on_hand, category')
+            .or(`name.ilike.%${safe}%,sku.ilike.%${safe}%,category.ilike.%${safe}%`)
+            .eq('is_active', true)
+            .limit(5)
+          products?.forEach(p => {
+            allResults.push({
+              type: 'product',
+              id: p.id,
+              title: p.name,
+              subtitle: isStock
+                ? `${p.sku || ''} · Stock: ${p.qty_on_hand || 0}`
+                : `${p.sku || ''} · TZS ${(p.selling_price || 0).toLocaleString()} · Stock: ${p.qty_on_hand || 0}`,
+            })
+          })
+        } catch { /* keep other result types alive */ }
 
-      // Search products
-      const { data: products } = await supabase
-        .from('products')
-        .select('id, name, sku, selling_price, qty_on_hand')
-        .or(`name.ilike.%${q}%,sku.ilike.%${q}%`)
-        .eq('is_active', true)
-        .limit(4)
-      
-      products?.forEach(p => {
-        allResults.push({
-          type: 'product',
-          id: p.id,
-          title: p.name,
-          subtitle: `${p.sku} · TZS ${(p.selling_price || 0).toLocaleString()} · Stock: ${p.qty_on_hand || 0}`,
-        })
-      })
+        // Vouchers and customers carry money / PII — skip for stock users.
+        if (!isStock) {
+          try {
+            const { data: vouchers } = await supabase
+              .from('vouchers')
+              .select('id, ref, type, total_amount, posting_date')
+              .or(`ref.ilike.%${safe}%,description.ilike.%${safe}%,type.ilike.%${safe}%`)
+              .order('posting_date', { ascending: false })
+              .limit(5)
+            vouchers?.forEach(v => {
+              allResults.push({
+                type: 'voucher',
+                id: v.id,
+                title: v.ref,
+                subtitle: `${v.type} · TZS ${(v.total_amount || 0).toLocaleString()} · ${v.posting_date}`,
+                page: VOUCHER_PAGE[v.type] || 'sales-day-book',
+              })
+            })
+          } catch { /* ignore */ }
 
-      // Search customers
-      const { data: customers } = await supabase
-        .from('customers')
-        .select('id, name, whatsapp, crown_points')
-        .or(`name.ilike.%${q}%,whatsapp.ilike.%${q}%`)
-        .limit(4)
-      
-      customers?.forEach(c => {
-        allResults.push({
-          type: 'customer',
-          id: c.id,
-          title: c.name,
-          subtitle: `${c.whatsapp || 'No phone'} · ${c.crown_points || 0} Crown pts`,
-        })
-      })
+          try {
+            const { data: customers } = await supabase
+              .from('customers')
+              .select('id, name, whatsapp, phone, customer_number, code, crown_points')
+              .or(`name.ilike.%${safe}%,whatsapp.ilike.%${safe}%,phone.ilike.%${safe}%,customer_number.ilike.%${safe}%,code.ilike.%${safe}%,email.ilike.%${safe}%`)
+              .limit(5)
+            customers?.forEach(c => {
+              allResults.push({
+                type: 'customer',
+                id: c.id,
+                title: c.name,
+                subtitle: `${c.whatsapp || c.phone || 'No phone'} · ${c.crown_points || 0} Crown pts`,
+              })
+            })
+          } catch { /* ignore */ }
+        }
+      }
 
       setResults(allResults)
       setShowResults(true)
@@ -165,8 +160,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
     if (result.type === 'page' && result.page) {
       onNav(result.page)
     } else if (result.type === 'voucher') {
-      // Navigate to sales day book (could enhance to go to specific voucher)
-      onNav('sales-day-book')
+      onNav(result.page || 'sales-day-book')
     } else if (result.type === 'product') {
       onNav('inventory')
     } else if (result.type === 'customer') {
