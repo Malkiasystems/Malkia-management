@@ -812,6 +812,11 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         />
       )}
 
+      {/* Two-pane working layout (Cash Sale style): build on the left,
+          terms + payment + review as a sticky summary rail on the right. */}
+      <div className="si-2pane" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(310px, 1fr)', gap: 14, alignItems: 'start' }}>
+        <div style={{ minWidth: 0 }}>
+
       {/* ── CUSTOMER SELECTION (full width hero) ─────────────────────────── */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -1208,6 +1213,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           + Add another product
         </button>
       </div>
+
+        </div>{/* /left build pane */}
+        <div style={{ minWidth: 0 }}>
 
       {/* ═══ STEP 2: TERMS & EXTRAS ═════════════════════════════════════════ */}
       <div className="card" style={{ marginBottom: 14 }}>
@@ -1616,6 +1624,8 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           </button>
         </div>
       </div>
+        </div>{/* /right summary rail */}
+      </div>{/* /two-pane grid */}
 
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </VoucherPage>
