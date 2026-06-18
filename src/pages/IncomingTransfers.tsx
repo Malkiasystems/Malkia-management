@@ -30,9 +30,10 @@ const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = 
 }
 
 export default function IncomingTransfers({ onNav: _onNav }: Props) {
-  const { user } = useAuth()
+  const { user, can } = useAuth()
   const userLoc = useUserLocation()
   const hideMoney = user?.workspace_role === 'stock'
+  const canAccept = can('inventory.accept_transfer')
 
   const [tab, setTab] = useState<'incoming' | 'outgoing' | 'history'>('incoming')
   const [active, setActive] = useState<TransferRow[]>([])     // in_transit
@@ -165,7 +166,13 @@ export default function IncomingTransfers({ onNav: _onNav }: Props) {
             </div>
           )}
 
-          {tab === 'incoming' && r.status === 'in_transit' && (
+          {tab === 'incoming' && r.status === 'in_transit' && !canAccept && (
+            <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>
+              You can view this transfer but do not have permission to accept it. Ask an admin to enable “Accept Incoming Transfers”.
+            </div>
+          )}
+
+          {tab === 'incoming' && r.status === 'in_transit' && canAccept && (
             rejecting === r.id ? (
               <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <input className="form-input" placeholder="Reason for rejection (required)" value={reason} onChange={e => setReason(e.target.value)} style={{ marginBottom: 8 }} />
@@ -208,6 +215,12 @@ export default function IncomingTransfers({ onNav: _onNav }: Props) {
         ))}
         <button onClick={() => onNavGo()} className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }}>+ New Transfer</button>
       </div>
+
+      {tab === 'incoming' && !canAccept && (
+        <div style={{ background: '#f59e0b14', border: '1px solid #f59e0b44', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+          You can see incoming transfers but cannot accept or reject them. Acceptance is controlled in <strong>Settings → User Management</strong> via the “Accept Incoming Transfers” permission.
+        </div>
+      )}
 
       {loading ? (
         <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)' }}>Loading…</div>
