@@ -24,7 +24,9 @@ export interface TransferRow {
   notes: string | null
   requested_by: string | null
   requested_at: string | null
+  accepted_by: string | null
   accepted_at: string | null
+  rejected_by: string | null
   rejected_at: string | null
   rejected_reason: string | null
 }
@@ -48,7 +50,7 @@ export const cancelTransfer = (id: string, userId: string) =>
 export async function loadTransferRows(statuses: string[]): Promise<TransferRow[]> {
   const { data } = await supabase
     .from('stock_transfer_requests')
-    .select('id, ref, status, from_location_id, to_location_id, lines, total_value, notes, requested_by, requested_at, accepted_at, rejected_at, rejected_reason')
+    .select('id, ref, status, from_location_id, to_location_id, lines, total_value, notes, requested_by, requested_at, accepted_by, accepted_at, rejected_by, rejected_at, rejected_reason')
     .in('status', statuses)
     .order('requested_at', { ascending: false })
     .limit(200)

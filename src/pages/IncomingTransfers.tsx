@@ -40,6 +40,7 @@ export default function IncomingTransfers({ onNav: _onNav }: Props) {
   const [history, setHistory] = useState<TransferRow[]>([])   // terminal
   const [locMap, setLocMap] = useState<Record<string, { code: string; name: string }>>({})
   const [prodMap, setProdMap] = useState<Record<string, string>>({})
+  const [userMap, setUserMap] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [rejecting, setRejecting] = useState<string | null>(null)
@@ -71,6 +72,18 @@ export default function IncomingTransfers({ onNav: _onNav }: Props) {
       const pm: Record<string, string> = {}
       ;(prods || []).forEach((p: any) => { pm[p.id] = p.name })
       setProdMap(pm)
+    }
+
+    // Resolve the people who sent / accepted / rejected each transfer.
+    const uids = new Set<string>()
+    ;[...activeRows, ...histRows].forEach(r => {
+      ;[r.requested_by, r.accepted_by, r.rejected_by].forEach(u => { if (u) uids.add(u) })
+    })
+    if (uids.size) {
+      const { data: us } = await supabase.from('users').select('id, full_name').in('id', [...uids])
+      const um: Record<string, string> = {}
+      ;(us || []).forEach((u: any) => { um[u.id] = u.full_name })
+      setUserMap(um)
     }
     setLoading(false)
   }
@@ -118,6 +131,8 @@ export default function IncomingTransfers({ onNav: _onNav }: Props) {
 
   const loc = (id: string) => locMap[id] ? `${locMap[id].code} — ${locMap[id].name}` : id.slice(0, 8)
   const locCode = (id: string) => locMap[id]?.code || '?'
+  const uname = (id: string | null) => id ? (userMap[id] || id.slice(0, 8)) : '—'
+  const when = (ts: string | null) => ts ? new Date(ts).toLocaleString('en-GB') : ''
   const totalQty = (r: TransferRow) => (r.lines || []).reduce((s, l) => s + (l.qty || 0), 0)
 
   const rows = tab === 'incoming' ? incoming : tab === 'outgoing' ? outgoing : hist
@@ -146,6 +161,12 @@ export default function IncomingTransfers({ onNav: _onNav }: Props) {
                 {r.requested_at && <> · {new Date(r.requested_at).toLocaleString('en-GB')}</>}
               </div>
               {r.notes && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>{r.notes}</div>}
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text3)' }}>
+                Sent by <strong style={{ color: 'var(--text2)' }}>{uname(r.requested_by)}</strong>
+                {r.status === 'completed' && <> · Accepted by <strong style={{ color: 'var(--green)' }}>{uname(r.accepted_by)}</strong>{r.accepted_at ? ` · ${when(r.accepted_at)}` : ''}</>}
+                {r.status === 'rejected' && <> · Rejected by <strong style={{ color: 'var(--red)' }}>{uname(r.rejected_by)}</strong>{r.rejected_at ? ` · ${when(r.rejected_at)}` : ''}</>}
+                {r.status === 'cancelled' && <> · Recalled by <strong style={{ color: 'var(--text2)' }}>{uname(r.rejected_by)}</strong>{r.rejected_at ? ` · ${when(r.rejected_at)}` : ''}</>}
+              </div>
               {r.status === 'rejected' && r.rejected_reason && (
                 <div style={{ marginTop: 4, fontSize: 11, color: 'var(--red)' }}>Reason: {r.rejected_reason}</div>
               )}
