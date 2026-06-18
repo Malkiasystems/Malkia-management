@@ -81,10 +81,17 @@ export default function StockTransferRegister() {
       .lte('posting_date', t)
       .order('posting_date', { ascending: false })
     if (data) {
+      const refs = data.map((v: any) => v.ref)
+      const flow: Record<string, string> = {}
+      if (refs.length) {
+        const { data: trs } = await supabase.from('stock_transfer_requests').select('ref, status').in('ref', refs)
+        ;(trs || []).forEach((t: any) => { flow[t.ref] = t.status })
+      }
       setRecords(data.map((v: any) => {
         const locs = parseLocations(v.notes || '')
         return {
           ...v,
+          status: flow[v.ref] || v.status,
           from_location: locs.from,
           to_location: locs.to,
           categories: [...new Set((v.voucher_lines || []).map((l: any) => l.products?.category).filter(Boolean))],
@@ -304,7 +311,17 @@ export default function StockTransferRegister() {
                           <td style={{ fontSize:11,color:'var(--text3)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{r.description}</td>
                           {!hideMoney && <td className="td-right td-mono" style={{ fontSize:12,fontWeight:600,color:'var(--accent)' }}>{(r.total_amount||0).toLocaleString()}</td>}
                           <td style={{ fontSize:11,color:'var(--text3)' }}>{r.posted_by||'—'}</td>
-                          <td><span className={`pill ${r.status==='posted'?'pill-green':'pill-gray'}`} style={{ fontSize:9 }}>{r.status}</span></td>
+                          <td>{(() => {
+                            const S: Record<string, { cls: string; label: string }> = {
+                              completed: { cls: 'pill-green', label: 'Completed' },
+                              posted: { cls: 'pill-green', label: 'Completed' },
+                              in_transit: { cls: 'pill-blue', label: 'In Transit' },
+                              rejected: { cls: 'pill-red', label: 'Rejected' },
+                              cancelled: { cls: 'pill-gray', label: 'Recalled' },
+                            }
+                            const s = S[r.status] || { cls: 'pill-gray', label: r.status }
+                            return <span className={`pill ${s.cls}`} style={{ fontSize:9 }}>{s.label}</span>
+                          })()}</td>
                           <td className="td-right" onClick={e => e.stopPropagation()}>
                             <button className="btn btn-ghost btn-sm" style={{ fontSize:11 }} onClick={() => printRow(r)}>PDF</button>
                           </td>

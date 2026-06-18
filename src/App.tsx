@@ -46,6 +46,7 @@ const StockValuationReport = lazy(() => import('./pages/StockValuationReport'))
 const PurchaseRegister = lazy(() => import('./pages/PurchaseRegister'))
 const PaymentRegister = lazy(() => import('./pages/PaymentRegister'))
 const StockTransferRegister = lazy(() => import('./pages/StockTransferRegister'))
+const IncomingTransfers = lazy(() => import('./pages/IncomingTransfers'))
 const ImportRegister = lazy(() => import('./pages/ImportRegister'))
 
 // Settings Pages
@@ -564,6 +565,7 @@ function AppContent() {
       case 'opening-stock':     return <OpeningStock onNav={navigate} />
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
+      case 'stock-transfer-approvals': return <IncomingTransfers onNav={navigate} />
       case 'stock-transfer-register': return <StockTransferRegister />
       case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} />
       case 'customer-statement':

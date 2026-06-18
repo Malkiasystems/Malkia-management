@@ -3,9 +3,8 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef, insertJournalWithRetry } from '../../lib/refs'
+import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
-import { postLedgerEntries } from '../../lib/itemLedger'
 import { printStockTransferNote } from '../../lib/stockTransferPdf'
 import { useAuth } from '../../lib/useAuth'
 import { useUserLocation } from '../../lib/useUserLocation'
@@ -16,8 +15,10 @@ interface TxLine { productId: string; qty: number; cost: number }
 interface StockLocation { id: string; code: string; name: string; branch_code: string }
 
 export default function StockTransfer({ onNav }: Props) {
-  const { user } = useAuth()
+  const { user, isSuperAdmin } = useAuth()
   const userLoc = useUserLocation()
+  // Super-admin only: post both legs at once (skip the accept step).
+  const [instant, setInstant] = useState(false)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -93,9 +94,7 @@ export default function StockTransfer({ onNav }: Props) {
     // location. To pull stock FROM somewhere else they must use the Transfer
     // Request flow (which an approver at that source will execute).
     if (!userLoc.canTransferFrom(form.fromLocation)) {
-      showToast(`You are locked to location ${userLoc.defaultLocationCode}. To pull stock from ${form.fromLocation}, use Stock Transfer Request instead.`, 'error')
-      // Helpful nav: send them to the Request page directly.
-      setTimeout(() => onNav('stock-transfer-request'), 1500)
+      showToast(`You are locked to location ${userLoc.defaultLocationCode}, so you can only dispatch from there. Ask someone at ${form.fromLocation} to send the stock to you.`, 'error')
       return
     }
     setPosting(true)
@@ -103,135 +102,60 @@ export default function StockTransfer({ onNav }: Props) {
       const fromLabel = `${fromLoc.code} — ${fromLoc.name}`
       const toLabel = `${toLoc.code} — ${toLoc.name}`
 
-      // ─── PRE-FLIGHT STOCK CHECK (BEFORE any insert) ───────────────────
-      // Validate every line against actual qty AT THE FROM-LOCATION (not global qty).
-      // If ANY line fails, abort the whole post — no journal, no voucher, no ledger.
       const validLines = lines.filter(l => l.productId && l.qty)
-      const productIds = validLines.map(l => l.productId)
+      const productIds = [...new Set(validLines.map(l => l.productId))]
 
+      // Fresh product cost + names for the dispatch payload and the printed note.
       const { data: freshProducts } = await supabase
-        .from('products')
-        .select('id, name, cost_price')
-        .in('id', productIds)
-      if (!freshProducts || freshProducts.length !== productIds.length) {
-        throw new Error('Could not load product data — try again')
-      }
+        .from('products').select('id, name, cost_price').in('id', productIds)
       const prodById: Record<string, { id: string; name: string; cost_price: number }> = {}
-      freshProducts.forEach((p: any) => { prodById[p.id] = p })
+      ;(freshProducts || []).forEach((p: any) => { prodById[p.id] = p })
 
-      const { data: fromLocStock } = await supabase
-        .from('product_locations')
-        .select('product_id, qty_on_hand')
-        .in('product_id', productIds)
-        .eq('location_code', fromLoc.code)
-      const fromQtyByProduct: Record<string, number> = {}
-      ;(fromLocStock || []).forEach((row: any) => { fromQtyByProduct[row.product_id] = row.qty_on_hand || 0 })
+      const payloadLines = validLines.map(l => ({
+        productId: l.productId,
+        qty: l.qty,
+        cost: prodById[l.productId]?.cost_price || 0,
+      }))
 
-      // Aggregate quantities per product (in case the same product appears on multiple lines)
-      const requestedByProduct: Record<string, number> = {}
-      validLines.forEach(l => {
-        requestedByProduct[l.productId] = (requestedByProduct[l.productId] || 0) + l.qty
+      // Atomic dispatch. Posts the OUT leg now and marks the transfer
+      // in-transit; the destination must accept before stock lands there.
+      // A super admin may post instantly (both legs) via the toggle.
+      const { data: res, error: rpcErr } = await supabase.rpc('dispatch_stock_transfer', {
+        p_ref: form.ref,
+        p_user_id: user.id,
+        p_from_location_id: fromLoc.id,
+        p_to_location_id: toLoc.id,
+        p_lines: payloadLines,
+        p_notes: form.notes || null,
+        p_instant: instant && isSuperAdmin(),
       })
+      if (rpcErr) throw new Error(rpcErr.message)
+      if (!res?.success) throw new Error(res?.error || 'Transfer failed')
 
-      // Validate every product's available stock at from-location
-      const insufficientItems: string[] = []
-      for (const productId of Object.keys(requestedByProduct)) {
-        const requested = requestedByProduct[productId]
-        const available = fromQtyByProduct[productId] || 0
-        if (available < requested) {
-          const name = prodById[productId]?.name || productId
-          insufficientItems.push(`${name} (need ${requested}, have ${available} at ${fromLoc.code})`)
-        }
-      }
-      if (insufficientItems.length > 0) {
-        showToast(`Insufficient stock at ${fromLoc.code}: ${insufficientItems.join(' · ')}`, 'error')
-        setPosting(false)
-        return
-      }
+      const completed = res.status === 'completed'
+      showToast(
+        completed
+          ? `${form.ref} transferred · ${fromLabel} → ${toLabel}`
+          : `${form.ref} dispatched · ${fromLabel} → ${toLabel} · awaiting acceptance at ${toLoc.code}`
+      )
 
-      // ─── ALL CHECKS PASSED — safe to post ────────────────────────────
-      const { data: jRaw, error: jErr } = await insertJournalWithRetry({
-        ref: 'JV-' + form.ref, posting_date: form.date,
-        description: `Stock Transfer — ${fromLabel} → ${toLabel} — ${form.ref}`,
-        journal_type: 'stock_transfer', source_type: 'stock_transfer', source_ref: form.ref,
-        posted_by: user.full_name, status: 'posted',
-      })
-      if (jErr || !jRaw) throw new Error(jErr?.message || 'Journal insert failed')
-      const j = jRaw
-
-      const { error: vErr } = await supabase.from('vouchers').insert({
-        ref: form.ref, type: 'stock_transfer', posting_date: form.date,
-        description: `Stock Transfer — ${fromLabel} → ${toLabel}`,
-        total_amount: totalValue, status: 'posted', journal_id: j.id,
-        notes: `${fromLabel} → ${toLabel}${form.notes ? ' · ' + form.notes : ''}`,
-        posted_by: user.full_name,
-      })
-      if (vErr) throw new Error('Voucher insert failed: ' + vErr.message)
-
-      for (const line of validLines) {
-        const prod = prodById[line.productId]
-        if (!prod) continue
-        const result = await postLedgerEntries([
-          {
-            product_id: line.productId, entry_type: 'transfer_out',
-            document_type: 'stock_transfer', document_ref: form.ref,
-            posting_date: form.date, qty: -line.qty,
-            cost_amount: (prod.cost_price || 0) * line.qty,
-            location: fromLoc,
-          },
-          {
-            product_id: line.productId, entry_type: 'transfer_in',
-            document_type: 'stock_transfer', document_ref: form.ref,
-            posting_date: form.date, qty: line.qty,
-            cost_amount: (prod.cost_price || 0) * line.qty,
-            location: toLoc,
-          },
-        ])
-        if (!result.success) console.error('item_ledger_entries error:', result.error)
-
-        // Update product_locations using values fetched at the start (fresh enough)
-        const fromQtyBefore = fromQtyByProduct[line.productId] || 0
-        const fromQty = Math.max(0, fromQtyBefore - line.qty)
-        // Subtract from local cache so subsequent lines for the same product don't double-count
-        fromQtyByProduct[line.productId] = fromQty
-
-        const { data: toPL } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', line.productId).eq('location_code', toLoc.code).maybeSingle()
-        const toQty = (toPL?.qty_on_hand || 0) + line.qty
-
-        await supabase.from('product_locations').upsert(
-          { product_id: line.productId, location_id: fromLoc.id, location_code: fromLoc.code, qty_on_hand: fromQty, last_updated: new Date().toISOString() },
-          { onConflict: 'product_id,location_id' }
-        )
-        await supabase.from('product_locations').upsert(
-          { product_id: line.productId, location_id: toLoc.id, location_code: toLoc.code, qty_on_hand: toQty, last_updated: new Date().toISOString() },
-          { onConflict: 'product_id,location_id' }
-        )
-        // Total stock unchanged — no update to products.qty_on_hand needed
-      }
-      showToast(`${form.ref} posted · ${fromLabel} → ${toLabel} · ${tzs(totalValue)}`)
-
-      // Produce the branded transfer note. Best-effort: a blocked pop-up or
-      // print failure must never undo a successful post. Money is hidden for
-      // stock-workspace (money-blind) users.
+      // Branded dispatch/transfer note. Best-effort: a blocked pop-up must
+      // never undo a successful post. Money hidden for stock-workspace users.
       try {
         await printStockTransferNote({
-          ref: form.ref,
-          date: form.date,
-          fromLabel, toLabel,
-          notes: form.notes,
-          postedBy: user.full_name,
+          ref: form.ref, date: form.date, fromLabel, toLabel,
+          notes: form.notes, postedBy: user.full_name,
           showValues: user?.workspace_role !== 'stock',
           lines: validLines.map(l => ({
             name: prodById[l.productId]?.name || l.productId,
-            qty: l.qty,
-            cost: prodById[l.productId]?.cost_price || 0,
+            qty: l.qty, cost: prodById[l.productId]?.cost_price || 0,
           })),
         })
       } catch (e) {
         console.error('Transfer note print failed (non-blocking):', e)
       }
 
-      setTimeout(() => onNav('vouchers'), 1500)
+      setTimeout(() => onNav(completed ? 'stock-transfer-register' : 'stock-transfer-approvals'), 1500)
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }
@@ -253,13 +177,13 @@ export default function StockTransfer({ onNav }: Props) {
         {userLoc.isLocked && (
           <div style={{ background: '#3d8bff14', border: '1px solid #3d8bff44', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
-              You are locked to <strong style={{ color: 'var(--blue)', fontFamily: 'var(--mono)' }}>{userLoc.defaultLocationCode}</strong>. You can only transfer stock OUT to other locations. To pull stock IN from another location, request a transfer.
+              You are locked to <strong style={{ color: 'var(--blue)', fontFamily: 'var(--mono)' }}>{userLoc.defaultLocationCode}</strong>. You can only dispatch stock OUT from here. Stock other locations send you appears under Incoming Transfers, where you accept it.
             </div>
             <button
-              onClick={() => onNav('stock-transfer-request')}
+              onClick={() => onNav('stock-transfer-approvals')}
               style={{ padding: '7px 14px', borderRadius: 8, background: 'var(--blue)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}
             >
-              Request Stock In
+              Incoming Transfers
             </button>
           </div>
         )}
@@ -307,6 +231,15 @@ export default function StockTransfer({ onNav }: Props) {
           <div style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'var(--mono)' }}>From and To cannot be the same location</div>
         )}
         <FG label="Notes"><input className="form-input" placeholder="e.g. Restocking front office from warehouse" value={form.notes} onChange={e => set('notes', e.target.value)} /></FG>
+        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text3)', lineHeight: 1.5 }}>
+          Stock leaves the source now and sits <strong style={{ color: 'var(--blue)' }}>in transit</strong>. It only lands at {form.toLocation || 'the destination'} once someone there accepts it in <strong>Incoming Transfers</strong>.
+        </div>
+        {isSuperAdmin() && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={instant} onChange={e => setInstant(e.target.checked)} />
+            Post instantly — skip the acceptance step (super-admin override)
+          </label>
+        )}
       </div>
       <div className="card">
         <div className="card-title" style={{ marginBottom: 14 }}>Items to Transfer</div>
