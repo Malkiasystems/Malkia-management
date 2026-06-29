@@ -6,6 +6,7 @@ import { tzs } from '../lib/utils'
 import type { Page, LifeStage } from '../lib/types'
 import { LIFE_STAGE_LABELS } from '../lib/types'
 import { useTableSort } from '../lib/useTableSort'
+import { useAuth } from '../lib/useAuth'
 import CashCustomerDetail from './customers/CashCustomerDetail'  // cash-customer profile: purchase history, top products, stage migration, notes
 
 interface Customer {
@@ -75,6 +76,21 @@ export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav
   // Tabs: 'cash' = retail walk-ins; 'wholesale' = sales-invoice customers
   // (formerly labelled "Debtors"; see migration 009).
   const [tab, setTab] = useState<'cash'|'wholesale'>('cash')
+
+  // Wholesale customer management is locked to permission holders (super admin
+  // or the matching customers.create / edit / delete permission). Cash walk-in
+  // contacts stay open to all staff. The database enforces this too (migration
+  // 012) — this is the UI half.
+  const { isSuperAdmin, hasPermission } = useAuth()
+  const isSuper = isSuperAdmin()
+  const canCreateCustomers = isSuper || hasPermission('customers.create')
+  const canEditCustomers   = isSuper || hasPermission('customers.edit')
+  const canDeleteCustomers = isSuper || hasPermission('customers.delete')
+  // Cash customers are editable by everyone; non-cash needs the matching perm.
+  // Passing no customer falls back to the active tab (used for the Add button).
+  const canEditFor = (c?: { customer_type?: string } | null) =>
+    ((c ? c.customer_type : (tab === 'cash' ? 'cash' : 'wholesale')) === 'cash') || canEditCustomers
+
   const [customers, setCustomers] = useState<Customer[]>([])
   const [search, setSearch] = useState('')
   const [segFilter, setSegFilter] = useState('all')
@@ -472,9 +488,11 @@ export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav
             </div>
           </div>
           <div className="page-actions">
-            <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => openEdit(selected)}>
-              <Ic n="edit" s={13} /> Edit
-            </button>
+            {canEditFor(selected) && (
+              <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => openEdit(selected)}>
+                <Ic n="edit" s={13} /> Edit
+              </button>
+            )}
             {onViewStatement && (
               <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }}
                 onClick={() => onViewStatement(selected.id)}>
@@ -635,7 +653,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav
           </div>
           <div className="page-actions">
             <button className="btn btn-ghost" onClick={() => setView('list')}>Cancel</button>
-            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : selected ? 'Save Changes' : 'Add Customer'}</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving || (form.customer_type !== 'cash' && (selected ? !canEditCustomers : !canCreateCustomers))}>{saving ? 'Saving…' : selected ? 'Save Changes' : 'Add Customer'}</button>
           </div>
         </div>
 
@@ -762,7 +780,13 @@ export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
-          <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add {tab==='cash'?'Contact':'Wholesale Contact'}</button>
+          {(tab === 'cash' || canCreateCustomers) ? (
+            <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add {tab==='cash'?'Contact':'Wholesale Contact'}</button>
+          ) : (
+            <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Read-only · ask a manager to add wholesale customers
+            </span>
+          )}
         </div>
       </div>
 
@@ -1000,19 +1024,21 @@ export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav
                               }}
                             >📱 WA</button>
                           )}
-                          <button onClick={() => openEdit(c)} style={{ background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',cursor:'pointer',fontSize:11,color:'var(--text3)',display:'flex',alignItems:'center',gap:4 }}>
-                            <Ic n="edit" s={11} /> Edit
-                          </button>
-                          {/* Hide / Restore — wholesale only, distinct from delete */}
-                          {tab === 'wholesale' && (
+                          {canEditFor(c) && (
+                            <button onClick={() => openEdit(c)} style={{ background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',cursor:'pointer',fontSize:11,color:'var(--text3)',display:'flex',alignItems:'center',gap:4 }}>
+                              <Ic n="edit" s={11} /> Edit
+                            </button>
+                          )}
+                          {/* Hide / Restore — wholesale only, managers only */}
+                          {tab === 'wholesale' && canEditCustomers && (
                             <button onClick={() => toggleHidden(c)}
                               title={c.is_hidden ? 'Restore to pickers' : 'Hide from pickers (keep in reports)'}
                               style={{ background:c.is_hidden?'rgba(255,211,42,.12)':'var(--surface2)', border:`1px solid ${c.is_hidden?'var(--yellow,#f59e0b)':'var(--border)'}`, borderRadius:6, padding:'4px 8px', cursor:'pointer', fontSize:11, color:c.is_hidden?'var(--yellow,#f59e0b)':'var(--text3)', fontWeight:600 }}>
                               {c.is_hidden ? 'Show' : 'Hide'}
                             </button>
                           )}
-                          {/* Delete — wholesale only, only allowed if no history */}
-                          {tab === 'wholesale' && (
+                          {/* Delete — wholesale only, managers only, and only if no history */}
+                          {tab === 'wholesale' && canDeleteCustomers && (
                             <button onClick={() => deleteCustomer(c)}
                               title="Delete permanently (only allowed if no balance and no ledger history)"
                               style={{ background:'rgba(255,71,87,.08)', border:'1px solid rgba(255,71,87,.3)', borderRadius:6, padding:'4px 8px', cursor:'pointer', fontSize:11, color:'var(--red)', fontWeight:600 }}>

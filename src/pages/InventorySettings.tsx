@@ -261,12 +261,12 @@ export default function InventorySettings({ onNav }: Props) {
             <Section icon="tag" title="Sales Invoicing">
               <FG label="Default Invoicing Location">
                 <select className="form-input" value={settings.invoice_location_code || ''} onChange={e => set('invoice_location_code', e.target.value)}>
-                  <option value="">No default — user picks per invoice</option>
+                  <option value="">Not set — falls back to first available location</option>
                   {locations.map(l => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
                 </select>
               </FG>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-                When set, every Sales Invoice deducts stock from this one location and the per-invoice location picker is locked. Leave empty to let staff choose.
+                Every Sales Invoice deducts stock from this one location. Staff can no longer choose a location per invoice. Set this to the warehouse you sell from. If left empty, invoices fall back to the first available location, which may be wrong.
               </div>
             </Section>
             <Section icon="lock" title="Date & Posting Restrictions">

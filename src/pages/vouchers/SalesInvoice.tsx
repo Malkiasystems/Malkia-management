@@ -74,26 +74,24 @@ const deriveMethod = (code: string, name: string): string => {
 
 // Small section-header used above each step in the new SI layout. Provides
 // a visual progress cue (numbered circle) + title + optional helper text.
-function StepHeader({ num, title, helper }: { num: number; title: string; helper?: string }) {
+function StepHeader({ title, helper }: { num?: number; title: string; helper?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-      <div style={{
-        width: 30, height: 30, borderRadius: '50%',
-        background: 'var(--accent)', color: '#fff',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 14, fontWeight: 800, flexShrink: 0,
-      }}>{num}</div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--display)', fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</div>
-        {helper && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{helper}</div>}
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ width: 3, height: 15, borderRadius: 2, background: 'var(--accent)', flexShrink: 0 }} />
+        <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{title}</div>
       </div>
+      {helper && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3, marginLeft: 11 }}>{helper}</div>}
     </div>
   )
 }
 
 export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
   const userLoc = useUserLocation()
-  const { user } = useAuth()
+  const { user, isSuperAdmin, hasPermission } = useAuth()
+  // Registering a wholesale customer is manager-only (super admin or
+  // 'customers.create'). Non-managers are told to ask a manager instead.
+  const canManageCustomers = isSuperAdmin() || hasPermission('customers.create')
   const { settings } = useSettings()
   const vatEnabled = settings.tax?.vat_enabled ?? false
   const vatRate = settings.tax?.default_vat_rate ?? 18
@@ -125,6 +123,10 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   // by line index. `null` = picker closed, string = picker open with query.
   const [productSearch, setProductSearch] = useState<Record<number, string | null>>({})
   const [lines, setLines] = useState<InvLine[]>([{ productId: '', name: '', qty: 1, price: 0, discount: 0, amount: 0, discountMode: 'percent' }])
+  // Progressive disclosure: keep the default form short. Advanced terms and the
+  // optional "payment at issue" block stay collapsed until the user opts in.
+  const [showMore, setShowMore] = useState(false)
+  const [payingNow, setPayingNow] = useState(false)
   const [form, setForm] = useState({
     date: today(), dueDate: '', ref: '',
     customer: '', wa: '', paymentTerms: 'NET30', notes: '', salesperson: '',
@@ -142,6 +144,12 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   })
   const dropRef = useRef<HTMLDivElement>(null)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  // If a restored draft or an edited invoice already carries an advance amount,
+  // reveal the payment-at-issue block so the value is never hidden from view.
+  useEffect(() => {
+    if (parseFloat(form.paidNow || '0') > 0) setPayingNow(true)
+  }, [form.paidNow])
 
   // ─── Draft persistence ──────────────────────────────────────────────────
   // Snapshot of everything the user typed, so we can restore it after a
@@ -932,15 +940,23 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                   No customer matches <strong>"{form.customer}"</strong>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>
-                  This customer is not registered in your wholesale contacts. You must register them first before posting an invoice.
+                  This customer is not registered in your wholesale contacts. {canManageCustomers
+                    ? 'You must register them first before posting an invoice.'
+                    : 'A manager must register them before you can invoice them.'}
                 </div>
-                <button
-                  onClick={() => onNav('customers')}
-                  className="btn btn-primary btn-sm"
-                  style={{ background: 'var(--accent)' }}
-                >
-                  + Register New Customer
-                </button>
+                {canManageCustomers ? (
+                  <button
+                    onClick={() => onNav('customers')}
+                    className="btn btn-primary btn-sm"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    + Register New Customer
+                  </button>
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>
+                    Ask a manager (super admin) to add this customer.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1204,23 +1220,16 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
 
       {/* ═══ STEP 2: TERMS & EXTRAS ═════════════════════════════════════════ */}
       <div className="card" style={{ marginBottom: 14 }}>
-        <StepHeader num={2} title="Invoice Terms" helper="Dates, payment terms, PO reference, delivery" />
+        <StepHeader title="Invoice Terms" />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 14 }}>
+        {/* Essentials — the only fields most invoices ever need */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
           {[
             { label: 'Invoice No', content: <input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--accent)', background: 'var(--surface2)', cursor: 'default' }} /> },
             { label: 'Date', content: <input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /> },
-            { label: 'Due Date', content: <input type="date" className="form-input" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} /> },
             { label: 'Payment Terms', content: (
               <select className="form-input" value={form.paymentTerms} onChange={e => set('paymentTerms', e.target.value)}>
                 {TERMS.map(t => <option key={t}>{t}</option>)}
-              </select>
-            )},
-            { label: 'Salesperson', content: (
-              <select className="form-input" value={form.salesperson} onChange={e => set('salesperson', e.target.value)}>
-                {form.salesperson && !staff.includes(form.salesperson) && <option>{form.salesperson}</option>}
-                {staff.length === 0 && !form.salesperson && <option value="">— Select —</option>}
-                {staff.map(n => <option key={n}>{n}</option>)}
               </select>
             )},
           ].map(item => (
@@ -1231,59 +1240,77 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           ))}
         </div>
 
-        {/* PO Ref + Stock Location strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: 12 }}>
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
-            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-              Customer PO Reference <span style={{ color: 'var(--text3)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
-            </div>
-            <input className="form-input" placeholder="e.g. PO-2026-0044"
-              value={form.poRef} onChange={e => set('poRef', e.target.value)}
-              style={{ fontFamily: 'var(--mono)' }} />
+        {/* Fixed stock location — compact, read-only, admin-controlled */}
+        {locations.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Stock from</span>
+            <span style={{ padding: '4px 10px', border: '1.5px solid var(--accent)', borderRadius: 6, background: 'var(--accent-dim)', fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}>
+              {(() => { const l = locations.find(x => x.code === locationCode); return l ? `${l.code} — ${l.name}` : (locationCode || '—') })()}
+            </span>
+            {invoiceLocLocked ? (
+              <span style={{ fontSize: 10, color: 'var(--text3)' }}>fixed by admin</span>
+            ) : (
+              <span style={{ fontSize: 10, color: '#f59e0b' }}>no default set — Inventory Settings → Default Invoicing Location</span>
+            )}
           </div>
-          {locations.length > 0 && (
-            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>Deduct Stock From</span>
-                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--accent-dim)', color: 'var(--accent)', fontWeight: 700, letterSpacing: 0 }}>
-                  FIXED
-                </span>
+        )}
+
+        {/* More options — due date, salesperson, PO, delivery, notes */}
+        <button
+          type="button"
+          onClick={() => setShowMore(v => !v)}
+          style={{
+            marginTop: 14, fontSize: 12, fontWeight: 600, color: 'var(--accent)',
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+          <span style={{ fontSize: 15, lineHeight: 1, width: 12, textAlign: 'center' }}>{showMore ? '−' : '+'}</span>
+          {showMore ? 'Hide options' : 'More options'}
+          <span style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 400 }}>due date · salesperson · PO · delivery · notes</span>
+        </button>
+
+        {showMore && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Due Date</div>
+                <input type="date" className="form-input" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} />
               </div>
-              {/* Location is set once by the admin in Inventory Settings and is
-                  not selectable here — every invoice deducts from the same
-                  warehouse so stock and AR stay consistent. */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ padding: '5px 12px', border: '1.5px solid var(--accent)', borderRadius: 6, background: 'var(--accent-dim)', fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}>
-                  {(() => { const l = locations.find(x => x.code === locationCode); return l ? `${l.code} — ${l.name}` : (locationCode || '—') })()}
-                </span>
-                {invoiceLocLocked ? (
-                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>Set by admin · change in Inventory Settings</span>
-                ) : (
-                  <span style={{ fontSize: 10, color: '#f59e0b' }}>
-                    No invoicing location set. Admins: choose one in Inventory Settings → Default Invoicing Location.
-                  </span>
-                )}
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Salesperson</div>
+                <select className="form-input" value={form.salesperson} onChange={e => set('salesperson', e.target.value)}>
+                  {form.salesperson && !staff.includes(form.salesperson) && <option>{form.salesperson}</option>}
+                  {staff.length === 0 && !form.salesperson && <option value="">— Select —</option>}
+                  {staff.map(n => <option key={n}>{n}</option>)}
+                </select>
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Delivery Address override */}
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
-            <span>Delivery Address <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text3)' }}>(leave blank to use customer registered address)</span></span>
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
+              <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+                Customer PO Reference <span style={{ color: 'var(--text3)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+              </div>
+              <input className="form-input" placeholder="e.g. PO-2026-0044"
+                value={form.poRef} onChange={e => set('poRef', e.target.value)}
+                style={{ fontFamily: 'var(--mono)' }} />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                <span>Delivery Address <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text3)' }}>(leave blank to use customer registered address)</span></span>
+              </div>
+              <input className="form-input" placeholder="e.g. Deliver to site office, Plot 45, Masaki"
+                value={form.deliveryAddress} onChange={e => set('deliveryAddress', e.target.value)} />
+            </div>
+
+            <div>
+              <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes / Payment Instructions</div>
+              <textarea className="form-input" rows={2} style={{ resize: 'none', fontSize: 12 }}
+                placeholder="Bank details, delivery instructions, payment reference…"
+                value={form.notes} onChange={e => set('notes', e.target.value)} />
+            </div>
           </div>
-          <input className="form-input" placeholder="e.g. Deliver to site office, Plot 45, Masaki"
-            value={form.deliveryAddress} onChange={e => set('deliveryAddress', e.target.value)} />
-        </div>
-
-        {/* Notes */}
-        <div>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes / Payment Instructions</div>
-          <textarea className="form-input" rows={2} style={{ resize: 'none', fontSize: 12 }}
-            placeholder="Bank details, delivery instructions, payment reference…"
-            value={form.notes} onChange={e => set('notes', e.target.value)} />
-        </div>
+        )}
       </div>
 
       {/* ═══ STEP 3: PAYMENT RECEIVED AT ISSUE (OPTIONAL) ═════════════════ */}
@@ -1300,7 +1327,27 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         Leave blank for normal credit invoices — this is purely additive.
       */}
       <div className="card" style={{ marginBottom: 14 }}>
-        <StepHeader num={3} title="Payment Received at Issue" helper="Optional — only if the customer is paying cash / M-Pesa / bank now (e.g. wholesalers who pay upfront)" />
+        {/* Payment at issue is opt-in. Default credit invoices never see these
+            fields — the checkbox reveals them only when money changes hands now. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 3, height: 15, borderRadius: 2, background: 'var(--accent)', flexShrink: 0 }} />
+            <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Payment at Issue</div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--text2)' }}>
+            <input
+              type="checkbox"
+              checked={payingNow}
+              onChange={e => {
+                setPayingNow(e.target.checked)
+                if (!e.target.checked) { set('paidNow', ''); set('paidDepositAccountId', ''); set('paidTransactionId', '') }
+              }}
+            />
+            Customer is paying now (cash / M-Pesa / bank)
+          </label>
+        </div>
+
+        {payingNow && (<div style={{ marginTop: 14 }}>
 
         <div style={{
           display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12,
@@ -1442,6 +1489,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             </div>
           )
         })()}
+        </div>)}
       </div>
 
       {/* ═══ STEP 4: REVIEW & POST ══════════════════════════════════════════ */}

@@ -13,6 +13,7 @@ import {
   ACTIVITY_TYPE_LABELS, ACTIVITY_TYPE_ICONS, LOSS_REASONS, isOverdue,
 } from '../../lib/b2bTypes'
 import { tzs } from '../../lib/utils'
+import { useAuth } from '../../lib/useAuth'
 
 const Icon = ({ name, size = 16, color = 'currentColor', strokeWidth = 1.8, style }: { name: string; size?: number; color?: string; strokeWidth?: number; style?: React.CSSProperties }) => {
   const props = { width: size, height: size, fill: 'none', stroke: color, strokeWidth, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24', style }
@@ -52,6 +53,10 @@ const fmtDateTime = (d?: string | null) =>
   d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' + new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
 
 export default function B2BAccountPanel({ account, actor, onClose, onReload, showToast }: Props) {
+  const { isSuperAdmin, hasPermission } = useAuth()
+  // Converting a B2B account creates a wholesale customer, so it is gated to
+  // managers (super admin or 'customers.create'). The DB enforces this too.
+  const canManageCustomers = isSuperAdmin() || hasPermission('customers.create')
   const [busy, setBusy] = useState(false)
   const [naText, setNaText] = useState(account.next_action || '')
   const [naDate, setNaDate] = useState(account.next_action_date || '')
@@ -184,10 +189,14 @@ export default function B2BAccountPanel({ account, actor, onClose, onReload, sho
         <div style={s.section}>
           <div style={s.secTitle}>Outcome</div>
           {!account.customer_id ? (
-            <button className="btn-primary" disabled={busy} style={{ padding: '10px', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}
-              onClick={() => run(async () => { const r = await b2b.convertToCustomer(account, actor); showToast(r.alreadyLinked ? 'Already a customer' : `Converted — ${r.customerNumber}`) }, 'Converted to customer')}>
-              <Icon name="check" /> Convert to wholesale customer
-            </button>
+            canManageCustomers ? (
+              <button className="btn-primary" disabled={busy} style={{ padding: '10px', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}
+                onClick={() => run(async () => { const r = await b2b.convertToCustomer(account, actor); showToast(r.alreadyLinked ? 'Already a customer' : `Converted — ${r.customerNumber}`) }, 'Converted to customer')}>
+                <Icon name="check" /> Convert to wholesale customer
+              </button>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--text2)' }}>Only a manager can convert this account into a wholesale customer. Ask a super admin.</div>
+            )
           ) : (
             <div style={{ fontSize: 12, color: 'var(--text2)' }}>Linked to a wholesale customer. First order date: {fmtDate(account.last_order_date)}.</div>
           )}
