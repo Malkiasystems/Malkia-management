@@ -88,10 +88,10 @@ function StepHeader({ title, helper }: { num?: number; title: string; helper?: s
 
 export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Props) {
   const userLoc = useUserLocation()
-  const { user, isSuperAdmin, hasPermission } = useAuth()
+  const { user, isSuperAdmin, can } = useAuth()
   // Registering a wholesale customer is manager-only (super admin or
   // 'customers.create'). Non-managers are told to ask a manager instead.
-  const canManageCustomers = isSuperAdmin() || hasPermission('customers.create')
+  const canManageCustomers = isSuperAdmin() || can('customers.create')
   const { settings } = useSettings()
   const vatEnabled = settings.tax?.vat_enabled ?? false
   const vatRate = settings.tax?.default_vat_rate ?? 18

@@ -81,11 +81,11 @@ export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav
   // or the matching customers.create / edit / delete permission). Cash walk-in
   // contacts stay open to all staff. The database enforces this too (migration
   // 012) — this is the UI half.
-  const { isSuperAdmin, hasPermission } = useAuth()
+  const { isSuperAdmin, can } = useAuth()
   const isSuper = isSuperAdmin()
-  const canCreateCustomers = isSuper || hasPermission('customers.create')
-  const canEditCustomers   = isSuper || hasPermission('customers.edit')
-  const canDeleteCustomers = isSuper || hasPermission('customers.delete')
+  const canCreateCustomers = isSuper || can('customers.create')
+  const canEditCustomers   = isSuper || can('customers.edit')
+  const canDeleteCustomers = isSuper || can('customers.delete')
   // Cash customers are editable by everyone; non-cash needs the matching perm.
   // Passing no customer falls back to the active tab (used for the Add button).
   const canEditFor = (c?: { customer_type?: string } | null) =>

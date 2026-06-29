@@ -53,10 +53,10 @@ const fmtDateTime = (d?: string | null) =>
   d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' + new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
 
 export default function B2BAccountPanel({ account, actor, onClose, onReload, showToast }: Props) {
-  const { isSuperAdmin, hasPermission } = useAuth()
+  const { isSuperAdmin, can } = useAuth()
   // Converting a B2B account creates a wholesale customer, so it is gated to
   // managers (super admin or 'customers.create'). The DB enforces this too.
-  const canManageCustomers = isSuperAdmin() || hasPermission('customers.create')
+  const canManageCustomers = isSuperAdmin() || can('customers.create')
   const [busy, setBusy] = useState(false)
   const [naText, setNaText] = useState(account.next_action || '')
   const [naDate, setNaDate] = useState(account.next_action_date || '')
