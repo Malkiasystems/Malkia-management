@@ -454,25 +454,10 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       return
     }
 
-    // Wrong-location safety check (unlocked users). If the user has a
-    // default location and is posting from a different one, force an
-    // explicit confirm. The picker shows all locations side-by-side and
-    // it's easy to leave the wrong one selected.
-    if (
-      !userLoc.isLocked &&
-      userLoc.defaultLocationCode &&
-      locationCode !== userLoc.defaultLocationCode &&
-      locations.length > 1
-    ) {
-      const chosen = locations.find(l => l.code === locationCode)
-      const myDefault = locations.find(l => l.code === userLoc.defaultLocationCode)
-      const ok = window.confirm(
-        `You are about to invoice from ${chosen?.code || locationCode} (${chosen?.name || '?'}).\n\n` +
-        `Your assigned location is ${myDefault?.code || userLoc.defaultLocationCode} (${myDefault?.name || '?'}).\n\n` +
-        `Continue posting from ${chosen?.code || locationCode}?`
-      )
-      if (!ok) return
-    }
+    // NOTE: The old "wrong-location" confirm dialog was removed. The invoicing
+    // location is now fixed by the admin (Inventory Settings → invoice_location_code)
+    // and is no longer user-selectable, so there is no stray selection to guard
+    // against. The canPostFrom() check above remains as the hard defence in depth.
     // Stock check — UNCONDITIONAL. Previously this was gated on
     // invSettings?.block_negative_stock, which meant invoices could post
     // for items we didn't have (and during the brief async window before
@@ -1260,49 +1245,25 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
               <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span>Deduct Stock From</span>
-                {invoiceLocLocked && (
-                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--accent-dim)', color: 'var(--accent)', fontWeight: 700, letterSpacing: 0 }}>
-                    DEFAULT
-                  </span>
-                )}
-                {!invoiceLocLocked && userLoc.isLocked && (
-                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#f59e0b15', color: '#f59e0b', fontWeight: 700, letterSpacing: 0 }}>
-                    LOCKED
+                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--accent-dim)', color: 'var(--accent)', fontWeight: 700, letterSpacing: 0 }}>
+                  FIXED
+                </span>
+              </div>
+              {/* Location is set once by the admin in Inventory Settings and is
+                  not selectable here — every invoice deducts from the same
+                  warehouse so stock and AR stay consistent. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ padding: '5px 12px', border: '1.5px solid var(--accent)', borderRadius: 6, background: 'var(--accent-dim)', fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}>
+                  {(() => { const l = locations.find(x => x.code === locationCode); return l ? `${l.code} — ${l.name}` : (locationCode || '—') })()}
+                </span>
+                {invoiceLocLocked ? (
+                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>Set by admin · change in Inventory Settings</span>
+                ) : (
+                  <span style={{ fontSize: 10, color: '#f59e0b' }}>
+                    No invoicing location set. Admins: choose one in Inventory Settings → Default Invoicing Location.
                   </span>
                 )}
               </div>
-              {invoiceLocLocked ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ padding: '5px 12px', border: '1.5px solid var(--accent)', borderRadius: 6, background: 'var(--accent-dim)', fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}>
-                    {(() => { const l = locations.find(x => x.code === invoiceLocCode); return l ? `${l.code} — ${l.name}` : invoiceLocCode })()}
-                  </span>
-                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>Default invoicing location · change in Inventory Settings</span>
-                </div>
-              ) : (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {locations.map(loc => {
-                  const isMine = !userLoc.isLocked || userLoc.defaultLocationCode === loc.code
-                  return (
-                    <button
-                      key={loc.id}
-                      onClick={() => { if (isMine) setLocationCode(loc.code) }}
-                      title={isMine ? '' : 'You are not assigned to this location'}
-                      style={{
-                        padding: '5px 12px',
-                        border: `1.5px solid ${locationCode === loc.code ? 'var(--accent)' : 'var(--border)'}`,
-                        borderRadius: 6,
-                        background: locationCode === loc.code ? 'var(--accent-dim)' : 'var(--surface)',
-                        cursor: isMine ? 'pointer' : 'not-allowed',
-                        opacity: isMine ? 1 : 0.4,
-                        fontSize: 11, fontWeight: 600,
-                        color: locationCode === loc.code ? 'var(--accent)' : 'var(--text3)',
-                      }}>
-                      {loc.code} — {loc.name}
-                    </button>
-                  )
-                })}
-              </div>
-              )}
             </div>
           )}
         </div>
