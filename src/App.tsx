@@ -25,6 +25,7 @@ import StockDashboard from './pages/StockDashboard'
 // Accounting & Core
 const ChartOfAccounts = lazy(() => import('./pages/ChartOfAccounts'))
 const AuditTrail = lazy(() => import('./pages/AuditTrail'))
+const PostedVouchers = lazy(() => import('./pages/PostedVouchers'))
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
@@ -585,6 +586,7 @@ function AppContent() {
       case 'approvals':         return <ApprovalWorkflows onNav={navigate} />
       case 'approvals-settings':return <ApprovalsSettings onNav={navigate} />
       case 'audit-trail':       return <AuditTrail onNav={navigate} />
+      case 'posted-vouchers':   return <PostedVouchers onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />

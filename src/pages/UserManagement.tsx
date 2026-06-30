@@ -79,6 +79,7 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'accounting.edit', label: 'Edit Vouchers' },
       { key: 'accounting.delete', label: 'Delete/Void Vouchers' },
       { key: 'accounting.post', label: 'Post Vouchers' },
+      { key: 'accounting.reprint', label: 'Reprint Posted Documents' },
       { key: 'accounting.approve', label: 'Approve Vouchers' },
     ]
   },

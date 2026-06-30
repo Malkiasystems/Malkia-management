@@ -261,6 +261,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 }
 
 export const PAGE_PERMISSIONS: Record<string, string[]> = {
+  'posted-vouchers': ['accounting.view', 'sales.view'],
   'dashboard': ['dashboard.view'],
   // Stock Manager workspace home. Gated by inventory.view, which every stock
   // manager holds. The hard stock-only access gate lives in App.tsx.

@@ -31,7 +31,7 @@ export type Page =
   | 'templates-hub' | 'integrations-settings' | 'regional-backup-settings'
   | 'company-branding'
   // User Management & Approvals
-  | 'users' | 'approvals' | 'approvals-settings' | 'audit-trail'
+  | 'users' | 'approvals' | 'approvals-settings' | 'audit-trail' | 'posted-vouchers'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles

@@ -169,6 +169,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
     { sep: true },
     { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page },
+    { icon: 'vouchers',  label: 'Posted Vouchers', page: 'posted-vouchers' as Page },
     { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
     { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
