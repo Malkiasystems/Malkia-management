@@ -9,7 +9,7 @@ const VOUCHER_PAGES: Page[] = [
   'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
   'grn', 'purchase', 'purchase-invoice', 'purchase-return', 'opening-stock',
   'stock-adjustment', 'stock-transfer', 'journal-entry', 'internal-use',
-  'proforma', 'proformas-list'
+  'proforma', 'proformas-list', 'posted-vouchers'
 ]
 
 const SALES_PAGES: Page[] = ['cash-sale', 'sales-invoice', 'sales-invoices-list', 'sales-day-book', 'sales-register', 'sales-return', 'quotation', 'debit-note', 'credit-note', 'proforma', 'proformas-list']
@@ -39,6 +39,11 @@ const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Audit Trail', page: 'audit-trail',     icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
   { label: 'Accounting',  page: 'accounting-settings', icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
   { label: 'Reports',     page: 'report-templates', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8' },
+]
+
+const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'All Vouchers', page: 'vouchers',         icon: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2 M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z' },
+  { label: 'Posted',       page: 'posted-vouchers',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
 ]
 
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
@@ -94,6 +99,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [crmOpen, setCrmOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hrmOpen, setHrmOpen] = useState(false)
+  const [vouchersOpen, setVouchersOpen] = useState(false)
   
   const { permissions } = useAuth()
   const company = getActiveCompany()
@@ -168,8 +174,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   )[] = [
     { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
     { sep: true },
-    { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page },
-    { icon: 'vouchers',  label: 'Posted Vouchers', page: 'posted-vouchers' as Page },
+    { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page, hasSub: true },
     { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
     { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
@@ -210,6 +215,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleCrmSub = CRM_SUB.filter(sub => canAccess(sub.page))
   const visibleSettingsSub = SETTINGS_SUB.filter(sub => canAccess(sub.page))
   const visibleHrmSub = HRM_SUB.filter(sub => canAccess(sub.page))
+  const visibleVouchersSub = VOUCHERS_SUB.filter(sub => canAccess(sub.page))
 
   return (
     <div style={{
@@ -254,6 +260,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isCrmItem = navItem.page === 'crm-hub'
         const isSettingsItem = navItem.page === 'settings'
         const isHrmItem = navItem.page === 'hrm'
+        const isVouchersItem = navItem.page === 'vouchers'
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -262,33 +269,26 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 if (navItem.coming || !navItem.page) return
                 if (isSalesItem) {
                   setSalesOpen(o => !o)
-                  setCrmOpen(false)
-                  setSettingsOpen(false)
-                  setHrmOpen(false)
+                  setVouchersOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
                   onNav('sales')
+                } else if (isVouchersItem) {
+                  setVouchersOpen(o => !o)
+                  setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
+                  onNav('vouchers')
                 } else if (isCrmItem) {
                   setCrmOpen(o => !o)
-                  setSalesOpen(false)
-                  setSettingsOpen(false)
-                  setHrmOpen(false)
+                  setVouchersOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false)
                   onNav('crm-hub')
                 } else if (isSettingsItem) {
                   setSettingsOpen(o => !o)
-                  setSalesOpen(false)
-                  setCrmOpen(false)
-                  setHrmOpen(false)
+                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false)
                   onNav('settings')
                 } else if (isHrmItem) {
                   setHrmOpen(o => !o)
-                  setSalesOpen(false)
-                  setCrmOpen(false)
-                  setSettingsOpen(false)
+                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false)
                   onNav('hrm')
                 } else {
-                  setSalesOpen(false)
-                  setCrmOpen(false)
-                  setSettingsOpen(false)
-                  setHrmOpen(false)
+                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
                   onNav(navItem.page)
                 }
               }}
@@ -309,10 +309,10 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{navItem.label}</span>
 
-              {Boolean(isSalesItem || isCrmItem || isSettingsItem || isHrmItem) && (
+              {Boolean(isSalesItem || isVouchersItem || isCrmItem || isSettingsItem || isHrmItem) && (
                 <span style={{ 
                   position:'absolute', right:4, top:'50%', 
-                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
+                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
                   transition:'transform .2s', color:'var(--text3)', fontSize:8 
                 }}>›</span>
               )}
@@ -334,6 +334,27 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 }}>SOON</span>
               )}
             </div>
+
+            {/* Vouchers sub-menu */}
+            {Boolean(isVouchersItem) && (vouchersOpen || current === 'vouchers' || current === 'posted-vouchers') && visibleVouchersSub.length > 0 && (
+              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+                {visibleVouchersSub.map(sub => {
+                  const subActive = current === sub.page
+                  return (
+                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                        background: subActive ? 'var(--accent-dim)' : 'transparent',
+                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
+                      }}>
+                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <path d={sub.icon}/>
+                      </svg>
+                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Sales sub-menu */}
             {Boolean(isSalesItem) && (salesOpen || isSalesActive) && visibleSalesSub.length > 0 && (
