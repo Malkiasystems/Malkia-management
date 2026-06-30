@@ -18,7 +18,7 @@ const IMPORT_PAGES: Page[] = ['import-register', 'import-order']
 
 const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers']
 
-const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
+const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'audit-trail', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
 const HRM_PAGES: Page[] = ['hrm', 'hrm-employees', 'hrm-assets', 'hrm-payroll', 'hrm-payslips', 'hrm-payslip-template', 'hrm-leave', 'hrm-attendance', 'hrm-performance', 'hrm-recruitment', 'hrm-events', 'hrm-settings', 'hrm-kpi']
 
@@ -36,6 +36,7 @@ const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'General',     page: 'settings',        icon: 'M12 3a9 9 0 0 0-9 9v1h6v-1a3 3 0 0 1 6 0v1h6v-1a9 9 0 0 0-9-9zM3 14v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4' },
   { label: 'Users',       page: 'users',           icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
   { label: 'Approvals',   page: 'approvals',       icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+  { label: 'Audit Trail', page: 'audit-trail',     icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
   { label: 'Accounting',  page: 'accounting-settings', icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
   { label: 'Reports',     page: 'report-templates', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8' },
 ]
