@@ -606,7 +606,25 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     // it's easy to miss-tap or simply leave the default selected without
     // realising they're in a different branch. This makes "wrong location"
     // a deliberate two-step action instead of a silent slip.
-    if (userLoc.defaultLocationCode && locationCode !== userLoc.defaultLocationCode && locations.length > 1) {
+    // Hard stop for location-locked users: they may only sell from their own
+    // assigned location. This is enforcement, not a warning — a locked cashier
+    // cannot post from another branch even if the picker somehow let them try.
+    if (userLoc.isLocked && !userLoc.canPostFrom(locationCode)) {
+      const mine = locations.find(l => l.code === userLoc.defaultLocationCode)
+      const chosen = locations.find(l => l.code === locationCode)
+      showToast(
+        `You are assigned to ${mine?.code || userLoc.defaultLocationCode} (${mine?.name || '?'}). ` +
+        `You cannot sell from ${chosen?.code || locationCode} (${chosen?.name || '?'}).`,
+        'error'
+      )
+      return
+    }
+
+    // Soft confirm for UNRESTRICTED users (managers / admins) who pick a
+    // location other than their default. They are allowed to, but the picker
+    // shows all locations side-by-side and it's easy to leave the wrong one
+    // selected, so make "wrong location" a deliberate two-step action.
+    if (!userLoc.isLocked && userLoc.defaultLocationCode && locationCode !== userLoc.defaultLocationCode && locations.length > 1) {
       const chosen = locations.find(l => l.code === locationCode)
       const myDefault = locations.find(l => l.code === userLoc.defaultLocationCode)
       const ok = window.confirm(
@@ -1085,19 +1103,27 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                     <div style={{ display: 'flex', gap: 8 }}>
                       {locations.map(loc => {
                         const isActive = locationCode === loc.code
+                        // A location-locked user may only pick their own location.
+                        // Other tiles are shown but disabled (not clickable).
+                        const allowed = !userLoc.isLocked || userLoc.canPostFrom(loc.code)
                         return (
-                          <div key={loc.id} onClick={() => setLocationCode(loc.code)}
+                          <div key={loc.id}
+                            onClick={() => { if (allowed) setLocationCode(loc.code) }}
+                            title={allowed ? '' : 'You are not assigned to this location'}
                             style={{
                               flex: 1,
                               padding: '12px 14px',
                               border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
                               borderRadius: 10,
-                              cursor: 'pointer',
+                              cursor: allowed ? 'pointer' : 'not-allowed',
+                              opacity: allowed ? 1 : 0.4,
                               background: isActive ? 'var(--accent-dim)' : 'var(--surface2)',
                               transition: 'all .15s',
                               boxShadow: isActive ? '0 0 0 3px var(--accent-dim)' : 'none',
                             }}>
-                            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 800, color: isActive ? 'var(--accent)' : 'var(--text3)' }}>{loc.code}{isActive && ' ✓'}</div>
+                            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 800, color: isActive ? 'var(--accent)' : 'var(--text3)' }}>
+                              {loc.code}{isActive && ' ✓'}{!allowed && ' 🔒'}
+                            </div>
                             <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{loc.name}</div>
                           </div>
                         )
