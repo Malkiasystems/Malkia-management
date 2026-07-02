@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth, canAccessPage } from '../lib/useAuth'
-import { getActiveCompany } from '../lib/supabase'
+import { getActiveCompany, supabase } from '../lib/supabase'
 
 const VOUCHER_PAGES: Page[] = [
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
@@ -102,6 +102,25 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [vouchersOpen, setVouchersOpen] = useState(false)
   
   const { permissions } = useAuth()
+
+  // Live count of transfers waiting to be received (in transit), so the
+  // destination sees a badge instead of having to hunt for the page.
+  const [incomingCount, setIncomingCount] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const { count } = await supabase
+          .from('stock_transfer_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'in_transit')
+        if (alive && typeof count === 'number') setIncomingCount(count)
+      } catch { /* ignore */ }
+    }
+    load()
+    const t = setInterval(load, 60000)
+    return () => { alive = false; clearInterval(t) }
+  }, [current])
   const company = getActiveCompany()
   const CRM_HIDDEN = new Set(['services', 'konnect', 'crm'])
 
@@ -182,6 +201,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { icon: 'suppliers', label: 'Suppliers', page: 'suppliers' as Page },
     { icon: 'ship',     label: 'Imports',   page: 'import-register' as Page },
     { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page },
+    { icon: 'import',    label: 'Incoming',  page: 'stock-transfer-approvals' as Page, badge: incomingCount || undefined },
     // Bundles only for companies that don't hide them
     ...(!company.hideBundles ? [{ icon: 'inventory', label: 'Bundles', page: 'bundles' as Page }] : []),
     { icon: 'reports',   label: 'Reports',   page: 'reports' as Page },
