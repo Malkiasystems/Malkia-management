@@ -89,15 +89,19 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
   useEffect(() => { loadProducts(); loadLocations() }, [])
 
   const [productLocations, setProductLocations] = useState<Record<string, Record<string, number>>>({})
+  const [inTransitQty, setInTransitQty] = useState<Record<string, number>>({})
+  const [inTransitCount, setInTransitCount] = useState(0)
 
   const loadProducts = async () => {
     setLoading(true)
-    const [{ data }, { data: plData }] = await Promise.all([
+    const [{ data }, { data: plData }, { data: transitData }] = await Promise.all([
       supabase.from('products')
         .select('id, sku, name, category, cost_price, selling_price, qty_on_hand, reorder_point, unit, is_active')
         .eq('is_active', true).order('name'),
       supabase.from('product_locations')
-        .select('product_id, location_code, qty_on_hand')
+        .select('product_id, location_code, qty_on_hand'),
+      supabase.from('stock_transfer_requests')
+        .select('lines').eq('status', 'in_transit'),
     ])
     if (data) setProducts(data)
     // Build product→location→qty map
@@ -109,6 +113,20 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
       })
       setProductLocations(map)
     }
+    // Build product→in-transit qty map (stock dispatched but not yet accepted).
+    // These units left the source location but haven't landed at the destination,
+    // so they're missing from the location breakdown while still company stock.
+    const transitMap: Record<string, number> = {}
+    ;(transitData || []).forEach((t: any) => {
+      const lines = Array.isArray(t.lines) ? t.lines : []
+      lines.forEach((l: any) => {
+        const pid = l.productId || l.product_id
+        const q = Number(l.qty) || 0
+        if (pid) transitMap[pid] = (transitMap[pid] || 0) + q
+      })
+    })
+    setInTransitQty(transitMap)
+    setInTransitCount((transitData || []).length)
     setLoading(false)
   }
 
@@ -282,6 +300,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
     })
 
   const totalValue = products.reduce((s, p) => s + p.cost_price * p.qty_on_hand, 0)
+  const totalInTransit = Object.values(inTransitQty).reduce((s, q) => s + q, 0)
   const lowStock = products.filter(p => getStatus(p.qty_on_hand, p.reorder_point) !== 'ok').length
   const colors: Record<string, string> = { ok: 'var(--green)', low: 'var(--yellow)', critical: 'var(--red)' }
 
@@ -568,7 +587,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
       <div className="page-header">
         <div>
           <div className="page-title">Inventory</div>
-          <div className="page-sub">{products.length} products · {locations.length} locations · <span className="sync-dot"></span> Live</div>
+          <div className="page-sub">{products.length} products · {locations.length} locations · <span className="sync-dot"></span> Live{totalInTransit > 0 && (<span style={{ color: 'var(--blue, #3d8bff)', fontWeight: 700 }}> · ⇄ {totalInTransit} in transit ({inTransitCount} transfer{inTransitCount === 1 ? '' : 's'})</span>)}</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={loadProducts}><Ic n="refresh" /> Refresh</button>
@@ -671,10 +690,12 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                   const effectiveQty = getEffectiveQty(p.id, p.qty_on_hand)
                   const locSum = getLocationSum(p.id)
                   const hasLocations = Object.keys(productLocations[p.id] || {}).length > 0
-                  // Data sync mismatch: global qty doesn't equal sum of all location qtys.
-                  // This usually means a stock movement updated one but not the other
-                  // (e.g. legacy data, an old voucher, or an interrupted transfer).
-                  const syncMismatch = hasLocations && Math.abs(p.qty_on_hand - locSum) > 0.01
+                  const inTransit = inTransitQty[p.id] || 0
+                  // Data sync mismatch: global qty doesn't equal sum of all location qtys,
+                  // AFTER accounting for stock in transit (dispatched, not yet accepted).
+                  // In-transit units legitimately sit outside any location, so they are
+                  // not a data error — only the residual gap is a real mismatch.
+                  const syncMismatch = hasLocations && Math.abs(p.qty_on_hand - locSum - inTransit) > 0.01
                   const s = getStatus(effectiveQty, p.reorder_point)
                   const pct = Math.min(100, Math.round((effectiveQty / (p.reorder_point * 2)) * 100))
                   const margin = p.selling_price > 0 ? Math.round(((p.selling_price - p.cost_price) / p.selling_price) * 100) : 0
@@ -697,6 +718,12 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                         {filterLoc === 'all' && hasLocations && (
                           <div style={{ fontSize: 8, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 1 }}>
                             {Object.entries(productLocations[p.id] || {}).map(([code, qty]) => `${code}:${qty}`).join(' · ')}
+                          </div>
+                        )}
+                        {filterLoc === 'all' && inTransit > 0 && (
+                          <div title={`${inTransit} unit(s) dispatched but not yet accepted at the destination`}
+                            style={{ fontSize: 8, color: 'var(--blue, #3d8bff)', fontFamily: 'var(--mono)', marginTop: 1, fontWeight: 700 }}>
+                            ⇄ {inTransit} in transit
                           </div>
                         )}
                         {filterLoc !== 'all' && (
