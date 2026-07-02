@@ -309,6 +309,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   // page itself filters the list to requests they are allowed to approve.
   'stock-transfer-approvals': ['inventory.transfer', 'inventory.view', 'inventory.accept_transfer'],
   'stock-transfer-outgoing': ['inventory.transfer', 'inventory.view', 'inventory.accept_transfer'],
+  'dispatch': ['inventory.dispatch', 'inventory.view', 'sales.view'],
   'journal-entry': ['accounting.create'],
   'crm': ['crm.view'],
   'crm-hub': ['crm.view'],

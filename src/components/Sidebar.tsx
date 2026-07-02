@@ -49,6 +49,7 @@ const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
 const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Inventory', page: 'inventory',                icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12' },
   { label: 'Pending Transfers', page: 'stock-transfer-approvals', icon: 'M7 16V4 M3 8l4-4 4 4 M17 8v12 M21 16l-4 4-4-4' },
+  { label: 'Dispatch', page: 'dispatch', icon: 'M1 3h13v13H1z M14 8h4l3 3v5h-7 M5.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M17.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
 ]
 
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
@@ -368,7 +369,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             </div>
 
             {/* Inventory sub-menu */}
-            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals') && visibleInventorySub.length > 0 && (
+            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch') && visibleInventorySub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page

@@ -26,6 +26,7 @@ import StockDashboard from './pages/StockDashboard'
 const ChartOfAccounts = lazy(() => import('./pages/ChartOfAccounts'))
 const AuditTrail = lazy(() => import('./pages/AuditTrail'))
 const PostedVouchers = lazy(() => import('./pages/PostedVouchers'))
+const Dispatch = lazy(() => import('./pages/Dispatch'))
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
@@ -365,6 +366,7 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'stock-transfer-request',
   'stock-transfer-approvals',
   'stock-transfer-outgoing',
+  'dispatch',
   'stock-transfer-register',
 ])
 
@@ -589,6 +591,7 @@ function AppContent() {
       case 'approvals-settings':return <ApprovalsSettings onNav={navigate} />
       case 'audit-trail':       return <AuditTrail onNav={navigate} />
       case 'posted-vouchers':   return <PostedVouchers onNav={navigate} />
+      case 'dispatch':          return <Dispatch onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />

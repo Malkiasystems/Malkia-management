@@ -110,6 +110,7 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'inventory.adjust', label: 'Stock Adjustments' },
       { key: 'inventory.transfer', label: 'Stock Transfers' },
       { key: 'inventory.accept_transfer', label: 'Accept Incoming Transfers' },
+      { key: 'inventory.dispatch', label: 'Confirm Dispatch' },
       { key: 'inventory.grn', label: 'Receive Goods (GRN)' },
       { key: 'inventory.count', label: 'Stock Count' },
       { key: 'inventory.approve', label: 'Approve Adjustments' },
