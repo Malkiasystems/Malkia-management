@@ -48,8 +48,7 @@ const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
 
 const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Inventory', page: 'inventory',                icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12' },
-  { label: 'Outgoing',  page: 'stock-transfer-outgoing',  icon: 'M12 19V5 M5 12l7-7 7 7' },
-  { label: 'Incoming',  page: 'stock-transfer-approvals', icon: 'M12 5v14 M19 12l-7 7-7-7' },
+  { label: 'Pending Transfers', page: 'stock-transfer-approvals', icon: 'M7 16V4 M3 8l4-4 4 4 M17 8v12 M21 16l-4 4-4-4' },
 ]
 
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
