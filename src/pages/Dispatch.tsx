@@ -106,6 +106,10 @@ export default function Dispatch({ onNav: _onNav }: Props) {
   useEffect(() => { if (tab === 'awaiting') loadAwaiting(); else loadDone() }, [tab, loadAwaiting, loadDone])
 
   const confirm = async (inv: Invoice, status: 'dispatched' | 'collected') => {
+    if (status === 'dispatched' && !rider.trim()) {
+      flash('Enter the rider / driver name for a delivery.', 'err')
+      return
+    }
     setBusy(inv.id)
     const { error } = await supabase.from('invoice_dispatches').insert({
       voucher_id: inv.id,
@@ -194,7 +198,7 @@ export default function Dispatch({ onNav: _onNav }: Props) {
               {expanded === inv.id && canDispatch && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-                    <input value={rider} onChange={e => setRider(e.target.value)} placeholder="Rider / driver name (for deliveries)"
+                    <input value={rider} onChange={e => setRider(e.target.value)} placeholder="Rider / driver name (required for delivery)"
                       style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13 }} />
                     <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)"
                       style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13 }} />
@@ -209,7 +213,7 @@ export default function Dispatch({ onNav: _onNav }: Props) {
                       Collected at Warehouse/Godown
                     </button>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>Rider name is for deliveries; it isn't needed for a counter collection.</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>Rider name is required for a delivery; it isn't needed for a counter collection.</div>
                 </div>
               )}
             </div>
