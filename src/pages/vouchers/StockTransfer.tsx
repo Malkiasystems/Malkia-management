@@ -167,7 +167,7 @@ export default function StockTransfer({ onNav }: Props) {
       journalNote="Item ledger updated · Location balances updated · Total stock unchanged">
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Outgoing</span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>New Transfer</span>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button type="button" onClick={() => onNav('stock-transfer-approvals')} style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Incoming ↓</button>
             <button type="button" onClick={() => onNav('inventory')} style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Inventory</button>

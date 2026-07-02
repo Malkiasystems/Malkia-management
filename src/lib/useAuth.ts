@@ -308,6 +308,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   // Approvals page: any user with inventory.transfer can land here, but the
   // page itself filters the list to requests they are allowed to approve.
   'stock-transfer-approvals': ['inventory.transfer', 'inventory.view', 'inventory.accept_transfer'],
+  'stock-transfer-outgoing': ['inventory.transfer', 'inventory.view', 'inventory.accept_transfer'],
   'journal-entry': ['accounting.create'],
   'crm': ['crm.view'],
   'crm-hub': ['crm.view'],

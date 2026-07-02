@@ -20,7 +20,7 @@ import { acceptTransfer, rejectTransfer, cancelTransfer, loadTransferRows, type 
 import Toast from '../components/Toast'
 import type { Page } from '../lib/types'
 
-interface Props { onNav: (p: Page) => void }
+interface Props { onNav: (p: Page) => void; initialTab?: 'incoming' | 'outgoing' | 'history' }
 
 const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
   in_transit: { bg: '#3d8bff15', fg: '#3d8bff', label: 'In Transit' },
@@ -29,13 +29,13 @@ const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = 
   cancelled:  { bg: 'var(--surface2)', fg: 'var(--text3)', label: 'Recalled' },
 }
 
-export default function IncomingTransfers({ onNav: _onNav }: Props) {
+export default function IncomingTransfers({ onNav: _onNav, initialTab }: Props) {
   const { user, can } = useAuth()
   const userLoc = useUserLocation()
   const hideMoney = user?.workspace_role === 'stock'
   const canAccept = can('inventory.accept_transfer')
 
-  const [tab, setTab] = useState<'incoming' | 'outgoing' | 'history'>('incoming')
+  const [tab, setTab] = useState<'incoming' | 'outgoing' | 'history'>(initialTab || 'incoming')
   const [active, setActive] = useState<TransferRow[]>([])     // in_transit
   const [history, setHistory] = useState<TransferRow[]>([])   // terminal
   const [locMap, setLocMap] = useState<Record<string, { code: string; name: string }>>({})
@@ -223,9 +223,11 @@ export default function IncomingTransfers({ onNav: _onNav }: Props) {
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
       <div style={{ marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontFamily: 'var(--display)', fontSize: 22 }}>Incoming Transfers</h2>
+        <h2 style={{ margin: 0, fontFamily: 'var(--display)', fontSize: 22 }}>{tab === 'outgoing' ? 'Outgoing Transfers' : 'Incoming Transfers'}</h2>
         <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
-          Stock in transit must be accepted before it lands at the destination. Reject or recall returns it to the source.
+          {tab === 'outgoing'
+            ? 'Stock your location has sent to others. It stays in transit until the destination accepts it.'
+            : 'Stock in transit must be accepted before it lands at the destination. Reject or recall returns it to the source.'}
         </div>
       </div>
 
