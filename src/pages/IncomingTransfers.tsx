@@ -36,6 +36,7 @@ export default function IncomingTransfers({ onNav: _onNav, initialTab }: Props) 
   const canAccept = can('inventory.accept_transfer')
 
   const [tab, setTab] = useState<'incoming' | 'outgoing' | 'history'>(initialTab || 'incoming')
+  const [histFilter, setHistFilter] = useState<'all' | 'completed' | 'rejected' | 'cancelled'>('all')
   const [active, setActive] = useState<TransferRow[]>([])     // in_transit
   const [history, setHistory] = useState<TransferRow[]>([])   // terminal
   const [locMap, setLocMap] = useState<Record<string, { code: string; name: string }>>({})
@@ -95,7 +96,9 @@ export default function IncomingTransfers({ onNav: _onNav, initialTab }: Props) 
 
   const incoming = active.filter(r => seeAll || r.to_location_id === mine)
   const outgoing = active.filter(r => seeAll || r.from_location_id === mine)
-  const hist = history.filter(r => seeAll || r.to_location_id === mine || r.from_location_id === mine)
+  const hist = history.filter(r =>
+    (seeAll || r.to_location_id === mine || r.from_location_id === mine) &&
+    (histFilter === 'all' || r.status === histFilter))
 
   const doAccept = async (id: string) => {
     if (!user) return
@@ -167,8 +170,8 @@ export default function IncomingTransfers({ onNav: _onNav, initialTab }: Props) 
                 {r.status === 'rejected' && <> · Rejected by <strong style={{ color: 'var(--red)' }}>{uname(r.rejected_by)}</strong>{r.rejected_at ? ` · ${when(r.rejected_at)}` : ''}</>}
                 {r.status === 'cancelled' && <> · Recalled by <strong style={{ color: 'var(--text2)' }}>{uname(r.rejected_by)}</strong>{r.rejected_at ? ` · ${when(r.rejected_at)}` : ''}</>}
               </div>
-              {r.status === 'rejected' && r.rejected_reason && (
-                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--red)' }}>Reason: {r.rejected_reason}</div>
+              {(r.status === 'rejected' || r.status === 'cancelled') && r.rejected_reason && (
+                <div style={{ marginTop: 4, fontSize: 11, color: r.status === 'rejected' ? 'var(--red)' : 'var(--text2)' }}>Reason: {r.rejected_reason}</div>
               )}
             </div>
             <button onClick={() => setExpanded(isOpen ? null : r.id)} className="btn btn-ghost btn-sm" style={{ whiteSpace: 'nowrap' }}>
@@ -239,6 +242,16 @@ export default function IncomingTransfers({ onNav: _onNav, initialTab }: Props) 
         <button onClick={() => onNavGo()} className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }}>+ New Transfer</button>
       </div>
 
+      {tab === 'history' && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>Show:</span>
+          {([['all', 'All'], ['completed', 'Accepted'], ['rejected', 'Rejected'], ['cancelled', 'Recalled']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setHistFilter(k)}
+              className={histFilter === k ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+              style={{ fontSize: 11, padding: '3px 10px' }}>{label}</button>
+          ))}
+        </div>
+      )}
       {tab === 'incoming' && !canAccept && (
         <div style={{ background: '#f59e0b14', border: '1px solid #f59e0b44', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
           You can see incoming transfers but cannot accept or reject them. Acceptance is controlled in <strong>Settings → User Management</strong> via the “Accept Incoming Transfers” permission.
