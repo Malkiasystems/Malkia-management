@@ -364,6 +364,7 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'stock-transfer',
   'stock-transfer-request',
   'stock-transfer-approvals',
+  'stock-transfer-outgoing',
   'stock-transfer-register',
 ])
 
@@ -568,6 +569,7 @@ function AppContent() {
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-approvals': return <IncomingTransfers onNav={navigate} />
+      case 'stock-transfer-outgoing': return <IncomingTransfers onNav={navigate} initialTab="outgoing" />
       case 'stock-transfer-register': return <StockTransferRegister />
       case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} />
       case 'customer-statement':
