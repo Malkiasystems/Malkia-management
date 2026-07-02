@@ -46,6 +46,12 @@ const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Posted',       page: 'posted-vouchers',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
 ]
 
+const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'Inventory', page: 'inventory',                icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12' },
+  { label: 'Outgoing',  page: 'stock-transfer',           icon: 'M12 19V5 M5 12l7-7 7 7' },
+  { label: 'Incoming',  page: 'stock-transfer-approvals', icon: 'M12 5v14 M19 12l-7 7-7-7' },
+]
+
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Cash Sale',     page: 'cash-sale',           icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
   { label: 'Sales Invoice', page: 'sales-invoice',        icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
@@ -100,6 +106,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hrmOpen, setHrmOpen] = useState(false)
   const [vouchersOpen, setVouchersOpen] = useState(false)
+  const [inventoryOpen, setInventoryOpen] = useState(false)
   
   const { permissions } = useAuth()
 
@@ -200,8 +207,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { icon: 'customers', label: 'Customers', page: 'customers' as Page },
     { icon: 'suppliers', label: 'Suppliers', page: 'suppliers' as Page },
     { icon: 'ship',     label: 'Imports',   page: 'import-register' as Page },
-    { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page },
-    { icon: 'import',    label: 'Incoming',  page: 'stock-transfer-approvals' as Page, badge: incomingCount || undefined },
+    { icon: 'inventory', label: 'Inventory', page: 'inventory' as Page, hasSub: true },
     // Bundles only for companies that don't hide them
     ...(!company.hideBundles ? [{ icon: 'inventory', label: 'Bundles', page: 'bundles' as Page }] : []),
     { icon: 'reports',   label: 'Reports',   page: 'reports' as Page },
@@ -236,6 +242,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleSettingsSub = SETTINGS_SUB.filter(sub => canAccess(sub.page))
   const visibleHrmSub = HRM_SUB.filter(sub => canAccess(sub.page))
   const visibleVouchersSub = VOUCHERS_SUB.filter(sub => canAccess(sub.page))
+  const visibleInventorySub = INVENTORY_SUB.filter(sub => canAccess(sub.page))
 
   return (
     <div style={{
@@ -261,8 +268,9 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           if (navItem.page === 'crm-hub' && visibleCrmSub.length === 0) return null
           if (navItem.page === 'settings' && visibleSettingsSub.length === 0) return null
           if (navItem.page === 'hrm' && visibleHrmSub.length === 0) return null
+          if (navItem.page === 'inventory' && visibleInventorySub.length === 0) return null
           // For non-parent items, just skip
-          if (!['sales', 'crm-hub', 'settings', 'hrm'].includes(navItem.page as string)) return null
+          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory'].includes(navItem.page as string)) return null
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
@@ -281,6 +289,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isSettingsItem = navItem.page === 'settings'
         const isHrmItem = navItem.page === 'hrm'
         const isVouchersItem = navItem.page === 'vouchers'
+        const isInventoryItem = navItem.page === 'inventory'
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -289,26 +298,30 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 if (navItem.coming || !navItem.page) return
                 if (isSalesItem) {
                   setSalesOpen(o => !o)
-                  setVouchersOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
+                  setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
                   onNav('sales')
                 } else if (isVouchersItem) {
                   setVouchersOpen(o => !o)
-                  setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
+                  setSalesOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
                   onNav('vouchers')
+                } else if (isInventoryItem) {
+                  setInventoryOpen(o => !o)
+                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
+                  onNav('inventory')
                 } else if (isCrmItem) {
                   setCrmOpen(o => !o)
-                  setVouchersOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false)
+                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false)
                   onNav('crm-hub')
                 } else if (isSettingsItem) {
                   setSettingsOpen(o => !o)
-                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false)
+                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false)
                   onNav('settings')
                 } else if (isHrmItem) {
                   setHrmOpen(o => !o)
-                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false)
+                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false)
                   onNav('hrm')
                 } else {
-                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
+                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
                   onNav(navItem.page)
                 }
               }}
@@ -329,10 +342,10 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{navItem.label}</span>
 
-              {Boolean(isSalesItem || isVouchersItem || isCrmItem || isSettingsItem || isHrmItem) && (
+              {Boolean(isSalesItem || isVouchersItem || isInventoryItem || isCrmItem || isSettingsItem || isHrmItem) && (
                 <span style={{ 
                   position:'absolute', right:4, top:'50%', 
-                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
+                  transform:`translateY(-50%) rotate(${(isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isInventoryItem && inventoryOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
                   transition:'transform .2s', color:'var(--text3)', fontSize:8 
                 }}>›</span>
               )}
@@ -354,6 +367,31 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 }}>SOON</span>
               )}
             </div>
+
+            {/* Inventory sub-menu */}
+            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-approvals') && visibleInventorySub.length > 0 && (
+              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+                {visibleInventorySub.map(sub => {
+                  const subActive = current === sub.page
+                  const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : 0
+                  return (
+                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                      style={{ position:'relative', display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                        background: subActive ? 'var(--accent-dim)' : 'transparent',
+                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
+                      }}>
+                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <path d={sub.icon}/>
+                      </svg>
+                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      {subBadge > 0 && (
+                        <span style={{ position:'absolute', top:2, right:8, minWidth:14, height:14, padding:'0 3px', borderRadius:7, background:'var(--accent)', color:'#fff', fontSize:8, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{subBadge}</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Vouchers sub-menu */}
             {Boolean(isVouchersItem) && (vouchersOpen || current === 'vouchers' || current === 'posted-vouchers') && visibleVouchersSub.length > 0 && (

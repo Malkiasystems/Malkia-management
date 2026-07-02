@@ -166,6 +166,13 @@ export default function StockTransfer({ onNav }: Props) {
       onPost={post} postLabel={posting ? 'Posting…' : 'Confirm Transfer'}
       journalNote="Item ledger updated · Location balances updated · Total stock unchanged">
       <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.4px' }}>Outgoing</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button type="button" onClick={() => onNav('stock-transfer-approvals')} style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Incoming ↓</button>
+            <button type="button" onClick={() => onNav('inventory')} style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Inventory</button>
+          </div>
+        </div>
         <div className="form-row">
           <FG label="Ref"><input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, background: 'var(--surface2)', cursor: 'default', color: 'var(--accent)' }} /></FG>
           <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>

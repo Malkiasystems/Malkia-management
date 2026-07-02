@@ -592,7 +592,8 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
             { icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z', label: 'Cash Sale', page: 'cash-sale' as Page },
             { icon: 'M1 3h15v13H1zM16 8h7v13H8v-5', label: 'GRN', page: 'grn' as Page },
             { icon: 'M18 20V10M12 20V4M6 20v-6', label: 'Stock Valuation', page: 'stock-valuation' as Page },
-            { icon: 'M16 3h5v5M4 20L21 3M21 16v5h-5M4 4l17 17', label: 'Stock Transfer', page: 'stock-transfer' as Page },
+            { icon: 'M12 19V5 M5 12l7-7 7 7', label: 'Outgoing', page: 'stock-transfer' as Page },
+            { icon: 'M12 5v14 M19 12l-7 7-7-7', label: 'Incoming', page: 'stock-transfer-approvals' as Page },
             { icon: 'M12 3v18M3 12h18 M5 8l3 4-3 4 M19 8l-3 4 3 4', label: 'Stock Adjustment', page: 'stock-adjustment' as Page },
             { icon: 'M2 20h20 M5 20V9l7-6 7 6v11 M10 20v-6h4v6', label: 'Import Order', page: 'import-order' as Page },
           ].map((s, i) => (
