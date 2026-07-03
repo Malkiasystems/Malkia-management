@@ -141,8 +141,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
       { label: 'Inventory', page: 'inventory',                icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12' },
       { label: 'Receive',   page: 'grn',                      icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3' },
       { label: 'Transfer',  page: 'stock-transfer',           icon: 'M16 3h5v5 M21 3l-7 7 M8 21H3v-5 M3 21l7-7' },
-      { label: 'Request',   page: 'stock-transfer-request',   icon: 'M12 5v14 M5 12h14' },
       { label: 'Approvals', page: 'stock-transfer-approvals', icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+      { label: 'Dispatch',  page: 'dispatch',                 icon: 'M1 3h13v13H1z M14 8h4l3 3v5h-7 M5.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M17.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
       { label: 'Register',  page: 'stock-transfer-register',  icon: 'M18 20V10 M12 20V4 M6 20v-6' },
     ]
     const visibleStockNav = STOCK_NAV.filter(it => canAccessPage(it.page, permissions))
