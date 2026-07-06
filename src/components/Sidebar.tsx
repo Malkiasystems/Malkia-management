@@ -50,6 +50,8 @@ const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Inventory', page: 'inventory',                icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12' },
   { label: 'Pending Transfers', page: 'stock-transfer-approvals', icon: 'M7 16V4 M3 8l4-4 4 4 M17 8v12 M21 16l-4 4-4-4' },
   { label: 'Dispatch', page: 'dispatch', icon: 'M1 3h13v13H1z M14 8h4l3 3v5h-7 M5.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M17.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
+  { label: 'Movements', page: 'stock-movements', icon: 'M3 3v18h18 M7 14l4-4 4 4 4-6' },
+  { label: 'Stock as of', page: 'stock-as-of', icon: 'M12 8v4l3 3 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z M3 12H1 M12 3V1' },
 ]
 
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
@@ -143,6 +145,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
       { label: 'Transfer',  page: 'stock-transfer',           icon: 'M16 3h5v5 M21 3l-7 7 M8 21H3v-5 M3 21l7-7' },
       { label: 'Approvals', page: 'stock-transfer-approvals', icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
       { label: 'Dispatch',  page: 'dispatch',                 icon: 'M1 3h13v13H1z M14 8h4l3 3v5h-7 M5.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M17.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
+      { label: 'Movements', page: 'stock-movements',           icon: 'M3 3v18h18 M7 14l4-4 4 4 4-6' },
       { label: 'Register',  page: 'stock-transfer-register',  icon: 'M18 20V10 M12 20V4 M6 20v-6' },
     ]
     const visibleStockNav = STOCK_NAV.filter(it => canAccessPage(it.page, permissions))
@@ -369,7 +372,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             </div>
 
             {/* Inventory sub-menu */}
-            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch') && visibleInventorySub.length > 0 && (
+            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch' || current === 'stock-movements' || current === 'stock-as-of') && visibleInventorySub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page
