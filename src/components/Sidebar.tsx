@@ -115,6 +115,19 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   // Live count of transfers waiting to be received (in transit), so the
   // destination sees a badge instead of having to hunt for the page.
   const [incomingCount, setIncomingCount] = useState(0)
+  const [stockInCount, setStockInCount] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const { data } = await supabase.rpc('pending_stock_in_count')
+        if (alive && typeof data === 'number') setStockInCount(data)
+      } catch { /* ignore */ }
+    }
+    load()
+    const t = setInterval(load, 60000)
+    return () => { alive = false; clearInterval(t) }
+  }, [current])
   useEffect(() => {
     let alive = true
     const load = async () => {
@@ -165,6 +178,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
               key={it.page}
               onClick={() => onNav(it.page)}
               style={{
+                position: 'relative',
                 width: 52, height: 52, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 3,
                 borderRadius: 10,
@@ -181,6 +195,11 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 color: active ? 'var(--accent)' : 'var(--text3)',
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{it.label}</span>
+              {((it.page === 'stock-transfer-approvals' && incomingCount > 0) || (it.page === 'stock-movements' && stockInCount > 0)) && (
+                <span style={{ position: 'absolute', top: 4, right: 8, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 8, background: it.page === 'stock-movements' ? 'var(--yellow, #d97706)' : 'var(--accent)', color: '#fff', fontSize: 8, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {it.page === 'stock-movements' ? stockInCount : incomingCount}
+                </span>
+              )}
             </div>
           )
         })}
@@ -376,7 +395,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page
-                  const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : 0
+                  const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : sub.page === 'stock-movements' ? (stockInCount || 0) : 0
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       style={{ position:'relative', display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
