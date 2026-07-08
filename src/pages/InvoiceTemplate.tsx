@@ -325,12 +325,27 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
         </div>
       )}
 
+      {/* ── RECEIVER'S ACKNOWLEDGEMENT ──────────────────────────────────────── */}
+      <div style={{ margin: '30px 40px 0', display: 'flex', justifyContent: 'space-between', gap: 48 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 3 }}>Received by</div>
+          <div style={{ fontSize: 9, color: '#bbb', marginBottom: 28 }}>Goods received in good condition</div>
+          <div style={{ borderTop: '1px solid #ccc', paddingTop: 5, fontSize: 9, color: '#888', display: 'flex', justifyContent: 'space-between' }}>
+            <span>Name</span><span>Signature</span>
+          </div>
+        </div>
+        <div style={{ width: 180 }}>
+          <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600, marginBottom: 31 }}>Date received</div>
+          <div style={{ borderTop: '1px solid #ccc', paddingTop: 5, fontSize: 9, color: '#888' }}>Date</div>
+        </div>
+      </div>
+
       {/* ── FOOTER ──────────────────────────────────────────────────────────── */}
       <div style={{ margin: '20px 40px 0', padding: '14px 0', borderTop: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 10, color: '#aaa', fontStyle: 'italic', maxWidth: 400 }}>{s.footer_note}</div>
         <div style={{ fontFamily: mono, fontSize: 9, color: '#ccc', textAlign: 'right' }}>
           <div style={{ fontWeight: 700, color: p }}>{s.company_name}</div>
-          <div>Computer-generated invoice · No signature required</div>
+          <div>{voucher.ref}</div>
         </div>
       </div>
 
