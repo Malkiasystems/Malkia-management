@@ -30,6 +30,7 @@ const Dispatch = lazy(() => import('./pages/Dispatch'))
 const StockMovements = lazy(() => import('./pages/StockMovements'))
 const StockAsOf = lazy(() => import('./pages/StockAsOf'))
 const PaymentApprovals = lazy(() => import('./pages/PaymentApprovals'))
+const StockMovementReport = lazy(() => import('./pages/StockMovementReport'))
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
@@ -373,6 +374,7 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'stock-movements',
   'stock-as-of',
   'payment-approvals',
+  'stock-movement-report',
   'stock-transfer-register',
 ])
 
@@ -601,6 +603,7 @@ function AppContent() {
       case 'stock-movements':   return <StockMovements onNav={navigate} />
       case 'stock-as-of':       return <StockAsOf onNav={navigate} />
       case 'payment-approvals': return <PaymentApprovals onNav={navigate} />
+      case 'stock-movement-report': return <StockMovementReport onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />
