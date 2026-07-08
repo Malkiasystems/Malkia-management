@@ -313,6 +313,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'stock-movements': ['inventory.view'],
   'stock-as-of': ['inventory.view'],
   'stock-movement-report': ['inventory.view'],
+  'internal-use-returns': ['inventory.view'],
   'payment-approvals': ['sales.approve_advance'],
   'journal-entry': ['accounting.create'],
   'crm': ['crm.view'],

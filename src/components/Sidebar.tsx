@@ -53,6 +53,7 @@ const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Movements', page: 'stock-movements', icon: 'M3 3v18h18 M7 14l4-4 4 4 4-6' },
   { label: 'Move Report', page: 'stock-movement-report', icon: 'M9 17V9 M13 17V5 M17 17v-3 M3 21h18 M3 4h4' },
   { label: 'Stock as of', page: 'stock-as-of', icon: 'M12 8v4l3 3 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z M3 12H1 M12 3V1' },
+  { label: 'IU Returns', page: 'internal-use-returns', icon: 'M3 7v6h6 M3 13a9 9 0 1 0 3-7.7L3 8' },
 ]
 
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
@@ -393,7 +394,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             </div>
 
             {/* Inventory sub-menu */}
-            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch' || current === 'stock-movements' || current === 'stock-movement-report' || current === 'stock-as-of') && visibleInventorySub.length > 0 && (
+            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch' || current === 'stock-movements' || current === 'stock-movement-report' || current === 'stock-as-of' || current === 'internal-use-returns') && visibleInventorySub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page

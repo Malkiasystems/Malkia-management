@@ -121,6 +121,7 @@ export default function InternalUse({ onNav }: Props) {
     recipient: '',             // "Given to Dr Sophia at Aga Khan" etc.
     locationCode: '1001',
     notes: '',
+    temporary: false,          // returnable issue (photos/samples) — expected back
   })
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }))
 
@@ -444,6 +445,20 @@ export default function InternalUse({ onNav }: Props) {
         }
       }
 
+      // Temporary/returnable IU — record each line as an outstanding loan so it
+      // can be booked back into stock when returned.
+      if (form.temporary) {
+        const loanRows = lines.filter(l => l.productId).map(l => ({
+          voucher_id: voucher!.id, ref: form.ref,
+          product_id: l.productId, product_name: l.name,
+          location_id: selectedLoc?.id || null, location_code: selectedLoc?.code || null,
+          unit_cost: l.unitCost, qty_issued: l.qty,
+          expense_account_id: expenseAccId, inventory_account_id: inventoryAccId,
+          status: 'outstanding', issued_by_name: getPostedBy(), issued_at: form.date,
+        }))
+        if (loanRows.length) await supabase.from('iu_loans').insert(loanRows).then(() => {}, () => {})
+      }
+
       clearDraft()
       showToast(`${form.ref} posted · Dr ${activeCategory.accountCode} ${activeCategory.label} · Cr 1110 Inventory · ${tzs(total)}`)
       setTimeout(() => resetForm(), 900)
@@ -726,6 +741,11 @@ export default function InternalUse({ onNav }: Props) {
             : form.category === 'other' ? 'Explain the reason for this internal use'
             : 'Any additional context'}
           value={form.notes} onChange={e => set('notes', e.target.value)} />
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, padding: '10px 12px', background: 'rgba(94,168,162,.08)', border: '1px solid rgba(94,168,162,.3)', borderRadius: 8, fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={form.temporary} onChange={e => set('temporary', e.target.checked)} style={{ marginTop: 2 }} />
+          <span><strong>Temporary / returnable.</strong> Stock still goes out now, but it's expected back (photos, samples, display). It stays outstanding under Internal Use Returns until you book it back in.</span>
+        </label>
 
         <div style={{ marginTop: 16, paddingTop: 12, borderTop: '2px solid var(--accent)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <span style={{ fontSize: 14, fontWeight: 800 }}>TOTAL COST</span>

@@ -118,6 +118,7 @@ const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
 const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
+const InternalUseReturns = lazy(() => import('./pages/InternalUseReturns'))
 
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
@@ -339,6 +340,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'import-order': 'Import Orders',
   'purchase': 'Purchase',
   'internal-use': 'Internal Use',
+  'internal-use-returns': 'Internal Use Returns',
   'internal-use-report': 'Internal Use Report',
   // HRM Module
   'hrm': 'HR Dashboard',
@@ -375,6 +377,7 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'stock-as-of',
   'payment-approvals',
   'stock-movement-report',
+  'internal-use-returns',
   'stock-transfer-register',
 ])
 
@@ -590,6 +593,7 @@ function AppContent() {
       case 'import-order':      return <ImportOrder onNav={navigate} />
       case 'internal-use':      return <InternalUse onNav={navigate} />
       case 'internal-use-report': return <InternalUseReport onNav={navigate} />
+      case 'internal-use-returns': return <InternalUseReturns onNav={navigate} />
       case 'data-import':       return <DataImport />
       case 'bundles':           return <Bundles />
       
