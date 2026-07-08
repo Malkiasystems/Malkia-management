@@ -30,6 +30,31 @@ interface SearchResult {
 
 export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) {
   const { user, signOut } = useAuth()
+  const [showPwd, setShowPwd] = useState(false)
+  const [curPwd, setCurPwd] = useState('')
+  const [newPwd, setNewPwd] = useState('')
+  const [confPwd, setConfPwd] = useState('')
+  const [pwdBusy, setPwdBusy] = useState(false)
+  const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const changePassword = async () => {
+    setPwdMsg(null)
+    if (!newPwd || newPwd.length < 8) { setPwdMsg({ ok: false, text: 'New password must be at least 8 characters.' }); return }
+    if (newPwd !== confPwd) { setPwdMsg({ ok: false, text: 'New passwords do not match.' }); return }
+    setPwdBusy(true)
+    // Confirm identity by re-checking the current password, then update it.
+    const { data: { session } } = await supabase.auth.getSession()
+    const email = session?.user?.email
+    if (!email) { setPwdBusy(false); setPwdMsg({ ok: false, text: 'Could not read your session — log in again.' }); return }
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password: curPwd })
+    if (signInErr) { setPwdBusy(false); setPwdMsg({ ok: false, text: 'Current password is incorrect.' }); return }
+    const { error: updErr } = await supabase.auth.updateUser({ password: newPwd })
+    setPwdBusy(false)
+    if (updErr) { setPwdMsg({ ok: false, text: 'Failed: ' + updErr.message }); return }
+    setPwdMsg({ ok: true, text: 'Password changed. Use the new one next time you log in.' })
+    setCurPwd(''); setNewPwd(''); setConfPwd('')
+  }
+  const pwdInput = { padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 14 }
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [showResults, setShowResults] = useState(false)
@@ -297,6 +322,11 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
               {user?.is_approver ? 'Approver' : 'Team Member'}
             </div>
           </div>
+          <button style={styles.logoutBtn} onClick={() => { setShowPwd(true); setPwdMsg(null); setCurPwd(''); setNewPwd(''); setConfPwd('') }} title="Change password">
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </button>
           <button style={styles.logoutBtn} onClick={handleLogout} title="Sign out">
             <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -306,6 +336,28 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
           </button>
         </div>
       </div>
+
+      {showPwd && (
+        <div onClick={() => setShowPwd(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 22, width: 380, maxWidth: '90%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)' }}>Change Password</div>
+              <button onClick={() => setShowPwd(false)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input type="password" value={curPwd} onChange={e => setCurPwd(e.target.value)} placeholder="Current password" style={pwdInput} />
+              <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} placeholder="New password (min 8 characters)" style={pwdInput} />
+              <input type="password" value={confPwd} onChange={e => setConfPwd(e.target.value)} placeholder="Confirm new password" style={pwdInput}
+                onKeyDown={e => e.key === 'Enter' && changePassword()} />
+              {pwdMsg && <div style={{ fontSize: 12, color: pwdMsg.ok ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)' }}>{pwdMsg.text}</div>}
+              <button onClick={changePassword} disabled={pwdBusy}
+                style={{ padding: '10px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, marginTop: 4 }}>
+                {pwdBusy ? 'Saving…' : 'Change Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
