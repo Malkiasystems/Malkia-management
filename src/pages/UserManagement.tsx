@@ -94,6 +94,7 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'sales.edit', label: 'Edit Sales' },
       { key: 'sales.delete', label: 'Delete Sales' },
       { key: 'sales.approve', label: 'Approve Discounts/Refunds' },
+      { key: 'sales.approve_advance', label: 'Approve Advance-Paid Invoices' },
       { key: 'sales.export', label: 'Export Sales Data' },
     ]
   },

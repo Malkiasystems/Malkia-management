@@ -82,11 +82,13 @@ export default function Dispatch({ onNav: _onNav }: Props) {
       .eq('type', 'sales_invoice').eq('status', 'posted')
       .order('created_at', { ascending: false }).limit(400)
     if (fromDate) q = q.gte('posting_date', fromDate)
-    const [{ data: invs, error }, { data: disp }] = await Promise.all([
+    const [{ data: invs, error }, { data: disp }, { data: holds }] = await Promise.all([
       q,
       supabase.from('invoice_dispatches').select('ref, is_final, rider_name, items_sent, dispatched_at, dispatched_by_name'),
+      supabase.from('invoice_payment_holds').select('ref').eq('status', 'pending'),
     ])
     if (error) { setLoading(false); flash('Load failed: ' + error.message, 'err'); return }
+    const heldRefs = new Set((holds || []).map((h: any) => h.ref))
 
     const finalRefs = new Set<string>()
     const partialsByRef = new Map<string, Partial[]>()
@@ -98,7 +100,7 @@ export default function Dispatch({ onNav: _onNav }: Props) {
         partialsByRef.set(d.ref, arr)
       }
     })
-    let rows = ((invs || []) as unknown as Invoice[]).filter(i => !finalRefs.has(i.ref))
+    let rows = ((invs || []) as unknown as Invoice[]).filter(i => !finalRefs.has(i.ref) && !heldRefs.has(i.ref))
     rows = rows.map(r => ({ ...r, _partials: partialsByRef.get(r.ref) || [] }))
 
     const ids = rows.map(r => r.id)

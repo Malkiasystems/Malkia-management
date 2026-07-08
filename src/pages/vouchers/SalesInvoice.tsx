@@ -141,6 +141,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     paidNow: '',              // TZS string; 0 / empty = no advance payment
     paidDepositAccountId: '', // cash/bank account to debit
     paidTransactionId: '',    // M-Pesa code / cheque no / TT ref (optional)
+    holdForApproval: false,   // "paid in advance" — hold dispatch until CEO/admin confirms funds
   })
   const dropRef = useRef<HTMLDivElement>(null)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -567,6 +568,16 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
 
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert(voucherPayload).select('id').single()
       if (vErr) throw new Error(vErr.message)
+
+      // "Paid in advance" — hold dispatch until a CEO/admin confirms funds.
+      // The invoice still posts and deducts stock; only dispatch is gated.
+      if (form.holdForApproval) {
+        await supabase.from('invoice_payment_holds').insert({
+          voucher_id: voucher.id, ref: form.ref, customer_name: selectedCust?.company || selectedCust?.name || null,
+          amount: subtotal, status: 'pending',
+          requested_by: user?.id || null, requested_by_name: user?.full_name || null,
+        }).then(() => {}, () => {})  // best-effort; never block the post
+      }
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]; if (!line.productId) continue
@@ -1364,6 +1375,11 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             posted automatically and the invoice shows as <strong>Paid</strong> or <strong>Partially Paid</strong>.
           </span>
         </div>
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, padding: '10px 12px', background: 'rgba(217,119,6,.08)', border: '1px solid rgba(217,119,6,.3)', borderRadius: 8, fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={form.holdForApproval} onChange={e => setForm(f => ({ ...f, holdForApproval: e.target.checked }))} style={{ marginTop: 2 }} />
+          <span><strong>Paid in advance — hold for approval.</strong> The invoice still posts and deducts stock, but it will not appear in Dispatch until a CEO or admin confirms the money has hit the bank.</span>
+        </label>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 1fr', gap: 10 }}>
           <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
