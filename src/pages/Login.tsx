@@ -59,6 +59,12 @@ export default function Login({ onLogin }: Props) {
       return
     }
 
+    // Record this sign-in so the user can review their recent logins.
+    supabase.from('login_events').insert({
+      user_email: email.toLowerCase(),
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+    }).then(() => {}, () => {})  // best-effort; never block login
+
     setLoading(false)
     onLogin()
   }

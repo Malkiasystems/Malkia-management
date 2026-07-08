@@ -55,6 +55,25 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
     setCurPwd(''); setNewPwd(''); setConfPwd('')
   }
   const pwdInput = { padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 14 }
+
+  const [logins, setLogins] = useState<{ logged_in_at: string; user_agent: string | null }[]>([])
+  const loadLogins = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const email = session?.user?.email
+    if (!email) { setLogins([]); return }
+    const { data } = await supabase.from('login_events')
+      .select('logged_in_at, user_agent')
+      .ilike('user_email', email)
+      .order('logged_in_at', { ascending: false }).limit(8)
+    setLogins(data || [])
+  }
+  const deviceOf = (ua: string | null): string => {
+    if (!ua) return 'Unknown device'
+    const b = /Edg/.test(ua) ? 'Edge' : /Chrome/.test(ua) ? 'Chrome' : /Firefox/.test(ua) ? 'Firefox' : /Safari/.test(ua) ? 'Safari' : 'Browser'
+    const os = /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : ''
+    return os ? `${b} · ${os}` : b
+  }
+  const fmtLogin = (s: string): string => { const d = new Date(s); return isNaN(d.getTime()) ? s : d.toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [showResults, setShowResults] = useState(false)
@@ -322,7 +341,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
               {user?.is_approver ? 'Approver' : 'Team Member'}
             </div>
           </div>
-          <button style={styles.logoutBtn} onClick={() => { setShowPwd(true); setPwdMsg(null); setCurPwd(''); setNewPwd(''); setConfPwd('') }} title="Change password">
+          <button style={styles.logoutBtn} onClick={() => { setShowPwd(true); setPwdMsg(null); setCurPwd(''); setNewPwd(''); setConfPwd(''); loadLogins() }} title="My account">
             <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>
@@ -341,9 +360,26 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
         <div onClick={() => setShowPwd(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 22, width: 380, maxWidth: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)' }}>Change Password</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)' }}>My Account</div>
               <button onClick={() => setShowPwd(false)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 18 }}>✕</button>
             </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', marginBottom: 6 }}>Recent sign-ins</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>If you see a sign-in you don't recognise, change your password below.</div>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                {logins.length === 0
+                  ? <div style={{ padding: 10, fontSize: 12, color: 'var(--text3)' }}>No sign-in history yet.</div>
+                  : logins.map((l, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 10px', fontSize: 12, borderTop: i ? '1px solid var(--border)' : 'none', background: i === 0 ? 'var(--surface2)' : 'transparent' }}>
+                      <span style={{ color: 'var(--text)' }}>{fmtLogin(l.logged_in_at)}{i === 0 ? '  (most recent)' : ''}</span>
+                      <span style={{ color: 'var(--text3)' }}>{deviceOf(l.user_agent)}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', marginBottom: 8 }}>Change password</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <input type="password" value={curPwd} onChange={e => setCurPwd(e.target.value)} placeholder="Current password" style={pwdInput} />
               <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} placeholder="New password (min 8 characters)" style={pwdInput} />
