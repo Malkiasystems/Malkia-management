@@ -119,6 +119,7 @@ const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
 const InternalUseReturns = lazy(() => import('./pages/InternalUseReturns'))
+const StockCount = lazy(() => import('./pages/StockCount'))
 
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
@@ -378,6 +379,7 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'payment-approvals',
   'stock-movement-report',
   'internal-use-returns',
+  'stock-count',
   'stock-transfer-register',
 ])
 
@@ -594,6 +596,7 @@ function AppContent() {
       case 'internal-use':      return <InternalUse onNav={navigate} />
       case 'internal-use-report': return <InternalUseReport onNav={navigate} />
       case 'internal-use-returns': return <InternalUseReturns onNav={navigate} />
+      case 'stock-count':       return <StockCount onNav={navigate} />
       case 'data-import':       return <DataImport />
       case 'bundles':           return <Bundles />
       
