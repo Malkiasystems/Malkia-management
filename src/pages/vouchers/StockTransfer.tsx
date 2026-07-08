@@ -46,6 +46,21 @@ export default function StockTransfer({ onNav }: Props) {
     loadFromLocStock()
   }, [form.fromLocation])
 
+  // A locked user must always send FROM their own location. The initial load can
+  // run before the user-location hook resolves, defaulting the source to another
+  // location; once it resolves, snap the source back to the locked one (and move
+  // the destination off it if they collide).
+  useEffect(() => {
+    if (userLoc.loading || !userLoc.isLocked || !userLoc.defaultLocationCode) return
+    const locked = userLoc.defaultLocationCode
+    if (!locations.some(l => l.code === locked)) return
+    setForm(f => {
+      if (f.fromLocation === locked && f.toLocation !== locked) return f
+      const to = f.toLocation && f.toLocation !== locked ? f.toLocation : (locations.find(l => l.code !== locked)?.code ?? f.toLocation)
+      return { ...f, fromLocation: locked, toLocation: to }
+    })
+  }, [userLoc.loading, userLoc.isLocked, userLoc.defaultLocationCode, locations])
+
   const loadData = async () => {
     const [{ data: prods }, { data: locs }] = await Promise.all([
       supabase.from('products').select('id, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
