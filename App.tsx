@@ -29,6 +29,8 @@ const PostedVouchers = lazy(() => import('./pages/PostedVouchers'))
 const Dispatch = lazy(() => import('./pages/Dispatch'))
 const StockMovements = lazy(() => import('./pages/StockMovements'))
 const StockAsOf = lazy(() => import('./pages/StockAsOf'))
+const PaymentApprovals = lazy(() => import('./pages/PaymentApprovals'))
+const StockMovementReport = lazy(() => import('./pages/StockMovementReport'))
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
@@ -116,6 +118,8 @@ const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
 const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
+const InternalUseReturns = lazy(() => import('./pages/InternalUseReturns'))
+const StockCount = lazy(() => import('./pages/StockCount'))
 
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
@@ -337,6 +341,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'import-order': 'Import Orders',
   'purchase': 'Purchase',
   'internal-use': 'Internal Use',
+  'internal-use-returns': 'Internal Use Returns',
   'internal-use-report': 'Internal Use Report',
   // HRM Module
   'hrm': 'HR Dashboard',
@@ -371,6 +376,10 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'dispatch',
   'stock-movements',
   'stock-as-of',
+  'payment-approvals',
+  'stock-movement-report',
+  'internal-use-returns',
+  'stock-count',
   'stock-transfer-register',
 ])
 
@@ -586,6 +595,8 @@ function AppContent() {
       case 'import-order':      return <ImportOrder onNav={navigate} />
       case 'internal-use':      return <InternalUse onNav={navigate} />
       case 'internal-use-report': return <InternalUseReport onNav={navigate} />
+      case 'internal-use-returns': return <InternalUseReturns onNav={navigate} />
+      case 'stock-count':       return <StockCount onNav={navigate} />
       case 'data-import':       return <DataImport />
       case 'bundles':           return <Bundles />
       
@@ -598,6 +609,8 @@ function AppContent() {
       case 'dispatch':          return <Dispatch onNav={navigate} />
       case 'stock-movements':   return <StockMovements onNav={navigate} />
       case 'stock-as-of':       return <StockAsOf onNav={navigate} />
+      case 'payment-approvals': return <PaymentApprovals onNav={navigate} />
+      case 'stock-movement-report': return <StockMovementReport onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />

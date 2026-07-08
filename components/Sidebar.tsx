@@ -51,12 +51,17 @@ const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Pending Transfers', page: 'stock-transfer-approvals', icon: 'M7 16V4 M3 8l4-4 4 4 M17 8v12 M21 16l-4 4-4-4' },
   { label: 'Dispatch', page: 'dispatch', icon: 'M1 3h13v13H1z M14 8h4l3 3v5h-7 M5.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M17.5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
   { label: 'Movements', page: 'stock-movements', icon: 'M3 3v18h18 M7 14l4-4 4 4 4-6' },
+  { label: 'Move Report', page: 'stock-movement-report', icon: 'M9 17V9 M13 17V5 M17 17v-3 M3 21h18 M3 4h4' },
+  { label: 'Stock as of', page: 'stock-as-of', icon: 'M12 8v4l3 3 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z M3 12H1 M12 3V1' },
+  { label: 'IU Returns', page: 'internal-use-returns', icon: 'M3 7v6h6 M3 13a9 9 0 1 0 3-7.7L3 8' },
+  { label: 'Stock Count', page: 'stock-count', icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
 ]
 
 const SALES_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Cash Sale',     page: 'cash-sale',           icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
   { label: 'Sales Invoice', page: 'sales-invoice',        icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
   { label: 'Invoices',      page: 'sales-invoices-list',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13h6 M9 17h6' },
+  { label: 'Pay Approvals', page: 'payment-approvals',     icon: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M9 12l2 2 4-4' },
   { label: 'Proformas',     page: 'proformas-list',       icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M12 18v-6 M9 15h6' },
   { label: 'Day Book',      page: 'sales-day-book',       icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
   { label: 'Register',      page: 'sales-register',       icon: 'M18 20V10M12 20V4M6 20v-6' },
@@ -114,6 +119,19 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   // Live count of transfers waiting to be received (in transit), so the
   // destination sees a badge instead of having to hunt for the page.
   const [incomingCount, setIncomingCount] = useState(0)
+  const [stockInCount, setStockInCount] = useState(0)
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const { data } = await supabase.rpc('pending_stock_in_count')
+        if (alive && typeof data === 'number') setStockInCount(data)
+      } catch { /* ignore */ }
+    }
+    load()
+    const t = setInterval(load, 60000)
+    return () => { alive = false; clearInterval(t) }
+  }, [current])
   useEffect(() => {
     let alive = true
     const load = async () => {
@@ -164,6 +182,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
               key={it.page}
               onClick={() => onNav(it.page)}
               style={{
+                position: 'relative',
                 width: 52, height: 52, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 3,
                 borderRadius: 10,
@@ -180,6 +199,11 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 color: active ? 'var(--accent)' : 'var(--text3)',
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{it.label}</span>
+              {((it.page === 'stock-transfer-approvals' && incomingCount > 0) || (it.page === 'stock-movements' && stockInCount > 0)) && (
+                <span style={{ position: 'absolute', top: 4, right: 8, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 8, background: it.page === 'stock-movements' ? 'var(--yellow, #d97706)' : 'var(--accent)', color: '#fff', fontSize: 8, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {it.page === 'stock-movements' ? stockInCount : incomingCount}
+                </span>
+              )}
             </div>
           )
         })}
@@ -371,11 +395,11 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             </div>
 
             {/* Inventory sub-menu */}
-            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch' || current === 'stock-movements') && visibleInventorySub.length > 0 && (
+            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch' || current === 'stock-movements' || current === 'stock-movement-report' || current === 'stock-as-of' || current === 'internal-use-returns' || current === 'stock-count') && visibleInventorySub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page
-                  const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : 0
+                  const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : sub.page === 'stock-movements' ? (stockInCount || 0) : 0
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       style={{ position:'relative', display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
