@@ -17,7 +17,7 @@ interface Props { onNav?: (p: Page) => void }
 interface Entry {
   id: string; product_id: string; product_name: string | null; qty_wanted: number
   customer_id: string | null; customer_name: string; whatsapp: string | null
-  status: string; note: string | null; created_at: string | null
+  status: string; note: string | null; created_at: string | null; added_by_name: string | null
 }
 interface Group { product_id: string; product_name: string; category: string; inStock: number; entries: Entry[]; totalWanted: number }
 
@@ -172,14 +172,14 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     product: g.product_name, category: g.category, inStock: g.inStock,
     name: e.customer_name, type: e.customer_id ? 'Returning' : 'New',
     whatsapp: e.whatsapp || '', qty: e.qty_wanted, waited: waitedFor(e.created_at),
-    status: e.status, note: e.note || '',
+    addedBy: e.added_by_name || '', status: e.status, note: e.note || '',
   })))
 
   const exportCsv = () => {
     const rows = rowsForExport()
     if (rows.length === 0) { flash('Nothing to export.', 'err'); return }
-    const head = ['Product', 'Category', 'In stock', 'Customer', 'Type', 'WhatsApp', 'Qty wanted', 'Waiting', 'Status', 'Note']
-    const body = rows.map(r => [r.product, r.category, r.inStock, `"${r.name}"`, r.type, r.whatsapp, r.qty, r.waited, r.status, `"${r.note}"`].join(','))
+    const head = ['Product', 'Category', 'In stock', 'Customer', 'Type', 'WhatsApp', 'Qty wanted', 'Waiting', 'Added by', 'Status', 'Note']
+    const body = rows.map(r => [r.product, r.category, r.inStock, `"${r.name}"`, r.type, r.whatsapp, r.qty, r.waited, `"${r.addedBy}"`, r.status, `"${r.note}"`].join(','))
     const csv = [head.join(','), ...body].join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -200,6 +200,7 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
       <td style="padding:6px;border-top:1px solid #eee">${r.whatsapp}</td>
       <td style="padding:6px;text-align:right;border-top:1px solid #eee;font-weight:700">${r.qty}</td>
       <td style="padding:6px;border-top:1px solid #eee;color:#666">${r.waited}</td>
+      <td style="padding:6px;border-top:1px solid #eee;color:#666">${r.addedBy}</td>
       <td style="padding:6px;text-align:right;border-top:1px solid #eee;color:${r.inStock > 0 ? '#16a34a' : '#dc2626'}">${r.inStock}</td>
     </tr>`).join('')
     const filterNote = filtersOn ? `<div style="font-size:10px;color:#888;margin-bottom:8px">Filtered: ${[fProduct !== 'all' ? fProduct : '', fCategory !== 'all' ? fCategory : '', fType !== 'all' ? fType : '', fStock === 'ready' ? 'in stock only' : '', search.trim()].filter(Boolean).join(' · ')}</div>` : ''
@@ -214,7 +215,8 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
           <th style="padding:6px;text-align:left">Product</th><th style="padding:6px;text-align:left">Category</th>
           <th style="padding:6px;text-align:left">Customer</th><th style="padding:6px;text-align:left">Type</th>
           <th style="padding:6px;text-align:left">WhatsApp</th><th style="padding:6px;text-align:right">Qty</th>
-          <th style="padding:6px;text-align:left">Waiting</th><th style="padding:6px;text-align:right">In stock</th>
+          <th style="padding:6px;text-align:left">Waiting</th><th style="padding:6px;text-align:left">Added by</th>
+          <th style="padding:6px;text-align:right">In stock</th>
         </tr></thead><tbody>${body}</tbody></table>`
     document.body.appendChild(el)
     try {
@@ -374,7 +376,7 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
                         {e.status === 'notified' && <span style={{ fontSize: 10, color: 'var(--text3)' }}>· notified</span>}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-                        wants {e.qty_wanted} · waiting {waitedFor(e.created_at)}{e.whatsapp ? ` · ${e.whatsapp}` : ''}{e.note ? ` · ${e.note}` : ''}
+                        wants {e.qty_wanted} · waiting {waitedFor(e.created_at)}{e.whatsapp ? ` · ${e.whatsapp}` : ''}{e.added_by_name ? ` · added by ${e.added_by_name}` : ''}{e.note ? ` · ${e.note}` : ''}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -395,13 +397,14 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
           ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)' }}>Nothing closed yet.</div>
           : <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--surface2)' }}>{['Customer', 'Product', 'Wanted', 'Type', 'Outcome'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: 'var(--text2)', fontWeight: 700, borderBottom: '1px solid var(--border)' }}>{h}</th>)}</tr></thead>
+              <thead><tr style={{ background: 'var(--surface2)' }}>{['Customer', 'Product', 'Wanted', 'Type', 'Added by', 'Outcome'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: 'var(--text2)', fontWeight: 700, borderBottom: '1px solid var(--border)' }}>{h}</th>)}</tr></thead>
               <tbody>{closed.map(e => (
                 <tr key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '9px 12px' }}>{e.customer_name}</td>
                   <td style={{ padding: '9px 12px' }}>{e.product_name}</td>
                   <td style={{ padding: '9px 12px', fontFamily: 'var(--mono)' }}>{e.qty_wanted}</td>
                   <td style={{ padding: '9px 12px', fontSize: 11, color: e.customer_id ? 'var(--accent)' : 'var(--yellow, #d97706)' }}>{e.customer_id ? 'Returning' : 'New'}</td>
+                  <td style={{ padding: '9px 12px', color: 'var(--text3)' }}>{e.added_by_name || '—'}</td>
                   <td style={{ padding: '9px 12px' }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: e.status === 'fulfilled' ? 'var(--green, #16a34a)' : 'var(--text3)' }}>{e.status === 'fulfilled' ? 'Fulfilled' : 'Cancelled'}</span>
                   </td>
