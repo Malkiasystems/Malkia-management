@@ -72,7 +72,7 @@ const EMPTY_FORM = {
   credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: ''
 }
 
-export default function Customers({ onNav, onViewStatement, onReceipt, initialTab, onTabChange }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string, amount: number) => void; initialTab?: 'cash'|'wholesale'; onTabChange?: (t: 'cash'|'wholesale') => void }) {
+export default function Customers({ onNav, onViewStatement, onReceipt, initialTab, onTabChange, openLedgerId, onLedgerChange }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string, amount: number) => void; initialTab?: 'cash'|'wholesale'; onTabChange?: (t: 'cash'|'wholesale') => void; openLedgerId?: string | null; onLedgerChange?: (id: string | null) => void }) {
   // Tabs: 'cash' = retail walk-ins; 'wholesale' = sales-invoice customers
   // (formerly labelled "Debtors"; see migration 009).
   // The tab is seeded from (and reported back to) the parent, so navigating away
@@ -215,6 +215,16 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
 
   useEffect(() => { load() }, [tab])
 
+  // If we left this page to take a receipt (or view a statement) while a
+  // customer's ledger was open, reopen that ledger when we come back, so Back
+  // lands where the user was rather than on the bare list.
+  const [restored, setRestored] = useState(false)
+  useEffect(() => {
+    if (restored || !openLedgerId || customers.length === 0) return
+    const c = customers.find(x => x.id === openLedgerId)
+    if (c) { setRestored(true); openLedger(c) }
+  }, [openLedgerId, customers, restored])
+
   const load = async () => {
     setLoading(true)
     // For the wholesale tab, accept BOTH 'wholesale' (canonical) AND
@@ -257,6 +267,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
 
   const openLedger = async (c: Customer) => {
     setSelected(c); setView('ledger'); setLoadingLedger(true)
+    onLedgerChange?.(c.id)   // remember it, so returning from a receipt reopens this ledger
     const { data } = await supabase.from('customer_ledger_entries')
       .select('*').eq('customer_id', c.id)
       .order('posting_date', { ascending: false })
@@ -478,7 +489,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       <div className="page">
         <div className="page-header">
           <div style={{ display:'flex',alignItems:'center',gap:12 }}>
-            <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => setView('list')}>
+            <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => { setView('list'); onLedgerChange?.(null); setRestored(false) }}>
               <Ic n="back" /> Customers
             </button>
             <div style={{ width:1,height:24,background:'var(--border)' }}></div>
