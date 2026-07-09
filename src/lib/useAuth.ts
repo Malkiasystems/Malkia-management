@@ -322,6 +322,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'crm-inbox': ['crm.inbox'],
   'crm-automations': ['crm.automations'],
   'crm-preorders': ['crm.view'],
+  'crm-waiting-list': ['crm.view'],
   'crm-referrals': ['crm.view'],
   'crm-loyalty': ['crm.view'],
   'crm-feedback': ['crm.view'],

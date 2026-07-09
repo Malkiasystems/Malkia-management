@@ -19,7 +19,7 @@ export type Page =
   | 'banks' | 'settings' | 'data-import' | 'coming-soon' | 'bundles'
   | 'stock-levels' | 'suppliers' | 'stock-movements' | 'stock-as-of' | 'payment-approvals' | 'stock-movement-report' | 'internal-use-returns' | 'stock-count'
   // CRM Module Pages
-  | 'crm' | 'crm-hub' | 'crm-inbox' | 'crm-automations' | 'crm-preorders'
+  | 'crm' | 'crm-hub' | 'crm-inbox' | 'crm-automations' | 'crm-preorders' | 'crm-waiting-list'
   | 'crm-referrals' | 'crm-ambassador'  // crm-referrals kept as alias; new code uses crm-ambassador
   | 'crm-loyalty' | 'crm-feedback' | 'crm-upsell'
   | 'crm-customers' | 'crm-command-center'

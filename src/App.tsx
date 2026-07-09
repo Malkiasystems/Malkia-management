@@ -126,6 +126,7 @@ const CRMCommandCenter = lazy(() => import('./pages/crm/CRMCommandCenter'))
 const CRMInbox = lazy(() => import('./pages/CRMInbox'))
 const CRMAutomations = lazy(() => import('./pages/CRMAutomations'))
 const CRMPreorders = lazy(() => import('./pages/CRMPreorders'))
+const CRMWaitingList = lazy(() => import('./pages/CRMWaitingList'))
 const CRMReferrals = lazy(() => import('./pages/CRMReferrals'))
 const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
 const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
@@ -647,6 +648,7 @@ function AppContent() {
       case 'crm-inbox':         return <CRMInbox />
       case 'crm-automations':   return <CRMAutomations onNav={navigate} />
       case 'crm-preorders':     return <CRMPreorders onNav={navigate} />
+      case 'crm-waiting-list':  return <CRMWaitingList onNav={navigate} />
       case 'crm-referrals':     return <CRMReferrals onNav={navigate} />
       case 'crm-loyalty':       return <CRMLoyalty onNav={navigate} />
       case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
