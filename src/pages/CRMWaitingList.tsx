@@ -10,6 +10,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/useAuth'
+import { renderElementToPdfBlob } from '../lib/customerDocuments'
 import type { Page } from '../lib/types'
 
 interface Props { onNav?: (p: Page) => void }
@@ -18,7 +19,7 @@ interface Entry {
   customer_id: string | null; customer_name: string; whatsapp: string | null
   status: string; note: string | null; created_at: string | null
 }
-interface Group { product_id: string; product_name: string; inStock: number; entries: Entry[]; totalWanted: number }
+interface Group { product_id: string; product_name: string; category: string; inStock: number; entries: Entry[]; totalWanted: number }
 
 function waitedFor(s: string | null): string {
   if (!s) return ''
@@ -41,6 +42,13 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
   const [busy, setBusy] = useState('')
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
   const flash = (m: string, t: 'ok' | 'err' = 'ok') => { setToast({ msg: m, type: t }); setTimeout(() => setToast(null), 3000) }
+
+  // filters
+  const [fProduct, setFProduct] = useState('all')
+  const [fCategory, setFCategory] = useState('all')
+  const [fType, setFType] = useState<'all' | 'returning' | 'new'>('all')
+  const [fStock, setFStock] = useState<'all' | 'ready'>('all')
+  const [search, setSearch] = useState('')
 
   // add form
   const [showAdd, setShowAdd] = useState(false)
@@ -65,13 +73,14 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     const rows = (data || []) as Entry[]
     const ids = Array.from(new Set(rows.map(r => r.product_id)))
     const stock = new Map<string, number>()
+    const cat = new Map<string, string>()
     if (ids.length) {
-      const { data: prods } = await supabase.from('products').select('id, qty_on_hand').in('id', ids)
-      ;(prods || []).forEach((p: any) => stock.set(p.id, p.qty_on_hand || 0))
+      const { data: prods } = await supabase.from('products').select('id, qty_on_hand, category').in('id', ids)
+      ;(prods || []).forEach((p: any) => { stock.set(p.id, p.qty_on_hand || 0); cat.set(p.id, p.category || '') })
     }
     const map = new Map<string, Group>()
     rows.forEach(r => {
-      const g = map.get(r.product_id) || { product_id: r.product_id, product_name: r.product_name || 'Product', inStock: stock.get(r.product_id) ?? 0, entries: [], totalWanted: 0 }
+      const g = map.get(r.product_id) || { product_id: r.product_id, product_name: r.product_name || 'Product', category: cat.get(r.product_id) || '', inStock: stock.get(r.product_id) ?? 0, entries: [], totalWanted: 0 }
       g.entries.push(r); g.totalWanted += Number(r.qty_wanted) || 0
       map.set(r.product_id, g)
     })
@@ -131,8 +140,90 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     setBusy(''); flash(`${e.customer_name} marked notified`); load()
   }
 
-  const readyCount = groups.filter(g => g.inStock > 0).reduce((s, g) => s + g.entries.length, 0)
-  const totalWaiting = groups.reduce((s, g) => s + g.entries.length, 0)
+  // ─── filters ──────────────────────────────────────────────────────────────
+  const categories = Array.from(new Set(groups.map(g => g.category).filter(Boolean))).sort()
+  const productNames = Array.from(new Set(groups.map(g => g.product_name))).sort()
+
+  const visible: Group[] = groups
+    .filter(g => fProduct === 'all' || g.product_name === fProduct)
+    .filter(g => fCategory === 'all' || g.category === fCategory)
+    .filter(g => fStock === 'all' || g.inStock > 0)
+    .map(g => ({
+      ...g,
+      entries: g.entries
+        .filter(e => fType === 'all' || (fType === 'returning' ? !!e.customer_id : !e.customer_id))
+        .filter(e => {
+          if (!search.trim()) return true
+          const q = search.trim().toLowerCase()
+          return e.customer_name.toLowerCase().includes(q) || (e.whatsapp || '').includes(q) || g.product_name.toLowerCase().includes(q)
+        }),
+    }))
+    .filter(g => g.entries.length > 0)
+    .map(g => ({ ...g, totalWanted: g.entries.reduce((t, e) => t + (Number(e.qty_wanted) || 0), 0) }))
+
+  const filtersOn = fProduct !== 'all' || fCategory !== 'all' || fType !== 'all' || fStock !== 'all' || !!search.trim()
+  const clearFilters = () => { setFProduct('all'); setFCategory('all'); setFType('all'); setFStock('all'); setSearch('') }
+
+  const readyCount = visible.filter(g => g.inStock > 0).reduce((s, g) => s + g.entries.length, 0)
+  const totalWaiting = visible.reduce((s, g) => s + g.entries.length, 0)
+
+  // ─── exports ──────────────────────────────────────────────────────────────
+  const rowsForExport = () => visible.flatMap(g => g.entries.map(e => ({
+    product: g.product_name, category: g.category, inStock: g.inStock,
+    name: e.customer_name, type: e.customer_id ? 'Returning' : 'New',
+    whatsapp: e.whatsapp || '', qty: e.qty_wanted, waited: waitedFor(e.created_at),
+    status: e.status, note: e.note || '',
+  })))
+
+  const exportCsv = () => {
+    const rows = rowsForExport()
+    if (rows.length === 0) { flash('Nothing to export.', 'err'); return }
+    const head = ['Product', 'Category', 'In stock', 'Customer', 'Type', 'WhatsApp', 'Qty wanted', 'Waiting', 'Status', 'Note']
+    const body = rows.map(r => [r.product, r.category, r.inStock, `"${r.name}"`, r.type, r.whatsapp, r.qty, r.waited, r.status, `"${r.note}"`].join(','))
+    const csv = [head.join(','), ...body].join('\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    a.download = `waiting-list-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+  }
+
+  const exportPdf = async () => {
+    const rows = rowsForExport()
+    if (rows.length === 0) { flash('Nothing to export.', 'err'); return }
+    setBusy('pdf')
+    const el = document.createElement('div')
+    el.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;padding:28px;background:#fff;color:#1a1a1a;font-family:Arial,sans-serif;font-size:12px'
+    const body = rows.map(r => `<tr>
+      <td style="padding:6px;border-top:1px solid #eee">${r.product}</td>
+      <td style="padding:6px;border-top:1px solid #eee;color:#666">${r.category}</td>
+      <td style="padding:6px;border-top:1px solid #eee">${r.name}</td>
+      <td style="padding:6px;border-top:1px solid #eee;color:${r.type === 'Returning' ? '#5EA8A2' : '#d97706'}">${r.type}</td>
+      <td style="padding:6px;border-top:1px solid #eee">${r.whatsapp}</td>
+      <td style="padding:6px;text-align:right;border-top:1px solid #eee;font-weight:700">${r.qty}</td>
+      <td style="padding:6px;border-top:1px solid #eee;color:#666">${r.waited}</td>
+      <td style="padding:6px;text-align:right;border-top:1px solid #eee;color:${r.inStock > 0 ? '#16a34a' : '#dc2626'}">${r.inStock}</td>
+    </tr>`).join('')
+    const filterNote = filtersOn ? `<div style="font-size:10px;color:#888;margin-bottom:8px">Filtered: ${[fProduct !== 'all' ? fProduct : '', fCategory !== 'all' ? fCategory : '', fType !== 'all' ? fType : '', fStock === 'ready' ? 'in stock only' : '', search.trim()].filter(Boolean).join(' · ')}</div>` : ''
+    el.innerHTML = `
+      <div style="border-bottom:2px solid #5EA8A2;padding-bottom:10px;margin-bottom:10px">
+        <div style="font-size:18px;font-weight:800;color:#5E2230">Waiting List</div>
+        <div style="color:#666">Malkia Wellness Group Ltd · ${new Date().toLocaleDateString('en-GB')} · ${rows.length} waiting</div>
+      </div>
+      ${filterNote}
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:#f4f4f4">
+          <th style="padding:6px;text-align:left">Product</th><th style="padding:6px;text-align:left">Category</th>
+          <th style="padding:6px;text-align:left">Customer</th><th style="padding:6px;text-align:left">Type</th>
+          <th style="padding:6px;text-align:left">WhatsApp</th><th style="padding:6px;text-align:right">Qty</th>
+          <th style="padding:6px;text-align:left">Waiting</th><th style="padding:6px;text-align:right">In stock</th>
+        </tr></thead><tbody>${body}</tbody></table>`
+    document.body.appendChild(el)
+    try {
+      const blob = await renderElementToPdfBlob(el)
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+      a.download = `waiting-list-${new Date().toISOString().slice(0, 10)}.pdf`; a.click()
+    } catch (err: any) { flash('PDF failed: ' + (err?.message || 'unknown'), 'err') }
+    finally { document.body.removeChild(el); setBusy('') }
+  }
 
   return (
     <div style={{ padding: 20, maxWidth: 1000, margin: '0 auto' }}>
@@ -213,12 +304,48 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
         )}
       </div>
 
+      {tab === 'waiting' && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, padding: 10, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name / phone / product"
+            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 12, width: 200 }} />
+
+          <select value={fProduct} onChange={e => setFProduct(e.target.value)} style={selS}>
+            <option value="all">All products</option>
+            {productNames.map(p2 => <option key={p2} value={p2}>{p2}</option>)}
+          </select>
+
+          <select value={fCategory} onChange={e => setFCategory(e.target.value)} style={selS}>
+            <option value="all">All categories</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+
+          <select value={fType} onChange={e => setFType(e.target.value as any)} style={selS}>
+            <option value="all">Everyone</option>
+            <option value="returning">Returning customers</option>
+            <option value="new">New enquiries</option>
+          </select>
+
+          <select value={fStock} onChange={e => setFStock(e.target.value as any)} style={selS}>
+            <option value="all">Any stock</option>
+            <option value="ready">In stock — ready to call</option>
+          </select>
+
+          {filtersOn && <button onClick={clearFilters} style={{ ...btn, color: 'var(--text3)' }}>Clear</button>}
+
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <span style={{ fontSize: 11, color: 'var(--text3)', alignSelf: 'center' }}>{totalWaiting} shown</span>
+            <button onClick={exportPdf} disabled={busy === 'pdf'} style={btn}>{busy === 'pdf' ? '…' : 'PDF'}</button>
+            <button onClick={exportCsv} style={btn}>CSV</button>
+          </div>
+        </div>
+      )}
+
       {loading && <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)' }}>Loading…</div>}
 
       {!loading && tab === 'waiting' && (
-        groups.length === 0
-          ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)' }}>Nobody is waiting. Add someone when an item is out of stock.</div>
-          : groups.map(g => (
+        visible.length === 0
+          ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{filtersOn ? 'No one matches these filters.' : 'Nobody is waiting. Add someone when an item is out of stock.'}</div>
+          : visible.map(g => (
             <div key={g.product_id} style={{ border: `1px solid ${g.inStock > 0 ? 'var(--green, #16a34a)' : 'var(--border)'}`, borderRadius: 10, marginBottom: 12, background: 'var(--surface)', overflow: 'hidden' }}>
               <div style={{ padding: '12px 14px', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                 <div>
@@ -291,5 +418,6 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
 const btn: React.CSSProperties = { padding: '6px 11px', borderRadius: 7, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }
 const lbl: React.CSSProperties = { display: 'block', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: .4, margin: '8px 0 4px' }
 const inp: React.CSSProperties = { width: '100%', padding: '9px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13, marginBottom: 6 }
+const selS: React.CSSProperties = { padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 12 }
 const dropdown: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface2)', marginBottom: 8, maxHeight: 160, overflowY: 'auto' }
 const ddItem: React.CSSProperties = { padding: '8px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid var(--border)' }
