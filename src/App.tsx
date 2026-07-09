@@ -119,7 +119,6 @@ const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
 const InternalUseReturns = lazy(() => import('./pages/InternalUseReturns'))
-const StockCount = lazy(() => import('./pages/StockCount'))
 
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
@@ -379,7 +378,6 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'payment-approvals',
   'stock-movement-report',
   'internal-use-returns',
-  'stock-count',
   'stock-transfer-register',
 ])
 
@@ -418,7 +416,14 @@ function AppContent() {
   useEffect(() => {
     const onHashChange = () => {
       const next = hashToPage()
-      setPage(prev => (prev === next ? prev : next))
+      setPage(prev => {
+        if (prev === next) return prev
+        // If the user pressed the BROWSER's back button (not ours), our history
+        // array would otherwise keep a stale entry and Back would misbehave on
+        // the next press. Drop the top entry when it matches where we landed.
+        setHistory(h => (h.length > 0 && h[h.length - 1] === next ? h.slice(0, -1) : h))
+        return next
+      })
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
@@ -481,12 +486,16 @@ function AppContent() {
     navigate('cash-receipt')
   }
 
+  // Back must walk the browser's own history, not push a NEW hash entry.
+  // Setting window.location.hash (as pageToHash does) APPENDS an entry, so the
+  // old implementation grew history on the way back and never unwound — which
+  // made Back appear to jump past intermediate pages (e.g. customer ledger →
+  // receipt → Back skipped the ledger and the customer list).
+  // history.back() fires hashchange, which syncs `page` via the listener above.
   const goBack = () => {
     if (history.length === 0) return
-    const prev = history[history.length - 1]
     setHistory(h => h.slice(0, -1))
-    setPage(prev)
-    pageToHash(prev)
+    window.history.back()
   }
 
   // ── Stock Manager workspace gate ───────────────────────────────────
@@ -596,7 +605,6 @@ function AppContent() {
       case 'internal-use':      return <InternalUse onNav={navigate} />
       case 'internal-use-report': return <InternalUseReport onNav={navigate} />
       case 'internal-use-returns': return <InternalUseReturns onNav={navigate} />
-      case 'stock-count':       return <StockCount onNav={navigate} />
       case 'data-import':       return <DataImport />
       case 'bundles':           return <Bundles />
       
