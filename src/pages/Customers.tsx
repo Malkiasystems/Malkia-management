@@ -72,10 +72,14 @@ const EMPTY_FORM = {
   credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: ''
 }
 
-export default function Customers({ onNav, onViewStatement, onReceipt }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string, amount: number) => void }) {
+export default function Customers({ onNav, onViewStatement, onReceipt, initialTab, onTabChange }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string, amount: number) => void; initialTab?: 'cash'|'wholesale'; onTabChange?: (t: 'cash'|'wholesale') => void }) {
   // Tabs: 'cash' = retail walk-ins; 'wholesale' = sales-invoice customers
   // (formerly labelled "Debtors"; see migration 009).
-  const [tab, setTab] = useState<'cash'|'wholesale'>('cash')
+  // The tab is seeded from (and reported back to) the parent, so navigating away
+  // to a ledger or receipt and pressing Back returns you to the SAME tab rather
+  // than snapping to 'cash'.
+  const [tab, setTabState] = useState<'cash'|'wholesale'>(initialTab || 'cash')
+  const setTab = (t: 'cash'|'wholesale') => { setTabState(t); onTabChange?.(t) }
 
   // Wholesale customer management is locked to permission holders (super admin
   // or the matching customers.create / edit / delete permission). Cash walk-in

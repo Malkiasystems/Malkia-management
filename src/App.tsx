@@ -407,6 +407,9 @@ function AppContent() {
   const [history, setHistory] = useState<Page[]>([])
   const [editVoucherId, setEditVoucherId] = useState<string | null>(null)
   const [statementCustomerId, setStatementCustomerId] = useState<string | null>(null)
+  // Remembered Customers tab, so leaving for a ledger/receipt and pressing Back
+  // returns to the tab you were on (wholesale) rather than resetting to cash.
+  const [customersTab, setCustomersTab] = useState<'cash'|'wholesale'>('cash')
   const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string; amount?: number } | null>(null)
   const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, isSuperAdmin } = useAuth()
   useInactivityLogout()
@@ -595,7 +598,7 @@ function AppContent() {
       case 'stock-transfer-approvals': return <IncomingTransfers onNav={navigate} />
       case 'stock-transfer-outgoing': return <IncomingTransfers onNav={navigate} initialTab="outgoing" />
       case 'stock-transfer-register': return <StockTransferRegister />
-      case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} />
+      case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} initialTab={customersTab} onTabChange={setCustomersTab} />
       case 'customer-statement':
         if (!statementCustomerId) { navigate('customers'); return null }
         return <CustomerStatement customerId={statementCustomerId} onNav={navigate} />
