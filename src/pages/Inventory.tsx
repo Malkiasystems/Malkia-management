@@ -244,25 +244,27 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
         const openQty = parseFloat(form.qty_on_hand) || 0
         const openLoc = locations.find(l => l.code === form.opening_location) || null
 
-        if (openQty > 0 && !openLoc) {
-          showToast('Select a location for the opening quantity.', 'error')
+        // Location is mandatory, even at qty 0. A product with no bin row is
+        // hidden from every location filter — the exact bug this guards.
+        if (!openLoc) {
+          showToast('Select a stock location. Every product must live at a warehouse.', 'error')
           setSaving(false)
           return
         }
-        if (openLoc && !userLoc.canPostFrom(openLoc.code)) {
-          showToast(`You cannot post opening stock at ${openLoc.code}.`, 'error')
+        if (!userLoc.canPostFrom(openLoc.code)) {
+          showToast(`You cannot create stock at ${openLoc.code}.`, 'error')
           setSaving(false)
           return
         }
 
         const res = await createProduct(payload, {
           qty: openQty,
-          location: openLoc ? { id: openLoc.id, code: openLoc.code } : null,
+          location: { id: openLoc.id, code: openLoc.code },
         })
         if (!res.success) throw new Error(res.error)
         if (res.warning) showToast(res.warning, 'error')
-        else if (openQty > 0 && openLoc) showToast(`${form.name} added · ${openQty} ${form.unit} at ${openLoc.code}`)
-        else showToast(`${form.name} added to inventory (no stock yet)`)
+        else if (openQty > 0) showToast(`${form.name} added · ${openQty} ${form.unit} at ${openLoc.code}`)
+        else showToast(`${form.name} added at ${openLoc.code} · no stock yet`)
       }
       setNewCategory('')
       setView('list'); loadProducts()
@@ -450,25 +452,33 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
               </FG>
               <FG label="Reorder Point"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="10" value={form.reorder_point} onChange={e => setF('reorder_point', e.target.value)} /></FG>
             </div>
-            {!selectedProduct && (
-              <FG label="Opening Stock Location" req={parseFloat(form.qty_on_hand) > 0}>
-                <select
-                  className="form-input"
-                  value={form.opening_location}
-                  onChange={e => setF('opening_location', e.target.value)}
-                >
-                  <option value="">-- No stock yet (catalogue only) --</option>
-                  {locations
-                    .filter(l => userLoc.canPostFrom(l.code))
-                    .map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
-                </select>
-                <div style={{ fontSize: 11, color: parseFloat(form.qty_on_hand) > 0 && !form.opening_location ? 'var(--red)' : 'var(--text3)', marginTop: 6 }}>
-                  {parseFloat(form.qty_on_hand) > 0 && !form.opening_location
-                    ? 'Required — opening stock must be placed at a location, or it will not appear in any warehouse.'
-                    : 'Posts an Opening Stock ledger entry and places the qty at this location.'}
-                </div>
-              </FG>
-            )}
+            {!selectedProduct && (() => {
+              const postable = locations.filter(l => userLoc.canPostFrom(l.code))
+              const missing = !form.opening_location
+              const openQty = parseFloat(form.qty_on_hand) || 0
+              return (
+                <FG label="Stock Location" req>
+                  <select
+                    className="form-input"
+                    style={{ borderColor: missing ? 'var(--red)' : undefined }}
+                    value={form.opening_location}
+                    onChange={e => setF('opening_location', e.target.value)}
+                  >
+                    <option value="">-- Select a location --</option>
+                    {postable.map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+                  </select>
+                  <div style={{ fontSize: 11, color: missing ? 'var(--red)' : 'var(--text3)', marginTop: 6 }}>
+                    {postable.length === 0
+                      ? 'You are not permitted to create stock at any location. Ask an approver.'
+                      : missing
+                        ? 'Required. A product with no location is invisible under every location filter.'
+                        : openQty > 0
+                          ? `Places ${openQty} ${form.unit} at this location and posts an Opening Stock ledger entry.`
+                          : 'Stocks the product here at zero. It will show as Out of Stock until its first GRN.'}
+                  </div>
+                </FG>
+              )
+            })()}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {form.cost_price && form.selling_price && parseFloat(form.selling_price) > 0 && (

@@ -10,10 +10,15 @@
 //   qty_on_hand = SUM(locations) and the opening qty was silently lost.
 //
 // Rule enforced here:
-//   Opening stock is stock. It goes through the item ledger AND lands in a
-//   real bin, exactly like GRN / OpeningStock / Transfer do. A product may
-//   be created with zero opening qty and no location (a catalogue entry),
-//   but it may NEVER be created with qty > 0 and no location.
+//   Every product lands in a real bin. Always. Even at qty 0.
+//   A bin row at qty 0 means "stocked here, currently empty" and renders as
+//   Out of Stock under that location filter. NO bin row means the product is
+//   invisible under every location filter — which is the bug this file exists
+//   to prevent. So the location picker is mandatory, and a product_locations
+//   row is written on every create.
+//
+//   When qty > 0 we also post an opening_stock ledger entry. At qty 0 nothing
+//   moved, so no ledger entry is written.
 //
 // Editing a product still never touches qty_on_hand. Stock only moves
 // through ledgered vouchers.
@@ -34,10 +39,10 @@ export interface ProductPayload {
   is_active?: boolean
 }
 
-/** Where the opening quantity physically lands. */
+/** Where the product lands. Location is MANDATORY, qty may be zero. */
 export interface OpeningStockInput {
   qty: number
-  location: { id: string; code: string } | null
+  location: { id: string; code: string }
 }
 
 export interface ProductPostResult {
@@ -72,10 +77,10 @@ export async function createProduct(
   if (qty < 0) {
     return { success: false, error: 'Opening quantity cannot be negative.' }
   }
-  if (qty > 0 && !opening.location) {
+  if (!opening.location?.id || !opening.location?.code) {
     return {
       success: false,
-      error: 'Choose a location for the opening quantity. Stock must live in a warehouse, not in limbo.',
+      error: 'Choose a location. Every product must be stocked at a warehouse, even with zero opening quantity.',
     }
   }
 
@@ -94,25 +99,25 @@ export async function createProduct(
     return { success: false, error: error?.message || 'Product could not be created.' }
   }
 
-  // Catalogue-only product. Nothing to place, nothing to ledger.
-  if (qty === 0 || !opening.location) {
-    return { success: true, productId: product.id }
-  }
-
   const loc = opening.location
   const ref = `OPEN-${payload.sku}`
 
-  const ledger = await postLedgerEntry({
-    product_id: product.id,
-    entry_type: 'opening_stock',
-    document_type: 'opening_stock',
-    document_ref: ref,
-    posting_date: today(),
-    qty,
-    cost_amount: payload.cost_price * qty,
-    location: { id: loc.id, code: loc.code },
-  })
+  // Ledger only records movement. At qty 0 nothing moved, so nothing to post.
+  const ledger = qty > 0
+    ? await postLedgerEntry({
+        product_id: product.id,
+        entry_type: 'opening_stock',
+        document_type: 'opening_stock',
+        document_ref: ref,
+        posting_date: today(),
+        qty,
+        cost_amount: payload.cost_price * qty,
+        location: { id: loc.id, code: loc.code },
+      })
+    : { success: true as const }
 
+  // Always written, even at qty 0. This is the row that makes the product
+  // visible under a location filter.
   const { error: locErr } = await supabase.from('product_locations').upsert(
     {
       product_id: product.id,
@@ -128,7 +133,7 @@ export async function createProduct(
     return {
       success: true,
       productId: product.id,
-      warning: `${payload.name} was created, but the ${qty} units could not be placed at ${loc.code} (${locErr.message}). Post an Opening Stock voucher to fix.`,
+      warning: `${payload.name} was created, but it could not be stocked at ${loc.code} (${locErr.message}). It will not appear under any location filter. Post an Opening Stock voucher to fix.`,
     }
   }
 
