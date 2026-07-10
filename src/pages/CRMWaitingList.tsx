@@ -34,7 +34,11 @@ const waLink = (wa: string | null, name: string, product: string) => {
 }
 
 export default function CRMWaitingList({ onNav: _onNav }: Props) {
-  const { user } = useAuth()
+  const { user, can, isSuperAdmin } = useAuth()
+  // Anyone who serves customers can ADD a waiter (they're the ones who meet her).
+  // Closing one out — notified / fulfilled / cancelled — decides whether the
+  // customer actually got called, so that stays with CRM or management.
+  const canManage = isSuperAdmin() || can('crm.edit')
   const [tab, setTab] = useState<'waiting' | 'closed'>('waiting')
   const [groups, setGroups] = useState<Group[]>([])
   const [closed, setClosed] = useState<Entry[]>([])
@@ -126,6 +130,7 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
   }
 
   const close = async (e: Entry, status: 'fulfilled' | 'cancelled') => {
+    if (!canManage) { flash('You need CRM rights to close a waiting entry.', 'err'); return }
     setBusy(e.id)
     const { error } = await supabase.from('waiting_list').update({
       status, closed_at: new Date().toISOString(), closed_by_name: user?.full_name || null,
@@ -135,6 +140,7 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     flash(`${e.customer_name} marked ${status}`); load()
   }
   const markNotified = async (e: Entry) => {
+    if (!canManage) { flash('You need CRM rights to update a waiting entry.', 'err'); return }
     setBusy(e.id)
     await supabase.from('waiting_list').update({ status: 'notified', notified_at: new Date().toISOString() }).eq('id', e.id)
     setBusy(''); flash(`${e.customer_name} marked notified`); load()
@@ -342,6 +348,12 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
         </div>
       )}
 
+      {!canManage && (
+        <div style={{ padding: 10, borderRadius: 8, background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>
+          You can add people to the waiting list and message them. Marking an entry notified, fulfilled or cancelled needs CRM rights.
+        </div>
+      )}
+
       {loading && <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)' }}>Loading…</div>}
 
       {!loading && tab === 'waiting' && (
@@ -381,9 +393,9 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {link && <a href={link} target="_blank" rel="noreferrer" style={{ ...btn, background: 'rgba(37,211,102,.15)', color: '#25D366', border: '1px solid rgba(37,211,102,.4)', textDecoration: 'none' }}>WhatsApp</a>}
-                      {e.status !== 'notified' && <button disabled={busy === e.id} onClick={() => markNotified(e)} style={btn}>Mark notified</button>}
-                      <button disabled={busy === e.id} onClick={() => close(e, 'fulfilled')} style={{ ...btn, background: 'var(--green, #16a34a)', color: '#fff', border: 'none' }}>Fulfilled</button>
-                      <button disabled={busy === e.id} onClick={() => close(e, 'cancelled')} style={{ ...btn, color: 'var(--text3)' }}>Cancel</button>
+                      {canManage && e.status !== 'notified' && <button disabled={busy === e.id} onClick={() => markNotified(e)} style={btn}>Mark notified</button>}
+                      {canManage && <button disabled={busy === e.id} onClick={() => close(e, 'fulfilled')} style={{ ...btn, background: 'var(--green, #16a34a)', color: '#fff', border: 'none' }}>Fulfilled</button>}
+                      {canManage && <button disabled={busy === e.id} onClick={() => close(e, 'cancelled')} style={{ ...btn, color: 'var(--text3)' }}>Cancel</button>}
                     </div>
                   </div>
                 )
