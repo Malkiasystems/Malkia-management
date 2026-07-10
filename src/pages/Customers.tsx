@@ -232,31 +232,49 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     // We pull hidden rows in the query and filter them out in `filtered`
     // below so the "Show hidden" toggle is a client-side flip rather than
     // a round-trip.
-    const { data } = tab === 'cash'
-      ? await supabase.from('customers').select('*')
-          .eq('customer_type', 'cash').eq('is_active', true).order('name')
-      : await supabase.from('customers').select('*')
-          .in('customer_type', ['wholesale', 'debtor']).eq('is_active', true).order('name')
-    if (!data) { setLoading(false); return }
+    // Supabase caps any select at 1000 rows by default. Once the contact book
+    // passed 1000, everyone after that silently vanished from the list (and from
+    // the metrics join, so they rendered "unclassified"). Page through instead.
+    const PAGE = 1000
+    const all: Customer[] = []
+    for (let from = 0; ; from += PAGE) {
+      const q = tab === 'cash'
+        ? supabase.from('customers').select('*')
+            .eq('customer_type', 'cash').eq('is_active', true).order('name').range(from, from + PAGE - 1)
+        : supabase.from('customers').select('*')
+            .in('customer_type', ['wholesale', 'debtor']).eq('is_active', true).order('name').range(from, from + PAGE - 1)
+      const { data: page, error } = await q
+      if (error || !page) break
+      all.push(...(page as Customer[]))
+      if (page.length < PAGE) break
+    }
+    if (all.length === 0 && customers.length === 0) { setLoading(false); return }
 
-    let rows = data as Customer[]
+    let rows = all
 
     // For cash customers, also pull life_stage/lifecycle_stage from customer_metrics view.
-    // The view only includes active cash customers (matching the WHERE on the page).
-    if (tab === 'cash') {
-      const { data: metrics } = await supabase
-        .from('customer_metrics')
-        .select('customer_id, life_stage, lifecycle_stage')
-      if (metrics) {
-        const byId = new Map<string, { life_stage: LifeStage | null; lifecycle_stage: string | null }>()
-        for (const m of metrics as Array<{ customer_id: string; life_stage: LifeStage | null; lifecycle_stage: string | null }>) {
+    // IMPORTANT: fetch metrics only for the customers actually loaded, keyed by id.
+    // Selecting the whole view hits Supabase's default 1000-row cap, so any customer
+    // beyond that returned no match and rendered as "unclassified" even though the
+    // view had classified them correctly. Chunked to stay inside URL length limits.
+    if (tab === 'cash' && rows.length > 0) {
+      const ids = rows.map(r => r.id)
+      const byId = new Map<string, { life_stage: LifeStage | null; lifecycle_stage: string | null }>()
+      const CHUNK = 200
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const slice = ids.slice(i, i + CHUNK)
+        const { data: metrics } = await supabase
+          .from('customer_metrics')
+          .select('customer_id, life_stage, lifecycle_stage')
+          .in('customer_id', slice)
+        for (const m of (metrics || []) as Array<{ customer_id: string; life_stage: LifeStage | null; lifecycle_stage: string | null }>) {
           byId.set(m.customer_id, { life_stage: m.life_stage, lifecycle_stage: m.lifecycle_stage })
         }
-        rows = rows.map(r => {
-          const m = byId.get(r.id)
-          return { ...r, life_stage: m?.life_stage ?? null, lifecycle_stage: m?.lifecycle_stage ?? null }
-        })
       }
+      rows = rows.map(r => {
+        const m = byId.get(r.id)
+        return { ...r, life_stage: m?.life_stage ?? null, lifecycle_stage: m?.lifecycle_stage ?? null }
+      })
     }
 
     setCustomers(rows)
