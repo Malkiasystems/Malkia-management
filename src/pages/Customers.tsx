@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { useInvoicePreview } from '../lib/useInvoicePreview'
+import InvoicePreviewModal from '../components/InvoicePreviewModal'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { tzs } from '../lib/utils'
@@ -112,6 +114,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   const [view, setView] = useState<'list'|'ledger'|'form'>('list')
   const [selected, setSelected] = useState<Customer | null>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
+  // Invoice drill-down: click an invoice row in the ledger to view the document.
+  const invoicePreview = useInvoicePreview()
   const [loadingLedger, setLoadingLedger] = useState(false)
 
   // Form
@@ -622,10 +626,24 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                   {rows.map((e, i) => {
                     const isOpen = e.is_open && e.amount > 0
                     const isOverdue = e.due_date && new Date(e.due_date) < new Date() && e.is_open
+                    // Only invoices drill down. Receipts and credit notes render
+                    // from different templates — clicking them would show a lie.
+                    const canPreview = e.document_type === 'invoice' && !!e.document_ref
                     return (
-                      <tr key={i} style={{ background: isOverdue ? 'rgba(255,71,87,.04)' : isOpen ? 'rgba(212,135,74,.04)' : 'transparent' }}>
+                      <tr key={i}
+                        onClick={() => { if (canPreview) invoicePreview.openByRef(e.document_ref) }}
+                        title={canPreview ? `View invoice ${e.document_ref}` : undefined}
+                        style={{
+                          background: isOverdue ? 'rgba(255,71,87,.04)' : isOpen ? 'rgba(212,135,74,.04)' : 'transparent',
+                          cursor: canPreview ? 'pointer' : 'default',
+                        }}>
                         <td className="td-mono" style={{ fontSize:11,color:'var(--text3)' }}>{e.posting_date}</td>
-                        <td className="td-mono td-amber" style={{ fontSize:11,fontWeight:700 }}>{e.document_ref}</td>
+                        <td className="td-mono td-amber" style={{ fontSize:11,fontWeight:700 }}>
+                          {e.document_ref}
+                          {canPreview && (
+                            <span style={{ marginLeft:5,fontSize:9,color:'var(--text3)',fontWeight:400 }}>↗</span>
+                          )}
+                        </td>
                         <td><span className={`pill ${e.document_type==='invoice'?'pill-amber':e.document_type==='payment'?'pill-green':e.document_type==='cash_sale'?'pill-blue':'pill-gray'}`} style={{ fontSize:9 }}>{e.document_type?.replace('_',' ')}</span></td>
                         <td style={{ fontSize:11,color:'var(--text3)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.description}</td>
                         <td className="td-right td-mono" style={{ color:'var(--red)',fontSize:12 }}>{e.amount > 0 ? tzs(e.amount) : '—'}</td>
@@ -660,6 +678,23 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
             </div>
           )}
         </div>
+
+        {/* Invoice drill-down. Loading and error are surfaced, never swallowed. */}
+        {invoicePreview.loading && (
+          <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999,color:'var(--text3)',fontFamily:'var(--mono)',fontSize:12 }}>
+            Loading invoice…
+          </div>
+        )}
+        <InvoicePreviewModal
+          voucher={invoicePreview.voucher}
+          settings={invoicePreview.settings}
+          onClose={invoicePreview.close}
+          domId="customer-ledger-invoice-preview"
+        />
+        {invoicePreview.error && (
+          <Toast message={invoicePreview.error} type="error" onClose={invoicePreview.close} />
+        )}
+
         {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
       </div>
     )
