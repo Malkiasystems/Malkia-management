@@ -322,7 +322,10 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'crm-inbox': ['crm.inbox'],
   'crm-automations': ['crm.automations'],
   'crm-preorders': ['crm.view'],
-  'crm-waiting-list': ['crm.view'],
+  // The waiting list is captured at the counter by whoever meets the customer,
+  // so it must not be locked behind CRM rights. Anyone who sells (cash sale /
+  // invoice), views customers, or handles stock can lodge and work the list.
+  'crm-waiting-list': ['crm.view', 'sales.create', 'sales.view', 'customers.view', 'inventory.view'],
   'crm-referrals': ['crm.view'],
   'crm-loyalty': ['crm.view'],
   'crm-feedback': ['crm.view'],
