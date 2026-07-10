@@ -9,6 +9,7 @@ import { makeCategoryPredicate } from '../components/CategoryFilter'
 import { useUserLocation } from '../lib/useUserLocation'
 import { useAuth } from '../lib/useAuth'
 import { exportStockReportPDF } from '../lib/stockReportExport'
+import { createProduct, updateProduct } from '../lib/productPost'
 import type { Page } from '../lib/types'
 
 interface DBProduct {
@@ -29,7 +30,7 @@ interface ItemLedgerEntry {
 }
 
 const UNITS = ['Piece', 'Pack', 'Bottle', 'Tube', 'Box', 'Set']
-const EMPTY_FORM = { sku: '', name: '', category: '', unit: 'Piece', cost_price: '', selling_price: '', qty_on_hand: '0', reorder_point: '10' }
+const EMPTY_FORM = { sku: '', name: '', category: '', unit: 'Piece', cost_price: '', selling_price: '', qty_on_hand: '0', reorder_point: '10', opening_location: '' }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -172,13 +173,20 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
       sku: p.sku, name: p.name, category: p.category, unit: p.unit,
       cost_price: p.cost_price.toString(), selling_price: p.selling_price.toString(),
       qty_on_hand: p.qty_on_hand.toString(), reorder_point: p.reorder_point.toString(),
+      opening_location: '',   // never used on edit — stock moves via vouchers only
     })
     setView('edit')
   }
 
   const openAdd = () => {
     setSelectedProduct(null)
-    setForm(EMPTY_FORM)
+    // Pre-select the most sensible bin: the user's locked location, else
+    // whatever location they're currently filtering by. Falls back to blank,
+    // which is only valid when opening qty is 0.
+    const preset =
+      userLoc.defaultLocationCode ||
+      (filterLoc !== 'all' ? filterLoc : '')
+    setForm({ ...EMPTY_FORM, opening_location: preset })
     setView('edit')
   }
 
@@ -226,13 +234,35 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
     }
     try {
       if (selectedProduct) {
-        const { error } = await supabase.from('products').update(payload).eq('id', selectedProduct.id)
-        if (error) throw new Error(error.message)
+        const res = await updateProduct(selectedProduct.id, payload)
+        if (!res.success) throw new Error(res.error)
         showToast(`${form.name} updated`)
       } else {
-        const { error } = await supabase.from('products').insert({ ...payload, qty_on_hand: parseFloat(form.qty_on_hand) || 0 })
-        if (error) throw new Error(error.message)
-        showToast(`${form.name} added to inventory`)
+        // Opening stock must land in a real bin, otherwise the product has a
+        // global qty but no product_locations row: invisible under every
+        // location filter, and wiped the first time a location row appears.
+        const openQty = parseFloat(form.qty_on_hand) || 0
+        const openLoc = locations.find(l => l.code === form.opening_location) || null
+
+        if (openQty > 0 && !openLoc) {
+          showToast('Select a location for the opening quantity.', 'error')
+          setSaving(false)
+          return
+        }
+        if (openLoc && !userLoc.canPostFrom(openLoc.code)) {
+          showToast(`You cannot post opening stock at ${openLoc.code}.`, 'error')
+          setSaving(false)
+          return
+        }
+
+        const res = await createProduct(payload, {
+          qty: openQty,
+          location: openLoc ? { id: openLoc.id, code: openLoc.code } : null,
+        })
+        if (!res.success) throw new Error(res.error)
+        if (res.warning) showToast(res.warning, 'error')
+        else if (openQty > 0 && openLoc) showToast(`${form.name} added · ${openQty} ${form.unit} at ${openLoc.code}`)
+        else showToast(`${form.name} added to inventory (no stock yet)`)
       }
       setNewCategory('')
       setView('list'); loadProducts()
@@ -420,6 +450,25 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
               </FG>
               <FG label="Reorder Point"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="10" value={form.reorder_point} onChange={e => setF('reorder_point', e.target.value)} /></FG>
             </div>
+            {!selectedProduct && (
+              <FG label="Opening Stock Location" req={parseFloat(form.qty_on_hand) > 0}>
+                <select
+                  className="form-input"
+                  value={form.opening_location}
+                  onChange={e => setF('opening_location', e.target.value)}
+                >
+                  <option value="">-- No stock yet (catalogue only) --</option>
+                  {locations
+                    .filter(l => userLoc.canPostFrom(l.code))
+                    .map(l => <option key={l.id} value={l.code}>{l.code} — {l.name}</option>)}
+                </select>
+                <div style={{ fontSize: 11, color: parseFloat(form.qty_on_hand) > 0 && !form.opening_location ? 'var(--red)' : 'var(--text3)', marginTop: 6 }}>
+                  {parseFloat(form.qty_on_hand) > 0 && !form.opening_location
+                    ? 'Required — opening stock must be placed at a location, or it will not appear in any warehouse.'
+                    : 'Posts an Opening Stock ledger entry and places the qty at this location.'}
+                </div>
+              </FG>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {form.cost_price && form.selling_price && parseFloat(form.selling_price) > 0 && (
@@ -715,6 +764,11 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.unit}</td>
                       <td className="td-right td-mono" style={{ color: colors[s], fontWeight: 700 }}>
                         {effectiveQty}
+                        {filterLoc === 'all' && !hasLocations && p.qty_on_hand > 0 && (
+                          <div title="This product has stock but no product_locations row. It is hidden from every location filter. Post an Opening Stock voucher to place it." style={{ fontSize: 8, color: 'var(--red)', fontFamily: 'var(--mono)', marginTop: 1 }}>
+                            NO LOCATION
+                          </div>
+                        )}
                         {filterLoc === 'all' && hasLocations && (
                           <div style={{ fontSize: 8, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 1 }}>
                             {Object.entries(productLocations[p.id] || {}).map(([code, qty]) => `${code}:${qty}`).join(' · ')}
