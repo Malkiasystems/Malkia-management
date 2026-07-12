@@ -19,6 +19,9 @@ import { useAuth, canAccessPage } from '../lib/useAuth'
 interface Props {
   current: Page
   onNav: (p: Page) => void
+  /** When true, mirror the desktop stock-workspace sidebar: a restricted,
+      stock-only nav with the stock dashboard as home. */
+  stockMode?: boolean
 }
 
 const P = { fill: 'none', strokeWidth: 1.9, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -41,6 +44,9 @@ const ICONS: Record<string, React.ReactNode> = {
   banks:     <svg {...P}><path d="M3 10L12 3l9 7 M2 18h20"/><rect x="5" y="10" width="3" height="8"/><rect x="16" y="10" width="3" height="8"/></svg>,
   suppliers: <svg {...P}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   imports:   <svg {...P}><path d="M1 3h13v13H1z M14 8h4l3 3v5h-7"/></svg>,
+  receive:   <svg {...P}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3"/></svg>,
+  transfer:  <svg {...P}><path d="M16 3h5v5 M21 3l-7 7 M8 21H3v-5 M3 21l7-7"/></svg>,
+  register:  <svg {...P}><path d="M18 20V10 M12 20V4 M6 20v-6"/></svg>,
 }
 
 // Bottom bar: the 5 hottest destinations. "Menu" always shows (opens drawer).
@@ -86,14 +92,32 @@ const GROUPS: { title: string; items: { key: string; label: string; page: Page }
   ]},
 ]
 
-export default function MobileNav({ current, onNav }: Props) {
+// Stock-workspace nav — mirrors STOCK_NAV in Sidebar.tsx. Keep in sync.
+const STOCK_TABS: { key: string; label: string; page: Page }[] = [
+  { key: 'home',      label: 'Home',     page: 'stock-dashboard' },
+  { key: 'inventory', label: 'Stock',    page: 'inventory' },
+  { key: 'receive',   label: 'Receive',  page: 'grn' },
+  { key: 'dispatch',  label: 'Dispatch', page: 'dispatch' },
+]
+const STOCK_DRAWER: { key: string; label: string; page: Page }[] = [
+  { key: 'home',      label: 'Stock Dashboard', page: 'stock-dashboard' },
+  { key: 'inventory', label: 'Inventory',       page: 'inventory' },
+  { key: 'receive',   label: 'Receive (GRN)',   page: 'grn' },
+  { key: 'transfer',  label: 'Transfer',        page: 'stock-transfer' },
+  { key: 'approvals', label: 'Approvals',       page: 'stock-transfer-approvals' },
+  { key: 'dispatch',  label: 'Dispatch',        page: 'dispatch' },
+  { key: 'movements', label: 'Movements',       page: 'stock-movements' },
+  { key: 'register',  label: 'Transfer Register', page: 'stock-transfer-register' },
+]
+
+export default function MobileNav({ current, onNav, stockMode }: Props) {
   const { permissions, user } = useAuth()
   const [drawer, setDrawer] = useState(false)
 
   const allowed = (p: Page) => canAccessPage(p, permissions)
   const go = (p: Page) => { setDrawer(false); onNav(p) }
 
-  const tabs = TABS.filter(t => allowed(t.page))
+  const tabs = (stockMode ? STOCK_TABS : TABS).filter(t => allowed(t.page))
 
   return (
     <>
@@ -130,25 +154,43 @@ export default function MobileNav({ current, onNav }: Props) {
             </div>
 
             <div className="mobile-drawer-body">
-              {GROUPS.map(g => {
-                const items = g.items.filter(it => allowed(it.page))
-                if (items.length === 0) return null
-                return (
-                  <div key={g.title} className="mobile-drawer-group">
-                    <div className="mobile-drawer-group-title">{g.title}</div>
-                    {items.map((it, i) => (
-                      <button
-                        key={`${it.page}-${i}`}
-                        className={`mobile-drawer-item ${current === it.page ? 'mobile-drawer-item-active' : ''}`}
-                        onClick={() => go(it.page)}
-                      >
-                        <span className="mobile-drawer-item-ic">{ICONS[it.key]}</span>
-                        {it.label}
-                      </button>
-                    ))}
-                  </div>
-                )
-              })}
+              {stockMode ? (
+                // Stock workspace: single flat, restricted list — matches the
+                // desktop stock sidebar. No money / sales / settings groups.
+                <div className="mobile-drawer-group">
+                  <div className="mobile-drawer-group-title">Stock</div>
+                  {STOCK_DRAWER.filter(it => allowed(it.page)).map((it, i) => (
+                    <button
+                      key={`${it.page}-${i}`}
+                      className={`mobile-drawer-item ${current === it.page ? 'mobile-drawer-item-active' : ''}`}
+                      onClick={() => go(it.page)}
+                    >
+                      <span className="mobile-drawer-item-ic">{ICONS[it.key]}</span>
+                      {it.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                GROUPS.map(g => {
+                  const items = g.items.filter(it => allowed(it.page))
+                  if (items.length === 0) return null
+                  return (
+                    <div key={g.title} className="mobile-drawer-group">
+                      <div className="mobile-drawer-group-title">{g.title}</div>
+                      {items.map((it, i) => (
+                        <button
+                          key={`${it.page}-${i}`}
+                          className={`mobile-drawer-item ${current === it.page ? 'mobile-drawer-item-active' : ''}`}
+                          onClick={() => go(it.page)}
+                        >
+                          <span className="mobile-drawer-item-ic">{ICONS[it.key]}</span>
+                          {it.label}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>

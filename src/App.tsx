@@ -732,7 +732,7 @@ function AppContent() {
               </Suspense>
             </div>
           </div>
-          {isMobile && <MobileNav current={page} onNav={navigate} />}
+          {isMobile && <MobileNav current={page} onNav={navigate} stockMode={isStockWorkspace} />}
         </div>
       </CacheProvider>
   )
