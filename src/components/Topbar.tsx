@@ -247,7 +247,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
   }
 
   return (
-    <div style={styles.topbar}>
+    <div style={styles.topbar} className="app-topbar">
       <div style={styles.left}>
         <div style={styles.logo} onClick={() => onNav('dashboard')}>
           <svg width="28" height="28" viewBox="0 0 100 100" fill="none">
@@ -267,7 +267,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
           </button>
         )}
 
-        <div style={styles.breadcrumb}>
+        <div style={styles.breadcrumb} className="tb-breadcrumb">
           <span style={styles.company} className="tb-company">Wellness Group</span>
           <span style={styles.separator}>›</span>
           <span style={styles.page}>{breadcrumb}</span>
@@ -328,7 +328,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
         </div>
       </div>
 
-      <div style={styles.right}>
+      <div style={styles.right} className="tb-right">
         <div style={styles.fyBadge} className="tb-fy">FY 2025-26</div>
         
         <div style={styles.userSection}>

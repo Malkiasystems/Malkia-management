@@ -226,10 +226,37 @@ select.form-input { cursor: pointer; appearance: none; }
 
   /* ── Topbar collapse (classNames added to Topbar; !important beats the
      component's inline styles). ─────────────────────────────────────────── */
+  .app-topbar { padding: 10px 12px !important; gap: 8px !important; }
   .tb-search { display: none !important; }
   .tb-fy { display: none !important; }
   .tb-userinfo { display: none !important; }
-  .tb-company { display: none !important; }
+  /* The breadcrumb page name was wrapping and colliding with the avatar.
+     Every page has its own header, so the crumb is redundant on a phone. */
+  .tb-breadcrumb { display: none !important; }
+  .tb-right { gap: 4px !important; flex-shrink: 0; }
+
+  /* ── Stat-card rows: many pages hardcode `repeat(N, 1fr)` inline. Grid
+     tracks won't shrink below content, so 5 cards overflow and the numbers
+     clip. Convert any grid that CONTAINS stat cards into a horizontal
+     scroll strip with readable, fixed-width cards. `:has()` scopes this to
+     exactly those grids (iOS 16.4+); older browsers keep prior behaviour. */
+  .grid:has(> .stat-card),
+  div:has(> .stat-card) {
+    display: flex !important;
+    grid-template-columns: none !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+  .grid:has(> .stat-card) > .stat-card,
+  div:has(> .stat-card) > .stat-card {
+    flex: 0 0 auto;
+    min-width: 150px;
+    scroll-snap-align: start;
+  }
+  .stat-value { font-size: 22px; letter-spacing: -.5px; }
+  .stat-label { font-size: 9px; }
+  .stat-icon { font-size: 20px; right: 12px; top: 12px; }
 
   /* ── Desktop icon rail hidden on phones ───────────────────────────────── */
   .app-sidebar-desktop { display: none !important; }
