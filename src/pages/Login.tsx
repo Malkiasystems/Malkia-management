@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { supabase, COMPANIES, getActiveCompany, switchCompany } from '../lib/supabase'
+import OtpGate from '../components/OtpGate'
+import { markMfaVerified } from '../lib/useLoginOtp'
 import type { Company } from '../lib/supabase'
 
 interface Props {
@@ -12,6 +14,9 @@ export default function Login({ onLogin }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedCompany, setSelectedCompany] = useState<Company>(getActiveCompany())
+  // When the account has SMS MFA, we hold here after the password step and
+  // show the OTP gate instead of entering the app.
+  const [mfaUserId, setMfaUserId] = useState<string | null>(null)
 
   const handleCompanySelect = (company: Company) => {
     setSelectedCompany(company)
@@ -41,7 +46,7 @@ export default function Login({ onLogin }: Props) {
     // Check if user exists in our users table
     const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('id, is_active')
+      .select('id, is_active, mfa_enabled')
       .eq('email', email.toLowerCase())
       .single()
 
@@ -66,7 +71,35 @@ export default function Login({ onLogin }: Props) {
     }).then(() => {}, () => {})  // best-effort; never block login
 
     setLoading(false)
+
+    // SMS second factor. If enabled for this account, hold here and show the
+    // OTP gate; the app is only entered (onLogin) after the code verifies.
+    // Accounts without MFA log in exactly as before.
+    if (userData.mfa_enabled) {
+      setMfaUserId(userData.id)
+      return
+    }
+
     onLogin()
+  }
+
+  // OTP gate: shown after a correct password for MFA-enabled accounts.
+  // Cancelling signs out and returns to the password screen.
+  const cancelMfa = async () => {
+    await supabase.auth.signOut()
+    setMfaUserId(null)
+    setPassword('')
+    setError('')
+  }
+
+  if (mfaUserId) {
+    return (
+      <OtpGate
+        userId={mfaUserId}
+        onVerified={() => { markMfaVerified(mfaUserId); onLogin() }}
+        onCancel={cancelMfa}
+      />
+    )
   }
 
   return (

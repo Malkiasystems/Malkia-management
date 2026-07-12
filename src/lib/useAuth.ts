@@ -21,6 +21,8 @@ export interface User {
   //   'stock' = scoped Stock Manager workspace (stock-only sidebar + dashboard
   //             + hard access gate). Pair with allowed_location_id.
   workspace_role?: string
+  // SMS second factor. When true, login requires an OTP after the password.
+  mfa_enabled?: boolean
 }
 
 export interface AuthContextType {
@@ -132,6 +134,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         phone: userData.phone,
         is_active: userData.is_active,
         is_approver: userData.is_approver,
+        mfa_enabled: userData.mfa_enabled ?? false,
         is_away: userData.is_away,
         avatar_url: userData.avatar_url,
         // Pre-migration users won't have this column; default to null.

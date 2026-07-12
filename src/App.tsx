@@ -10,6 +10,8 @@ import type { HRMViewMode } from './pages/hrm/hrmTypes'
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
+import OtpGate from './components/OtpGate'
+import { isMfaVerifiedThisSession, markMfaVerified, clearMfaVerified } from './lib/useLoginOtp'
 import { useIsMobile } from './lib/useIsMobile'
 import Login from './pages/Login'
 
@@ -514,6 +516,7 @@ function AppContent() {
   // the stock sidebar only controls what's visible.
   const isStockWorkspace = user?.workspace_role === 'stock'
   const isMobile = useIsMobile()
+  const [, forceMfaRerender] = useState(0)
   useEffect(() => {
     if (!isStockWorkspace) return
     if (!STOCK_WORKSPACE_PAGES.has(page)) {
@@ -530,6 +533,20 @@ function AppContent() {
   // Show login if not authenticated
   if (!isAuthenticated) {
     return <Login onLogin={refreshUser} />
+  }
+
+  // SMS second factor on session restore. A page reload rehydrates the
+  // Supabase session directly, bypassing the Login screen. So we re-check
+  // here: an MFA-enabled user who hasn't verified in THIS browser session is
+  // held at the OTP gate before any app data renders.
+  if (user?.mfa_enabled && !isMfaVerifiedThisSession(user.id)) {
+    return (
+      <OtpGate
+        userId={user.id}
+        onVerified={() => { markMfaVerified(user.id); forceMfaRerender(n => n + 1) }}
+        onCancel={async () => { clearMfaVerified(); await supabase.auth.signOut() }}
+      />
+    )
   }
 
   // Check if current user can access the page
