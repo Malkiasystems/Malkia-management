@@ -30,7 +30,12 @@ export function consumeExpenseRegisterTab(): ExpenseRegisterTab | null {
 /** Subscribe to same-page tab requests. Returns an unsubscribe fn. */
 export function subscribeExpenseRegisterTab(cb: (t: ExpenseRegisterTab) => void): () => void {
   const handler = (e: Event) => {
-    pending = null // handled live; don't let it linger for a later mount
+    // NOTE: do NOT clear `pending` here. Navigating to the page you're already
+    // on can still remount the register a tick later; if we cleared pending,
+    // that re-mount would consume null and fall back to Transactions — the tab
+    // would flash then vanish. Leaving pending set means the re-mount consumes
+    // the intended tab. `pending` is cleared by consume() on the next mount,
+    // and every register-nav sets it explicitly, so it never goes stale.
     cb((e as CustomEvent).detail as ExpenseRegisterTab)
   }
   if (typeof window !== 'undefined') window.addEventListener(EVT, handler)
