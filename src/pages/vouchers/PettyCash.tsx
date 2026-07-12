@@ -9,6 +9,8 @@ import { useAuth } from '../../lib/useAuth'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
+import { getPettyCashCeiling } from '../../lib/expenseSettings'
+import { consumeExpensePrefill } from '../../lib/expensePrefill'
 
 interface Props { onNav: (p: Page) => void }
 interface ExpLine { desc: string; amount: number; accountId: string }
@@ -23,6 +25,7 @@ export default function PettyCash({ onNav }: Props) {
   const [pettyCashBal, setPettyCashBal] = useState(0)
   const [lines, setLines] = useState<ExpLine[]>([{ desc: '', amount: 0, accountId: '' }])
   const [form, setForm] = useState({ date: today(), ref: '', paidTo: '', notes: '' })
+  const [ceiling, setCeiling] = useState<number | null>(null)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
@@ -36,6 +39,14 @@ export default function PettyCash({ onNav }: Props) {
     if (accts) setExpAccounts(accts)
     if (petty) { setPettyCashId(petty.id); setPettyCashBal(petty.balance || 0) }
     setForm(f => ({ ...f, ref: newRef }))
+    getPettyCashCeiling().then(setCeiling)
+
+    // Recurring "Pay now" hands off here. Prefill the first line + payee.
+    const pre = consumeExpensePrefill()
+    if (pre) {
+      setForm(f => ({ ...f, paidTo: pre.payTo || f.paidTo }))
+      setLines([{ desc: pre.narration || pre.payTo || '', amount: pre.amount || 0, accountId: pre.expenseAccountId || '' }])
+    }
   }
 
   const updateLine = (i: number, k: keyof ExpLine, v: string | number) => {
@@ -81,6 +92,10 @@ export default function PettyCash({ onNav }: Props) {
     if (!form.paidTo.trim()) { showToast('Paid to is required', 'error'); return }
     if (lines.every(l => !l.desc || !l.amount)) { showToast('Add at least one expense line', 'error'); return }
     if (lines.some(l => l.amount > 0 && !l.accountId)) { showToast('Select expense account for each line', 'error'); return }
+    if (ceiling != null && total > ceiling) {
+      showToast(`Over ${total.toLocaleString()} exceeds the petty cash ceiling of ${ceiling.toLocaleString()}. Use Cash Payment instead.`, 'error')
+      return
+    }
     if (!pettyCashId) { showToast('Petty Cash account (1040) not found', 'error'); return }
     if (!form.ref) { showToast('Reference number not generated', 'error'); return }
     if (!user) { showToast('You must be signed in', 'error'); return }
@@ -191,12 +206,20 @@ export default function PettyCash({ onNav }: Props) {
   return (
     <VoucherPage title="Petty Cash Expense" icon="" subtitle="Small office expenses from petty cash float" color="rgba(255,211,42,.12)"
       onPost={post}
+      postDisabled={ceiling != null && total > ceiling}
+      postDisabledReason={ceiling != null && total > ceiling ? `Over the ${ceiling.toLocaleString()} petty cash ceiling — use Cash Payment` : undefined}
       postLabel={
         posting
           ? (needsApproval ? 'Submitting…' : 'Posting…')
           : needsApproval ? 'Submit for Approval' : 'Post Expense'
       }
       journalNote="Dr Expense Account(s) · Cr Petty Cash (1040)">
+
+      {ceiling != null && total > ceiling && (
+        <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(255,71,87,.10)', border: '1px solid rgba(255,71,87,.4)', color: 'var(--red, #dc2626)' }}>
+          {total.toLocaleString()} exceeds the petty cash ceiling of {ceiling.toLocaleString()}. This must be a Cash Payment.
+        </div>
+      )}
 
       {/* Pre-submit approval notice — appears whenever the entered total
           crosses a configured threshold. Tells the cashier ahead of time

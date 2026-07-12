@@ -6,7 +6,7 @@ interface Props { onNav: (p: Page) => void }
 const SECTIONS = [
   {
     title: 'Money Vouchers', desc: 'Payments, receipts and transfers', items: [
-      { icon: 'cash-out', name: 'New Expense', desc: 'Log any expense — category & pay-from, accounting handled', color: 'rgba(255,71,87,.12)', page: 'new-expense' as Page },
+      { icon: 'cash-out', name: 'New Expense', desc: 'Log an expense — choose Cash Payment or Petty Cash', color: 'rgba(255,71,87,.12)', page: 'new-expense' as Page },
       { icon: 'cash-out', name: 'Payment Voucher', desc: 'Raw voucher — pick expense & cash accounts (accountants)', color: 'rgba(255,71,87,.12)', page: 'cash-payment' as Page },
       { icon: 'cash-in', name: 'Receipt Voucher', desc: 'Receive money — single, batch, or other income (cash or bank)', color: 'rgba(0,229,160,.12)', page: 'cash-receipt' as Page },
       { icon: 'transfer', name: 'Bank Transfer', desc: 'Between your own accounts', color: 'rgba(61,139,255,.12)', page: 'bank-transfer' as Page },

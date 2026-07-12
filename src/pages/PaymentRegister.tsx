@@ -7,6 +7,7 @@ import { useRecurringExpenses } from '../lib/useRecurringExpenses'
 import type { RecurringExpense, UnpaidRecurring } from '../lib/useRecurringExpenses'
 import { setExpensePrefill } from '../lib/expensePrefill'
 import { consumeExpenseRegisterTab, subscribeExpenseRegisterTab } from '../lib/expenseRegisterTab'
+import { getPettyCashCeiling } from '../lib/expenseSettings'
 import Toast from '../components/Toast'
 import type { Page } from '../lib/types'
 
@@ -865,7 +866,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                         <td style={{ fontSize: 11, color: 'var(--text3)' }}>{u.last_paid_date || 'Never'}</td>
                         <td className="td-right">
                           {onEdit && (
-                            <button className="btn btn-primary btn-sm" onClick={() => {
+                            <button className="btn btn-primary btn-sm" onClick={async () => {
                               // The unpaid view lacks account_id/supplier_id; the full
                               // recurring record (same id) has them. Join in memory.
                               const full = recurring.find((r: RecurringExpense) => r.id === u.id)
@@ -876,7 +877,9 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                                 supplierId: full?.supplier_id || null,
                                 narration: u.description || `Recurring: ${u.name}`,
                               })
-                              onEdit('new-expense', '')
+                              // Route to the correct voucher by the petty cash ceiling.
+                              const ceiling = await getPettyCashCeiling()
+                              onEdit!(u.amount <= ceiling ? 'petty-cash' : 'cash-payment', '')
                             }}>Pay now</button>
                           )}
                         </td>

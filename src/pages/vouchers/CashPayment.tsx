@@ -8,6 +8,7 @@ import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
+import { consumeExpensePrefill } from '../../lib/expensePrefill'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -73,6 +74,20 @@ export default function CashPayment({ onNav }: Props) {
     const ref = await nextRef('cash_payment')
     setForm(f => ({ ...f, ref }))
   }
+
+  // Recurring "Pay now" hands off here for amounts at/above the petty cash
+  // ceiling. Prefill payee, amount, expense account, supplier.
+  useEffect(() => {
+    const pre = consumeExpensePrefill()
+    if (pre) setForm(f => ({
+      ...f,
+      payTo: pre.payTo || f.payTo,
+      amount: pre.amount != null ? String(pre.amount) : f.amount,
+      expAccount: pre.expenseAccountId || f.expAccount,
+      supplierId: pre.supplierId || f.supplierId,
+      narration: pre.narration || f.narration,
+    }))
+  }, [])
 
   // When supplier is selected, auto-fill Pay To
   const handleSupplierChange = (supplierId: string) => {

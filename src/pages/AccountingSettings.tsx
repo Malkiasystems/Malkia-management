@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getPettyCashCeiling, savePettyCashCeiling, DEFAULT_PETTY_CASH_CEILING } from '../lib/expenseSettings';
 import { supabase } from '../lib/supabase';
 import { getPostedBy } from '../lib/utils';
 
@@ -79,6 +80,8 @@ export default function AccountingSettings() {
   const [backdatingDays, setBackdatingDays] = useState(30);
   const [requireNarration, setRequireNarration] = useState(false);
   const [enableEODLock, setEnableEODLock] = useState(false);
+  const [pettyCeiling, setPettyCeiling] = useState<number>(DEFAULT_PETTY_CASH_CEILING);
+  const [savingCeiling, setSavingCeiling] = useState(false);
 
   // Period Lock Log
   const [lockLog, setLockLog] = useState<PeriodLockLog[]>([]);
@@ -86,6 +89,7 @@ export default function AccountingSettings() {
   // Load all data
   useEffect(() => {
     loadAllData();
+    getPettyCashCeiling().then(setPettyCeiling);
   }, []);
 
   const loadAllData = async () => {
@@ -294,6 +298,14 @@ export default function AccountingSettings() {
   };
 
   // TAB 3: Posting Rules
+  const saveCeiling = async () => {
+    setSavingCeiling(true);
+    const res = await savePettyCashCeiling(pettyCeiling);
+    setSavingCeiling(false);
+    if (res.ok) { setSuccessMsg('Petty cash ceiling saved'); setError(null); }
+    else { setError(res.error || 'Could not save ceiling'); }
+  };
+
   const savePostingRules = async () => {
     try {
       setLoading(true);
@@ -694,6 +706,28 @@ export default function AccountingSettings() {
                   min="0"
                   max="365"
                 />
+              </div>
+
+              <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  Petty cash ceiling (TZS)
+                </label>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '8px' }}>
+                  The amount at which an expense stops being petty cash and must be a Cash Payment. Petty Cash vouchers above this are blocked.
+                </p>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    className="form-input"
+                    style={{ maxWidth: 220, fontFamily: 'var(--mono)' }}
+                    value={pettyCeiling}
+                    onChange={(e) => setPettyCeiling(parseInt(e.target.value) || 0)}
+                    min="0"
+                  />
+                  <button className="btn btn-primary btn-sm" onClick={saveCeiling} disabled={savingCeiling}>
+                    {savingCeiling ? 'Saving…' : 'Save ceiling'}
+                  </button>
+                </div>
               </div>
 
               <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>

@@ -71,8 +71,6 @@ const SALES_SUB: { label: string; page: Page; icon: string }[] = [
 
 const EXPENSE_SUB: { label: string; page: Page; icon: string; tab?: 'budget' | 'recurring' }[] = [
   { label: 'New Expense', page: 'new-expense',      icon: 'M12 5v14 M5 12h14' },
-  { label: 'Cash Pay',    page: 'cash-payment',     icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
-  { label: 'Petty Cash',  page: 'petty-cash',       icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
   { label: 'Register',    page: 'expense-register', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
   { label: 'Budget',      page: 'expense-register', icon: 'M18 20V10M12 20V4M6 20v-6', tab: 'budget' },
   { label: 'Recurring',   page: 'expense-register', icon: 'M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15', tab: 'recurring' },
