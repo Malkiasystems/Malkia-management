@@ -112,7 +112,7 @@ export default function CashPayment({ onNav }: Props) {
       }
       const res = await submitForApproval({
         typeCode: 'cash_payment', referenceType: 'voucher', referenceId: voucher.id,
-        referenceNumber: form.ref, summary: `Cash payment to ${form.payTo}`,
+        referenceNumber: form.ref, summary: `Cash payment to ${form.payTo}${reason ? ' · ' + reason : ''}`,
         requestedValue: amount, payload, requestedBy: user.id,
       })
       if (!res.success) {
@@ -242,6 +242,12 @@ export default function CashPayment({ onNav }: Props) {
       onPost={post}
       postLabel={posting ? (needsApproval ? 'Submitting…' : 'Posting…') : needsApproval ? 'Submit for Approval' : 'Post Payment'}
       journalNote={`Dr Expense/Supplier Account · Cr Cash/Bank Account · Balance updated`}>
+
+      {needsApproval && approvalNotice && (
+        <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(212,135,74,.10)', border: '1px solid rgba(212,135,74,.4)', color: 'var(--text2)' }}>
+          {approvalNotice}
+        </div>
+      )}
 
       <div className="grid g2" style={{ gap: 20 }}>
         <div className="card">
