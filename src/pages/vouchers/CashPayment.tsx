@@ -7,6 +7,7 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -15,12 +16,13 @@ interface DBAccount { id: string; code: string; name: string; type: string; cate
 interface DBSupplier { id: string; name: string; balance_tzs: number }
 
 export default function CashPayment({ onNav }: Props) {
-  const { isSuperAdmin } = useAuth()
+  const { user, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
+  const [approvalCheck, setApprovalCheck] = useState<ApprovalCheckResult | null>(null)
 
 
   const [form, setForm] = useState({
@@ -37,6 +39,19 @@ export default function CashPayment({ onNav }: Props) {
   })
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  // Live approval pre-check: a cash payment over the configured threshold
+  // (TZS 500,000) needs sign-off before it can post. Recompute as amount changes.
+  const amountNum = parseFloat(form.amount) || 0
+  useEffect(() => {
+    if (amountNum <= 0) { setApprovalCheck(null); return }
+    let cancelled = false
+    checkApprovalRequired('cash_payment', { value: amountNum }).then(r => { if (!cancelled) setApprovalCheck(r) })
+    return () => { cancelled = true }
+  }, [amountNum])
+  const canBypassApproval = (approvalCheck?.superAdminBypass ?? false) && isSuperAdmin()
+  const needsApproval = !!approvalCheck?.requiresApproval && !!approvalCheck?.blockPosting && !canBypassApproval
+  const approvalNotice = approvalCheck ? formatApprovalNotice(approvalCheck) : ''
 
   useEffect(() => {
     loadAccounts()
@@ -75,6 +90,42 @@ export default function CashPayment({ onNav }: Props) {
     setToast(msg); setToastType(type)
   }
 
+  // Create a pending voucher + approval request. On approval, executeCashPayment
+  // re-posts it from this exact payload shape (form + expense lines + cashAccountId).
+  const submitCashPaymentForApproval = async (amount: number, reason: string) => {
+    if (!user) { showToast('You must be signed in', 'error'); return }
+    setPosting(true)
+    try {
+      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
+        ref: form.ref, type: 'cash_payment', posting_date: form.date,
+        description: `Cash Payment — ${form.payTo}`, total_amount: amount,
+        status: 'pending_approval', posted_by: user.full_name, notes: form.narration,
+        branch: form.branch, supplier_id: form.supplierId || null, payment_method: 'cash',
+      }).select('id').single()
+      if (vErr || !voucher) throw new Error('Pending voucher: ' + (vErr?.message || 'unknown'))
+
+      const payload = {
+        form: { date: form.date, ref: form.ref, paidTo: form.payTo, notes: form.narration },
+        lines: [{ desc: form.narration || form.payTo, amount, accountId: form.expAccount }],
+        cashAccountId: form.cashAccount,
+        total: amount,
+      }
+      const res = await submitForApproval({
+        typeCode: 'cash_payment', referenceType: 'voucher', referenceId: voucher.id,
+        referenceNumber: form.ref, summary: `Cash payment to ${form.payTo}`,
+        requestedValue: amount, payload, requestedBy: user.id,
+      })
+      if (!res.success) {
+        await supabase.from('vouchers').delete().eq('id', voucher.id)
+        throw new Error(res.error || 'Submission failed')
+      }
+      showToast(`${form.ref} submitted for approval · TZS ${amount.toLocaleString()}`)
+      setTimeout(() => onNav('vouchers'), 1500)
+    } catch (err: any) {
+      showToast(err.message || 'Submission failed', 'error')
+    } finally { setPosting(false) }
+  }
+
   const post = async () => {
     if (!form.payTo.trim()) { showToast('Please enter payee name', 'error'); return }
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
@@ -85,8 +136,19 @@ export default function CashPayment({ onNav }: Props) {
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
 
-    setPosting(true)
     const amount = parseFloat(form.amount)
+
+    // ─── Approval gate ─────────────────────────────────────────────────
+    // Large cash payments must be signed off before they post. Re-check at
+    // submit time in case rules changed mid-session.
+    const check = await checkApprovalRequired('cash_payment', { value: amount })
+    const canBypass = check.superAdminBypass && isSuperAdmin()
+    if (check.requiresApproval && check.blockPosting && !canBypass) {
+      await submitCashPaymentForApproval(amount, check.reason || 'Approval required')
+      return
+    }
+
+    setPosting(true)
 
     try {
       // Get account IDs
@@ -178,6 +240,7 @@ export default function CashPayment({ onNav }: Props) {
       subtitle="Pay any expense or supplier from cash, bank, or M-Pesa"
       color="rgba(255,71,87,.12)"
       onPost={post}
+      postLabel={posting ? (needsApproval ? 'Submitting…' : 'Posting…') : needsApproval ? 'Submit for Approval' : 'Post Payment'}
       journalNote={`Dr Expense/Supplier Account · Cr Cash/Bank Account · Balance updated`}>
 
       <div className="grid g2" style={{ gap: 20 }}>

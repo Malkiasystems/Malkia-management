@@ -5,6 +5,7 @@ import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod, d
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import { useRecurringExpenses } from '../lib/useRecurringExpenses'
 import type { RecurringExpense, UnpaidRecurring } from '../lib/useRecurringExpenses'
+import { setExpensePrefill } from '../lib/expensePrefill'
 import Toast from '../components/Toast'
 import type { Page } from '../lib/types'
 
@@ -841,7 +842,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                   <thead><tr>
                     <th>Expense</th><th>Account / Vendor</th><th>Frequency</th>
                     <th className="td-right">Amount</th><th className="td-right">Due in</th>
-                    <th>Last Paid</th>
+                    <th>Last Paid</th><th></th>
                   </tr></thead>
                   <tbody>
                     {unpaid.filter((u: UnpaidRecurring) => u.is_due).map((u: UnpaidRecurring) => (
@@ -858,6 +859,23 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                           {u.days_until_due == null ? 'now' : u.days_until_due < 0 ? `${Math.abs(u.days_until_due)}d overdue` : u.days_until_due === 0 ? 'today' : `${u.days_until_due}d`}
                         </td>
                         <td style={{ fontSize: 11, color: 'var(--text3)' }}>{u.last_paid_date || 'Never'}</td>
+                        <td className="td-right">
+                          {onEdit && (
+                            <button className="btn btn-primary btn-sm" onClick={() => {
+                              // The unpaid view lacks account_id/supplier_id; the full
+                              // recurring record (same id) has them. Join in memory.
+                              const full = recurring.find((r: RecurringExpense) => r.id === u.id)
+                              setExpensePrefill({
+                                expenseAccountId: full?.account_id || undefined,
+                                amount: u.amount,
+                                payTo: u.name,
+                                supplierId: full?.supplier_id || null,
+                                narration: u.description || `Recurring: ${u.name}`,
+                              })
+                              onEdit('new-expense', '')
+                            }}>Pay now</button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

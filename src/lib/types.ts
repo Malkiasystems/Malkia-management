@@ -1,6 +1,6 @@
 export type Page =
   | 'dashboard' | 'vouchers' | 'chart-of-accounts'
-  | 'cash-sale' | 'cash-payment' | 'cash-receipt' | 'customer-receipt-batch'
+  | 'cash-sale' | 'cash-payment' | 'new-expense' | 'cash-receipt' | 'customer-receipt-batch'
   | 'bank-payment' | 'bank-receipt' | 'bank-transfer'
   | 'petty-cash' | 'contra' | 'sales-invoice' | 'proforma' | 'proformas-list' | 'quotation'
   | 'sales-return' | 'debit-note' | 'credit-note'

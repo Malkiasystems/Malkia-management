@@ -95,6 +95,7 @@ const InvestorsHub = lazy(() => import('./pages/InvestorsHub'))
 // Vouchers
 const VouchersHub = lazy(() => import('./pages/vouchers/VouchersHub'))
 const CashPayment = lazy(() => import('./pages/vouchers/CashPayment'))
+const NewExpense = lazy(() => import('./pages/vouchers/NewExpense'))
 const CashReceipt = lazy(() => import('./pages/vouchers/CashReceipt'))
 // BankReceipt was a redundant 14-line wrapper; CustomerReceiptBatch was
 // the standalone batch page. Both functions are now folded into the
@@ -591,6 +592,7 @@ function AppContent() {
       case 'banks':             return <Banks />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
+      case 'new-expense':       return <NewExpense onNav={navigate} />
       case 'bank-payment':      return <CashPayment onNav={navigate} />  // legacy alias — single Payment Voucher handles both
       case 'cash-receipt':              return <CashReceipt onNav={navigate} prefill={receiptPrefill ?? undefined} />
       // Legacy routes: 'bank-receipt' was a redundant variant; the new
