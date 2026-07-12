@@ -9,6 +9,8 @@ import type { HRMViewMode } from './pages/hrm/hrmTypes'
 
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
+import MobileNav from './components/MobileNav'
+import { useIsMobile } from './lib/useIsMobile'
 import Login from './pages/Login'
 
 // ============================================================================
@@ -511,6 +513,7 @@ function AppContent() {
   // #/pnl all bounce to the stock dashboard. This is the real enforcement;
   // the stock sidebar only controls what's visible.
   const isStockWorkspace = user?.workspace_role === 'stock'
+  const isMobile = useIsMobile()
   useEffect(() => {
     if (!isStockWorkspace) return
     if (!STOCK_WORKSPACE_PAGES.has(page)) {
@@ -685,7 +688,9 @@ function AppContent() {
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
           <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-            <Sidebar current={page} onNav={navigate} stockMode={isStockWorkspace} />
+            <div className="app-sidebar-desktop" style={{ display: 'flex' }}>
+              <Sidebar current={page} onNav={navigate} stockMode={isStockWorkspace} />
+            </div>
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
               {/* HRM Mode Toggle Bar — only for managers/HR with dual access */}
               {isHrmPage && hrmCanManage && hrmLinked && (
@@ -727,6 +732,7 @@ function AppContent() {
               </Suspense>
             </div>
           </div>
+          {isMobile && <MobileNav current={page} onNav={navigate} />}
         </div>
       </CacheProvider>
   )

@@ -268,13 +268,13 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
         )}
 
         <div style={styles.breadcrumb}>
-          <span style={styles.company}>Wellness Group</span>
+          <span style={styles.company} className="tb-company">Wellness Group</span>
           <span style={styles.separator}>›</span>
           <span style={styles.page}>{breadcrumb}</span>
         </div>
       </div>
 
-      <div style={styles.center}>
+      <div style={styles.center} className="tb-search">
         <div ref={searchRef} style={{ position: 'relative' }}>
           <div style={styles.search}>
             <svg width="16" height="16" fill="none" stroke="var(--text3)" strokeWidth="2" viewBox="0 0 24 24">
@@ -329,13 +329,13 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
       </div>
 
       <div style={styles.right}>
-        <div style={styles.fyBadge}>FY 2025-26</div>
+        <div style={styles.fyBadge} className="tb-fy">FY 2025-26</div>
         
         <div style={styles.userSection}>
           <div style={styles.avatar}>
             {user?.initials || 'U'}
           </div>
-          <div style={styles.userInfo}>
+          <div style={styles.userInfo} className="tb-userinfo">
             <div style={styles.userName}>{user?.full_name || 'User'}</div>
             <div style={styles.userRole}>
               {user?.is_approver ? 'Approver' : 'Team Member'}
