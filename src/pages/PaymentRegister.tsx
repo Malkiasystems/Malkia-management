@@ -6,7 +6,7 @@ import type { BudgetLine } from '../lib/useExpenseBudgets'
 import { useRecurringExpenses } from '../lib/useRecurringExpenses'
 import type { RecurringExpense, UnpaidRecurring } from '../lib/useRecurringExpenses'
 import { setExpensePrefill } from '../lib/expensePrefill'
-import { consumeExpenseRegisterTab } from '../lib/expenseRegisterTab'
+import { consumeExpenseRegisterTab, subscribeExpenseRegisterTab } from '../lib/expenseRegisterTab'
 import Toast from '../components/Toast'
 import type { Page } from '../lib/types'
 
@@ -86,6 +86,9 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
     : ['cash_payment', 'petty_cash', 'bank_transfer', 'contra', 'cash_receipt']
 
   const [tab, setTab] = useState<Tab>(() => consumeExpenseRegisterTab() || 'transactions')
+  // Same-page tab switches from the sidebar (Budget / Recurring) arrive as an
+  // event, because navigating to the page you're already on doesn't remount.
+  useEffect(() => subscribeExpenseRegisterTab(t => setTab(t as Tab)), [])
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   // Period filter

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth, canAccessPage } from '../lib/useAuth'
-import { setExpenseRegisterTab } from '../lib/expenseRegisterTab'
+import { requestExpenseRegisterTab } from '../lib/expenseRegisterTab'
 import { getActiveCompany, supabase } from '../lib/supabase'
 
 const VOUCHER_PAGES: Page[] = [
@@ -345,6 +345,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 if (isExpenseItem) {
                   setExpensesOpen(o => !o)
                   setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
+                  requestExpenseRegisterTab('transactions')
                   onNav('expense-register')
                 } else if (isSalesItem) {
                   setSalesOpen(o => !o)
@@ -473,7 +474,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   // avoid three rows lighting up at once.
                   const subActive = current === sub.page && !sub.tab
                   return (
-                    <div key={sub.label} onClick={() => { if (sub.tab) setExpenseRegisterTab(sub.tab); onNav(sub.page) }}
+                    <div key={sub.label} onClick={() => { if (sub.page === 'expense-register') requestExpenseRegisterTab(sub.tab || 'transactions'); onNav(sub.page) }}
                       style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
