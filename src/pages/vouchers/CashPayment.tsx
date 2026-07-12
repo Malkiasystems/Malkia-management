@@ -9,6 +9,7 @@ import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
+import { getExpenseVendorRules } from '../../lib/expenseSettings'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -24,6 +25,7 @@ export default function CashPayment({ onNav }: Props) {
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
   const [approvalCheck, setApprovalCheck] = useState<ApprovalCheckResult | null>(null)
+  const [requireVendor, setRequireVendor] = useState(false)
 
 
   const [form, setForm] = useState({
@@ -53,6 +55,7 @@ export default function CashPayment({ onNav }: Props) {
   const canBypassApproval = (approvalCheck?.superAdminBypass ?? false) && isSuperAdmin()
   const needsApproval = !!approvalCheck?.requiresApproval && !!approvalCheck?.blockPosting && !canBypassApproval
   const approvalNotice = approvalCheck ? formatApprovalNotice(approvalCheck) : ''
+  const vendorMissing = requireVendor && !form.supplierId
 
   useEffect(() => {
     loadAccounts()
@@ -78,6 +81,7 @@ export default function CashPayment({ onNav }: Props) {
   // Recurring "Pay now" hands off here for amounts at/above the petty cash
   // ceiling. Prefill payee, amount, expense account, supplier.
   useEffect(() => {
+    getExpenseVendorRules().then(r => setRequireVendor(r.cashPayment))
     const pre = consumeExpensePrefill()
     if (pre) setForm(f => ({
       ...f,
@@ -146,6 +150,7 @@ export default function CashPayment({ onNav }: Props) {
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
     if (!form.cashAccount) { showToast('Please select cash/bank account', 'error'); return }
     if (!form.expAccount) { showToast('Please select expense/debit account', 'error'); return }
+    if (requireVendor && !form.supplierId) { showToast('A vendor is required for cash payments. Select a supplier.', 'error'); return }
 
     // Date lock enforcement
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
@@ -255,12 +260,19 @@ export default function CashPayment({ onNav }: Props) {
       subtitle="Pay any expense or supplier from cash, bank, or M-Pesa"
       color="rgba(255,71,87,.12)"
       onPost={post}
+      postDisabled={vendorMissing}
+      postDisabledReason={vendorMissing ? 'A vendor is required — select a supplier' : undefined}
       postLabel={posting ? (needsApproval ? 'Submitting…' : 'Posting…') : needsApproval ? 'Submit for Approval' : 'Post Payment'}
       journalNote={`Dr Expense/Supplier Account · Cr Cash/Bank Account · Balance updated`}>
 
       {needsApproval && approvalNotice && (
         <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(212,135,74,.10)', border: '1px solid rgba(212,135,74,.4)', color: 'var(--text2)' }}>
           {approvalNotice}
+        </div>
+      )}
+      {vendorMissing && (
+        <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(255,71,87,.10)', border: '1px solid rgba(255,71,87,.4)', color: 'var(--red, #dc2626)' }}>
+          A vendor is required for cash payments. Select a supplier below.
         </div>
       )}
 

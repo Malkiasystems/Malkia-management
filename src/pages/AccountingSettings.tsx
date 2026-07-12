@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getPettyCashCeiling, savePettyCashCeiling, DEFAULT_PETTY_CASH_CEILING } from '../lib/expenseSettings';
+import { getPettyCashCeiling, savePettyCashCeiling, DEFAULT_PETTY_CASH_CEILING, getExpenseVendorRules, saveExpenseVendorRules } from '../lib/expenseSettings';
 import { supabase } from '../lib/supabase';
 import { getPostedBy } from '../lib/utils';
 
@@ -82,6 +82,8 @@ export default function AccountingSettings() {
   const [enableEODLock, setEnableEODLock] = useState(false);
   const [pettyCeiling, setPettyCeiling] = useState<number>(DEFAULT_PETTY_CASH_CEILING);
   const [savingCeiling, setSavingCeiling] = useState(false);
+  const [vendorRules, setVendorRules] = useState({ cashPayment: false, pettyCash: false });
+  const [savingVendor, setSavingVendor] = useState(false);
 
   // Period Lock Log
   const [lockLog, setLockLog] = useState<PeriodLockLog[]>([]);
@@ -90,6 +92,7 @@ export default function AccountingSettings() {
   useEffect(() => {
     loadAllData();
     getPettyCashCeiling().then(setPettyCeiling);
+    getExpenseVendorRules().then(setVendorRules);
   }, []);
 
   const loadAllData = async () => {
@@ -298,6 +301,14 @@ export default function AccountingSettings() {
   };
 
   // TAB 3: Posting Rules
+  const saveVendorRules = async () => {
+    setSavingVendor(true);
+    const res = await saveExpenseVendorRules(vendorRules);
+    setSavingVendor(false);
+    if (res.ok) { setSuccessMsg('Vendor requirement saved'); setError(null); }
+    else { setError(res.error || 'Could not save'); }
+  };
+
   const saveCeiling = async () => {
     setSavingCeiling(true);
     const res = await savePettyCashCeiling(pettyCeiling);
@@ -728,6 +739,26 @@ export default function AccountingSettings() {
                     {savingCeiling ? 'Saving…' : 'Save ceiling'}
                   </button>
                 </div>
+              </div>
+
+              <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500' }}>
+                  Require a vendor on expenses
+                </label>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '10px' }}>
+                  When on, the voucher cannot post until a supplier/vendor is selected.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', marginBottom: '8px' }}>
+                  <input type="checkbox" checked={vendorRules.cashPayment} onChange={(e) => setVendorRules(v => ({ ...v, cashPayment: e.target.checked }))} />
+                  Cash Payment requires a vendor
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', marginBottom: '10px' }}>
+                  <input type="checkbox" checked={vendorRules.pettyCash} onChange={(e) => setVendorRules(v => ({ ...v, pettyCash: e.target.checked }))} />
+                  Petty Cash requires a vendor
+                </label>
+                <button className="btn btn-primary btn-sm" onClick={saveVendorRules} disabled={savingVendor}>
+                  {savingVendor ? 'Saving…' : 'Save vendor rule'}
+                </button>
               </div>
 
               <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>

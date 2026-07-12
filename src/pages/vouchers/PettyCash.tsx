@@ -9,7 +9,7 @@ import { useAuth } from '../../lib/useAuth'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
-import { getPettyCashCeiling } from '../../lib/expenseSettings'
+import { getPettyCashCeiling, getExpenseVendorRules } from '../../lib/expenseSettings'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
 
 interface Props { onNav: (p: Page) => void }
@@ -26,6 +26,9 @@ export default function PettyCash({ onNav }: Props) {
   const [lines, setLines] = useState<ExpLine[]>([{ desc: '', amount: 0, accountId: '' }])
   const [form, setForm] = useState({ date: today(), ref: '', paidTo: '', notes: '' })
   const [ceiling, setCeiling] = useState<number | null>(null)
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
+  const [supplierId, setSupplierId] = useState('')
+  const [requireVendor, setRequireVendor] = useState(false)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
@@ -40,11 +43,14 @@ export default function PettyCash({ onNav }: Props) {
     if (petty) { setPettyCashId(petty.id); setPettyCashBal(petty.balance || 0) }
     setForm(f => ({ ...f, ref: newRef }))
     getPettyCashCeiling().then(setCeiling)
+    getExpenseVendorRules().then(r => setRequireVendor(r.pettyCash))
+    supabase.from('suppliers').select('id, name').eq('is_active', true).order('name').then(({ data }) => data && setSuppliers(data))
 
     // Recurring "Pay now" hands off here. Prefill the first line + payee.
     const pre = consumeExpensePrefill()
     if (pre) {
       setForm(f => ({ ...f, paidTo: pre.payTo || f.paidTo }))
+      if (pre.supplierId) setSupplierId(pre.supplierId)
       setLines([{ desc: pre.narration || pre.payTo || '', amount: pre.amount || 0, accountId: pre.expenseAccountId || '' }])
     }
   }
@@ -53,6 +59,7 @@ export default function PettyCash({ onNav }: Props) {
     const nl = [...lines]; nl[i] = { ...nl[i], [k]: v as never }; setLines(nl)
   }
   const total = lines.reduce((s, l) => s + (l.amount || 0), 0)
+  const vendorMissing = requireVendor && !supplierId
   const showToast = (msg: string, type: 'success'|'error' = 'success') => { setToast(msg); setToastType(type) }
 
   // ─── Live approval pre-check ──────────────────────────────────────────
@@ -90,6 +97,7 @@ export default function PettyCash({ onNav }: Props) {
 
   const post = async () => {
     if (!form.paidTo.trim()) { showToast('Paid to is required', 'error'); return }
+    if (requireVendor && !supplierId) { showToast('A vendor is required for petty cash. Select a supplier.', 'error'); return }
     if (lines.every(l => !l.desc || !l.amount)) { showToast('Add at least one expense line', 'error'); return }
     if (lines.some(l => l.amount > 0 && !l.accountId)) { showToast('Select expense account for each line', 'error'); return }
     if (ceiling != null && total > ceiling) {
@@ -141,7 +149,7 @@ export default function PettyCash({ onNav }: Props) {
       await supabase.from('vouchers').insert({
         ref: form.ref, type: 'petty_cash', posting_date: form.date,
         description: `Petty Cash — ${form.paidTo}`, total_amount: total,
-        status: 'posted', journal_id: j.id, posted_by: user.full_name, notes: form.notes,
+        status: 'posted', journal_id: j.id, posted_by: user.full_name, notes: form.notes, supplier_id: supplierId || null,
       })
 
       showToast(`${form.ref} posted · Dr Expense / Cr Petty Cash (1040) · TZS ${total.toLocaleString()}`)
@@ -159,7 +167,7 @@ export default function PettyCash({ onNav }: Props) {
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'petty_cash', posting_date: form.date,
         description: `Petty Cash — ${form.paidTo}`, total_amount: total,
-        status: 'pending_approval', posted_by: user.full_name, notes: form.notes,
+        status: 'pending_approval', posted_by: user.full_name, notes: form.notes, supplier_id: supplierId || null,
       }).select('id').single()
       if (vErr) throw new Error('Pending voucher: ' + vErr.message)
 
@@ -206,8 +214,8 @@ export default function PettyCash({ onNav }: Props) {
   return (
     <VoucherPage title="Petty Cash Expense" icon="" subtitle="Small office expenses from petty cash float" color="rgba(255,211,42,.12)"
       onPost={post}
-      postDisabled={ceiling != null && total > ceiling}
-      postDisabledReason={ceiling != null && total > ceiling ? `Over the ${ceiling.toLocaleString()} petty cash ceiling — use Cash Payment` : undefined}
+      postDisabled={(ceiling != null && total > ceiling) || vendorMissing}
+      postDisabledReason={ceiling != null && total > ceiling ? `Over the ${ceiling.toLocaleString()} petty cash ceiling — use Cash Payment` : vendorMissing ? 'A vendor is required — select one' : undefined}
       postLabel={
         posting
           ? (needsApproval ? 'Submitting…' : 'Posting…')
@@ -218,6 +226,11 @@ export default function PettyCash({ onNav }: Props) {
       {ceiling != null && total > ceiling && (
         <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(255,71,87,.10)', border: '1px solid rgba(255,71,87,.4)', color: 'var(--red, #dc2626)' }}>
           {total.toLocaleString()} exceeds the petty cash ceiling of {ceiling.toLocaleString()}. This must be a Cash Payment.
+        </div>
+      )}
+      {vendorMissing && (
+        <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(255,71,87,.10)', border: '1px solid rgba(255,71,87,.4)', color: 'var(--red, #dc2626)' }}>
+          A vendor is required for petty cash. Select one above.
         </div>
       )}
 
@@ -257,6 +270,14 @@ export default function PettyCash({ onNav }: Props) {
         </div>
         <div className="form-row">
           <FG label="Paid To" req><input className="form-input" placeholder="e.g. Office supplies shop" value={form.paidTo} onChange={e => set('paidTo', e.target.value)} /></FG>
+          <FG label={requireVendor ? 'Vendor' : 'Vendor (optional)'} req={requireVendor}>
+            <select className="form-input" value={supplierId} onChange={e => setSupplierId(e.target.value)} style={vendorMissing ? { borderColor: 'var(--red)' } : undefined}>
+              <option value="">{requireVendor ? '— Select a vendor —' : '— None —'}</option>
+              {suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+            </select>
+          </FG>
+        </div>
+        <div className="form-row">
           <FG label="Submitted By">
             <input className="form-input" readOnly value={user?.full_name || ''} style={{ background: 'var(--surface2)', cursor: 'default' }} />
           </FG>
