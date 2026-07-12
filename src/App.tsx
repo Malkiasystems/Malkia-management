@@ -691,7 +691,7 @@ function AppContent() {
             <div className="app-sidebar-desktop" style={{ display: 'flex' }}>
               <Sidebar current={page} onNav={navigate} stockMode={isStockWorkspace} />
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div className="app-content-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               {/* HRM Mode Toggle Bar — only for managers/HR with dual access */}
               {isHrmPage && hrmCanManage && hrmLinked && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px', background: effectiveHrmMode === 'self' ? '#6366f10d' : '#22c55e0d', borderBottom: `2px solid ${effectiveHrmMode === 'self' ? '#6366f1' : '#22c55e'}`, flexShrink: 0 }}>

@@ -32,7 +32,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; }
+html { font-size: 14px; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { background: var(--bg); color: var(--text); font-family: var(--sans); height: 100vh; overflow: hidden; }
 #root { height: 100vh; display: flex; flex-direction: column; }
 
@@ -201,7 +201,22 @@ select.form-input { cursor: pointer; appearance: none; }
   html, body { overflow-x: hidden; max-width: 100vw; }
   #root { max-width: 100vw; overflow-x: hidden; }
 
-  .page { padding: 14px 12px calc(72px + env(safe-area-inset-bottom, 0)) !important; }
+  /* The whole-screen horizontal drag: the content area had overflow-y: auto
+     and, per CSS, overflow-x: visible then computes to auto — so any element
+     wider than the screen made the entire page pannable sideways. Clamp it. */
+  .app-content-scroll { overflow-x: hidden !important; max-width: 100vw; }
+
+  .page { padding: 14px 12px calc(72px + env(safe-area-inset-bottom, 0)) !important; max-width: 100%; overflow-x: hidden; }
+
+  /* The greeting was the widest thing on the dashboard and got clipped.
+     Let it wrap instead of forcing the page wider than the screen. */
+  .page-title { font-size: 20px !important; overflow-wrap: anywhere; word-break: break-word; }
+  .page-sub { overflow-wrap: anywhere; }
+
+  /* Header action buttons: wrap to a full-width row rather than overflow. */
+  .page-header > div { min-width: 0; max-width: 100%; }
+  .page-actions { width: 100%; }
+  .page-actions .btn { white-space: nowrap; }
 
   .form-row, .form-row-3 { grid-template-columns: 1fr; gap: 10px; }
   .g2, .g3, .g4, .g32 { grid-template-columns: 1fr; }
