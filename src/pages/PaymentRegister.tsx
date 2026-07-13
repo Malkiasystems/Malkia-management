@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs, getPostedBy } from '../lib/utils'
-import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod, distributeAnnual, distributeQuarterly } from '../lib/useExpenseBudgets'
+import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod } from '../lib/useExpenseBudgets'
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import { useRecurringExpenses } from '../lib/useRecurringExpenses'
 import type { RecurringExpense, UnpaidRecurring } from '../lib/useRecurringExpenses'
@@ -113,14 +113,6 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
-  const [showBudgetSetup, setShowBudgetSetup] = useState(false)
-  const [setupMode, setSetupMode] = useState<'monthly' | 'quarterly' | 'annual'>('monthly')
-  const [setupMonth, setSetupMonth] = useState(() => {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  })
-  const [setupYear, setSetupYear] = useState(() => new Date().getFullYear())
-  const [setupQuarter, setSetupQuarter] = useState(() => Math.floor(new Date().getMonth() / 3) + 1)
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>({})
   const [savingBudget, setSavingBudget] = useState(false)
 
@@ -215,7 +207,12 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
     const monthBudgets = budgets.filter(b => b.period_start === period.start)
     const budgetMap: Record<string, number> = {}
     monthBudgets.forEach(b => { budgetMap[b.account_id] = b.budget_amount })
-    setBudgetLines(buildBudgetLines(expenseAccounts, budgetMap, actualMap))
+    const lines = buildBudgetLines(expenseAccounts, budgetMap, actualMap)
+    setBudgetLines(lines)
+    // Seed the inline editors with current budgets so editing starts from truth.
+    const seeded: Record<string, string> = {}
+    lines.forEach(l => { seeded[l.account_id] = l.budget > 0 ? String(l.budget) : '' })
+    setBudgetInputs(seeded)
   }, [budgetMonth, accounts, budgets])
 
   useEffect(() => { loadPayments(); loadAccounts(); loadSuppliers() }, [])
@@ -274,84 +271,62 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
       .sort((a, b) => b.totalPaid - a.totalPaid)
   }, [filtered])
 
-  // ─── Budget form helpers ─────────────────────────────────
-  const openBudgetSetup = () => {
-    const inputs: Record<string, string> = {}
-    const expAccts = accounts.filter(a => ['expense', 'cogs'].includes(a.type))
-    if (setupMode === 'monthly') {
-      const [y, m] = setupMonth.split('-').map(Number)
-      const period = getMonthPeriod(y, m - 1)
-      expAccts.forEach(a => {
-        const existing = budgets.find(b => b.account_id === a.id && b.period_start === period.start)
-        inputs[a.id] = existing ? String(existing.budget_amount) : ''
-      })
-    } else {
-      expAccts.forEach(a => { inputs[a.id] = '' })
-    }
-    setBudgetInputs(inputs)
-    setShowBudgetSetup(true)
-  }
-
-  const saveBudgets = async () => {
+  // ─── Budget helpers (inline, no modal) ───────────────────
+  // Save whatever is in the inline inputs for the current budget month.
+  const saveInlineBudgets = async () => {
     setSavingBudget(true)
-    const expAccts = accounts.filter(a => ['expense', 'cogs'].includes(a.type))
-    const items: { account_id: string; period_start: string; period_end: string; budget_amount: number; notes: string | null; created_by: string }[] = []
+    const [y, m] = budgetMonth.split('-').map(Number)
+    const period = getMonthPeriod(y, m - 1)
     const by = getPostedBy() || 'System'
+    const expAccts = accounts.filter(a => ['expense', 'cogs'].includes(a.type))
+    const items = expAccts
+      .map(a => ({ a, val: parseFloat(budgetInputs[a.id] || '0') }))
+      .filter(x => x.val > 0)
+      .map(x => ({ account_id: x.a.id, period_start: period.start, period_end: period.end, budget_amount: x.val, notes: null as string | null, created_by: by }))
 
-    if (setupMode === 'monthly') {
-      const [y, m] = setupMonth.split('-').map(Number)
-      const period = getMonthPeriod(y, m - 1)
-      expAccts.forEach(a => {
-        const val = parseFloat(budgetInputs[a.id] || '0')
-        if (val > 0) items.push({ account_id: a.id, period_start: period.start, period_end: period.end, budget_amount: val, notes: null, created_by: by })
-      })
-    } else if (setupMode === 'quarterly') {
-      const qStartMonth = (setupQuarter - 1) * 3
-      for (let i = 0; i < 3; i++) {
-        const period = getMonthPeriod(setupYear, qStartMonth + i)
-        expAccts.forEach(a => {
-          const qVal = parseFloat(budgetInputs[a.id] || '0')
-          if (qVal > 0) items.push({ account_id: a.id, period_start: period.start, period_end: period.end, budget_amount: distributeQuarterly(qVal), notes: `Q${setupQuarter} ${setupYear} budget`, created_by: by })
-        })
-      }
-    } else {
-      for (let i = 0; i < 12; i++) {
-        const period = getMonthPeriod(setupYear, i)
-        expAccts.forEach(a => {
-          const aVal = parseFloat(budgetInputs[a.id] || '0')
-          if (aVal > 0) items.push({ account_id: a.id, period_start: period.start, period_end: period.end, budget_amount: distributeAnnual(aVal), notes: `${setupYear} annual budget`, created_by: by })
-        })
-      }
-    }
-
-    if (items.length === 0) { setSavingBudget(false); setShowBudgetSetup(false); return }
+    if (items.length === 0) { setSavingBudget(false); setToast({ msg: 'Enter at least one budget amount', type: 'error' }); return }
     const res = await bulkUpsert(items)
-    if (res.success) {
-      setToast({ msg: `Saved ${items.length} budget line(s)`, type: 'success' })
-      setShowBudgetSetup(false)
-      loadBudgetComparison()
-    } else {
-      setToast({ msg: res.error || 'Save failed', type: 'error' })
-    }
     setSavingBudget(false)
+    if (res.success) { setToast({ msg: `Saved ${items.length} budget line(s)`, type: 'success' }); loadBudgetComparison() }
+    else setToast({ msg: res.error || 'Save failed', type: 'error' })
   }
 
+  // Move the budget month by n months (prev/next arrows).
+  const shiftBudgetMonth = (n: number) => {
+    const [y, m] = budgetMonth.split('-').map(Number)
+    const d = new Date(y, m - 1 + n, 1)
+    setBudgetMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+
+  // Pull the prior month's budgets into the current inputs (review, then Save).
   const copyLastMonth = () => {
     const [y, m] = budgetMonth.split('-').map(Number)
-    const prevMonth = m - 2 < 0 ? 11 : m - 2
-    const prevYear = m - 2 < 0 ? y - 1 : y
-    const prevPeriod = getMonthPeriod(prevYear, prevMonth)
+    const prev = new Date(y, m - 2, 1)
+    const prevPeriod = getMonthPeriod(prev.getFullYear(), prev.getMonth())
     const expAccts = accounts.filter(a => ['expense', 'cogs'].includes(a.type))
     const inputs: Record<string, string> = {}
     expAccts.forEach(a => {
-      const prev = budgets.find(b => b.account_id === a.id && b.period_start === prevPeriod.start)
-      inputs[a.id] = prev ? String(prev.budget_amount) : ''
+      const b = budgets.find(x => x.account_id === a.id && x.period_start === prevPeriod.start)
+      inputs[a.id] = b ? String(b.budget_amount) : ''
     })
-    setSetupMode('monthly')
-    setSetupMonth(budgetMonth)
     setBudgetInputs(inputs)
-    setShowBudgetSetup(true)
-    setToast({ msg: 'Copied last month — review and save', type: 'success' })
+    setToast({ msg: 'Copied last month — review and Save', type: 'success' })
+  }
+
+  // Copy the CURRENT month's saved budgets forward into next month.
+  const copyToNextMonth = async () => {
+    const [y, m] = budgetMonth.split('-').map(Number)
+    const curPeriod = getMonthPeriod(y, m - 1)
+    const next = new Date(y, m, 1)
+    const nextPeriod = getMonthPeriod(next.getFullYear(), next.getMonth())
+    const by = getPostedBy() || 'System'
+    const items = budgets
+      .filter(b => b.period_start === curPeriod.start && b.budget_amount > 0)
+      .map(b => ({ account_id: b.account_id, period_start: nextPeriod.start, period_end: nextPeriod.end, budget_amount: b.budget_amount, notes: null as string | null, created_by: by }))
+    if (items.length === 0) { setToast({ msg: 'No saved budgets in this month to copy', type: 'error' }); return }
+    const res = await bulkUpsert(items)
+    if (res.success) setToast({ msg: `Copied ${items.length} line(s) to next month`, type: 'success' })
+    else setToast({ msg: res.error || 'Copy failed', type: 'error' })
   }
 
   // ─── Recurring form helpers ──────────────────────────────
@@ -669,21 +644,22 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
       {tab === 'budget' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>Month</div>
-              <input type="month" className="form-input" style={{ width: 160, fontSize: 12 }} value={budgetMonth} onChange={e => setBudgetMonth(e.target.value)} />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => shiftBudgetMonth(-1)} title="Previous month">‹</button>
+              <input type="month" className="form-input" style={{ width: 150, fontSize: 12 }} value={budgetMonth} onChange={e => setBudgetMonth(e.target.value)} />
+              <button className="btn btn-ghost btn-sm" onClick={() => shiftBudgetMonth(1)} title="Next month">›</button>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="btn btn-ghost btn-sm" onClick={copyLastMonth}>Copy last month</button>
-              <button className="btn btn-primary btn-sm" onClick={openBudgetSetup} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="plus" /> Set budgets</button>
+              <button className="btn btn-ghost btn-sm" onClick={copyToNextMonth}>Copy to next month</button>
+              <button className="btn btn-primary btn-sm" onClick={saveInlineBudgets} disabled={savingBudget}>{savingBudget ? 'Saving…' : 'Save budgets'}</button>
             </div>
           </div>
 
           {budgetLines.length === 0 ? (
             <div className="card" style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <div style={{ fontSize: 14, marginBottom: 8 }}>No budgets or spend for {budgetMonth}</div>
-              <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>Click "Set budgets" to plan expenses for this month.</div>
-              <button className="btn btn-primary btn-sm" onClick={openBudgetSetup}>Set budgets now</button>
+              <div style={{ fontSize: 14, marginBottom: 8 }}>No expense categories yet for {budgetMonth}</div>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>Add expense accounts in the chart of accounts, then set their budgets here.</div>
             </div>
           ) : (() => {
             const totalBudget = budgetLines.reduce((s, l) => s + l.budget, 0)
@@ -692,13 +668,23 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
             const totalPct = totalBudget > 0 ? Math.round((totalActual / totalBudget) * 100) : 0
             const overCount = budgetLines.filter(l => l.status === 'over').length
             const warnCount = budgetLines.filter(l => l.status === 'warning').length
+            // Pace-based month-end forecast (only meaningful for the current month).
+            const now = new Date()
+            const [bY, bM] = budgetMonth.split('-').map(Number)
+            const isCurrentMonth = now.getFullYear() === bY && (now.getMonth() + 1) === bM
+            const daysInMonth = new Date(bY, bM, 0).getDate()
+            const daysElapsed = isCurrentMonth ? now.getDate() : daysInMonth
+            const projected = isCurrentMonth && daysElapsed > 0 ? Math.round((totalActual / daysElapsed) * daysInMonth) : totalActual
+            const projectedOver = totalBudget > 0 && projected > totalBudget
+            const unbudgetedCount = budgetLines.filter(l => l.budget === 0 && l.actual > 0).length
             return (
               <>
-                <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+                <div className="grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
                   <div className="stat-card blue"><div className="stat-label">Total Budget</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalBudget)}</div><div className="stat-change">{budgetLines.filter(l => l.budget > 0).length} categories</div></div>
                   <div className="stat-card amber"><div className="stat-label">Total Spent</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalActual)}</div><div className="stat-change">{totalPct}% of budget</div></div>
                   <div className={`stat-card ${totalVariance >= 0 ? 'green' : 'red'}`}><div className="stat-label">Variance</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(Math.abs(totalVariance))}</div><div className="stat-change">{totalVariance >= 0 ? 'Under' : 'Over'} budget</div></div>
-                  <div className={`stat-card ${overCount > 0 ? 'red' : warnCount > 0 ? 'yellow' : 'green'}`}><div className="stat-label">Status</div><div className="stat-value" style={{ fontSize: 18 }}>{overCount > 0 ? overCount + ' over' : warnCount > 0 ? warnCount + ' warn' : 'OK'}</div><div className="stat-change">Budget alerts</div></div>
+                  <div className={`stat-card ${projectedOver ? 'red' : 'green'}`}><div className="stat-label">Projected</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(projected)}</div><div className="stat-change">{isCurrentMonth ? `month-end pace · ${projectedOver ? 'over' : 'on track'}` : 'final'}</div></div>
+                  <div className={`stat-card ${overCount > 0 ? 'red' : warnCount > 0 ? 'yellow' : 'green'}`}><div className="stat-label">Status</div><div className="stat-value" style={{ fontSize: 18 }}>{overCount > 0 ? overCount + ' over' : warnCount > 0 ? warnCount + ' warn' : 'OK'}</div><div className="stat-change">{unbudgetedCount > 0 ? `${unbudgetedCount} unbudgeted` : 'Budget alerts'}</div></div>
                 </div>
 
                 <div className="card">
@@ -711,12 +697,19 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                         <th style={{ textAlign: 'center' }}>Status</th>
                       </tr></thead>
                       <tbody>
-                        {budgetLines.map((l, i) => (
-                          <tr key={i}>
+                        {budgetLines.map((l, i) => {
+                          const unbudgeted = l.budget === 0 && l.actual > 0
+                          return (
+                          <tr key={i} style={unbudgeted ? { background: 'rgba(255,71,87,.05)' } : undefined} title={unbudgeted ? 'Spending with no budget set' : undefined}>
                             <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{l.account_code}</td>
-                            <td className="td-bold" style={{ fontSize: 12 }}>{l.account_name}</td>
+                            <td className="td-bold" style={{ fontSize: 12 }}>{l.account_name}{unbudgeted && <span style={{ color: 'var(--red)', fontSize: 9, marginLeft: 6, fontFamily: 'var(--mono)' }}>NO BUDGET</span>}</td>
                             <td style={{ fontSize: 11, color: 'var(--text3)' }}>{l.account_category}</td>
-                            <td className="td-right td-mono" style={{ color: 'var(--blue)' }}>{l.budget.toLocaleString()}</td>
+                            <td className="td-right" style={{ width: 130 }}>
+                              <input type="number" className="form-input" placeholder="0"
+                                style={{ fontFamily: 'var(--mono)', textAlign: 'right', fontSize: 12, padding: '4px 8px', width: 110 }}
+                                value={budgetInputs[l.account_id] ?? ''}
+                                onChange={e => setBudgetInputs({ ...budgetInputs, [l.account_id]: e.target.value })} />
+                            </td>
                             <td className="td-right td-mono" style={{ color: 'var(--text)' }}>{l.actual.toLocaleString()}</td>
                             <td className="td-right td-mono" style={{ color: l.variance >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{Math.abs(l.variance).toLocaleString()}{l.variance >= 0 ? '' : ''}</td>
                             <td style={{ width: 180 }}>
@@ -733,7 +726,8 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                               </span>
                             </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
@@ -965,67 +959,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
       {/* ═══════════════════════════════════════════════════
           BUDGET SETUP MODAL
          ═══════════════════════════════════════════════════ */}
-      {showBudgetSetup && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }} onClick={() => setShowBudgetSetup(false)}>
-          <div style={{ background: 'var(--bg)', borderRadius: 'var(--r)', maxWidth: 780, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div>
-                <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 800 }}>Set Expense Budgets</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>Amounts in TZS — leave blank to skip</div>
-              </div>
-              <button onClick={() => setShowBudgetSetup(false)} className="btn btn-ghost btn-sm">×</button>
-            </div>
 
-            {/* Mode + period */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
-                {(['monthly', 'quarterly', 'annual'] as const).map(m => (
-                  <button key={m} onClick={() => setSetupMode(m)} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: setupMode === m ? 'var(--accent)' : 'transparent', color: setupMode === m ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', textTransform: 'capitalize' }}>{m}</button>
-                ))}
-              </div>
-              {setupMode === 'monthly' && (
-                <input type="month" className="form-input" style={{ fontSize: 12 }} value={setupMonth} onChange={e => setSetupMonth(e.target.value)} />
-              )}
-              {setupMode === 'quarterly' && (
-                <>
-                  <select className="form-input" style={{ fontSize: 12, width: 90 }} value={setupQuarter} onChange={e => setSetupQuarter(parseInt(e.target.value))}>
-                    <option value={1}>Q1</option><option value={2}>Q2</option><option value={3}>Q3</option><option value={4}>Q4</option>
-                  </select>
-                  <input type="number" className="form-input" style={{ fontSize: 12, width: 90 }} value={setupYear} onChange={e => setSetupYear(parseInt(e.target.value))} />
-                </>
-              )}
-              {setupMode === 'annual' && (
-                <input type="number" className="form-input" style={{ fontSize: 12, width: 100 }} value={setupYear} onChange={e => setSetupYear(parseInt(e.target.value))} />
-              )}
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 'auto', alignSelf: 'center' }}>
-                {setupMode === 'monthly' ? 'Monthly amounts' : setupMode === 'quarterly' ? 'Quarterly total — split across 3 months' : 'Annual total — split across 12 months'}
-              </div>
-            </div>
-
-            <div className="table-wrap" style={{ maxHeight: '55vh', overflow: 'auto' }}>
-              <table>
-                <thead><tr><th>Code</th><th>Expense Account</th><th className="td-right">{setupMode === 'monthly' ? 'Monthly' : setupMode === 'quarterly' ? 'Quarterly' : 'Annual'} Budget (TZS)</th></tr></thead>
-                <tbody>
-                  {expenseAccountsOnly.map(a => (
-                    <tr key={a.id}>
-                      <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{a.code}</td>
-                      <td style={{ fontSize: 12 }}>{a.name} <span style={{ color: 'var(--text3)', fontSize: 10 }}>· {a.category}</span></td>
-                      <td style={{ width: 180 }}>
-                        <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', textAlign: 'right', fontSize: 12 }} placeholder="0" value={budgetInputs[a.id] || ''} onChange={e => setBudgetInputs({ ...budgetInputs, [a.id]: e.target.value })} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-              <button className="btn btn-ghost" onClick={() => setShowBudgetSetup(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveBudgets} disabled={savingBudget}>{savingBudget ? 'Saving…' : 'Save budgets'}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════
           RECURRING EXPENSE MODAL
