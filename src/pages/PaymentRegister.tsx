@@ -207,7 +207,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
     const monthBudgets = budgets.filter(b => b.period_start === period.start)
     const budgetMap: Record<string, number> = {}
     monthBudgets.forEach(b => { budgetMap[b.account_id] = b.budget_amount })
-    const lines = buildBudgetLines(expenseAccounts, budgetMap, actualMap)
+    const lines = buildBudgetLines(expenseAccounts, budgetMap, actualMap, true)
     setBudgetLines(lines)
     // Seed the inline editors with current budgets so editing starts from truth.
     const seeded: Record<string, string> = {}
@@ -661,6 +661,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="btn btn-ghost btn-sm" onClick={copyLastMonth}>Copy last month</button>
               <button className="btn btn-ghost btn-sm" onClick={copyToNextMonth}>Copy to next month</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setBudgetInputs({})}>Clear</button>
               <button className="btn btn-primary btn-sm" onClick={saveInlineBudgets} disabled={savingBudget}>{savingBudget ? 'Saving…' : 'Save budgets'}</button>
             </div>
           </div>

@@ -123,7 +123,8 @@ export async function loadActualSpend(
 export function buildBudgetLines(
   accounts: { id: string; code: string; name: string; category: string }[],
   budgetMap: Record<string, number>,
-  actualMap: Record<string, number>
+  actualMap: Record<string, number>,
+  includeEmpty = false
 ): BudgetLine[] {
   return accounts.map(a => {
     const budget = budgetMap[a.id] || 0
@@ -138,7 +139,7 @@ export function buildBudgetLines(
       account_category: a.category,
       budget, actual, variance, pctUsed, status
     }
-  }).filter(l => l.budget > 0 || l.actual > 0)
+  }).filter(l => includeEmpty || l.budget > 0 || l.actual > 0)
     .sort((a, b) => b.actual - a.actual)
 }
 
