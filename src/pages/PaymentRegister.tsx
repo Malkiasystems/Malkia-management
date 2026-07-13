@@ -8,6 +8,7 @@ import type { RecurringExpense, UnpaidRecurring } from '../lib/useRecurringExpen
 import { setExpensePrefill } from '../lib/expensePrefill'
 import { consumeExpenseRegisterTab, subscribeExpenseRegisterTab } from '../lib/expenseRegisterTab'
 import { getPettyCashCeiling } from '../lib/expenseSettings'
+import { exportExpenseExcel, exportExpensePDF, type ExpenseExportRow, type ExpenseExportMeta } from '../lib/expenseRegisterExport'
 import Toast from '../components/Toast'
 import type { Page } from '../lib/types'
 
@@ -382,6 +383,24 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
   }
 
   // ─── CSV export ──────────────────────────────────────────
+  // Shared export data: one place that shapes rows + totals for CSV/Excel/PDF.
+  const buildExportRows = (): ExpenseExportRow[] => filtered.map(r => {
+    const cat = r.journal_id ? categoryMap[r.journal_id] : null
+    return {
+      date: r.posting_date, ref: r.ref, type: TYPE_LABEL[r.type] || r.type,
+      vendor: r.suppliers?.name || '—',
+      category: cat ? `${cat.account_code} ${cat.account_name}` : '—',
+      description: r.description || '', method: r.payment_method || '',
+      amount: r.total_amount || 0, status: r.status, postedBy: r.posted_by || '',
+    }
+  })
+  const exportMeta = (): ExpenseExportMeta => ({
+    title: mode === 'expense' ? 'Expense Register' : 'Payment Register',
+    fromDate, toDate, cashOut, bankOut, totalOut, count: filtered.length,
+  })
+  const exportExcel = () => exportExpenseExcel(buildExportRows(), exportMeta())
+  const exportPDF = () => exportExpensePDF(buildExportRows(), exportMeta())
+
   const exportCSV = () => {
     const rows = [['Date', 'Ref', 'Type', 'Vendor/Payee', 'Expense Category', 'Description', 'Method', 'Amount (TZS)', 'Status', 'Posted By']]
     filtered.forEach(r => {
@@ -452,7 +471,9 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
             <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={toDate} onChange={e => setToDate(e.target.value)} />
             <button className="btn btn-ghost btn-sm" onClick={() => loadPayments()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="refresh" /> Refresh</button>
             <button className="btn btn-primary btn-sm" onClick={() => loadPayments()}>Load</button>
-            {tab === 'transactions' && <button className="btn btn-ghost btn-sm" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="csv" /> Export CSV</button>}
+            {tab === 'transactions' && <button className="btn btn-ghost btn-sm" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="csv" /> CSV</button>}
+            {tab === 'transactions' && <button className="btn btn-ghost btn-sm" onClick={exportExcel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="csv" /> Excel</button>}
+            {tab === 'transactions' && <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="csv" /> PDF</button>}
           </div>
         )}
       </div>
