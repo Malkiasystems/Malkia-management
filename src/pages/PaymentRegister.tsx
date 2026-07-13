@@ -665,6 +665,11 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
             </div>
           </div>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 14px', borderRadius: 'var(--r)', background: 'rgba(94,168,162,.08)', border: '1px solid rgba(94,168,162,.25)', fontSize: 12.5, color: 'var(--text2)' }}>
+            <svg width="15" height="15" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            To set a budget, type each category's monthly amount in the <b>Budget</b> column, then click <b>Save budgets</b>. Use <b>Copy last month</b> to start from last month's figures.
+          </div>
+
           {budgetLines.length === 0 ? (
             <div className="card" style={{ textAlign: 'center', padding: '40px 20px' }}>
               <div style={{ fontSize: 14, marginBottom: 8 }}>No expense categories yet for {budgetMonth}</div>
