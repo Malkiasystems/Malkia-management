@@ -428,15 +428,24 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
       {/* HEADER */}
       <div className="page-header">
         <div>
-          <div className="page-title">{mode === 'expense' ? 'Expense Register' : 'Payment Register'}</div>
+          <div className="page-title">{
+            mode !== 'expense' ? 'Payment Register'
+            : tab === 'budget' ? 'Expense Budget'
+            : tab === 'vendors' ? 'Expense Vendors'
+            : tab === 'recurring' ? 'Recurring Expenses'
+            : 'Expense Register'
+          }</div>
           <div className="page-sub">
-            {mode === 'expense'
-              ? 'Money leaving the business · payment vouchers · petty cash · budgets · vendors · recurring · '
-              : 'All cash and bank movements · budgets · vendors · recurring · '}
+            {mode !== 'expense'
+              ? 'All cash and bank movements · budgets · vendors · recurring · '
+              : tab === 'budget' ? 'Plan and track spending against actuals, by category · '
+              : tab === 'vendors' ? 'Who you pay and how much · '
+              : tab === 'recurring' ? 'Rent, subscriptions and standing costs · '
+              : 'Money leaving the business · payment vouchers · petty cash · '}
             <span className="sync-dot"></span> Live
           </div>
         </div>
-        {tab !== 'recurring' && (
+        {tab === 'transactions' && (
           <div className="page-actions">
             <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
             <span style={{ color: 'var(--text3)', fontSize: 12 }}>to</span>
