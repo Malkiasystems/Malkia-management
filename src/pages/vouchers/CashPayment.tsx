@@ -9,6 +9,7 @@ import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
+import CategorySelect from '../../components/CategorySelect'
 import { getExpenseVendorRules } from '../../lib/expenseSettings'
 import type { Page } from '../../lib/types'
 
@@ -64,7 +65,7 @@ export default function CashPayment({ onNav }: Props) {
   }, [])
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name, type, category').eq('is_active', true).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, type, category, parent_id, allow_direct_posting, sort_order').eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code')
     if (data) setAccounts(data)
   }
 
@@ -312,10 +313,7 @@ export default function CashPayment({ onNav }: Props) {
             </select>
           </FG>
           <FG label="Expense / Debit Account" req>
-            <select className="form-input" value={form.expAccount} onChange={e => set('expAccount', e.target.value)}>
-              <option value="">— Select account —</option>
-              {expenseAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-            </select>
+            <CategorySelect accounts={expenseAccounts} value={form.expAccount} onChange={v => set('expAccount', v)} placeholder="— Select category —" />
           </FG>
 
           {form.amount && form.cashAccount && form.expAccount && (

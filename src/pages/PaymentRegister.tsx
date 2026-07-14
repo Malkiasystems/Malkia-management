@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs, getPostedBy } from '../lib/utils'
 import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod } from '../lib/useExpenseBudgets'
@@ -22,7 +22,7 @@ interface PaymentRecord {
   suppliers: { name: string } | null
 }
 
-interface AccountRow { id: string; code: string; name: string; type: string; category: string; balance: number }
+interface AccountRow { id: string; code: string; name: string; type: string; category: string; balance: number; parent_id?: string | null; allow_direct_posting?: boolean | null }
 
 interface CategoryRow {
   accountId: string; code: string; name: string; category: string
@@ -131,8 +131,8 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
   // ─── Data loading ────────────────────────────────────────
   const loadAccounts = useCallback(async () => {
     const { data } = await supabase.from('accounts')
-      .select('id, code, name, type, category, balance')
-      .eq('is_active', true).order('code')
+      .select('id, code, name, type, category, balance, parent_id, allow_direct_posting, sort_order')
+      .eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code')
     if (data) setAccounts(data as AccountRow[])
   }, [])
 
@@ -203,7 +203,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
   const loadBudgetComparison = useCallback(async () => {
     const [y, m] = budgetMonth.split('-').map(Number)
     const period = getMonthPeriod(y, m - 1)
-    const expenseAccounts = accounts.filter(a => ['expense', 'cogs'].includes(a.type))
+    const expenseAccounts = accounts.filter(a => ['expense', 'cogs'].includes(a.type) && a.allow_direct_posting !== false)
     const actualMap = await loadActualSpend(expenseAccounts.map(a => a.id), period.start, period.end)
     const monthBudgets = budgets.filter(b => b.period_start === period.start)
     const budgetMap: Record<string, number> = {}
@@ -733,37 +733,89 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                         <th style={{ textAlign: 'center' }}>Status</th>
                       </tr></thead>
                       <tbody>
-                        {budgetLines.map((l, i) => {
-                          const unbudgeted = l.budget === 0 && l.actual > 0
-                          return (
-                          <tr key={i} style={unbudgeted ? { background: 'rgba(255,71,87,.05)' } : undefined} title={unbudgeted ? 'Spending with no budget set' : undefined}>
-                            <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{l.account_code}</td>
-                            <td className="td-bold" style={{ fontSize: 12 }}>{l.account_name}{unbudgeted && <span style={{ color: 'var(--red)', fontSize: 9, marginLeft: 6, fontFamily: 'var(--mono)' }}>NO BUDGET</span>}</td>
-                            <td style={{ fontSize: 11, color: 'var(--text3)' }}>{l.account_category}</td>
-                            <td className="td-right" style={{ width: 130 }}>
-                              <input type="number" className="form-input" placeholder="0"
-                                style={{ fontFamily: 'var(--mono)', textAlign: 'right', fontSize: 12, padding: '4px 8px', width: 110 }}
-                                value={budgetInputs[l.account_id] ?? ''}
-                                onChange={e => setBudgetInputs({ ...budgetInputs, [l.account_id]: e.target.value })} />
-                            </td>
-                            <td className="td-right td-mono" style={{ color: 'var(--text)' }}>{l.actual.toLocaleString()}</td>
-                            <td className="td-right td-mono" style={{ color: l.variance >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{Math.abs(l.variance).toLocaleString()}{l.variance >= 0 ? '' : ''}</td>
-                            <td style={{ width: 180 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div style={{ flex: 1, height: 6, background: 'var(--surface3)', borderRadius: 3 }}>
-                                  <div style={{ height: '100%', width: `${Math.min(100, l.pctUsed)}%`, background: l.status === 'over' ? 'var(--red)' : l.status === 'warning' ? 'var(--yellow)' : 'var(--green)', borderRadius: 3 }}></div>
-                                </div>
-                                <div style={{ fontFamily: 'var(--mono)', fontSize: 10, minWidth: 40, textAlign: 'right', color: l.status === 'over' ? 'var(--red)' : 'var(--text3)' }}>{l.pctUsed >= 999 ? '—' : l.pctUsed + '%'}</div>
-                              </div>
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <span className={`pill ${l.status === 'over' ? 'pill-red' : l.status === 'warning' ? 'pill-yellow' : 'pill-green'}`} style={{ fontSize: 9 }}>
-                                {l.status === 'over' ? 'OVER' : l.status === 'warning' ? 'WARN' : 'OK'}
-                              </span>
-                            </td>
-                          </tr>
-                          )
-                        })}
+                        {(() => {
+                          // Group subs under their MAIN account and roll up.
+                          // Subs win: a main's budget/actual is the sum of its subs.
+                          const headers = accounts.filter(a => a.allow_direct_posting === false && ['expense', 'cogs'].includes(a.type))
+                          const headerIds = new Set(headers.map(h => h.id))
+                          const parentOf: Record<string, string | null> = {}
+                          accounts.forEach(a => { parentOf[a.id] = a.parent_id || null })
+                          const byParent: Record<string, typeof budgetLines> = {}
+                          const ungrouped: typeof budgetLines = []
+                          budgetLines.forEach(l => {
+                            const pid = parentOf[l.account_id]
+                            if (pid && headerIds.has(pid)) (byParent[pid] = byParent[pid] || []).push(l)
+                            else ungrouped.push(l)
+                          })
+                          const rollup = (subs: typeof budgetLines) => {
+                            const b = subs.reduce((s, x) => s + x.budget, 0)
+                            const a = subs.reduce((s, x) => s + x.actual, 0)
+                            const pct = b > 0 ? Math.round((a / b) * 100) : a > 0 ? 999 : 0
+                            return { b, a, v: b - a, pct, st: pct >= 100 ? 'over' : pct >= 80 ? 'warning' : 'under' as const }
+                          }
+                          const subRow = (l: typeof budgetLines[number], key: string) => {
+                            const unbudgeted = l.budget === 0 && l.actual > 0
+                            return (
+                              <tr key={key} style={unbudgeted ? { background: 'rgba(255,71,87,.05)' } : undefined}>
+                                <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)', paddingLeft: 20 }}>{l.account_code}</td>
+                                <td style={{ fontSize: 12, paddingLeft: 18, color: 'var(--text2)' }}>{l.account_name}{unbudgeted && <span style={{ color: 'var(--red)', fontSize: 9, marginLeft: 6, fontFamily: 'var(--mono)' }}>NO BUDGET</span>}</td>
+                                <td style={{ fontSize: 11, color: 'var(--text3)' }}>{l.account_category}</td>
+                                <td className="td-right" style={{ width: 130 }}>
+                                  <input type="number" className="form-input" placeholder="0"
+                                    style={{ fontFamily: 'var(--mono)', textAlign: 'right', fontSize: 12, padding: '4px 8px', width: 110 }}
+                                    value={budgetInputs[l.account_id] ?? ''}
+                                    onChange={e => setBudgetInputs({ ...budgetInputs, [l.account_id]: e.target.value })} />
+                                </td>
+                                <td className="td-right td-mono" style={{ color: 'var(--text)' }}>{l.actual.toLocaleString()}</td>
+                                <td className="td-right td-mono" style={{ color: l.variance >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{Math.abs(l.variance).toLocaleString()}</td>
+                                <td style={{ width: 180 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ flex: 1, height: 6, background: 'var(--surface3)', borderRadius: 3 }}>
+                                      <div style={{ height: '100%', width: `${Math.min(100, l.pctUsed)}%`, background: l.status === 'over' ? 'var(--red)' : l.status === 'warning' ? 'var(--yellow)' : 'var(--green)', borderRadius: 3 }}></div>
+                                    </div>
+                                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, minWidth: 40, textAlign: 'right', color: l.status === 'over' ? 'var(--red)' : 'var(--text3)' }}>{l.pctUsed >= 999 ? '—' : l.pctUsed + '%'}</div>
+                                  </div>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span className={`pill ${l.status === 'over' ? 'pill-red' : l.status === 'warning' ? 'pill-yellow' : 'pill-green'}`} style={{ fontSize: 9 }}>
+                                    {l.status === 'over' ? 'OVER' : l.status === 'warning' ? 'WARN' : 'OK'}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          }
+                          const rows: ReactNode[] = []
+                          headers.filter(h => byParent[h.id]?.length).forEach(h => {
+                            const subs = byParent[h.id]
+                            const r = rollup(subs)
+                            // MAIN header row: rolled-up totals, no budget input (subs win).
+                            rows.push(
+                              <tr key={`h-${h.id}`} style={{ background: 'var(--surface2)' }}>
+                                <td className="td-mono td-bold" style={{ fontSize: 11 }}>{h.code}</td>
+                                <td className="td-bold" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '.3px' }}>{h.name}</td>
+                                <td></td>
+                                <td className="td-right td-mono td-bold" style={{ color: 'var(--blue)' }}>{r.b.toLocaleString()}</td>
+                                <td className="td-right td-mono td-bold">{r.a.toLocaleString()}</td>
+                                <td className="td-right td-mono td-bold" style={{ color: r.v >= 0 ? 'var(--green)' : 'var(--red)' }}>{Math.abs(r.v).toLocaleString()}</td>
+                                <td style={{ width: 180 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ flex: 1, height: 6, background: 'var(--surface3)', borderRadius: 3 }}>
+                                      <div style={{ height: '100%', width: `${Math.min(100, r.pct)}%`, background: r.st === 'over' ? 'var(--red)' : r.st === 'warning' ? 'var(--yellow)' : 'var(--green)', borderRadius: 3 }}></div>
+                                    </div>
+                                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, minWidth: 40, textAlign: 'right', color: r.st === 'over' ? 'var(--red)' : 'var(--text3)' }}>{r.pct >= 999 ? '—' : r.pct + '%'}</div>
+                                  </div>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span className={`pill ${r.st === 'over' ? 'pill-red' : r.st === 'warning' ? 'pill-yellow' : 'pill-green'}`} style={{ fontSize: 9 }}>{r.st === 'over' ? 'OVER' : r.st === 'warning' ? 'WARN' : 'OK'}</span>
+                                </td>
+                              </tr>
+                            )
+                            subs.forEach((l, i) => rows.push(subRow(l, `s-${h.id}-${i}`)))
+                          })
+                          // Any postable account with no main (e.g. COGS) shown plainly.
+                          ungrouped.forEach((l, i) => rows.push(subRow(l, `u-${i}`)))
+                          return rows
+                        })()}
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
