@@ -15,7 +15,7 @@ import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 
-interface DBAccount { id: string; code: string; name: string; type: string; category: string; parent_id?: string | null; allow_direct_posting?: boolean | null; sort_order?: number | null }
+interface DBAccount { id: string; code: string; name: string; type: string; category: string; balance?: number | null; parent_id?: string | null; allow_direct_posting?: boolean | null; sort_order?: number | null }
 interface DBSupplier { id: string; name: string; balance_tzs: number }
 
 export default function CashPayment({ onNav }: Props) {
@@ -66,7 +66,7 @@ export default function CashPayment({ onNav }: Props) {
   }, [])
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name, type, category, parent_id, allow_direct_posting, sort_order').eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, type, category, balance, parent_id, allow_direct_posting, sort_order').eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code')
     if (data) setAccounts(data)
   }
 
@@ -321,7 +321,7 @@ export default function CashPayment({ onNav }: Props) {
             </div>
             <select className="form-input" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
               <option value="">— Select account —</option>
-              {creditAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              {creditAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name} · TZS {(a.balance || 0).toLocaleString()}</option>)}
             </select>
             {creditMode === 'asset' && (
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
