@@ -27,7 +27,7 @@ export default function CashPayment({ onNav }: Props) {
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
   const [approvalCheck, setApprovalCheck] = useState<ApprovalCheckResult | null>(null)
   const [requireVendor, setRequireVendor] = useState(false)
-  const [payMode, setPayMode] = useState<'expense' | 'prepayment'>('expense')
+  const [creditMode, setCreditMode] = useState<'bank' | 'asset'>('bank')
 
 
   const [form, setForm] = useState({
@@ -105,12 +105,12 @@ export default function CashPayment({ onNav }: Props) {
   }
 
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
+  // Asset "pots" you can pay OUT of (e.g. a rent float / prepaid / deposit).
+  // Whitelisted by name so no one credits Inventory, AR, or a header by mistake.
+  const assetPots = accounts.filter(a =>
+    a.type === 'asset' && a.allow_direct_posting !== false && /prepaid|deposit|advance|float|other receivable/i.test(a.name))
+  const creditAccounts = creditMode === 'asset' ? assetPots : cashAccounts
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
-  // Prepayment targets: prepaid + advance ASSET accounts (rent paid upfront,
-  // staff/salary advances). Excludes cash/bank and roll-up header rows.
-  const prepaidAccounts = accounts.filter(a =>
-    a.type === 'asset' && a.allow_direct_posting !== false && /prepaid|advance|other receivable/i.test(a.name))
-  const debitAccounts = payMode === 'prepayment' ? prepaidAccounts : expenseAccounts
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast(msg); setToastType(type)
@@ -312,26 +312,25 @@ export default function CashPayment({ onNav }: Props) {
 
         <div className="card">
           <div className="card-title" style={{ marginBottom: 16 }}>Accounting</div>
-          <FG label="Cash / Bank Account (Credit)" req>
+          <FG label={creditMode === 'asset' ? 'Asset Account (Credit)' : 'Cash / Bank Account (Credit)'} req>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <button type="button" className={`btn btn-sm ${creditMode === 'bank' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { setCreditMode('bank'); set('cashAccount', '') }}>Bank / Cash</button>
+              <button type="button" className={`btn btn-sm ${creditMode === 'asset' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { setCreditMode('asset'); set('cashAccount', '') }}>Asset account</button>
+            </div>
             <select className="form-input" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
               <option value="">— Select account —</option>
-              {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              {creditAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
             </select>
-          </FG>
-          <FG label={payMode === 'prepayment' ? 'Prepaid / Advance Account' : 'Expense / Debit Account'} req>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              <button type="button" className={`btn btn-sm ${payMode === 'expense' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => { setPayMode('expense'); set('expAccount', '') }}>Expense</button>
-              <button type="button" className={`btn btn-sm ${payMode === 'prepayment' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => { setPayMode('prepayment'); set('expAccount', '') }}>Prepayment / Advance</button>
-            </div>
-            <CategorySelect accounts={debitAccounts} value={form.expAccount} onChange={v => set('expAccount', v)}
-              placeholder={payMode === 'prepayment' ? '— Select prepaid / advance account —' : '— Select category —'} />
-            {payMode === 'prepayment' && (
+            {creditMode === 'asset' && (
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-                Money moves to an asset on the balance sheet, not this month's expense. Release it to the expense account monthly.
+                Pays out of an asset pot (no bank movement). The pot must already be funded, or its balance goes negative.
               </div>
             )}
+          </FG>
+          <FG label="Expense / Debit Account" req>
+            <CategorySelect accounts={expenseAccounts} value={form.expAccount} onChange={v => set('expAccount', v)} placeholder="— Select category —" />
           </FG>
 
           {form.amount && form.cashAccount && form.expAccount && (
