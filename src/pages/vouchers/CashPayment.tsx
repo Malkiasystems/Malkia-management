@@ -27,6 +27,7 @@ export default function CashPayment({ onNav }: Props) {
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
   const [approvalCheck, setApprovalCheck] = useState<ApprovalCheckResult | null>(null)
   const [requireVendor, setRequireVendor] = useState(false)
+  const [payMode, setPayMode] = useState<'expense' | 'prepayment'>('expense')
 
 
   const [form, setForm] = useState({
@@ -105,6 +106,11 @@ export default function CashPayment({ onNav }: Props) {
 
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
+  // Prepayment targets: prepaid + advance ASSET accounts (rent paid upfront,
+  // staff/salary advances). Excludes cash/bank and roll-up header rows.
+  const prepaidAccounts = accounts.filter(a =>
+    a.type === 'asset' && a.allow_direct_posting !== false && /prepaid|advance|other receivable/i.test(a.name))
+  const debitAccounts = payMode === 'prepayment' ? prepaidAccounts : expenseAccounts
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast(msg); setToastType(type)
@@ -312,8 +318,20 @@ export default function CashPayment({ onNav }: Props) {
               {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
             </select>
           </FG>
-          <FG label="Expense / Debit Account" req>
-            <CategorySelect accounts={expenseAccounts} value={form.expAccount} onChange={v => set('expAccount', v)} placeholder="— Select category —" />
+          <FG label={payMode === 'prepayment' ? 'Prepaid / Advance Account' : 'Expense / Debit Account'} req>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <button type="button" className={`btn btn-sm ${payMode === 'expense' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { setPayMode('expense'); set('expAccount', '') }}>Expense</button>
+              <button type="button" className={`btn btn-sm ${payMode === 'prepayment' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { setPayMode('prepayment'); set('expAccount', '') }}>Prepayment / Advance</button>
+            </div>
+            <CategorySelect accounts={debitAccounts} value={form.expAccount} onChange={v => set('expAccount', v)}
+              placeholder={payMode === 'prepayment' ? '— Select prepaid / advance account —' : '— Select category —'} />
+            {payMode === 'prepayment' && (
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                Money moves to an asset on the balance sheet, not this month's expense. Release it to the expense account monthly.
+              </div>
+            )}
           </FG>
 
           {form.amount && form.cashAccount && form.expAccount && (
