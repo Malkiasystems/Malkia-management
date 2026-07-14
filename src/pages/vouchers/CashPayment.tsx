@@ -15,7 +15,7 @@ import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 
-interface DBAccount { id: string; code: string; name: string; type: string; category: string }
+interface DBAccount { id: string; code: string; name: string; type: string; category: string; parent_id?: string | null; allow_direct_posting?: boolean | null; sort_order?: number | null }
 interface DBSupplier { id: string; name: string; balance_tzs: number }
 
 export default function CashPayment({ onNav }: Props) {
