@@ -203,7 +203,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
   const loadBudgetComparison = useCallback(async () => {
     const [y, m] = budgetMonth.split('-').map(Number)
     const period = getMonthPeriod(y, m - 1)
-    const expenseAccounts = accounts.filter(a => ['expense', 'cogs'].includes(a.type) && a.allow_direct_posting !== false)
+    const expenseAccounts = accounts.filter(a => a.type === 'expense' && a.allow_direct_posting !== false)
     const actualMap = await loadActualSpend(expenseAccounts.map(a => a.id), period.start, period.end)
     const monthBudgets = budgets.filter(b => b.period_start === period.start)
     const budgetMap: Record<string, number> = {}
@@ -279,7 +279,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
     const [y, m] = budgetMonth.split('-').map(Number)
     const period = getMonthPeriod(y, m - 1)
     const by = getPostedBy() || 'System'
-    const expAccts = accounts.filter(a => ['expense', 'cogs'].includes(a.type))
+    const expAccts = accounts.filter(a => a.type === 'expense')
     const items = expAccts
       .map(a => ({ a, val: parseFloat(budgetInputs[a.id] || '0') }))
       .filter(x => x.val > 0)
@@ -304,7 +304,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
     const [y, m] = budgetMonth.split('-').map(Number)
     const prev = new Date(y, m - 2, 1)
     const prevPeriod = getMonthPeriod(prev.getFullYear(), prev.getMonth())
-    const expAccts = accounts.filter(a => ['expense', 'cogs'].includes(a.type))
+    const expAccts = accounts.filter(a => a.type === 'expense')
     const inputs: Record<string, string> = {}
     expAccts.forEach(a => {
       const b = budgets.find(x => x.account_id === a.id && x.period_start === prevPeriod.start)
@@ -736,7 +736,7 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
                         {(() => {
                           // Group subs under their MAIN account and roll up.
                           // Subs win: a main's budget/actual is the sum of its subs.
-                          const headers = accounts.filter(a => a.allow_direct_posting === false && ['expense', 'cogs'].includes(a.type))
+                          const headers = accounts.filter(a => a.allow_direct_posting === false && a.type === 'expense')
                           const headerIds = new Set(headers.map(h => h.id))
                           const parentOf: Record<string, string | null> = {}
                           accounts.forEach(a => { parentOf[a.id] = a.parent_id || null })
