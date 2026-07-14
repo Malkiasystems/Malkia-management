@@ -6,7 +6,7 @@ import { tzs, formatDate } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface SupplierRow {
-  id: string; code: string; name: string; contact_person: string
+  id: string; code: string; name: string; contact_person: string; is_supplier?: boolean; is_vendor?: boolean
   phone: string; email: string; address: string
   payment_terms: string; balance_tzs: number; balance_usd: number
   is_active: boolean; created_at: string
@@ -33,6 +33,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 const EMPTY_FORM = {
   name: '', contact_person: '', phone: '', email: '',
   address: '', payment_terms: 'NET30', balance_tzs: '0',
+  is_supplier: true, is_vendor: false,
 }
 
 export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
@@ -57,7 +58,7 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
-  const setF = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  const setF = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { load() }, [filterActive])
 
@@ -106,6 +107,7 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
       phone: s.phone || '', email: s.email || '',
       address: s.address || '', payment_terms: s.payment_terms || 'NET30',
       balance_tzs: String(s.balance_tzs || 0),
+      is_supplier: s.is_supplier !== false, is_vendor: !!s.is_vendor,
     })
     setView('form')
   }
@@ -119,7 +121,8 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
   }
 
   const save = async () => {
-    if (!form.name.trim()) { showToast('Supplier name required', 'error'); return }
+    if (!form.name.trim()) { showToast('Name required', 'error'); return }
+    if (!form.is_supplier && !form.is_vendor) { showToast('Pick at least one role: Supplier or Vendor', 'error'); return }
     setSaving(true)
     try {
       const code = selected?.code || await generateCode()
@@ -131,6 +134,8 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
         email: form.email.trim() || null,
         address: form.address.trim() || null,
         payment_terms: form.payment_terms,
+        is_supplier: form.is_supplier,
+        is_vendor: form.is_vendor,
         is_active: true,
       }
       if (selected) {
@@ -471,7 +476,19 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
         <div className="grid g2" style={{ gap: 20 }}>
           <div className="card">
             <div className="card-title" style={{ marginBottom: 16 }}>Supplier Details</div>
-            <FG label="Supplier Name" req>
+            <FG label="Role" req>
+              <div style={{ display: 'flex', gap: 16, padding: '4px 0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.is_supplier} onChange={e => setF('is_supplier', e.target.checked)} />
+                  Supplier <span style={{ color: 'var(--text3)', fontSize: 11 }}>(products you sell)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.is_vendor} onChange={e => setF('is_vendor', e.target.checked)} />
+                  Vendor <span style={{ color: 'var(--text3)', fontSize: 11 }}>(expenses / bills)</span>
+                </label>
+              </div>
+            </FG>
+            <FG label="Name" req>
               <input className="form-input" placeholder="e.g. Meditech Tanzania Ltd" value={form.name} onChange={e => setF('name', e.target.value)} />
             </FG>
             <FG label="Contact Person">
@@ -613,7 +630,10 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                       <td className="td-mono" style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>{s.code || ''}</td>
                       <td>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{s.name}</div>
+                        <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>{s.name}
+                          {s.is_supplier !== false && <span style={{ fontSize: 8, fontFamily: 'var(--mono)', padding: '1px 5px', borderRadius: 4, background: 'rgba(94,168,162,.15)', color: 'var(--accent)' }}>SUPPLIER</span>}
+                          {s.is_vendor && <span style={{ fontSize: 8, fontFamily: 'var(--mono)', padding: '1px 5px', borderRadius: 4, background: 'rgba(212,135,74,.15)', color: 'var(--gold, #C8A96E)' }}>VENDOR</span>}
+                        </div>
                         {s.email && <div style={{ fontSize: 10, color: 'var(--text3)' }}>{s.email}</div>}
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.contact_person || ''}</td>
