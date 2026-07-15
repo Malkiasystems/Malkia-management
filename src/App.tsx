@@ -419,7 +419,7 @@ function AppContent() {
   // Which customer's ledger is open on the Customers page, so leaving to take a
   // receipt and pressing Back reopens that ledger rather than the bare list.
   const [openLedgerId, setOpenLedgerId] = useState<string | null>(null)
-  const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string; amount?: number } | null>(null)
+  const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string } | null>(null)
   const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, isSuperAdmin } = useAuth()
   useInactivityLogout()
 
@@ -493,8 +493,11 @@ function AppContent() {
     setStatementCustomerId(customerId)
     navigate('customer-statement')
   }
-  const navigateToReceipt = (customerId: string, amount: number) => {
-    setReceiptPrefill({ customerId, amount })
+  // Carries the customer only. The outstanding balance used to ride along
+  // and land in the Amount field; the clerk now types the figure they were
+  // actually handed.
+  const navigateToReceipt = (customerId: string) => {
+    setReceiptPrefill({ customerId })
     navigate('cash-receipt')
   }
 

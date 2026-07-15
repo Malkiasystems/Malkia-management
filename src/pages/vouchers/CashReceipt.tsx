@@ -21,7 +21,14 @@ interface Props {
   // deposit account differed) and confused users with two hub entries
   // for one feature. Removed; old bank-receipt routes still resolve here.
   onNav: (p: Page) => void
-  prefill?: { customerId?: string; amount?: number }   // from the Receipt button on the customer page
+  // From the Receipt button on the customer page. Carries the customer ONLY.
+  // It used to carry the outstanding balance too, which was written straight
+  // into the Amount field. That made "pay the whole balance" the default
+  // action a clerk had to actively undo, so a partial payment posted as a
+  // full settlement whenever someone tabbed past the field. The customer's
+  // balance and open invoices are still shown by <CustomerPaymentFlow>, so
+  // the clerk has the context without the figure being pre-typed for them.
+  prefill?: { customerId?: string }
 }
 interface DBAccount { id: string; code: string; name: string; category: string }
 
@@ -69,6 +76,41 @@ const methodLabel = (m: string): string => {
   return all.find(x => x.value === m)?.label || m
 }
 
+// ─── Payment reference rules ───────────────────────────────────────────────
+// Cash in hand is the one method with no external reference to quote: the
+// payer has no code to read back to you. Every other method (mobile money,
+// bank transfer, cheque, POS, bank deposit) generates a code on the payer's
+// side, and that code is the only thing that lets Finance tie this voucher
+// to a line on the bank or mobile money statement. So: mandatory for
+// everything except cash, optional but still visible for cash (a till slip
+// or envelope number is useful when it exists, junk data when forced).
+//
+// Mirrored in CustomerReceiptBatchInner.validateRow — if you change the rule
+// here, change it there, or batch mode becomes the way to skip it.
+export const isRefRequired = (method: string): boolean => method !== 'cash'
+
+const refLabel = (m: string): string =>
+  m === 'cheque'                          ? 'Cheque Number' :
+  m === 'rtgs' || m === 'swift'           ? 'Reference / TT Number' :
+  m === 'deposit'                         ? 'Bank Deposit Slip Number' :
+  m === 'mpesa'                           ? 'M-Pesa Transaction ID' :
+  m === 'mixx'                            ? 'Mixx Transaction ID' :
+  m === 'airtel'                          ? 'Airtel Money Transaction ID' :
+  m === 'pos'                             ? 'POS Approval Code' :
+  m === 'cash'                            ? 'Reference' :
+  'Transaction ID'
+
+const refPlaceholder = (m: string): string =>
+  m === 'cheque'                ? 'e.g. 000123' :
+  m === 'rtgs' || m === 'swift' ? 'e.g. TT-REF-2026-01-01' :
+  m === 'deposit'               ? 'e.g. slip 4471' :
+  m === 'mpesa'                 ? 'e.g. QTA1BCD2EFG' :
+  m === 'mixx'                  ? 'e.g. CI260715.1423.A12345' :
+  m === 'airtel'                ? 'e.g. PP260715.1423.123456' :
+  m === 'pos'                   ? 'e.g. 004471' :
+  m === 'cash'                  ? 'Optional: slip or envelope number' :
+  'Reference number'
+
 export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
   const { isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
@@ -100,11 +142,8 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
 
   const handlePaymentChange = useCallback((s: typeof paymentState) => setPaymentState(s), [])
 
-  // Prefill the amount from a customer's outstanding balance (Receipt button).
-  // The customer itself is auto-selected by CustomerPaymentFlow via initialCustomerId.
-  useEffect(() => {
-    if (prefill?.amount != null) setForm(f => ({ ...f, amount: String(prefill.amount) }))
-  }, [prefill])
+  // The customer is auto-selected by CustomerPaymentFlow via initialCustomerId.
+  // Amount is deliberately NOT prefilled — see the note on Props.
 
   useEffect(() => { loadAccounts(); loadNextRef() }, [])
 
@@ -190,6 +229,11 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
     const amount = parseFloat(form.amount) || 0
     if (amount <= 0) { showToast('Enter a valid amount', 'error'); return }
     if (!form.depositAccountId) { showToast('Select a deposit account', 'error'); return }
+    // Non-cash money must arrive with a reference we can reconcile against
+    // the statement. Applies to both customer receipts and other income.
+    if (isRefRequired(form.method) && !form.transactionId.trim()) {
+      showToast(`${refLabel(form.method)} is required for ${methodLabel(form.method)} receipts`, 'error'); return
+    }
 
     if (receiptType === 'customer') {
       if (!paymentState.selectedCustomer) { showToast('Select a customer first', 'error'); return }
@@ -244,7 +288,7 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
       const ledgerResult = await postCustomerReceiptLedger({
         customerId: cust.id, voucherRef: form.ref, postingDate: form.date,
         amount, allocations: paymentState.allocations, journalId: journal.id,
-        narration: form.narration,
+        narration: form.narration, paymentRef: form.transactionId.trim(),
       })
       if (!ledgerResult.success) {
         console.error('[receipt] ledger posting failed:', ledgerResult.error)
@@ -257,6 +301,9 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
         description: `Customer Receipt — ${custName}`,
         total_amount: amount, status: 'posted', journal_id: journal.id,
         payment_method: form.method, notes: form.narration,
+        // Migration 027. NULL on cash (nothing to reconcile), always set on
+        // every other method because post() blocks the void case above.
+        payment_ref: form.transactionId.trim() || null,
         posted_by: getPostedBy(), customer_id: cust.id,
       })
 
@@ -301,7 +348,9 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
         ref: form.ref, type: 'cash_receipt', posting_date: form.date,
         description: `Receipt — ${form.otherReceivedFrom}`,
         total_amount: amount, status: 'posted', journal_id: journal.id,
-        payment_method: form.method, notes: form.narration, posted_by: getPostedBy(),
+        payment_method: form.method, notes: form.narration,
+        payment_ref: form.transactionId.trim() || null,   // migration 027
+        posted_by: getPostedBy(),
       })
 
       // Describe the actual posting using the chosen deposit account so
@@ -320,6 +369,11 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
 
   const amount = parseFloat(form.amount) || 0
   const depositAcc = accounts.find(a => a.id === form.depositAccountId)
+  // Only flag the empty reference in red once the user has actually started
+  // the receipt (picked a deposit account and typed an amount). Shouting at
+  // a blank form the moment it loads trains people to ignore the warning.
+  const refMissing = isRefRequired(form.method) && !form.transactionId.trim()
+    && !!form.depositAccountId && amount > 0 && receiptType !== 'batch'
   const journalPreview = (() => {
     if (amount <= 0 || !depositAcc) return null
     if (receiptType === 'customer' && paymentState.selectedCustomer && arAccount) {
@@ -351,6 +405,7 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
     }
     if (!form.depositAccountId) return false
     if (amount <= 0) return false
+    if (isRefRequired(form.method) && !form.transactionId.trim()) return false
     if (receiptType === 'customer') {
       if (!paymentState.selectedCustomer) return false
       if (paymentState.allocatedTotal > amount + 0.5) return false
@@ -371,6 +426,9 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
       postDisabled={!canPost || posting || batchStatus.posting}
       postDisabledReason={!canPost ? (
         receiptType === 'batch' ? 'Add at least one row with a customer and amount, and pick a deposit account.'
+        // Name the reference specifically when that's the only thing blocking,
+        // otherwise the generic hint sends people hunting through the form.
+        : refMissing ? `${refLabel(form.method)} is required for ${methodLabel(form.method)} receipts.`
         : receiptType === 'customer' ? 'Select customer, enter amount, pick deposit account. Allocations must not exceed payment.'
         : 'Enter who paid, amount, and select deposit + income accounts.'
       ) : undefined}
@@ -476,18 +534,21 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
                     placeholder="0" value={form.amount}
                     onChange={e => set('amount', e.target.value)} />
                 </FG>
-                {form.method !== 'cash' && (
-                  <FG label={form.method === 'cheque' ? 'Cheque Number' : form.method === 'rtgs' ? 'Reference / TT Number' : 'Transaction ID'}>
-                    <input className="form-input"
-                      placeholder={
-                        form.method === 'mpesa'  ? 'e.g. QTA1BCD2EFG' :
-                        form.method === 'cheque' ? 'e.g. 000123' :
-                        form.method === 'rtgs'   ? 'e.g. TT-REF-2026-01-01' :
-                        'Reference number'
-                      }
-                      value={form.transactionId} onChange={e => set('transactionId', e.target.value)} />
-                  </FG>
-                )}
+                {/* Always rendered now, including for cash. It used to be
+                    hidden on cash, which meant the field silently appeared
+                    and disappeared as the deposit account changed. It is
+                    required for every non-cash method. */}
+                <FG label={refLabel(form.method)} req={isRefRequired(form.method)}>
+                  <input className="form-input"
+                    style={refMissing ? { borderColor: 'var(--red)' } : undefined}
+                    placeholder={refPlaceholder(form.method)}
+                    value={form.transactionId} onChange={e => set('transactionId', e.target.value)} />
+                  {refMissing && (
+                    <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>
+                      Required for {methodLabel(form.method)}. This is what Finance matches against the statement.
+                    </div>
+                  )}
+                </FG>
               </div>
 
               <FG label="Narration"><textarea className="form-input" rows={2}

@@ -554,10 +554,15 @@ interface PostReceiptArgs {
   allocations: OpenInvoice[]
   journalId: string
   narration: string
+  // External payment reference (M-Pesa code, TT ref, cheque number). Stored
+  // on vouchers.payment_ref by the caller (migration 027); appended here to
+  // the statement line so the customer can match it to their own record
+  // without anyone opening the voucher. Empty for cash receipts.
+  paymentRef?: string
 }
 
 export async function postCustomerReceiptLedger(args: PostReceiptArgs): Promise<{ success: boolean; error?: string }> {
-  const { customerId, voucherRef, postingDate, amount, allocations, journalId, narration } = args
+  const { customerId, voucherRef, postingDate, amount, allocations, journalId, narration, paymentRef } = args
 
   // 1. Post the receipt itself as a negative AR ledger entry (credits the customer)
   //    This is what appears on customer statements as "Payment received."
@@ -566,7 +571,8 @@ export async function postCustomerReceiptLedger(args: PostReceiptArgs): Promise<
     posting_date: postingDate,
     document_type: 'receipt',
     document_ref: voucherRef,
-    description: narration || `Payment received — ${voucherRef}`,
+    description: (narration || `Payment received — ${voucherRef}`)
+      + (paymentRef?.trim() ? ` · Ref ${paymentRef.trim()}` : ''),
     amount: -amount,              // negative: reduces AR
     remaining_amount: 0,          // receipts are closed at posting time
     is_open: false,

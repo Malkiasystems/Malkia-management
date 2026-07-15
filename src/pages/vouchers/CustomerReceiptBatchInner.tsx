@@ -277,6 +277,15 @@ export default function CustomerReceiptBatchInner({
     const amt = parseFloat(r.amount) || 0
     if (amt <= 0) return 'Amount must be > 0'
     if (!r.depositAccountId) return 'Pick a deposit account'
+    // Same rule as the single Receipt page (CashReceipt.isRefRequired):
+    // every non-cash method must carry a reference. Without this check the
+    // batch grid was a way to post an M-Pesa or bank receipt with nothing to
+    // reconcile against, simply by using a different tab.
+    const refAcc = cashAccounts.find(a => a.id === r.depositAccountId)
+    if (refAcc) {
+      const m = deriveMethod(refAcc.code, refAcc.name)
+      if (m.value !== 'cash' && !r.transactionId.trim()) return `${m.label} reference is required`
+    }
     const allocated = r.openInvoices.reduce((s, i) => s + i.allocation, 0)
     if (allocated > amt + 0.5) return `Allocated TZS ${allocated.toLocaleString()} > amount TZS ${amt.toLocaleString()}`
     return null
@@ -357,6 +366,7 @@ export default function CustomerReceiptBatchInner({
         const ledgerResult = await postCustomerReceiptLedger({
           customerId: cust.id, voucherRef: ref, postingDate, amount,
           allocations: r.openInvoices, journalId: journalRaw.id, narration: r.narration,
+          paymentRef: r.transactionId.trim(),
         })
         if (!ledgerResult.success) throw new Error(ledgerResult.error || 'Ledger update failed')
 
@@ -365,7 +375,12 @@ export default function CustomerReceiptBatchInner({
           description: `Customer Receipt — ${custName} (batch)`,
           total_amount: amount, status: 'posted', journal_id: journalRaw.id,
           payment_method: method.value,
-          notes: r.narration || `Batch receipt · ${r.transactionId ? `ref ${r.transactionId}` : ''}`,
+          // The reference used to be stuffed into this notes string, and only
+          // when narration was empty, so any row with a narration lost it.
+          // It now has its own column (migration 027) and notes goes back to
+          // being just notes.
+          notes: r.narration || 'Batch receipt',
+          payment_ref: r.transactionId.trim() || null,
           posted_by: getPostedBy(), customer_id: cust.id,
         })
 
@@ -571,30 +586,38 @@ export default function CustomerReceiptBatchInner({
                 })()}
               </div>
 
-              <div>
-                <label className="form-label" style={{ fontSize: 10 }}>Reference</label>
-                {(() => {
-                  // Reference placeholder depends on the derived method
-                  // for this row's account — cheque needs a cheque #,
-                  // RTGS needs a TT ref, M-Pesa needs the M-Pesa code, etc.
-                  const acc = cashAccounts.find(a => a.id === r.depositAccountId)
-                  const method = acc ? deriveMethod(acc.code, acc.name).value : 'cash'
-                  const placeholder =
-                    method === 'rtgs'   ? 'RTGS / cheque ref' :
-                    method === 'mpesa'  ? 'M-Pesa ref' :
-                    method === 'mixx'   ? 'Mixx ref' :
-                    method === 'airtel' ? 'Airtel ref' :
-                    'Optional'
-                  return (
+              {(() => {
+                // Reference placeholder depends on the derived method
+                // for this row's account — cheque needs a cheque #,
+                // RTGS needs a TT ref, M-Pesa needs the M-Pesa code, etc.
+                // Mandatory for every method except cash, matching the
+                // single Receipt page.
+                const acc = cashAccounts.find(a => a.id === r.depositAccountId)
+                const method = acc ? deriveMethod(acc.code, acc.name).value : 'cash'
+                const required = method !== 'cash'
+                const missing = required && !r.transactionId.trim()
+                const placeholder =
+                  method === 'rtgs'   ? 'RTGS / cheque ref' :
+                  method === 'mpesa'  ? 'M-Pesa ref' :
+                  method === 'mixx'   ? 'Mixx ref' :
+                  method === 'airtel' ? 'Airtel ref' :
+                  method === 'cash'   ? 'Optional' :
+                  'Reference'
+                return (
+                  <div>
+                    <label className="form-label" style={{ fontSize: 10 }}>
+                      Reference{required && <span className="req"> *</span>}
+                    </label>
                     <input className="form-input"
+                      style={missing && !locked ? { borderColor: 'var(--red)' } : undefined}
                       placeholder={placeholder}
                       value={r.transactionId}
                       onChange={e => updateRow(r.id, { transactionId: e.target.value })}
                       disabled={locked}
                     />
-                  )
-                })()}
-              </div>
+                  </div>
+                )
+              })()}
             </div>
 
             <div style={{ marginTop: 8 }}>
