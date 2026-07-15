@@ -28,8 +28,17 @@ const SECTIONS = [
   {
     title: 'Procurement', desc: 'Purchasing stock and receiving goods', items: [
       { icon: 'po', name: 'Purchase Order', desc: 'Order to supplier — no journal', color: 'rgba(100,116,139,.12)', page: 'purchase-order' as Page },
-      { icon: 'grn', name: 'GRN', desc: 'Receive goods — updates stock', color: 'rgba(251,146,60,.12)', page: 'grn' as Page },
-      { icon: 'pinv', name: 'Purchase Invoice', desc: 'Supplier bill — creates AP entry', color: 'rgba(168,85,247,.12)', page: 'purchase-invoice' as Page },
+      // Purchase has always been routed in App.tsx and was never linked from
+      // anywhere in the UI. That is why 15 GRNs exist and zero Purchases: GRN
+      // was the only Receive button on the screen. This card is the fix.
+      //
+      // GRN, Purchase Invoice and Purchase Return are deliberately not listed
+      // here any more. GRN posted Dr Inventory / Cr 1121 (an interim asset
+      // account) and relied on a Purchase Invoice that nobody ever posted to
+      // move the liability into AP. Their routes stay live in App.tsx so the
+      // 15 historical GRN vouchers still open; they are just no longer
+      // creatable. Purchase does the whole job in one voucher.
+      { icon: 'grn', name: 'Purchase', desc: 'Receive goods — stock in, money out', color: 'rgba(0,229,160,.12)', page: 'purchase' as Page },
       { icon: 'return', name: 'Purchase Return', desc: 'Return goods to supplier', color: 'rgba(255,71,87,.12)', page: 'purchase-return' as Page },
     ]
   },

@@ -33,6 +33,7 @@ const PostedVouchers = lazy(() => import('./pages/PostedVouchers'))
 const Dispatch = lazy(() => import('./pages/Dispatch'))
 const StockMovements = lazy(() => import('./pages/StockMovements'))
 const StockAsOf = lazy(() => import('./pages/StockAsOf'))
+const InterimRecon = lazy(() => import('./pages/InterimRecon'))
 const PaymentApprovals = lazy(() => import('./pages/PaymentApprovals'))
 const StockMovementReport = lazy(() => import('./pages/StockMovementReport'))
 const Inventory = lazy(() => import('./pages/Inventory'))
@@ -373,7 +374,10 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
 const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'stock-dashboard',
   'inventory',
+  // 'grn' stays so historical GRN vouchers still open. It is no longer linked
+  // from any nav; 'purchase' replaces it as the way to bring goods in.
   'grn',
+  'purchase',
   'stock-transfer',
   'stock-transfer-request',
   'stock-transfer-approvals',
@@ -649,6 +653,7 @@ function AppContent() {
       case 'dispatch':          return <Dispatch onNav={navigate} />
       case 'stock-movements':   return <StockMovements onNav={navigate} />
       case 'stock-as-of':       return <StockAsOf onNav={navigate} />
+      case 'interim-recon':     return <InterimRecon onNav={navigate} />
       case 'payment-approvals': return <PaymentApprovals onNav={navigate} />
       case 'stock-movement-report': return <StockMovementReport onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />

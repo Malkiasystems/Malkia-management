@@ -298,6 +298,13 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   // so a Stock Manager can receive stock without also gaining product-CRUD
   // rights (which are the Inventory-page edit backdoor). Legacy users who
   // only hold inventory.create still pass, so nothing breaks for them.
+  // Purchase was missing from this map entirely. canAccessPage() below returns
+  // true for any unmapped page, so EVERY logged-in user could reach the one
+  // voucher that credits cash and bank directly. Gated here to exactly the
+  // people who can already receive goods via GRN, which is a strict tightening:
+  // nobody who legitimately used it loses access, because nobody ever used it.
+  // NOTE: this list is OR, not AND — canAccessPage uses .some().
+  'purchase': ['inventory.grn', 'inventory.create'],
   'grn': ['inventory.grn', 'inventory.create'],
   'purchase-invoice': ['accounting.create'],
   'import-order': ['accounting.create'],
@@ -347,6 +354,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'regional-backup-settings': ['settings.edit'],
   'pnl': ['reports.view'],
   'trial-balance': ['reports.view'],
+  'interim-recon': ['reports.view'],
   'balance-sheet': ['reports.view'],
   'ar-aging': ['reports.view'],
   'ap-aging': ['reports.view'],

@@ -18,6 +18,7 @@ export type Page =
   | 'inventory-settings' | 'pricelist-template' | 'proforma-template'
   | 'banks' | 'settings' | 'data-import' | 'coming-soon' | 'bundles'
   | 'stock-levels' | 'suppliers' | 'stock-movements' | 'stock-as-of' | 'payment-approvals' | 'stock-movement-report' | 'internal-use-returns' | 'stock-count'
+  | 'interim-recon'
   // CRM Module Pages
   | 'crm' | 'crm-hub' | 'crm-inbox' | 'crm-automations' | 'crm-preorders' | 'crm-waiting-list'
   | 'crm-referrals' | 'crm-ambassador'  // crm-referrals kept as alias; new code uses crm-ambassador

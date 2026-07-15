@@ -21,7 +21,16 @@ interface PurchaseLine { productId: string; description: string; qty: number; un
 type PaymentMode = 'credit' | 'cash' | 'bank' | 'mpesa'
 
 export default function Purchase({ onNav }: Props) {
-  const { user } = useAuth()
+  const { user, can } = useAuth()
+
+  // Receiving goods and paying for them are two different jobs. Anyone who can
+  // reach this page can bring stock in on account, which records the debt
+  // honestly. Actually settling it out of cash, bank or M-Pesa touches money,
+  // so it needs accounting.create. Today every user who can open this page has
+  // that permission, so this changes nothing for Joe or Barbra — it exists so
+  // that the day a warehouse hire gets inventory.grn, they get the receiving
+  // half and not the bank.
+  const canSettle = can('accounting.create')
   const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -154,6 +163,11 @@ export default function Purchase({ onNav }: Props) {
     if (totalCost <= 0) { showToast('Total must be greater than zero', 'error'); return }
     if (form.paymentMode !== 'credit' && !form.payAccount) {
       showToast('Select the cash/bank account you paid from', 'error'); return
+    }
+    // Not just the disabled button above. A stale form state or a mode set
+    // before permissions loaded must not be able to post money out.
+    if (form.paymentMode !== 'credit' && !canSettle) {
+      showToast('You can receive on account, but settling from cash or bank needs the accounting.create permission', 'error'); return
     }
     if (!user) { showToast('You must be signed in', 'error'); return }
     // Defence in depth: locked users cannot receive purchases into another location.
@@ -401,26 +415,37 @@ export default function Purchase({ onNav }: Props) {
             { key: 'cash' as PaymentMode, label: 'Cash', sub: 'Petty cash / on hand' },
             { key: 'bank' as PaymentMode, label: 'Bank', sub: 'Bank transfer' },
             { key: 'mpesa' as PaymentMode, label: 'M-Pesa', sub: 'Mobile money' },
-          ]).map(opt => (
+          ]).map(opt => {
+            const locked = opt.key !== 'credit' && !canSettle
+            return (
             <button
               key={opt.key}
               type="button"
-              onClick={() => set('paymentMode', opt.key)}
+              disabled={locked}
+              title={locked ? 'Needs the accounting.create permission — you can receive on account instead' : undefined}
+              onClick={() => { if (!locked) set('paymentMode', opt.key) }}
               style={{
                 flex: '1 1 140px',
                 background: form.paymentMode === opt.key ? 'var(--accent-dim)' : 'var(--surface)',
                 border: `1px solid ${form.paymentMode === opt.key ? 'var(--accent)' : 'var(--border)'}`,
                 borderRadius: 'var(--r)',
                 padding: '10px 14px',
-                cursor: 'pointer',
+                cursor: locked ? 'not-allowed' : 'pointer',
                 textAlign: 'left',
+                opacity: locked ? 0.4 : 1,
               }}
             >
               <div style={{ fontSize: 12, fontWeight: 700, color: form.paymentMode === opt.key ? 'var(--accent)' : 'var(--text)' }}>{opt.label}</div>
-              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>{opt.sub}</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>{locked ? 'No permission' : opt.sub}</div>
             </button>
-          ))}
+          )})}
         </div>
+        {!canSettle && (
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
+            You can receive goods on account, which records what is owed to the supplier. Settling from cash or
+            bank needs the accounting.create permission, so the stock and the money stay separate jobs.
+          </div>
+        )}
       </div>
 
       {/* Conditional fields based on payment mode */}

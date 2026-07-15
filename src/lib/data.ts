@@ -77,6 +77,7 @@ export const BREADCRUMBS: Record<string, string> = {
   'journal-entry':'Journal Entry',
   'pnl':'Profit & Loss', 'sales-register':'Sales Register', 'sales-day-book':'Sales Day Book',
   'trial-balance':'Trial Balance', 'balance-sheet':'Balance Sheet',
+  'interim-recon':'Interim Account Reconciliation',
   'ar-aging':'AR Aging', 'ap-aging':'AP Aging',
   'stock-valuation':'Stock Valuation', 'purchase-register':'Purchase Register',
   'payment-register':'Payment Register', 'expense-register':'Expense Register', 'stock-transfer-register':'Stock Transfer Register', 'import-register':'Import Register', 'customers':'Customers', 'receipt-template':'Receipt Template', 'invoice-template':'Invoice Template', 'whatsapp-settings':'WhatsApp', 'location-settings':'Location Management', 'inventory-settings':'Inventory Settings', 'pricelist-template':'Price List',

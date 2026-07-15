@@ -96,13 +96,13 @@ const GROUPS: { title: string; items: { key: string; label: string; page: Page }
 const STOCK_TABS: { key: string; label: string; page: Page }[] = [
   { key: 'home',      label: 'Home',     page: 'stock-dashboard' },
   { key: 'inventory', label: 'Stock',    page: 'inventory' },
-  { key: 'receive',   label: 'Receive',  page: 'grn' },
+  { key: 'receive',   label: 'Receive',  page: 'purchase' },
   { key: 'dispatch',  label: 'Dispatch', page: 'dispatch' },
 ]
 const STOCK_DRAWER: { key: string; label: string; page: Page }[] = [
   { key: 'home',      label: 'Stock Dashboard', page: 'stock-dashboard' },
   { key: 'inventory', label: 'Inventory',       page: 'inventory' },
-  { key: 'receive',   label: 'Receive (GRN)',   page: 'grn' },
+  { key: 'receive',   label: 'Receive Stock',   page: 'purchase' },
   { key: 'transfer',  label: 'Transfer',        page: 'stock-transfer' },
   { key: 'approvals', label: 'Approvals',       page: 'stock-transfer-approvals' },
   { key: 'dispatch',  label: 'Dispatch',        page: 'dispatch' },

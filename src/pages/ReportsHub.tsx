@@ -29,6 +29,7 @@ export default function ReportsHub({ onNav }: Props) {
         { name: 'Profit & Loss', icon: 'pnl', page: 'pnl' as Page, desc: 'Income vs expenses · Live' },
         { name: 'Balance Sheet', icon: 'balance', page: 'balance-sheet' as Page, desc: 'Assets = Liabilities + Equity' },
         { name: 'Trial Balance', icon: 'trial', page: 'trial-balance' as Page, desc: 'All account balances · Balanced check' },
+        { name: 'Interim Account (1121)', icon: 'balance', page: 'interim-recon' as Page, desc: 'GRN vs import exposure · Reconciliation' },
       ]
     },
     {
