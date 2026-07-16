@@ -61,11 +61,23 @@ export function useDashboard(canViewFinancials: boolean) {
 
 // ── Operational tier (always) ────────────────────────────────────────────────
 async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<OperationsData> {
-  const [salesRes, prodRes, empRes, retailRes, b2bRes, apprRes, recentRes] = await Promise.all([
+  const todayIso = new Date().toISOString().split('T')[0]
+  const [salesRes, prodRes, empRes, leaveRes, retailRes, b2bRes, apprRes, recentRes] = await Promise.all([
     supabase.from('vouchers').select('type, total_amount, posting_date, status')
       .in('type', ['cash_sale', 'sales_invoice']).eq('status', 'posted').gte('posting_date', b.monthStart),
     supabase.from('products').select('id, name, qty_on_hand, reorder_point, category, is_active').eq('is_active', true),
-    supabase.from('hrm_employees').select('id, is_active, on_leave'),
+    // This used to select 'id, is_active, on_leave'. There is no on_leave column
+    // on hrm_employees and there never has been, so PostgREST rejected the whole
+    // query with "column hrm_employees.on_leave does not exist". Because these
+    // run in a Promise.all, the error landed in empRes.error rather than
+    // throwing, empRes.data came back null, and the dashboard quietly reported a
+    // headcount of ZERO. Not just the leave count — the entire HRM widget.
+    supabase.from('hrm_employees').select('id, is_active'),
+    // Who is on leave is a fact about TODAY, not a flag on the employee record.
+    // hrm_attendance already carries it: HRMAttendance.tsx writes status
+    // 'on_leave' when entry_type is 'leave'. Read the real data rather than
+    // adding a boolean column that nothing in the app would ever set.
+    supabase.from('hrm_attendance').select('employee_id').eq('date', todayIso).eq('status', 'on_leave'),
     supabase.from('customers').select('id, customer_type, created_at').eq('customer_type', 'cash'),
     supabase.from('b2b_accounts').select('stage, next_action_date, won_at, is_archived'),
     supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
@@ -95,7 +107,8 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
   // HRM
   const emps = (empRes.data || []) as any[]
   const headcount = emps.filter(e => e.is_active !== false).length
-  const onLeave = emps.filter(e => e.on_leave === true).length
+  // Distinct employees, in case a day ends up with more than one leave row.
+  const onLeave = new Set(((leaveRes.data || []) as any[]).map(r => r.employee_id)).size
 
   // CRM retail
   const retail = (retailRes.data || []) as any[]
