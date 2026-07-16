@@ -7,6 +7,7 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { deriveMethod, methodLabel, isRefRequired, refLabel, refPlaceholder } from '../../lib/paymentMethods'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
 import CategorySelect from '../../components/CategorySelect'
@@ -110,6 +111,16 @@ export default function CashPayment({ onNav }: Props) {
   const assetPots = accounts.filter(a =>
     a.type === 'asset' && a.allow_direct_posting !== false && /prepaid|deposit|advance|float|other receivable/i.test(a.name))
   const creditAccounts = creditMode === 'asset' ? assetPots : cashAccounts
+
+  // What the money actually left through. An asset pot (a prepaid float, a
+  // deposit) is not a bank movement and has no external reference to quote, so
+  // it is treated like cash for reference purposes.
+  const payAcct = accounts.find(a => a.id === form.cashAccount)
+  const payMethod = creditMode === 'asset' || !payAcct
+    ? 'cash'
+    : deriveMethod(payAcct.code, payAcct.name)
+  const refRequired = isRefRequired(payMethod)
+  const refMissing = refRequired && !form.chequeNo.trim() && !!form.cashAccount && amountNum > 0
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -158,6 +169,12 @@ export default function CashPayment({ onNav }: Props) {
     if (!form.cashAccount) { showToast('Please select cash/bank account', 'error'); return }
     if (!form.expAccount) { showToast('Please select expense/debit account', 'error'); return }
     if (requireVendor && !form.supplierId) { showToast('A vendor is required for cash payments. Select a supplier.', 'error'); return }
+    // Money going out needs a reference for every non-cash method, exactly as
+    // money coming in does. Mirrors CashReceipt.
+    if (refRequired && !form.chequeNo.trim()) {
+      showToast(`${refLabel(payMethod)} is required for ${methodLabel(payMethod)} payments`, 'error'); return
+    }
+    if (!user) { showToast('You must be signed in', 'error'); return }
 
     // Date lock enforcement
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
@@ -191,7 +208,7 @@ export default function CashPayment({ onNav }: Props) {
         journal_type: 'cash_payment',
         source_type: 'cash_payment',
         source_ref: form.ref,
-        posted_by: 'Joe Gembe',
+        posted_by: user.full_name,   // was hardcoded 'Joe Gembe'
         status: 'posted',
         branch: form.branch,
       })  
@@ -222,9 +239,15 @@ export default function CashPayment({ onNav }: Props) {
         branch: form.branch,
         supplier_id: form.supplierId || null,
         journal_id: journal.id,
-        payment_method: 'cash',
+        // Was hardcoded 'cash', so a supplier paid from CRDB was recorded as a
+        // cash payment. Derived from the account the money actually left.
+        payment_method: payMethod,
+        // chequeNo was captured by the form and written nowhere — the exact bug
+        // the Receipt page had. payment_ref exists on vouchers as of migration
+        // 027, so it now has a home and can be reconciled against a statement.
+        payment_ref: form.chequeNo.trim() || null,
         notes: form.narration,
-        posted_by: 'Joe Gembe',
+        posted_by: user.full_name,   // was hardcoded 'Joe Gembe'
       })
       if (vErr) throw new Error('Voucher: ' + vErr.message)
 
@@ -305,8 +328,16 @@ export default function CashPayment({ onNav }: Props) {
           <FG label="Narration">
             <textarea className="form-input" rows={3} placeholder="What was this payment for?" value={form.narration} onChange={e => set('narration', e.target.value)} style={{ resize: 'none' }} />
           </FG>
-          <FG label="Cheque / Reference No">
-            <input className="form-input" placeholder="e.g. CHQ-001234 or M-Pesa ref" value={form.chequeNo} onChange={e => set('chequeNo', e.target.value)} />
+          <FG label={refLabel(payMethod)} req={refRequired}>
+            <input className="form-input"
+              style={refMissing ? { borderColor: 'var(--red)' } : undefined}
+              placeholder={refPlaceholder(payMethod)}
+              value={form.chequeNo} onChange={e => set('chequeNo', e.target.value)} />
+            {refMissing && (
+              <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>
+                Required for {methodLabel(payMethod)}. This is what Finance matches against the statement.
+              </div>
+            )}
           </FG>
         </div>
 
