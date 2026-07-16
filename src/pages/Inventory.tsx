@@ -47,16 +47,27 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
 }
 
+// What each movement type ACTUALLY posts to the general ledger.
+//
+// This legend had drifted badly. 'purchase' claimed Cr GRN Interim (1121),
+// which Purchase.tsx has never done — it credits cash, bank or AP. 'adjustment'
+// named account 5080, which does not exist (it is 5082 for write-offs, and 6850
+// for variance as of migration 028). The transfer rows still describe both
+// directions identically. Anything shown here must match what the posting code
+// does, or it is worse than showing nothing.
 const ENTRY_TYPE_LABELS: Record<string, { label: string; color: string; dr: string; cr: string }> = {
-  sale:            { label: 'Sale',          color: 'var(--red)',    dr: 'COGS (5010)',      cr: 'Inventory (1110)' },
-  purchase:        { label: 'Purchase',      color: 'var(--green)',  dr: 'Inventory (1110)', cr: 'GRN Interim (1121)' },
-  grn:             { label: 'GRN',           color: 'var(--green)',  dr: 'Inventory (1110)', cr: 'GRN Interim (1121)' },
-  return:          { label: 'Sales Return',  color: 'var(--blue)',   dr: 'Inventory (1110)', cr: 'COGS (5010)' },
-  purchase_return: { label: 'Purch Return',  color: 'var(--accent)', dr: 'AP (2010)',         cr: 'Inventory (1110)' },
-  adjustment:      { label: 'Adjustment',    color: 'var(--yellow)', dr: 'Stock Loss (5080)', cr: 'Inventory (1110)' },
-  opening_stock:   { label: 'Opening Stock', color: 'var(--green)',  dr: 'Inventory (1110)', cr: 'Equity (3040)' },
-  transfer_in:     { label: 'Transfer In',   color: 'var(--blue)',   dr: 'Inventory (dest)', cr: 'Inventory (src)' },
-  transfer_out:    { label: 'Transfer Out',  color: 'var(--accent)', dr: 'Inventory (dest)', cr: 'Inventory (src)' },
+  sale:                { label: 'Sale',          color: 'var(--red)',    dr: 'COGS (5010)',           cr: 'Inventory (1110)' },
+  purchase:            { label: 'Purchase',      color: 'var(--green)',  dr: 'Inventory (1110)',      cr: 'Cash / Bank / AP (2010)' },
+  grn:                 { label: 'GRN (retired)', color: 'var(--yellow)', dr: 'Inventory (1110)',      cr: 'GRN Interim (1121)' },
+  return:              { label: 'Sales Return',  color: 'var(--blue)',   dr: 'Inventory (1110)',      cr: 'COGS (5010)' },
+  purchase_return:     { label: 'Purch Return',  color: 'var(--accent)', dr: 'AP (2010)',             cr: 'Inventory (1110)' },
+  positive_adjustment: { label: 'Stock Found',   color: 'var(--green)',  dr: 'Inventory (1110)',      cr: 'Stock Variance (6850)' },
+  negative_adjustment: { label: 'Stock Short',   color: 'var(--yellow)', dr: 'Stock Variance (6850)', cr: 'Inventory (1110)' },
+  write_off:           { label: 'Write-off',     color: 'var(--red)',    dr: 'Write-offs (5082)',     cr: 'Inventory (1110)' },
+  internal_use:        { label: 'Internal Use',  color: 'var(--yellow)', dr: 'Internal Use (6800)',   cr: 'Inventory (1110)' },
+  opening_stock:       { label: 'Opening Stock', color: 'var(--green)',  dr: 'Inventory (1110)',      cr: 'Owner Capital (3010)' },
+  transfer_in:         { label: 'Transfer In',   color: 'var(--blue)',   dr: 'Inventory (dest loc)',  cr: 'Inventory (src loc)' },
+  transfer_out:        { label: 'Transfer Out',  color: 'var(--accent)', dr: 'Inventory (dest loc)',  cr: 'Inventory (src loc)' },
 }
 
 export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {

@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { nextRef, insertJournalWithRetry } from '../../lib/refs'
+import { nextRef } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useAuth } from '../../lib/useAuth'
@@ -90,11 +90,26 @@ export default function StockAdjustment({ onNav }: Props) {
     setPosting(true)
 
     try {
-      const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['1110', '3040', '5080'])
+      // 5082 is the real write-off account. This line used to look for '5080',
+      // which does not exist in the chart of accounts, so writeoffId came back
+      // undefined and the `&& writeoffId` guard below silently skipped the
+      // journal. 6850 is new in migration 028 and carries count/adjustment
+      // variance, which is NOT the same thing as a deliberate write-off.
+      const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['1110', '5082', '6850'])
       const inventoryId = acctData?.find(a => a.code === '1110')?.id
-      // equityId not needed
-      const writeoffId = acctData?.find(a => a.code === '5080')?.id
+      const writeoffId  = acctData?.find(a => a.code === '5082')?.id
+      const varianceId  = acctData?.find(a => a.code === '6850')?.id
       if (!inventoryId) throw new Error('Inventory account 1110 not found')
+      // Fail BEFORE touching stock, not silently after. A missing account is a
+      // setup problem, and posting the stock half of a transaction while
+      // dropping the accounting half is what put 90m of adjustments outside
+      // the ledger in the first place.
+      const counterId = form.type === 'writeoff' ? writeoffId : varianceId
+      if (!counterId) throw new Error(
+        form.type === 'writeoff'
+          ? 'Write-off account 5082 not found — run migration 028'
+          : 'Stock Variance account 6850 not found — run migration 028'
+      )
 
       const { error: vErr } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'stock_adjustment', posting_date: form.date,
@@ -136,25 +151,56 @@ export default function StockAdjustment({ onNav }: Props) {
           )
         }
 
-        // Journal for write-offs
-        if (form.type === 'writeoff' && writeoffId) {
-          const { data: j } = await insertJournalWithRetry({
-            ref: 'JV-' + form.ref + '-' + lines.indexOf(line),
-            posting_date: form.date, description: `Stock Write-off — ${prod.name}`,
-            journal_type: 'stock_adjustment', posted_by: user.full_name, status: 'posted',
-          })  
-          if (j) {
-            await supabase.from('journal_lines').insert([
-              { journal_id: j.id, line_number: 1, account_id: writeoffId, description: `Write-off — ${prod.name}`, debit: costAmount, credit: 0 },
-              { journal_id: j.id, line_number: 2, account_id: inventoryId, description: `Inventory reduced — ${prod.name}`, debit: 0, credit: costAmount },
-            ])
-            await supabase.rpc('update_account_balance', { p_account_id: writeoffId, p_debit: costAmount, p_credit: 0 })
-            await supabase.rpc('update_account_balance', { p_account_id: inventoryId, p_debit: 0, p_credit: costAmount })
-          }
+        // Journal for EVERY adjustment type, not just write-offs.
+        //
+        // This block used to read `if (form.type === 'writeoff' && writeoffId)`,
+        // so increases and decreases posted nothing at all. That is why 46
+        // increases (70,843,588.88) and 39 decreases (19,462,350.67) moved the
+        // warehouse and never moved the balance sheet.
+        //
+        //   increase  → Dr Inventory  / Cr Stock Variance   (found stock)
+        //   decrease  → Dr Variance   / Cr Inventory        (shrinkage)
+        //   writeoff  → Dr Write-offs / Cr Inventory        (damaged goods)
+        //
+        // post_journal_transaction (migration 028) does journal + lines +
+        // balance updates in ONE transaction and rejects unbalanced entries.
+        // If it throws, the catch below surfaces it instead of leaving the
+        // stock moved and the books untouched.
+        //
+        // Zero-cost lines are skipped. A product with no cost_price has no
+        // value to move, so the journal would be 0/0 — which the RPC would
+        // happily accept (0 debits do equal 0 credits) and post as noise.
+        // Worth knowing: 23 of your 39 historical negative adjustments have
+        // cost_amount = 0, meaning those products carry quantity with no cost
+        // price set. That is a product data gap to fix on the product, not
+        // something an empty journal would paper over.
+        if (costAmount > 0) {
+          const isInbound = form.type === 'increase'
+          const counterLabel = form.type === 'writeoff' ? 'Write-off' : 'Stock variance'
+          const { error: jErr } = await supabase.rpc('post_journal_transaction', {
+            p_ref: 'JV-' + form.ref + '-' + (lines.indexOf(line) + 1),
+            p_posting_date: form.date,
+            p_description: `${counterLabel} — ${prod.name} — ${form.reason}`,
+            p_journal_type: 'stock_adjustment',
+            p_source_type: 'stock_adjustment',
+            p_source_ref: form.ref,
+            p_posted_by: user.full_name,
+            p_branch: null,
+            p_lines: isInbound
+              ? [
+                  { account_id: inventoryId, description: `Stock found — ${prod.name}`, debit: costAmount, credit: 0 },
+                  { account_id: counterId,   description: `Variance credit — ${prod.name}`, debit: 0, credit: costAmount },
+                ]
+              : [
+                  { account_id: counterId,   description: `${counterLabel} — ${prod.name}`, debit: costAmount, credit: 0 },
+                  { account_id: inventoryId, description: `Inventory reduced — ${prod.name}`, debit: 0, credit: costAmount },
+                ],
+          })
+          if (jErr) throw new Error('Journal: ' + jErr.message)
         }
       }
 
-      showToast(`${form.ref} posted · Stock quantities updated · ${form.type === 'writeoff' ? 'Write-off journal posted' : 'No P&L impact'}`)
+      showToast(`${form.ref} posted · Stock and accounts both updated`)
       onNav('vouchers')
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
@@ -226,7 +272,11 @@ export default function StockAdjustment({ onNav }: Props) {
   return (
     <VoucherPage title="Stock Adjustment" icon="" subtitle="Correct stock quantities — physical count, damage, write-off" color="rgba(255,71,87,.12)"
       onPost={post} postLabel={posting ? 'Posting…' : 'Post Adjustment'}
-      journalNote={form.type === 'writeoff' ? 'Dr Write-off (5080) · Cr Inventory (1110) · P&L impact' : 'Stock qty updated · No journal for count corrections'}>
+      journalNote={
+        form.type === 'writeoff' ? 'Dr Write-off (5082) · Cr Inventory (1110) · P&L impact'
+        : form.type === 'increase' ? 'Dr Inventory (1110) · Cr Stock Variance (6850) · P&L impact'
+        : 'Dr Stock Variance (6850) · Cr Inventory (1110) · P&L impact'
+      }>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-row">
           <FG label="Ref"><input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, background: 'var(--surface2)', cursor: 'default', color: 'var(--accent)' }} /></FG>
@@ -292,9 +342,9 @@ export default function StockAdjustment({ onNav }: Props) {
         ))}
         <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', qty: 1, reason: '' }])}>+ Add product</button>
         <div style={{ background: form.type === 'writeoff' ? 'var(--red-dim)' : form.type === 'increase' ? 'var(--green-dim)' : 'var(--yellow-dim)', border: `1px solid ${form.type === 'writeoff' ? 'var(--red)' : form.type === 'increase' ? 'var(--green)' : 'var(--yellow)'}`, borderRadius: 'var(--r)', padding: 12, marginTop: 12, fontSize: 11 }}>
-          {form.type === 'increase' && <span style={{ color: 'var(--green)' }}>Stock will increase · No P&L impact</span>}
-          {form.type === 'decrease' && <span style={{ color: 'var(--yellow)' }}> Stock will decrease · No P&L impact</span>}
-          {form.type === 'writeoff' && <span style={{ color: 'var(--red)' }}>Stock written off · Dr Write-off (5080) / Cr Inventory (1110) · P&L impact</span>}
+          {form.type === 'increase' && <span style={{ color: 'var(--green)' }}>Stock found · Dr Inventory (1110) / Cr Stock Variance (6850) · P&L impact</span>}
+          {form.type === 'decrease' && <span style={{ color: 'var(--yellow)' }}>Stock short · Dr Stock Variance (6850) / Cr Inventory (1110) · P&L impact</span>}
+          {form.type === 'writeoff' && <span style={{ color: 'var(--red)' }}>Stock written off · Dr Write-off (5082) / Cr Inventory (1110) · P&L impact</span>}
         </div>
       </div>
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}

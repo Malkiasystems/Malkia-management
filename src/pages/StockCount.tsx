@@ -139,6 +139,18 @@ export default function StockCount({ onNav: _onNav }: Props) {
     setBusy(true)
     try {
       const loc = locations.find(l => l.code === active.location_code)
+
+      // Settling a count moves stock, so it must move the accounts too. This
+      // page had no journal code at all, which is part of why account 1110
+      // drifted away from the stock module. Resolve the accounts up front and
+      // fail here rather than halfway through the loop with stock already
+      // changed and nothing in the ledger.
+      const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['1110', '6850'])
+      const inventoryId = acctData?.find(a => a.code === '1110')?.id
+      const varianceId = acctData?.find(a => a.code === '6850')?.id
+      if (!inventoryId) throw new Error('Inventory account 1110 not found')
+      if (!varianceId) throw new Error('Stock Variance account 6850 not found — run migration 028')
+
       for (const l of disc) {
         const qtyChange = (l.counted_qty as number) - l.system_qty
         const cost = Math.abs(qtyChange) * (l.unit_cost || 0)
@@ -149,6 +161,35 @@ export default function StockCount({ onNav: _onNav }: Props) {
           document_type: 'stock_adjustment', document_ref: active.ref || 'count', posting_date: iso(new Date()),
           qty: qtyChange, cost_amount: cost, location: loc ? { id: loc.id, code: loc.code } : null,
         })
+
+        // Counted more than the system knew  → Dr Inventory / Cr Variance
+        // Counted less                       → Dr Variance  / Cr Inventory
+        // Skipped when unit_cost is 0: there is no value to move, so the
+        // journal would be a meaningless 0/0 entry. A zero-cost product is a
+        // data gap to fix on the product record itself.
+        if (cost > 0) {
+          const { error: jErr } = await supabase.rpc('post_journal_transaction', {
+            p_ref: 'JV-' + (active.ref || 'COUNT') + '-' + l.id.slice(0, 8),
+            p_posting_date: iso(new Date()),
+            p_description: `Stock count variance — ${l.product_name || 'product'} — ${active.ref || ''}`,
+            p_journal_type: 'stock_adjustment',
+            p_source_type: 'stock_count',
+            p_source_ref: active.ref || 'count',
+            p_posted_by: user?.full_name || 'system',
+            p_branch: null,
+            p_lines: qtyChange > 0
+              ? [
+                  { account_id: inventoryId, description: `Count surplus — ${l.product_name || ''}`, debit: cost, credit: 0 },
+                  { account_id: varianceId, description: `Variance credit — ${l.product_name || ''}`, debit: 0, credit: cost },
+                ]
+              : [
+                  { account_id: varianceId, description: `Count shortfall — ${l.product_name || ''}`, debit: cost, credit: 0 },
+                  { account_id: inventoryId, description: `Inventory reduced — ${l.product_name || ''}`, debit: 0, credit: cost },
+                ],
+          })
+          if (jErr) throw new Error('Journal: ' + jErr.message)
+        }
+
         if (loc) {
           const { data: pl } = await supabase.from('product_locations').select('qty_on_hand').eq('product_id', l.product_id).eq('location_id', loc.id).maybeSingle()
           await supabase.from('product_locations').upsert(
@@ -159,7 +200,7 @@ export default function StockCount({ onNav: _onNav }: Props) {
       }
       await supabase.from('stock_counts').update({ status: 'settled', settled_at: new Date().toISOString(), settled_by_name: user?.full_name || null }).eq('id', active.id)
       setBusy(false)
-      flash(`Settled ${disc.length} discrepancies — stock updated`)
+      flash(`Settled ${disc.length} discrepancies — stock and accounts both updated`)
       setLines(prev => prev.map(l => disc.find(d => d.id === l.id) ? { ...l, settled: true } : l))
       setActive({ ...active, status: 'settled' }); loadList()
     } catch (e: any) { setBusy(false); flash('Failed: ' + (e?.message || 'unknown'), 'err') }
