@@ -15,7 +15,7 @@ import type { Page } from '../../lib/types'
 interface Props { onNav: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; qty_on_hand: number }
 interface DBSupplier { id: string; name: string; balance_tzs: number }
-interface DBAccount { id: string; code: string; name: string; type: string }
+interface DBAccount { id: string; code: string; name: string; type: string; category: string | null }
 interface PurchaseLine { productId: string; description: string; qty: number; unitCost: number; amount: number }
 
 type PaymentMode = 'credit' | 'cash' | 'bank' | 'mpesa'
@@ -107,7 +107,7 @@ export default function Purchase({ onNav }: Props) {
     if (data) setSuppliers(data)
   }
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name, type').eq('is_active', true).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, type, category').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
   const loadNextRef = async () => {
@@ -142,14 +142,20 @@ export default function Purchase({ onNav }: Props) {
 
   // Bank/Cash accounts to choose from for "Pay now"
   // Note: Excludes inventory account 1110 (which would create Dr Inventory / Cr Inventory and silently zero out)
-  const bankCashAccounts = accounts.filter(a => {
-    if (a.code === '1100' || a.code === '1101') return true            // Cash on hand
-    if (a.code.startsWith('112')) return true                          // Bank accounts (1120-1129 typical convention)
-    if (a.code.startsWith('113')) return true                          // M-Pesa / mobile money (1130+)
-    // Type-based fallback: anything classified as 'bank' or 'cash' in chart of accounts
-    if (a.type === 'bank' || a.type === 'cash') return true
-    return false
-  })
+  // Pay From must offer cash and bank accounts, nothing else.
+  //
+  // This used to guess by account code, assuming 1100/1101 = cash on hand,
+  // 112x = bank, 113x = mobile money. That is somebody else's chart of
+  // accounts. In ours, cash and bank live in 10xx (1010 Cash in Hand, 1020
+  // M-Pesa, 1030 CRDB) and 11xx is INVENTORY. So the filter matched 1100
+  // INVENTORY, 1120 Goods in Transit, 1121 GRN Interim and 1130 Inventory
+  // Write-down Reserve — precisely the wrong accounts — and offered them as
+  // places to pay a supplier from. The type fallback never rescued it either,
+  // because our cash accounts are type 'asset', not 'bank' or 'cash'.
+  //
+  // category is the discriminator the rest of the app already uses
+  // (CashReceipt, CashPayment). Match them rather than inventing a rule.
+  const bankCashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
 
   const post = async () => {
     if (!form.supplier) { showToast('Please select a supplier', 'error'); return }
