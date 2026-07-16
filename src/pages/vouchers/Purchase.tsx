@@ -15,10 +15,32 @@ import type { Page } from '../../lib/types'
 interface Props { onNav: (p: Page) => void }
 interface DBProduct { id: string; sku: string; name: string; cost_price: number; qty_on_hand: number }
 interface DBSupplier { id: string; name: string; balance_tzs: number }
-interface DBAccount { id: string; code: string; name: string; type: string; category: string | null }
+interface DBAccount { id: string; code: string; name: string; type: string; category: string | null; balance: number | null }
 interface PurchaseLine { productId: string; description: string; qty: number; unitCost: number; amount: number }
 
-type PaymentMode = 'credit' | 'cash' | 'bank' | 'mpesa'
+// Only two things a purchase can be: settled now, or owed.
+//
+// There used to be four modes — credit / cash / bank / mpesa — but cash, bank
+// and mpesa were behaviourally IDENTICAL. All three posted Cr {form.payAccount}
+// and differed only in a text label. The Pay From dropdown underneath already
+// names the exact account, so the button was asking the same question twice and
+// letting the two answers disagree: you could pick 'Cash' and then select CRDB
+// Bank, and the voucher would record payment_method 'Cash' while crediting the
+// bank. The account is the answer. Derive the label from it.
+type PaymentMode = 'credit' | 'now'
+
+// Label a payment by the account it came from. Matches the convention already
+// used by CashReceipt, SalesInvoice and CustomerReceiptBatchInner: 101x and
+// 1040 are cash, 102x is mobile money, 103x is bank. Falls back to the account
+// name, which is more informative than a wrong guess.
+function methodFromAccount(a?: { code: string; name: string } | null): string {
+  if (!a) return 'Paid'
+  const c = a.code
+  if (c.startsWith('101') || c === '1040') return 'Cash'
+  if (c.startsWith('102')) return 'Mobile Money'
+  if (c.startsWith('103')) return 'Bank'
+  return a.name
+}
 
 export default function Purchase({ onNav }: Props) {
   const { user, can } = useAuth()
@@ -107,7 +129,7 @@ export default function Purchase({ onNav }: Props) {
     if (data) setSuppliers(data)
   }
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name, type, category').eq('is_active', true).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, type, category, balance').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
   const loadNextRef = async () => {
@@ -128,9 +150,19 @@ export default function Purchase({ onNav }: Props) {
         if (newLines[i].unitCost === 0) newLines[i].unitCost = p.cost_price || 0
       }
     }
-    if (field === 'qty' || field === 'unitCost') {
-      newLines[i].amount = newLines[i].qty * newLines[i].unitCost
-    }
+    // Recalculate on EVERY field, not just qty/unitCost.
+    //
+    // This used to be `if (field === 'qty' || field === 'unitCost')`. Picking a
+    // product sets unitCost from the product record but is field 'productId',
+    // so amount stayed at 0 until the user happened to touch a number field.
+    // The line showed qty 1 × 33,291.05 = 0, and so did the total.
+    //
+    // Not just cosmetic: post() writes `cost_amount: line.amount` per line and
+    // only guards on the GRAND total being > 0. So a two-line purchase where
+    // line 1 was nudged and line 2 was not would post, taking line 2's stock in
+    // at ZERO cost and dragging the product's weighted average cost down with
+    // it. Silently.
+    newLines[i].amount = (newLines[i].qty || 0) * (newLines[i].unitCost || 0)
     setLines(newLines)
   }
 
@@ -156,6 +188,12 @@ export default function Purchase({ onNav }: Props) {
   // category is the discriminator the rest of the app already uses
   // (CashReceipt, CashPayment). Match them rather than inventing a rule.
   const bankCashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
+
+  // Showing the balance next to the account is a control, not a nicety. Paying
+  // 55m out of an account holding 41m is the kind of thing you want to see
+  // BEFORE you post, not when the balance sheet goes red later.
+  const payAcct = accounts.find(a => a.id === form.payAccount)
+  const overdrawn = !!payAcct && form.paymentMode !== 'credit' && totalCost > 0 && (payAcct.balance || 0) < totalCost
 
   const post = async () => {
     if (!form.supplier) { showToast('Please select a supplier', 'error'); return }
@@ -240,7 +278,9 @@ export default function Purchase({ onNav }: Props) {
         due_date: isCredit && form.dueDate ? form.dueDate : null,
         description: `Purchase — ${supplierName}${form.invoiceRef ? ` — Inv ${form.invoiceRef}` : ''}`,
         total_amount: totalCost,
-        payment_method: form.paymentMode === 'credit' ? 'On Account' : form.paymentMode === 'cash' ? 'Cash' : form.paymentMode === 'bank' ? 'Bank' : 'M-Pesa',
+        // Derived from the account actually credited, so the voucher can never
+        // claim 'Cash' while the money left CRDB.
+        payment_method: isCredit ? 'On Account' : methodFromAccount(accounts.find(a => a.id === form.payAccount)),
         status: 'posted',
         supplier_id: form.supplier,
         journal_id: journal.id,
@@ -339,7 +379,7 @@ export default function Purchase({ onNav }: Props) {
       showToast(
         isCredit
           ? `${form.ref} posted · Stock added · Supplier balance updated · Dr Inventory / Cr AP`
-          : `${form.ref} posted · Stock added · Paid immediately · Dr Inventory / Cr ${form.paymentMode === 'cash' ? 'Cash' : 'Bank'}`
+          : `${form.ref} posted · Stock added · Paid from ${accounts.find(a => a.id === form.payAccount)?.name || 'account'}`
       )
       clearDraft()
       setTimeout(() => onNav('vouchers'), 1200)
@@ -362,7 +402,7 @@ export default function Purchase({ onNav }: Props) {
       journalNote={
         form.paymentMode === 'credit'
           ? 'Dr Inventory (1110) · Cr Accounts Payable (2010) · Stock updated immediately · Open AP entry created'
-          : `Dr Inventory (1110) · Cr ${form.paymentMode === 'cash' ? 'Cash' : 'Bank'} · Stock updated immediately · No open AP`
+          : `Dr Inventory (1110) · Cr ${payAcct ? `${payAcct.name} (${payAcct.code})` : 'the account you pick below'} · Stock updated immediately · No open AP`
       }
     >
       {availableDraft && draftAgeMs !== null && (
@@ -417,10 +457,8 @@ export default function Purchase({ onNav }: Props) {
         <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Payment</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {([
+            { key: 'now' as PaymentMode, label: 'Paid now', sub: 'Pick the account below' },
             { key: 'credit' as PaymentMode, label: 'On Account', sub: 'Pay later' },
-            { key: 'cash' as PaymentMode, label: 'Cash', sub: 'Petty cash / on hand' },
-            { key: 'bank' as PaymentMode, label: 'Bank', sub: 'Bank transfer' },
-            { key: 'mpesa' as PaymentMode, label: 'M-Pesa', sub: 'Mobile money' },
           ]).map(opt => {
             const locked = opt.key !== 'credit' && !canSettle
             return (
@@ -468,9 +506,16 @@ export default function Purchase({ onNav }: Props) {
             <select className="form-input" value={form.payAccount} onChange={e => set('payAccount', e.target.value)}>
               <option value="">— Select account —</option>
               {bankCashAccounts.map(a => (
-                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                <option key={a.id} value={a.id}>{a.code} — {a.name} · {tzs(a.balance || 0)}</option>
               ))}
             </select>
+            {payAcct && (
+              <div style={{ fontSize: 11, marginTop: 6, color: overdrawn ? 'var(--red)' : 'var(--text3)', lineHeight: 1.6 }}>
+                {overdrawn
+                  ? `${payAcct.name} holds ${tzs(payAcct.balance || 0)} but this purchase is ${tzs(totalCost)}. Posting it will take the account negative — check you are paying from the right place.`
+                  : `${payAcct.name} holds ${tzs(payAcct.balance || 0)} · ${tzs((payAcct.balance || 0) - totalCost)} after this purchase`}
+              </div>
+            )}
           </FG>
         </div>
       )}
