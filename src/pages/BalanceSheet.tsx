@@ -2,7 +2,31 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 
-interface BSAccount { code: string; name: string; balance: number; category: string }
+interface BSAccount { code: string; name: string; balance: number; category: string; type: string }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SIGNS
+//
+// accounts.balance is stored as debits minus credits, always. So:
+//   assets, expenses    debit-normal   → a healthy balance is POSITIVE
+//   liabilities, equity, revenue       → a healthy balance is NEGATIVE
+//
+// A balance sheet shows liabilities and equity as positive numbers, so those
+// three get flipped for display. That is the ONLY transformation allowed.
+//
+// This page used to call Math.abs() instead, which is not the same thing and
+// was wrong in two ways at once:
+//   * Owner Capital 3010 holds a 98,000,000 DEBIT — a deficit. Math.abs
+//     rendered it as a 98,000,000 credit: a 196m swing on one line.
+//   * Inventory 1110 sits at -33,308,995. Math.abs displayed it as POSITIVE
+//     33,308,995, so a negative asset read as a healthy one.
+//
+// Math.abs cannot distinguish "credit-normal" from "wrong sign". Never use it
+// on a balance. If a number comes out negative here, that is the ledger telling
+// you something, and it should be shown.
+// ════════════════════════════════════════════════════════════════════════════
+const present = (a: { type: string; balance: number }): number =>
+  (a.type === 'liability' || a.type === 'equity' || a.type === 'revenue') ? -a.balance : a.balance
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -36,6 +60,8 @@ export default function BalanceSheet() {
   const [assets, setAssets] = useState<BSAccount[]>([])
   const [liabilities, setLiabilities] = useState<BSAccount[]>([])
   const [equity, setEquity] = useState<BSAccount[]>([])
+  const [revenue, setRevenue] = useState<BSAccount[]>([])
+  const [expenses, setExpenses] = useState<BSAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [asAt] = useState(new Date().toISOString().split('T')[0])
   const [showExport, setShowExport] = useState(false)
@@ -44,20 +70,53 @@ export default function BalanceSheet() {
 
   const load = async () => {
     setLoading(true)
-    const { data } = await supabase.from('accounts').select('code, name, type, category, balance').eq('is_active', true).order('code')
+    // parent_id comes back so header accounts can be excluded. Nothing posts to
+    // a header today, but nothing stops it either, and if one ever carries a
+    // balance every total on this page silently doubles it.
+    const { data } = await supabase.from('accounts')
+      .select('id, code, name, type, category, balance, parent_id')
+      .eq('is_active', true).order('code')
     if (data) {
-      setAssets(data.filter(a => a.type === 'asset' && a.balance !== 0) as BSAccount[])
-      setLiabilities(data.filter(a => a.type === 'liability' && a.balance !== 0) as BSAccount[])
-      setEquity(data.filter(a => a.type === 'equity' && a.balance !== 0) as BSAccount[])
+      const parentIds = new Set(data.map((a: any) => a.parent_id).filter(Boolean))
+      const postable = data.filter((a: any) => !parentIds.has(a.id))
+      const live = postable.filter((a: any) => a.balance !== 0) as BSAccount[]
+      setAssets(live.filter(a => a.type === 'asset'))
+      setLiabilities(live.filter(a => a.type === 'liability'))
+      setEquity(live.filter(a => a.type === 'equity'))
+      // Revenue and expenses were never loaded before. That is why this page
+      // has never balanced and never could: a balance sheet carries the
+      // period's profit inside equity, and without these two there is no
+      // profit to carry. Account 3030 Current Year Profit/Loss exists in the
+      // chart but stays at zero until a year-end close posts to it, so the
+      // figure has to be computed here.
+      setRevenue(postable.filter((a: any) => a.type === 'revenue') as BSAccount[])
+      setExpenses(postable.filter((a: any) => a.type === 'expense' || a.type === 'cogs') as BSAccount[])
     }
     setLoading(false)
   }
 
-  const totalAssets = assets.reduce((s, a) => s + a.balance, 0)
-  const totalLiabilities = liabilities.reduce((s, a) => s + Math.abs(a.balance), 0)
-  const totalEquity = equity.reduce((s, a) => s + Math.abs(a.balance), 0)
+  // Every total below comes from present(). Previously the figure PRINTED as
+  // Total Assets (Math.abs, in BSSection) and the figure used for the balance
+  // CHECK (signed, here) were computed separately and disagreed by ~100m.
+  const totalAssets = assets.reduce((s, a) => s + present(a), 0)
+  const totalLiabilities = liabilities.reduce((s, a) => s + present(a), 0)
+  const equityAccounts = equity.reduce((s, a) => s + present(a), 0)
+
+  const totalRevenue = revenue.reduce((s, a) => s + present(a), 0)
+  const totalExpenses = expenses.reduce((s, a) => s + present(a), 0)
+  const netIncome = totalRevenue - totalExpenses
+
+  const totalEquity = equityAccounts + netIncome
   const totalLiabEquity = totalLiabilities + totalEquity
-  const balanced = Math.abs(totalAssets - totalLiabEquity) < 1
+  const difference = totalAssets - totalLiabEquity
+  const balanced = Math.abs(difference) < 1
+
+  // Net income shown as its own equity line. Synthetic — computed, not posted.
+  const NET_INCOME_ROW: BSAccount = {
+    code: '3030', name: 'Current Year Profit/Loss (computed)',
+    balance: -netIncome, category: 'Equity', type: 'equity',
+  }
+  const equityWithProfit: BSAccount[] = [...equity, NET_INCOME_ROW]
 
   const grouped = (accts: BSAccount[]) => accts.reduce((g, a) => {
     if (!g[a.category]) g[a.category] = []
@@ -66,7 +125,7 @@ export default function BalanceSheet() {
 
   const BSSection = ({ title, accts, color }: { title: string; accts: BSAccount[]; color: string }) => { // eslint-disable-line
     const grp = grouped(accts)
-    const total = accts.reduce((s, a) => s + Math.abs(a.balance), 0)
+    const total = accts.reduce((s, a) => s + present(a), 0)
     return (
       <div>
         <div style={{ fontFamily: 'var(--display)', fontSize: 13, fontWeight: 700, marginBottom: 12, padding: '8px 12px', background: 'var(--surface2)', borderRadius: 8, color }}>
@@ -81,7 +140,7 @@ export default function BalanceSheet() {
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)' }}>{a.code}</span>
                   <span style={{ fontSize: 12 }}>{a.name}</span>
                 </div>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600 }}>{Math.abs(a.balance).toLocaleString()}</span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, color: present(a) < 0 ? 'var(--red)' : undefined }}>{present(a).toLocaleString()}</span>
               </div>
             ))}
           </div>
@@ -101,7 +160,7 @@ export default function BalanceSheet() {
       const g = grouped(accts)
       return Object.entries(g).map(([cat, catAccts]) => `
         <div class="section-label">${cat}</div>
-        ${catAccts.map(a => `<div class="account-row"><div><span class="account-code">${a.code}</span> ${a.name}</div><div class="account-bal">${Math.abs(a.balance).toLocaleString()}</div></div>`).join('')}
+        ${catAccts.map(a => `<div class="account-row"><div><span class="account-code">${a.code}</span> ${a.name}</div><div class="account-bal">${present(a).toLocaleString()}</div></div>`).join('')}
       `).join('')
     }
     win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Balance Sheet</title><style>${PDF_STYLES}</style></head><body>
@@ -124,13 +183,13 @@ export default function BalanceSheet() {
           </div>
           <div>
             <div style="font-weight:700;margin-bottom:8px">Equity</div>
-            ${renderSection(equity, 'Equity')}
+            ${renderSection(equityWithProfit, 'Equity')}
             <div class="section-total"><span>Total Equity</span><span>${tzs(totalEquity)}</span></div>
           </div>
           <div class="grand-total"><span>TOTAL LIAB + EQUITY</span><span>${tzs(totalLiabEquity)}</span></div>
         </div>
       </div>
-      <div class="balanced-badge">${balanced ? '✓ BALANCED — Assets = Liabilities + Equity' : `⚠ UNBALANCED — Difference: ${tzs(Math.abs(totalAssets - totalLiabEquity))}`}</div>
+      <div class="balanced-badge">${balanced ? '✓ BALANCED — Assets = Liabilities + Equity' : `⚠ UNBALANCED — Difference: ${tzs(Math.abs(difference))}`}</div>
       <div class="footer"><span>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</span><span>MalkiaOS v1.0 · Confidential · Internal use only</span></div>
     </body></html>`)
     win.document.close(); setTimeout(() => win.print(), 500)
@@ -138,12 +197,14 @@ export default function BalanceSheet() {
 
   const exportCSV = () => {
     const rows = [
-      ['ASSETS'], ...assets.map(a => [a.code, a.name, a.category, a.balance]),
+      ['ASSETS'], ...assets.map(a => [a.code, a.name, a.category, present(a)]),
       ['Total Assets', '', '', totalAssets], [],
-      ['LIABILITIES'], ...liabilities.map(a => [a.code, a.name, a.category, Math.abs(a.balance)]),
+      ['LIABILITIES'], ...liabilities.map(a => [a.code, a.name, a.category, present(a)]),
       ['Total Liabilities', '', '', totalLiabilities], [],
-      ['EQUITY'], ...equity.map(a => [a.code, a.name, a.category, Math.abs(a.balance)]),
-      ['Total Equity', '', '', totalEquity],
+      ['EQUITY'], ...equityWithProfit.map(a => [a.code, a.name, a.category, present(a)]),
+      ['Total Equity', '', '', totalEquity], [],
+      ['Total Liabilities + Equity', '', '', totalLiabEquity],
+      ['Difference (should be 0)', '', '', difference],
     ]
     const csv = rows.map(r => r.join(',')).join('\n')
     const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -155,7 +216,7 @@ export default function BalanceSheet() {
       <div className="page-header">
         <div>
           <div className="page-title">Balance Sheet</div>
-          <div className="page-sub">Assets = Liabilities + Equity · As at {asAt} · {balanced ? 'Balanced ✓' : 'UNBALANCED ⚠'}</div>
+          <div className="page-sub">Assets = Liabilities + Equity · As at {asAt} · {balanced ? 'Balanced ✓' : `UNBALANCED by ${tzs(Math.abs(difference))} ⚠`}</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
@@ -179,7 +240,7 @@ export default function BalanceSheet() {
         <div className="stat-card blue"><div className="stat-label">Total Assets</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalAssets)}</div></div>
         <div className="stat-card red"><div className="stat-label">Total Liabilities</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalLiabilities)}</div></div>
         <div className="stat-card green"><div className="stat-label">Total Equity</div><div className="stat-value" style={{ fontSize: 18 }}>{tzs(totalEquity)}</div></div>
-        <div className={`stat-card ${balanced ? 'green' : 'red'}`}><div className="stat-label">Balance Check</div><div className="stat-value" style={{ fontSize: 14 }}>{balanced ? 'BALANCED' : 'UNBALANCED'}</div></div>
+        <div className={`stat-card ${balanced ? 'green' : 'red'}`}><div className="stat-label">Balance Check</div><div className="stat-value" style={{ fontSize: 14 }}>{balanced ? 'BALANCED' : `OUT BY ${tzs(Math.abs(difference))}`}</div></div>
       </div>
 
       {loading ? <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading…</div> : (
@@ -188,7 +249,7 @@ export default function BalanceSheet() {
           <div className="card">
             <BSSection title="Liabilities" accts={liabilities} color="var(--red)" />
             <div style={{ height: 20 }}></div>
-            <BSSection title="Equity" accts={equity} color="var(--accent)" />
+            <BSSection title="Equity" accts={equityWithProfit} color="var(--accent)" />
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 0', borderTop: '2px solid var(--accent)', marginTop: 12 }}>
               <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text3)' }}>Total Liab + Equity</span>
               <span style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 800, color: balanced ? 'var(--green)' : 'var(--red)' }}>{tzs(totalLiabEquity)}</span>

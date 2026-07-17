@@ -128,14 +128,36 @@ export default function PnL() {
   useEffect(() => { if (tab === 'budget' && accounts.length > 0) loadBudgetComparison() }, [tab, budgetMonth, accounts, budgets])
 
   // ── Account value helper (cumulative vs period) ───────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // Value of an account for the P&L, in the sign a reader expects:
+  // revenue positive when earned, expenses positive when incurred.
+  //
+  // Two bugs used to live in this function:
+  //
+  // 1. `Math.abs(a.balance)` in cumulative mode. Contra accounts have the
+  //    opposite sign to their type by design, and abs() erases that. Account
+  //    4040 Sales Discounts is revenue-typed with a DEBIT balance because a
+  //    discount REDUCES revenue — abs() added it instead, so every discount
+  //    made turnover look bigger. Same trap for 6850 Stock Variance, which is
+  //    credited when stock is found: a gain would have displayed as an expense.
+  //
+  // 2. `Math.max(0, ...)` floored every line at zero, which made the P&L
+  //    structurally incapable of showing a negative. A month where returns
+  //    exceeded sales showed revenue of zero rather than a negative figure, and
+  //    an expense reversal vanished. Hiding a number is not the same as it
+  //    being zero, and on a P&L the difference is the whole point.
+  //
+  // Both are gone. A negative here is real and gets shown.
+  // ══════════════════════════════════════════════════════════════════════════
   const getAccountValue = (a: AccountBalance): number => {
-    if (periodType === 'cumulative') return Math.abs(a.balance)
+    if (periodType === 'cumulative') {
+      // balance is debits - credits. Revenue is credit-normal, so flip it.
+      return a.type === 'revenue' ? -a.balance : a.balance
+    }
     const pa = periodActuals[a.id]
     if (!pa) return 0
-    // Revenue accounts: value = credits - debits (revenue is credited)
-    if (a.type === 'revenue') return Math.max(0, pa.credit - pa.debit)
-    // Expense/COGS accounts: value = debits - credits (expenses are debited)
-    return Math.max(0, pa.debit - pa.credit)
+    if (a.type === 'revenue') return pa.credit - pa.debit
+    return pa.debit - pa.credit
   }
 
   // ── PnL calculations ─────────────────────────────────────
@@ -376,9 +398,12 @@ export default function PnL() {
                 <div style={{ height: 1, background: 'var(--border2)', margin: '20px 0' }}></div>
 
                 <div style={{ background: netProfit >= 0 ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${netProfit >= 0 ? 'rgba(0,229,160,.2)' : 'rgba(255,71,87,.2)'}`, borderRadius: 'var(--r)', padding: 16 }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 6 }}>Net Profit — {periodLabel()}</div>
+                  {/* Says LOSS when it is a loss. The figure is shown absolute
+                      and coloured red, which on its own reads as a profit at a
+                      glance — the label has to carry it. */}
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 6 }}>Net {netProfit >= 0 ? 'Profit' : 'Loss'} — {periodLabel()}</div>
                   <div style={{ fontFamily: 'var(--display)', fontSize: 32, fontWeight: 800, color: netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                    TZS {Math.abs(netProfit).toLocaleString()}
+                    {netProfit < 0 ? '(' : ''}TZS {Math.abs(netProfit).toLocaleString()}{netProfit < 0 ? ')' : ''}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>
                     Margin: {margin}% · Revenue: {tzs(totalRevenue)}
