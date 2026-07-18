@@ -1,6 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 // ── COMPANY REGISTRY ────────────────────────────────────────
+// URL and anon key now come from Vite env vars instead of being hardcoded.
+// The non-secret display flags stay in code.
+//
+// NOTE: Vite statically replaces `import.meta.env.VITE_*` at BUILD time, so each
+// variable MUST be referenced by its literal name below. Do not build these keys
+// dynamically (e.g. import.meta.env['VITE_' + id]) — Vite cannot inline that and
+// you will get undefined at runtime.
 export interface Company {
   id: string
   name: string
@@ -13,13 +20,32 @@ export interface Company {
   showInvestors: boolean
 }
 
+// Fail loudly at startup if a required env var is missing, instead of quietly
+// building a client pointed at `undefined` (which produces confusing 401s later).
+function requireEnv(name: string, value: string | undefined): string {
+  if (!value || value.trim() === '') {
+    throw new Error(
+      `Missing required environment variable ${name}. ` +
+        `Set it in your local .env file and in Vercel → Project → Settings → ` +
+        `Environment Variables, then rebuild.`
+    )
+  }
+  return value
+}
+
 export const COMPANIES: Company[] = [
   {
     id: 'malkia-wellness',
     name: 'Malkia Wellness Group Ltd',
     shortName: 'Malkia Wellness',
-    url: 'https://ebokhvibnypiomzqimfg.supabase.co',
-    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVib2todmlibnlwaW9tenFpbWZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMzA3MDIsImV4cCI6MjA4OTYwNjcwMn0.yqaB42lvEN_vkUt1q6VBAAHdwSYOaIwt8bH5Vg9MTQk',
+    url: requireEnv(
+      'VITE_MALKIA_WELLNESS_SUPABASE_URL',
+      import.meta.env.VITE_MALKIA_WELLNESS_SUPABASE_URL
+    ),
+    key: requireEnv(
+      'VITE_MALKIA_WELLNESS_SUPABASE_ANON_KEY',
+      import.meta.env.VITE_MALKIA_WELLNESS_SUPABASE_ANON_KEY
+    ),
     color: '#85c2be',
     hideCRM: false,
     hideBundles: false,
@@ -29,8 +55,14 @@ export const COMPANIES: Company[] = [
     id: 'malkia-brands',
     name: 'Malkia Brands Ltd',
     shortName: 'Malkia Brands',
-    url: 'https://hkfxoocyelstrbjvgkbr.supabase.co',
-    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhrZnhvb2N5ZWxzdHJianZna2JyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNTQ5NDksImV4cCI6MjA5MDczMDk0OX0.QHnNROu7lPzeUlU9kmCzvHE_WbcPjt0jLxDM0qMlyD0',
+    url: requireEnv(
+      'VITE_MALKIA_BRANDS_SUPABASE_URL',
+      import.meta.env.VITE_MALKIA_BRANDS_SUPABASE_URL
+    ),
+    key: requireEnv(
+      'VITE_MALKIA_BRANDS_SUPABASE_ANON_KEY',
+      import.meta.env.VITE_MALKIA_BRANDS_SUPABASE_ANON_KEY
+    ),
     color: '#d48744',
     hideCRM: true,
     hideBundles: true,
