@@ -16,7 +16,7 @@ export type Page =
   | 'receipt-template' | 'invoice-template'
   | 'whatsapp-settings' | 'location-settings'
   | 'inventory-settings' | 'pricelist-template' | 'proforma-template'
-  | 'banks' | 'settings' | 'data-import' | 'coming-soon' | 'bundles'
+  | 'banks' | 'cash-center' | 'settings' | 'data-import' | 'coming-soon' | 'bundles'
   | 'stock-levels' | 'suppliers' | 'stock-movements' | 'stock-as-of' | 'payment-approvals' | 'stock-movement-report' | 'internal-use-returns' | 'stock-count'
   | 'interim-recon'
   // CRM Module Pages

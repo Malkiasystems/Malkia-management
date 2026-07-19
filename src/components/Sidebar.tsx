@@ -241,6 +241,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page, hasSub: true },
     { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
     { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
+    { icon: 'bank',      label: 'Cash Center', page: 'cash-center' as Page },
     { icon: 'expense',   label: 'Expenses',  page: 'expense-register' as Page, hasSub: true },
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
     { icon: 'customers', label: 'Customers', page: 'customers' as Page },
