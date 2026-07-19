@@ -141,6 +141,22 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [vouchersOpen, setVouchersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
+
+  // Reveal the submenu of whichever section the current page belongs to, so
+  // deep links and refreshes land with the right group expanded. Manual
+  // collapse still works: clicking the section header closes it without
+  // navigating, so this effect (keyed on page change) does not re-open it.
+  useEffect(() => {
+    const INVENTORY_PAGES: Page[] = ['inventory', 'stock-transfer', 'stock-transfer-outgoing', 'stock-transfer-approvals', 'dispatch', 'stock-movements', 'stock-movement-report', 'stock-as-of', 'internal-use-returns', 'stock-count']
+    if (VOUCHER_PAGES.includes(current)) setVouchersOpen(true)
+    else if (SALES_PAGES.includes(current)) setSalesOpen(true)
+    else if (EXPENSE_PAGES.includes(current)) setExpensesOpen(true)
+    else if (CRM_PAGES.includes(current)) setCrmOpen(true)
+    else if (SETTINGS_PAGES.includes(current)) setSettingsOpen(true)
+    else if (HRM_PAGES.includes(current)) setHrmOpen(true)
+    else if (ACCOUNTS_PAGES.includes(current)) setAccountsOpen(true)
+    else if (INVENTORY_PAGES.includes(current)) setInventoryOpen(true)
+  }, [current])
   
   const { permissions } = useAuth()
 
@@ -359,38 +375,54 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
               onClick={() => {
                 if (navItem.coming || !navItem.page) return
                 if (isExpenseItem) {
-                  setExpensesOpen(o => !o)
-                  setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
-                  requestExpenseRegisterTab('transactions')
-                  onNav('expense-register')
+                  if (expensesOpen) { setExpensesOpen(false) } else {
+                    setExpensesOpen(true)
+                    setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
+                    requestExpenseRegisterTab('transactions')
+                    onNav('expense-register')
+                  }
                 } else if (isSalesItem) {
-                  setSalesOpen(o => !o)
-                  setExpensesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
-                  onNav('sales')
+                  if (salesOpen) { setSalesOpen(false) } else {
+                    setSalesOpen(true)
+                    setExpensesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
+                    onNav('sales')
+                  }
                 } else if (isVouchersItem) {
-                  setVouchersOpen(o => !o)
-                  setSalesOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('vouchers')
+                  if (vouchersOpen) { setVouchersOpen(false) } else {
+                    setVouchersOpen(true)
+                    setSalesOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('vouchers')
+                  }
                 } else if (isInventoryItem) {
-                  setInventoryOpen(o => !o)
-                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('inventory')
+                  if (inventoryOpen) { setInventoryOpen(false) } else {
+                    setInventoryOpen(true)
+                    setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('inventory')
+                  }
                 } else if (isAccountsItem) {
-                  setAccountsOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('chart-of-accounts')
+                  if (accountsOpen) { setAccountsOpen(false) } else {
+                    setAccountsOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
+                    onNav('chart-of-accounts')
+                  }
                 } else if (isCrmItem) {
-                  setCrmOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('crm-hub')
+                  if (crmOpen) { setCrmOpen(false) } else {
+                    setCrmOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('crm-hub')
+                  }
                 } else if (isSettingsItem) {
-                  setSettingsOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('settings')
+                  if (settingsOpen) { setSettingsOpen(false) } else {
+                    setSettingsOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('settings')
+                  }
                 } else if (isHrmItem) {
-                  setHrmOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setExpensesOpen(false)
-                  onNav('hrm')
+                  if (hrmOpen) { setHrmOpen(false) } else {
+                    setHrmOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('hrm')
+                  }
                 } else {
                   setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
                   onNav(navItem.page)
@@ -440,7 +472,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             </div>
 
             {/* Inventory sub-menu */}
-            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch' || current === 'stock-movements' || current === 'stock-movement-report' || current === 'stock-as-of' || current === 'internal-use-returns' || current === 'stock-count') && visibleInventorySub.length > 0 && (
+            {Boolean(isInventoryItem) && inventoryOpen && visibleInventorySub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page
@@ -465,7 +497,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Accounts sub-menu */}
-            {Boolean(isAccountsItem) && (accountsOpen || isAccountsActive) && visibleAccountsSub.length > 0 && (
+            {Boolean(isAccountsItem) && accountsOpen && visibleAccountsSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleAccountsSub.map(sub => {
                   const subActive = current === sub.page
@@ -486,7 +518,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Vouchers sub-menu */}
-            {Boolean(isVouchersItem) && (vouchersOpen || current === 'vouchers' || current === 'posted-vouchers') && visibleVouchersSub.length > 0 && (
+            {Boolean(isVouchersItem) && vouchersOpen && visibleVouchersSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleVouchersSub.map(sub => {
                   const subActive = current === sub.page
@@ -507,7 +539,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Expenses sub-menu */}
-            {Boolean(isExpenseItem) && (expensesOpen || isExpenseActive) && visibleExpenseSub.length > 0 && (
+            {Boolean(isExpenseItem) && expensesOpen && visibleExpenseSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleExpenseSub.map(sub => {
                   // Tab items (Budget, Recurring) all point at expense-register;
@@ -531,7 +563,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Sales sub-menu */}
-            {Boolean(isSalesItem) && (salesOpen || isSalesActive) && visibleSalesSub.length > 0 && (
+            {Boolean(isSalesItem) && salesOpen && visibleSalesSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSalesSub.map(sub => {
                   const subActive = current === sub.page
@@ -552,7 +584,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* CRM sub-menu */}
-            {Boolean(isCrmItem) && (crmOpen || isCrmActive) && visibleCrmSub.length > 0 && (
+            {Boolean(isCrmItem) && crmOpen && visibleCrmSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleCrmSub.map(sub => {
                   const subActive = current === sub.page
@@ -573,7 +605,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Settings sub-menu */}
-            {Boolean(isSettingsItem) && (settingsOpen || isSettingsActive) && visibleSettingsSub.length > 0 && (
+            {Boolean(isSettingsItem) && settingsOpen && visibleSettingsSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSettingsSub.map(sub => {
                   const subActive = current === sub.page
@@ -594,7 +626,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* HRM sub-menu */}
-            {Boolean(isHrmItem) && (hrmOpen || isHrmActive) && visibleHrmSub.length > 0 && (
+            {Boolean(isHrmItem) && hrmOpen && visibleHrmSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleHrmSub.map(sub => {
                   const subActive = current === sub.page
