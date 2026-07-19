@@ -608,7 +608,7 @@ function AppContent() {
       case 'ledger-health':     return <LedgerHealth />
       case 'product-profit':    return <ProductProfit />
       case 'ar-followup':       return <ARFollowup />
-      case 'day-close':         return <DayClose />
+      case 'day-close':         return <DayClose onNav={navigate} />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'new-expense':       return <NewExpense onNav={navigate} />

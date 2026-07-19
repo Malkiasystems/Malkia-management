@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
+import type { Page } from '../lib/types'
 
 const NOTES = [10000, 5000, 2000, 1000, 500, 200, 100, 50]
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US')
@@ -13,14 +14,15 @@ const today = () => new Date().toISOString().slice(0, 10)
 
 interface CloseRow { close_date: string; expected: any; counted: any; cash_variance: number; note: string | null; closed_by: string | null }
 
-export default function DayClose() {
+interface Props { onNav: (p: Page) => void }
+
+export default function DayClose({ onNav }: Props) {
   const [tab, setTab] = useState<'close' | 'history'>('close')
   const [expected, setExpected] = useState<Record<string, number>>({})
   const [denoms, setDenoms] = useState<Record<number, string>>({})
   const [digital, setDigital] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
   const [alreadyClosed, setAlreadyClosed] = useState<CloseRow | null>(null)
-  const [dayBook, setDayBook] = useState<{ ref: string; total_amount: number; payment_method: string | null }[]>([])
   const [history, setHistory] = useState<CloseRow[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -43,7 +45,6 @@ export default function DayClose() {
       exp[m] = (exp[m] || 0) + Number(v.total_amount)
     }
     setExpected(exp)
-    setDayBook(((sales || []) as any[]).map(v => ({ ref: v.ref, total_amount: Number(v.total_amount), payment_method: v.payment_method })))
     const dig: Record<string, string> = {}
     Object.keys(exp).filter(m => m !== 'Cash').forEach(m => { dig[m] = String(Math.round(exp[m])) })
     setDigital(dig)
@@ -92,7 +93,7 @@ export default function DayClose() {
       })
       if (insErr) throw new Error(insErr.message)
       notify(`Day closed. ${cashVariance === 0 ? 'Drawer matches the books exactly.' : `Variance TZS ${fmt(cashVariance)} posted to Cash Over/Short.`}`)
-      load()
+      setTimeout(() => onNav('sales-day-book'), 900)
     } catch (e: any) { notify(e.message, 'error') } finally { setSaving(false) }
   }
 
@@ -120,28 +121,10 @@ export default function DayClose() {
               Cash variance: <b style={mono}>{fmt(alreadyClosed.cash_variance)}</b>.
               New cash sales dated today are locked out.
             </div>
-            <div style={card}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <b>Day Book · {today()} · {dayBook.length} sales</b>
-                <button className="btn btn-ghost btn-sm" onClick={() => window.print()}>Print</button>
-              </div>
-              {dayBook.map(v => (
-                <div key={v.ref} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '5px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                  <span style={mono}>{v.ref}</span>
-                  <span style={{ color: 'var(--text3)', flex: 1, textAlign: 'right' }}>{v.payment_method || 'Cash'}</span>
-                  <span style={{ ...mono, width: 110, textAlign: 'right' }}>{fmt(v.total_amount)}</span>
-                </div>
-              ))}
-              {Object.entries(expected).map(([m, v]) => (
-                <div key={m} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, color: 'var(--text3)' }}>
-                  <span>Total {m}</span><span style={mono}>{fmt(v)}</span>
-                </div>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, marginTop: 6, borderTop: '2px solid var(--border)', paddingTop: 8 }}>
-                <span>Grand total</span>
-                <span style={mono}>{fmt(Object.values(expected).reduce((a, b) => a + b, 0))}</span>
-              </div>
-            </div>
+            <button className="btn btn-primary" style={{ fontWeight: 800 }}
+              onClick={() => onNav('sales-day-book')}>
+              Open today's Sales Day Book →
+            </button>
           </>
         ) : (
           <>
