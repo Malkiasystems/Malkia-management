@@ -11,8 +11,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
 import type { DashboardData, FinancialData, OperationsData, MoneyDelta } from './dashboardTypes'
 
-const CASH_CODES = ['1010', '1011', '1020', '1021', '1022', '1030']
-const LOAN_CODES = ['2110', '2120', '2130', '2140']
+// Cash & loan accounts are read by category (accounts.category), not a
+// hardcoded code list — hardcoded lists silently missed 1032, 1040 and the
+// new 2150 SJ loan. Category is the source of truth.
 
 function monthBounds(d = new Date()) {
   const y = d.getFullYear(), m = d.getMonth()
@@ -148,76 +149,50 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
 
 // ── Sensitive tier (only when permitted) ─────────────────────────────────────
 async function loadFinancial(b: ReturnType<typeof monthBounds>): Promise<FinancialData> {
-  const [lineRes, acctRes, arRes, supRes] = await Promise.all([
-    // Posted journal lines for prev-month-start..today, with account type/code.
-    supabase.from('journal_lines')
-      .select('debit, credit, journals!inner(posting_date, status), accounts!inner(type, code, name)')
-      .eq('journals.status', 'posted')
-      .gte('journals.posting_date', b.prevStart)
-      .lte('journals.posting_date', b.today),
-    supabase.from('accounts').select('code, balance'),
+  const [curRes, prevRes, acctRes, arRes, supRes] = await Promise.all([
+    // Server-side P&L aggregation (migration 033). Aggregating in the DB avoids
+    // the silent 1000-row cap that zeroed the dashboard as July grew, treats
+    // NULL journal status as posted (matching every other report), and
+    // classifies by code prefix so COGS is not misfiled as opex.
+    supabase.rpc('dashboard_pnl', { p_from: b.monthStart, p_to: b.today }),
+    supabase.rpc('dashboard_pnl', { p_from: b.prevStart, p_to: b.prevEnd }),
+    supabase.from('accounts').select('code, name, category, balance'),
     supabase.from('customer_ledger_entries').select('customer_id, remaining_amount, posting_date').eq('is_open', true),
     supabase.from('suppliers').select('balance_tzs'),
   ])
 
-  // ---- Month P&L from the ledger ----
-  const lines = (lineRes.data || []) as any[]
-  const acc = (cur: boolean, pred: (type: string, code: string) => boolean, sign: 1 | -1) =>
-    lines.reduce((s, l) => {
-      const j = Array.isArray(l.journals) ? l.journals[0] : l.journals
-      const a = Array.isArray(l.accounts) ? l.accounts[0] : l.accounts
-      const pd = j?.posting_date
-      if (!pd) return s
-      const inCur = pd >= b.monthStart
-      if (cur !== inCur) return s
-      const t = a?.type, code = a?.code || ''
-      if (!pred(t, code)) return s
-      return s + sign * ((l.debit || 0) - (l.credit || 0))
-    }, 0)
+  // ---- Month P&L from the RPC ----
+  type PnlRow = { bucket: string; code: string; name: string; amount: number }
+  const cur = ((curRes.data || []) as PnlRow[])
+  const prev = ((prevRes.data || []) as PnlRow[])
+  if (curRes.error) throw new Error('P&L query failed: ' + curRes.error.message)
+  const sumB = (rows: PnlRow[], bucket: string) =>
+    rows.filter(r => r.bucket === bucket).reduce((s, r) => s + Number(r.amount), 0)
 
-  const revCur = -acc(true, t => t === 'revenue', 1)   // revenue = credit - debit
-  const revPrev = -acc(false, t => t === 'revenue', 1)
-  const cogsCur = acc(true, t => t === 'cogs', 1)
-  const cogsPrev = acc(false, t => t === 'cogs', 1)
-  const expCur = acc(true, t => t === 'expense', 1)
-  const expPrev = acc(false, t => t === 'expense', 1)
-  const payrollCost = acc(true, (_t, code) => code.startsWith('60'), 1)
+  const revCur = sumB(cur, 'revenue'), revPrev = sumB(prev, 'revenue')
+  const cogsCur = sumB(cur, 'cogs'),   cogsPrev = sumB(prev, 'cogs')
+  const expCur = sumB(cur, 'opex'),    expPrev = sumB(prev, 'opex')
+  const payrollCost = cur.filter(r => r.code.startsWith('60')).reduce((s, r) => s + Number(r.amount), 0)
 
   const gpCur = revCur - cogsCur, gpPrev = revPrev - cogsPrev
   const netCur = gpCur - expCur, netPrev = gpPrev - expPrev
 
-  // ---- Per-account P&L breakdown (current month only) ----
-  const byAcct: Record<string, { code: string; name: string; type: string; value: number }> = {}
-  for (const l of lines) {
-    const j = Array.isArray(l.journals) ? l.journals[0] : l.journals
-    const a = Array.isArray(l.accounts) ? l.accounts[0] : l.accounts
-    const pd = j?.posting_date
-    if (!pd || pd < b.monthStart) continue   // current month only
-    const type = a?.type || ''
-    if (type !== 'revenue' && type !== 'cogs' && type !== 'expense') continue
-    const code = a?.code || '', name = a?.name || code
-    const signed = type === 'revenue'
-      ? (l.credit || 0) - (l.debit || 0)
-      : (l.debit || 0) - (l.credit || 0)
-    if (!byAcct[code]) byAcct[code] = { code, name, type, value: 0 }
-    byAcct[code].value += signed
-  }
-  const breakdownOf = (t: string) =>
-    Object.values(byAcct).filter(x => x.type === t && Math.abs(x.value) > 0.5)
-      .sort((a, b) => b.value - a.value)
-      .map(x => ({ code: x.code, name: x.name, value: x.value }))
+  const breakdownOf = (bucket: string) =>
+    cur.filter(r => r.bucket === bucket)
+      .sort((a, b) => Number(b.amount) - Number(a.amount))
+      .map(r => ({ code: r.code, name: r.name, value: Number(r.amount) }))
   const pnlBreakdown = {
     revenue: breakdownOf('revenue'),
     cogs: breakdownOf('cogs'),
-    expenses: breakdownOf('expense'),
+    expenses: breakdownOf('opex'),
   }
 
   // ---- Snapshot balances ----
-  const accts = (acctRes.data || []) as { code: string; balance: number }[]
+  const accts = (acctRes.data || []) as { code: string; name: string; category: string; balance: number }[]
   const bal = (code: string) => accts.find(a => a.code === code)?.balance || 0
-  const cashPosition = CASH_CODES.reduce((s, c) => s + bal(c), 0)
+  const cashPosition = accts.filter(a => a.category === 'Cash & Bank').reduce((s, a) => s + (a.balance || 0), 0)
   const inventoryValue = bal('1110')
-  const loans = LOAN_CODES.reduce((s, c) => s + Math.abs(bal(c)), 0)
+  const loans = accts.filter(a => a.category === 'Loans').reduce((s, a) => s + Math.abs(a.balance || 0), 0)
 
   // ---- AR aging + top debtors ----
   const arRows = (arRes.data || []) as any[]
