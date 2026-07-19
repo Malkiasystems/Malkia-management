@@ -349,6 +349,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
         const isImportActive = IMPORT_PAGES.includes(current)
+        const isAccountsActive = ACCOUNTS_PAGES.includes(current)
         const active =
           current === navItem.page ||
           (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive && !isHrmActive) ||
@@ -357,7 +358,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           (navItem.page === 'import-register' && isImportActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
           (navItem.page === 'settings' && isSettingsActive) ||
-          (navItem.page === 'hrm' && isHrmActive)
+          (navItem.page === 'hrm' && isHrmActive) ||
+          (navItem.page === 'chart-of-accounts' && isAccountsActive)
 
         const isSalesItem = navItem.page === 'sales'
         const isExpenseItem = navItem.page === 'expense-register'
@@ -367,7 +369,6 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isVouchersItem = navItem.page === 'vouchers'
         const isInventoryItem = navItem.page === 'inventory'
         const isAccountsItem = navItem.page === 'chart-of-accounts'
-        const isAccountsActive = ACCOUNTS_PAGES.includes(current)
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
