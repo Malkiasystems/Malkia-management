@@ -48,6 +48,17 @@ const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Posted',       page: 'posted-vouchers',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
 ]
 
+const ACCOUNTS_PAGES: Page[] = ['chart-of-accounts', 'banks', 'cash-center', 'balance-sheet', 'pnl', 'trial-balance']
+
+const ACCOUNTS_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'Chart',       page: 'chart-of-accounts', icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' },
+  { label: 'Banks',       page: 'banks',             icon: 'M3 10L12 3l9 7 M5 10v8 M10.5 10v8 M16 10v8 M2 18h20' },
+  { label: 'Cash Center', page: 'cash-center',       icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
+  { label: 'Bal. Sheet',  page: 'balance-sheet',     icon: 'M12 3v18 M5 7h14 M7 7l-2 5a3 3 0 0 0 6 0l-2-5 M17 7l-2 5a3 3 0 0 0 6 0l-2-5' },
+  { label: 'P&L',         page: 'pnl',               icon: 'M3 3v18h18 M7 14l4-4 3 3 5-6' },
+  { label: 'Trial Bal.',  page: 'trial-balance',     icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+]
+
 const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Inventory', page: 'inventory',                icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12' },
   { label: 'Pending Transfers', page: 'stock-transfer-approvals', icon: 'M7 16V4 M3 8l4-4 4 4 M17 8v12 M21 16l-4 4-4-4' },
@@ -125,6 +136,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [hrmOpen, setHrmOpen] = useState(false)
   const [vouchersOpen, setVouchersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
+  const [accountsOpen, setAccountsOpen] = useState(false)
   
   const { permissions } = useAuth()
 
@@ -239,9 +251,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { icon: 'home',      label: 'Home',      page: 'dashboard' as Page },
     { sep: true },
     { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page, hasSub: true },
-    { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page },
-    { icon: 'bank',      label: 'Banks',     page: 'banks' as Page },
-    { icon: 'bank',      label: 'Cash Center', page: 'cash-center' as Page },
+    { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page, hasSub: true },
     { icon: 'expense',   label: 'Expenses',  page: 'expense-register' as Page, hasSub: true },
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
     { icon: 'customers', label: 'Customers', page: 'customers' as Page },
@@ -285,6 +295,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleHrmSub = HRM_SUB.filter(sub => canAccess(sub.page))
   const visibleVouchersSub = VOUCHERS_SUB.filter(sub => canAccess(sub.page))
   const visibleInventorySub = INVENTORY_SUB.filter(sub => canAccess(sub.page))
+  const visibleAccountsSub = ACCOUNTS_SUB.filter(sub => canAccess(sub.page))
 
   return (
     <div style={{
@@ -335,6 +346,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isHrmItem = navItem.page === 'hrm'
         const isVouchersItem = navItem.page === 'vouchers'
         const isInventoryItem = navItem.page === 'inventory'
+        const isAccountsItem = navItem.page === 'chart-of-accounts'
+        const isAccountsActive = ACCOUNTS_PAGES.includes(current)
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -358,6 +371,10 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   setInventoryOpen(o => !o)
                   setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
                   onNav('inventory')
+                } else if (isAccountsItem) {
+                  setAccountsOpen(o => !o)
+                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
+                  onNav('chart-of-accounts')
                 } else if (isCrmItem) {
                   setCrmOpen(o => !o)
                   setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
@@ -392,10 +409,10 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{navItem.label}</span>
 
-              {Boolean(isExpenseItem || isSalesItem || isVouchersItem || isInventoryItem || isCrmItem || isSettingsItem || isHrmItem) && (
+              {Boolean(isExpenseItem || isSalesItem || isVouchersItem || isInventoryItem || isAccountsItem || isCrmItem || isSettingsItem || isHrmItem) && (
                 <span style={{ 
                   position:'absolute', right:4, top:'50%', 
-                  transform:`translateY(-50%) rotate(${(isExpenseItem && expensesOpen) || (isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isInventoryItem && inventoryOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
+                  transform:`translateY(-50%) rotate(${(isExpenseItem && expensesOpen) || (isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isInventoryItem && inventoryOpen) || (isAccountsItem && accountsOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
                   transition:'transform .2s', color:'var(--text3)', fontSize:8 
                 }}>›</span>
               )}
@@ -437,6 +454,27 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       {subBadge > 0 && (
                         <span style={{ position:'absolute', top:2, right:8, minWidth:14, height:14, padding:'0 3px', borderRadius:7, background:'var(--accent)', color:'#fff', fontSize:8, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{subBadge}</span>
                       )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Accounts sub-menu */}
+            {Boolean(isAccountsItem) && (accountsOpen || isAccountsActive) && visibleAccountsSub.length > 0 && (
+              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+                {visibleAccountsSub.map(sub => {
+                  const subActive = current === sub.page
+                  return (
+                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                        background: subActive ? 'var(--accent-dim)' : 'transparent',
+                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
+                      }}>
+                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <path d={sub.icon}/>
+                      </svg>
+                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
