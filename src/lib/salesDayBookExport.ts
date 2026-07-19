@@ -30,7 +30,12 @@ export interface SDBTemplateSettings {
   company_name: string; company_tagline: string; primary_color: string
 }
 
+// When the day has been closed (daily_closes), the printed document carries a
+// rubber-stamp CLOSED mark. Null/undefined = no stamp.
+export interface DayClosedInfo { closed_by: string | null; cash_variance: number }
+
 export interface ExportData {
+  dayClosed?: DayClosedInfo | null
   filtered: SDBSale[]
   expenses: SDBExpense[]
   creditNotes: SDBCreditNote[]
@@ -137,6 +142,25 @@ export function exportCSV(data: ExportData) {
 }
 
 // ── SUMMARY PDF EXPORT ─────────────────────────────────────────────────
+
+
+// Rubber-stamp CLOSED mark for printed documents: double circle, angled band,
+// rough print feel. position:fixed so it lands top-right of the printed page.
+function stampHtml(info?: DayClosedInfo | null): string {
+  if (!info) return ''
+  const g = '#3a9c78'
+  return `
+  <div style="position:fixed;top:34px;right:30px;width:150px;height:150px;transform:rotate(-14deg);opacity:.85;z-index:99;pointer-events:none">
+    <div style="position:absolute;inset:0;border:7px solid ${g};border-radius:50%"></div>
+    <div style="position:absolute;inset:20px;border:3px solid ${g};border-radius:50%"></div>
+    <div style="position:absolute;top:52px;left:-16px;right:-16px;height:44px;background:#fff;border:5px solid ${g};transform:rotate(-8deg);display:flex;align-items:center;justify-content:center">
+      <span style="font:900 26px 'Arial Black',Arial,sans-serif;letter-spacing:4px;color:${g}">CLOSED</span>
+    </div>
+    <div style="position:absolute;top:150px;left:-20px;right:-20px;text-align:center;font:700 9px Arial;color:${g};transform:rotate(0deg)">
+      Day closed${info.closed_by ? ' by ' + info.closed_by : ''} · variance ${Math.round(info.cash_variance).toLocaleString()}
+    </div>
+  </div>`
+}
 
 export function exportPDF(data: ExportData) {
   const {
@@ -335,7 +359,7 @@ export function exportPDF(data: ExportData) {
       </div>
       </div>
     </div>
-  </body></html>`)
+  ${stampHtml(data.dayClosed)}</body></html>`)
   win.document.close()
   setTimeout(() => win.print(), 600)
 }
@@ -503,7 +527,7 @@ export function exportDetailPDF(data: ExportData) {
       </div>
       </div>
     </div>
-  </body></html>`)
+  ${stampHtml(data.dayClosed)}</body></html>`)
   win.document.close()
   setTimeout(() => win.print(), 600)
 }
