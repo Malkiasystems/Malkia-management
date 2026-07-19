@@ -48,7 +48,7 @@ const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Posted',       page: 'posted-vouchers',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
 ]
 
-const ACCOUNTS_PAGES: Page[] = ['chart-of-accounts', 'banks', 'cash-center', 'cash-flow', 'balance-sheet', 'pnl', 'trial-balance']
+const ACCOUNTS_PAGES: Page[] = ['chart-of-accounts', 'banks', 'cash-center', 'cash-flow', 'balance-sheet', 'pnl', 'trial-balance', 'ledger-health', 'product-profit', 'ar-followup']
 
 const ACCOUNTS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Chart',       page: 'chart-of-accounts', icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' },
@@ -58,6 +58,9 @@ const ACCOUNTS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Bal. Sheet',  page: 'balance-sheet',     icon: 'M12 3v18 M5 7h14 M7 7l-2 5a3 3 0 0 0 6 0l-2-5 M17 7l-2 5a3 3 0 0 0 6 0l-2-5' },
   { label: 'P&L',         page: 'pnl',               icon: 'M3 3v18h18 M7 14l4-4 3 3 5-6' },
   { label: 'Trial Bal.',  page: 'trial-balance',     icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+  { label: 'Health',      page: 'ledger-health',     icon: 'M22 12h-4l-3 9L9 3l-3 9H2' },
+  { label: 'Prod. Profit', page: 'product-profit',   icon: 'M3 3v18h18 M7 16l4-6 3 3 5-8' },
+  { label: 'AR Chase',    page: 'ar-followup',       icon: 'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z' },
 ]
 
 const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [

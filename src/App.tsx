@@ -123,6 +123,9 @@ const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
 const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
 const CashCenter = lazy(() => import('./pages/CashCenter'))
 const CashFlow = lazy(() => import('./pages/CashFlow'))
+const LedgerHealth = lazy(() => import('./pages/LedgerHealth'))
+const ProductProfit = lazy(() => import('./pages/ProductProfit'))
+const ARFollowup = lazy(() => import('./pages/ARFollowup'))
 const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
@@ -601,6 +604,9 @@ function AppContent() {
       case 'banks':             return <Banks />
       case 'cash-center':       return <CashCenter />
       case 'cash-flow':         return <CashFlow />
+      case 'ledger-health':     return <LedgerHealth />
+      case 'product-profit':    return <ProductProfit />
+      case 'ar-followup':       return <ARFollowup />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'new-expense':       return <NewExpense onNav={navigate} />
