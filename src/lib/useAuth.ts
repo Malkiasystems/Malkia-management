@@ -279,6 +279,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'settings': ['settings.view'],
   'sales': ['sales.view'],
   'cash-sale': ['sales.create'],
+  'day-close': ['sales.create'],
   'sales-invoice': ['sales.create'],
   'sales-day-book': ['sales.view'],
   'sales-invoices-list': ['sales.view'],

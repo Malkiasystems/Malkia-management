@@ -126,6 +126,7 @@ const CashFlow = lazy(() => import('./pages/CashFlow'))
 const LedgerHealth = lazy(() => import('./pages/LedgerHealth'))
 const ProductProfit = lazy(() => import('./pages/ProductProfit'))
 const ARFollowup = lazy(() => import('./pages/ARFollowup'))
+const DayClose = lazy(() => import('./pages/DayClose'))
 const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
@@ -607,6 +608,7 @@ function AppContent() {
       case 'ledger-health':     return <LedgerHealth />
       case 'product-profit':    return <ProductProfit />
       case 'ar-followup':       return <ARFollowup />
+      case 'day-close':         return <DayClose />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'new-expense':       return <NewExpense onNav={navigate} />

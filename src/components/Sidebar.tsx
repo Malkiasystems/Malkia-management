@@ -5,6 +5,7 @@ import { requestExpenseRegisterTab } from '../lib/expenseRegisterTab'
 import { getActiveCompany, supabase } from '../lib/supabase'
 
 const VOUCHER_PAGES: Page[] = [
+  'day-close',
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
   'bank-receipt', 'bank-transfer', 'petty-cash', 'contra', 'sales-invoice',
   'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
@@ -45,6 +46,7 @@ const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
 
 const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'All Vouchers', page: 'vouchers',         icon: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2 M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z' },
+  { label: 'Day Close',    page: 'day-close',        icon: 'M12 8v4l2.5 2.5 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' },
   { label: 'Posted',       page: 'posted-vouchers',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
 ]
 
