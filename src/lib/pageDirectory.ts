@@ -24,7 +24,13 @@ const EXTENDED_LABELS: Record<string, string> = {
   'crm-upsell': 'Upsell Engine',
   'crm-whatsapp-templates': 'WhatsApp Templates',
   'crm-whatsapp-resources': 'CRM Resources',
-  'crm-waitlist': 'Waitlist',
+  'crm-waiting-list': 'Waiting List',
+  'cash-center': 'Cash Center',
+  'cash-flow': 'Cash Flow Statement',
+  'ledger-health': 'Ledger Health',
+  'product-profit': 'Product Profitability',
+  'ar-followup': 'AR Follow-up',
+  'day-close': 'Day Close',
   'users': 'User Management',
   'approvals': 'Approval Workflows',
   'approvals-settings': 'Approval Rules',
@@ -84,6 +90,12 @@ const KEYWORDS: Record<string, string> = {
   'crm-hub': 'customer relations',
   'crm-loyalty': 'crown points rewards tier',
   'investors-hub': 'investor pitch funding',
+  'cash-center': 'cash conservation 13 week forecast cycle power of one scaling up',
+  'cash-flow': 'cashflow statement operating investing financing money movement',
+  'ledger-health': 'health check integrity balanced books audit trial',
+  'product-profit': 'gmroi profitability margin dead stock slow movers',
+  'ar-followup': 'receivables debtors chase promises aging collect owed',
+  'day-close': 'z report till drawer count eod end of day cashier close reconciliation',
 }
 
 // Pages that should never be a search destination.
