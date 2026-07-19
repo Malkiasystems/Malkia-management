@@ -122,6 +122,7 @@ const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
 const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
 const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
 const CashCenter = lazy(() => import('./pages/CashCenter'))
+const CashFlow = lazy(() => import('./pages/CashFlow'))
 const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
@@ -599,6 +600,7 @@ function AppContent() {
       case 'pricelist-template': return <PricingPage onNav={navigate} />
       case 'banks':             return <Banks />
       case 'cash-center':       return <CashCenter />
+      case 'cash-flow':         return <CashFlow />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
       case 'new-expense':       return <NewExpense onNav={navigate} />
