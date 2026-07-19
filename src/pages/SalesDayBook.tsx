@@ -244,12 +244,32 @@ export default function SalesDayBook({ onEdit }: Props) {
   }
 
   return (
-    <div className="page">
+    <div className="page" style={{ position: 'relative' }}>
       {dayClosed && (
-        <div style={{ padding: '10px 16px', borderRadius: 10, marginBottom: 14, fontSize: 13, fontWeight: 700,
-          border: '1px solid var(--green)', background: 'rgba(63,185,143,.08)', color: 'var(--green)' }}>
-          ✓ DAY CLOSED{dayClosed.closed_by ? ` by ${dayClosed.closed_by}` : ''} · cash variance {Math.round(dayClosed.cash_variance).toLocaleString()} · new cash sales for today are locked
-        </div>
+        <>
+          <svg width="170" height="170" viewBox="0 0 200 200" aria-hidden
+            style={{ position: 'absolute', top: 6, right: 22, transform: 'rotate(-14deg)', opacity: 0.9, pointerEvents: 'none', zIndex: 5 }}>
+            <defs>
+              <filter id="stampRough">
+                <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="2" result="n" seed="7" />
+                <feDisplacementMap in="SourceGraphic" in2="n" scale="5" />
+              </filter>
+            </defs>
+            <g filter="url(#stampRough)" stroke="#3fb98f" fill="none">
+              <circle cx="100" cy="100" r="90" strokeWidth="9" />
+              <circle cx="100" cy="100" r="62" strokeWidth="4" />
+              <g transform="rotate(-9 100 100)">
+                <rect x="-14" y="70" width="228" height="60" strokeWidth="7" fill="var(--bg, #0f1419)" />
+                <text x="100" y="113" textAnchor="middle" fill="#3fb98f" stroke="none"
+                  style={{ font: '900 42px Arial Black, Arial, sans-serif', letterSpacing: 5 }}>CLOSED</text>
+              </g>
+            </g>
+          </svg>
+          <div style={{ padding: '8px 14px', borderRadius: 10, marginBottom: 14, fontSize: 12.5, fontWeight: 700,
+            border: '1px solid var(--green)', background: 'rgba(63,185,143,.07)', color: 'var(--green)', maxWidth: 'calc(100% - 190px)' }}>
+            Day closed{dayClosed.closed_by ? ` by ${dayClosed.closed_by}` : ''} · cash variance {Math.round(dayClosed.cash_variance).toLocaleString()} · today is locked
+          </div>
+        </>
       )}
       {/* HEADER */}
       <div className="page-header">
