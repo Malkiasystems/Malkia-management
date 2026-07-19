@@ -23,6 +23,27 @@ const TYPE_COLOR: Record<string, string> = {
   revenue: 'pill-green', cogs: 'pill-amber', expense: 'pill-amber', other: 'pill-gray'
 }
 
+// Categories offered per type — mirrors what exists in the live chart today.
+// Free-text override is allowed in the form for anything not listed.
+const CATEGORIES_BY_TYPE: Record<string, string[]> = {
+  asset: ['Cash & Bank', 'Receivables', 'Accounts Receivable', 'Inventory', 'Current Assets', 'Other Current Assets', 'Fixed Assets', 'Tax'],
+  liability: ['Payables', 'Loans', 'Accruals', 'Payroll', 'Payroll Tax', 'Tax', 'Deferred Revenue', 'FX', 'Other Liabilities'],
+  equity: ['Equity'],
+  revenue: ['Revenue'],
+  cogs: ['COGS'],
+  expense: ['Operating Expenses', 'Salaries & Allowances', 'Premise', 'Utilities', 'Logistics', 'Fuel', 'Branding & Marketing', 'Technology', 'Office Consumables', 'Admin', 'Professional Fees', 'Compliance Fees', 'Internal Use', 'Miscellaneous'],
+  other: ['Finance', 'FX', 'Tax', 'Other'],
+}
+
+const CODE_PREFIX: Record<string, string> = {
+  asset: '1', liability: '2', equity: '3', revenue: '4', cogs: '5', expense: '6', other: '7',
+}
+
+const CASHFLOW_DEFAULT: Record<string, string> = {
+  asset: 'operating', liability: 'operating', equity: 'financing',
+  revenue: 'operating', cogs: 'operating', expense: 'operating', other: 'operating',
+}
+
 const VOUCHER_TYPE_LABEL: Record<string, string> = {
   cash_sale: 'Cash Sale', cash_payment: 'Payment', cash_receipt: 'Receipt',
   bank_transfer: 'Bank Transfer', grn: 'GRN', purchase_invoice: 'Purchase Inv',
@@ -62,6 +83,82 @@ export default function ChartOfAccounts() {
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
   const [showExport, setShowExport] = useState(false)
   const printRef = useRef<HTMLDivElement>(null)
+
+  // ── New Account modal ──
+  const emptyForm = { type: 'expense', code: '', name: '', category: 'Operating Expenses', customCategory: '', cashFlow: 'operating' }
+  const [showNew, setShowNew] = useState(false)
+  const [naForm, setNaForm] = useState({ ...emptyForm })
+  const [naSaving, setNaSaving] = useState(false)
+  const [naError, setNaError] = useState('')
+  const [naSuccess, setNaSuccess] = useState('')
+
+  const suggestCode = (type: string): string => {
+    const prefix = CODE_PREFIX[type] || '9'
+    const inType = accounts.filter(a => a.code.startsWith(prefix)).map(a => parseInt(a.code, 10)).filter(n => !isNaN(n))
+    if (inType.length === 0) return prefix + '010'
+    const next = Math.max(...inType) + 10   // step by 10, leaves gaps for inserts
+    return String(next)
+  }
+
+  const openNewAccount = () => {
+    const type = 'expense'
+    setNaForm({ ...emptyForm, type, code: suggestCode(type), category: CATEGORIES_BY_TYPE[type][0], cashFlow: CASHFLOW_DEFAULT[type] })
+    setNaError(''); setNaSuccess(''); setShowNew(true)
+  }
+
+  const onTypeChange = (type: string) => {
+    setNaForm(f => ({
+      ...f, type,
+      code: suggestCode(type),
+      category: (CATEGORIES_BY_TYPE[type] || ['Other'])[0],
+      customCategory: '',
+      cashFlow: type === 'liability' && f.category === 'Loans' ? 'financing' : CASHFLOW_DEFAULT[type],
+    }))
+  }
+
+  const onCategoryChange = (category: string) => {
+    setNaForm(f => ({
+      ...f, category,
+      // Loans are financing; fixed assets are investing; everything else keeps its type default
+      cashFlow: category === 'Loans' ? 'financing' : category === 'Fixed Assets' ? 'investing' : CASHFLOW_DEFAULT[f.type],
+    }))
+  }
+
+  const saveNewAccount = async () => {
+    setNaError('')
+    const code = naForm.code.trim()
+    const name = naForm.name.trim()
+    const category = naForm.customCategory.trim() || naForm.category
+    if (!code) { setNaError('Enter an account code.'); return }
+    if (!/^\d{3,6}$/.test(code)) { setNaError('Code must be numbers only, e.g. 6890.'); return }
+    if (!code.startsWith(CODE_PREFIX[naForm.type])) {
+      setNaError(`A ${naForm.type} account should start with ${CODE_PREFIX[naForm.type]} (e.g. ${CODE_PREFIX[naForm.type]}xxx).`); return
+    }
+    if (accounts.some(a => a.code === code)) { setNaError(`Code ${code} is already used by "${accounts.find(a => a.code === code)?.name}". Pick another.`); return }
+    if (!name) { setNaError('Enter an account name.'); return }
+    if (!category) { setNaError('Pick or type a category.'); return }
+
+    setNaSaving(true)
+    try {
+      const { error } = await supabase.from('accounts').insert({
+        code, name,
+        type: naForm.type,
+        account_type: 'posting',
+        category,
+        cash_flow_category: naForm.cashFlow,
+        is_active: true,
+        balance: 0,
+      })
+      if (error) throw new Error(error.message)
+      setNaSuccess(`${code} · ${name} created. It is live everywhere immediately: Journal Entry, reports, dashboard.`)
+      await loadAccounts()
+      setTimeout(() => { setShowNew(false); setNaSuccess('') }, 1800)
+    } catch (e: any) {
+      setNaError(e.message || 'Could not create the account.')
+    } finally {
+      setNaSaving(false)
+    }
+  }
 
   useEffect(() => { loadAccounts() }, [])
 
@@ -451,7 +548,7 @@ export default function ChartOfAccounts() {
           <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={loadAccounts}>
             <Ic n="refresh" /> Refresh
           </button>
-          <button className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={openNewAccount}>
             <Ic n="plus" /> New Account
           </button>
         </div>
@@ -501,6 +598,77 @@ export default function ChartOfAccounts() {
       <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
         Click any account row to open its full transaction ledger
       </div>
+
+      {/* ── New Account modal ── */}
+      {showNew && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={() => !naSaving && setShowNew(false)}>
+          <div className="card" style={{ width: 460, maxWidth: '92vw', padding: 22 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 4 }}>New Account</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>
+              Created accounts are live immediately in Journal Entry, all reports, the dashboard and Cash Center.
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>Type *</label>
+                <select className="form-input" value={naForm.type} onChange={e => onTypeChange(e.target.value)}>
+                  <option value="asset">Asset (1xxx) — things you own</option>
+                  <option value="liability">Liability (2xxx) — things you owe</option>
+                  <option value="equity">Equity (3xxx) — owner value</option>
+                  <option value="revenue">Revenue (4xxx) — money earned</option>
+                  <option value="cogs">COGS (5xxx) — cost of goods</option>
+                  <option value="expense">Expense (6xxx) — running costs</option>
+                  <option value="other">Other (7xxx) — finance/FX/tax</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>Code * (suggested)</label>
+                <input className="form-input" value={naForm.code} onChange={e => setNaForm(f => ({ ...f, code: e.target.value }))} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>Name *</label>
+              <input className="form-input" placeholder="e.g. Fuel — Riders" value={naForm.name}
+                onChange={e => setNaForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>Category *</label>
+                <select className="form-input" value={naForm.category} onChange={e => onCategoryChange(e.target.value)}>
+                  {(CATEGORIES_BY_TYPE[naForm.type] || ['Other']).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>Or custom category</label>
+                <input className="form-input" placeholder="leave blank to use dropdown" value={naForm.customCategory}
+                  onChange={e => setNaForm(f => ({ ...f, customCategory: e.target.value }))} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>Cash-flow group (auto)</label>
+              <select className="form-input" value={naForm.cashFlow} onChange={e => setNaForm(f => ({ ...f, cashFlow: e.target.value }))}>
+                <option value="operating">Operating — day-to-day trading</option>
+                <option value="investing">Investing — assets/equipment</option>
+                <option value="financing">Financing — loans & capital</option>
+              </select>
+            </div>
+
+            {naError && <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{naError}</div>}
+            {naSuccess && <div style={{ color: 'var(--green)', fontSize: 13, marginBottom: 12 }}>{naSuccess}</div>}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost btn-sm" disabled={naSaving} onClick={() => setShowNew(false)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" disabled={naSaving} onClick={saveNewAccount}>
+                {naSaving ? 'Creating…' : 'Create Account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
