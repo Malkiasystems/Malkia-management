@@ -1,320 +1,206 @@
-import { useState } from 'react'
-import { supabase, COMPANIES, getActiveCompany, switchCompany } from '../lib/supabase'
+import { useState, useEffect } from 'react'
+import { supabase, getActiveCompany } from '../lib/supabase'
 import OtpGate from '../components/OtpGate'
 import { markMfaVerified } from '../lib/useLoginOtp'
-import type { Company } from '../lib/supabase'
 
-interface Props {
-  onLogin: () => void
+interface Props { onLogin: () => void }
+
+// Company logo uploaded in Settings → Display → Login Branding.
+// Stored as a data URL in system_settings (key 'branding') so it renders
+// before sign-in with no storage buckets or extra requests to configure.
+function useBrandLogo() {
+  const [logo, setLogo] = useState<string | null>(null)
+  useEffect(() => {
+    supabase.from('system_settings').select('value').eq('key', 'branding').maybeSingle()
+      .then(({ data }) => {
+        if (!data?.value) return
+        try {
+          const v = JSON.parse(data.value)
+          if (v.logo && typeof v.logo === 'string' && v.logo.startsWith('data:image/')) setLogo(v.logo)
+        } catch { /* unbranded fallback */ }
+      }, () => {})
+  }, [])
+  return logo
 }
 
 export default function Login({ onLogin }: Props) {
+  const company = getActiveCompany()
+  const logo = useBrandLogo()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [selectedCompany, setSelectedCompany] = useState<Company>(getActiveCompany())
-  // When the account has SMS MFA, we hold here after the password step and
-  // show the OTP gate instead of entering the app.
   const [mfaUserId, setMfaUserId] = useState<string | null>(null)
-
-  const handleCompanySelect = (company: Company) => {
-    setSelectedCompany(company)
-    switchCompany(company.id)
-    setError('')
-  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
 
-    // Ensure we're using the right client
-    switchCompany(selectedCompany.id)
-
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
     if (authError) {
-      setError(authError.message)
-      setLoading(false)
-      return
+      setError(authError.message === 'Invalid login credentials'
+        ? 'Email or password is incorrect.' : authError.message)
+      setLoading(false); return
     }
 
-    // Check if user exists in our users table
     const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('id, is_active, mfa_enabled')
-      .eq('email', email.toLowerCase())
-      .single()
+      .from('users').select('id, is_active, mfa_enabled')
+      .eq('email', email.toLowerCase()).single()
 
     if (userError || !userData) {
-      setError('Account not found in this company. Check you selected the right one.')
-      await supabase.auth.signOut()
-      setLoading(false)
-      return
+      setError('This account is not registered in MalkiaOS. Contact your administrator.')
+      await supabase.auth.signOut(); setLoading(false); return
     }
-
     if (!userData.is_active) {
       setError('Your account has been deactivated. Contact your administrator.')
-      await supabase.auth.signOut()
-      setLoading(false)
-      return
+      await supabase.auth.signOut(); setLoading(false); return
     }
 
-    // Record this sign-in so the user can review their recent logins.
     supabase.from('login_events').insert({
       user_email: email.toLowerCase(),
       user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
-    }).then(() => {}, () => {})  // best-effort; never block login
+    }).then(() => {}, () => {})
 
     setLoading(false)
-
-    // SMS second factor. If enabled for this account, hold here and show the
-    // OTP gate; the app is only entered (onLogin) after the code verifies.
-    // Accounts without MFA log in exactly as before.
-    if (userData.mfa_enabled) {
-      setMfaUserId(userData.id)
-      return
-    }
-
+    if (userData.mfa_enabled) { setMfaUserId(userData.id); return }
     onLogin()
   }
 
-  // OTP gate: shown after a correct password for MFA-enabled accounts.
-  // Cancelling signs out and returns to the password screen.
   const cancelMfa = async () => {
     await supabase.auth.signOut()
-    setMfaUserId(null)
-    setPassword('')
-    setError('')
+    setMfaUserId(null); setPassword(''); setError('')
   }
 
   if (mfaUserId) {
-    return (
-      <OtpGate
-        userId={mfaUserId}
-        onVerified={() => { markMfaVerified(mfaUserId); onLogin() }}
-        onCancel={cancelMfa}
-      />
-    )
+    return <OtpGate userId={mfaUserId}
+      onVerified={() => { markMfaVerified(mfaUserId); onLogin() }} onCancel={cancelMfa} />
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.logo}>
-          <svg width="48" height="48" viewBox="0 0 100 100" fill="none">
-            <circle cx="50" cy="50" r="45" fill={selectedCompany.color}/>
-            <path d="M30 65 L50 35 L70 65" stroke="#fff" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-            <circle cx="50" cy="28" r="6" fill="#f7a6ad"/>
-          </svg>
-        </div>
-        
-        <h1 style={styles.title}>MalkiaOS</h1>
-        <p style={styles.subtitle}>Sign in to your account</p>
+    <div style={st.container}>
+      {/* ambient brand glow */}
+      <div style={st.glowTeal} />
+      <div style={st.glowMaroon} />
 
-        {/* Company Selector */}
-        <div style={styles.companySection}>
-          <label style={styles.companyLabel}>SELECT COMPANY</label>
-          <div style={styles.companyGrid}>
-            {COMPANIES.map(company => {
-              const isSelected = selectedCompany.id === company.id
-              return (
-                <div
-                  key={company.id}
-                  onClick={() => handleCompanySelect(company)}
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: 10,
-                    border: `2px solid ${isSelected ? company.color : '#333'}`,
-                    background: isSelected ? `${company.color}15` : '#0d0d0d',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    textAlign: 'left' as const,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                      width: 10, height: 10, borderRadius: '50%',
-                      background: isSelected ? company.color : '#444',
-                      flexShrink: 0,
-                    }} />
-                    <div>
-                      <div style={{
-                        fontSize: 13, fontWeight: 600,
-                        color: isSelected ? company.color : '#ccc',
-                      }}>{company.shortName}</div>
-                      <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>
-                        {company.hideCRM ? 'Wholesale' : 'Retail + CRM'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <form onSubmit={handleLogin} style={styles.form}>
-          {error && (
-            <div style={styles.error}>
-              {error}
-            </div>
+      <div style={st.card}>
+        <div style={st.logoWrap}>
+          {logo ? (
+            <img src={logo} alt={company.name} style={st.logoImg} />
+          ) : (
+            <svg width="64" height="64" viewBox="0 0 100 100" fill="none">
+              <circle cx="50" cy="50" r="45" fill="#5EA8A2" />
+              <path d="M30 65 L50 35 L70 65" stroke="#fff" strokeWidth="6"
+                strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              <circle cx="50" cy="28" r="6" fill="#f7a6ad" />
+            </svg>
           )}
+        </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@malkia.co.tz"
-              style={styles.input}
-              required
-              autoFocus
-            />
+        <h1 style={st.title}>MalkiaOS</h1>
+        <div style={st.tagline}>Your Partner in Motherhood</div>
+        <div style={st.divider} />
+        <p style={st.subtitle}>Sign in to continue</p>
+
+        <form onSubmit={handleLogin} style={st.form}>
+          {error && <div style={st.error}>{error}</div>}
+
+          <div style={st.field}>
+            <label style={st.label}>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="you@malkia.co.tz" style={st.input} required autoFocus
+              autoComplete="email" />
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              style={styles.input}
-              required
-            />
+          <div style={st.field}>
+            <label style={st.label}>Password</label>
+            <div style={{ position: 'relative' }}>
+              <input type={showPw ? 'text' : 'password'} value={password}
+                onChange={e => setPassword(e.target.value)} placeholder="Enter your password"
+                style={{ ...st.input, paddingRight: 74 }} required autoComplete="current-password" />
+              <button type="button" onClick={() => setShowPw(s => !s)} style={st.pwToggle}
+                tabIndex={-1}>{showPw ? 'Hide' : 'Show'}</button>
+            </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              ...styles.button,
-              background: selectedCompany.color,
-              opacity: loading ? 0.7 : 1,
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {loading ? 'Signing in...' : `Sign In to ${selectedCompany.shortName}`}
+          <button type="submit" disabled={loading}
+            style={{ ...st.button, opacity: loading ? 0.75 : 1, cursor: loading ? 'wait' : 'pointer' }}>
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
 
-        <p style={styles.footer}>
-          {selectedCompany.name}
-        </p>
+        <p style={st.footer}>{company.name} · Dar es Salaam</p>
       </div>
     </div>
   )
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const st: Record<string, React.CSSProperties> = {
   container: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%)',
-    padding: 20,
+    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'radial-gradient(1200px 700px at 70% -10%, #10201f 0%, #0a0f10 45%, #070a0b 100%)',
+    padding: 20, position: 'relative', overflow: 'hidden',
+  },
+  glowTeal: {
+    position: 'absolute', width: 480, height: 480, borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(94,168,162,0.14) 0%, transparent 70%)',
+    top: -140, right: '12%', pointerEvents: 'none',
+  },
+  glowMaroon: {
+    position: 'absolute', width: 420, height: 420, borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(94,34,48,0.22) 0%, transparent 70%)',
+    bottom: -160, left: '8%', pointerEvents: 'none',
   },
   card: {
-    width: '100%',
-    maxWidth: 400,
-    background: '#1e1e1e',
-    borderRadius: 16,
-    padding: 40,
-    border: '1px solid #2a2a2a',
-    textAlign: 'center' as const,
+    width: '100%', maxWidth: 420, borderRadius: 20, padding: '44px 40px',
+    background: 'linear-gradient(180deg, rgba(30,36,40,0.92) 0%, rgba(22,27,30,0.96) 100%)',
+    border: '1px solid rgba(94,168,162,0.22)',
+    boxShadow: '0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)',
+    backdropFilter: 'blur(10px)', textAlign: 'center' as const, position: 'relative',
   },
-  logo: {
-    marginBottom: 24,
+  logoWrap: {
+    display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 18, minHeight: 64,
   },
+  logoImg: { maxHeight: 76, maxWidth: 220, objectFit: 'contain' as const },
   title: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 28,
-    fontWeight: 700,
-    color: '#ffffff',
-    margin: 0,
-    marginBottom: 8,
+    fontFamily: "'Cormorant Garamond', Georgia, serif",
+    fontSize: 34, fontWeight: 700, color: '#f2f4f5', margin: 0, letterSpacing: 0.5,
   },
-  subtitle: {
-    fontSize: 14,
-    color: '#888',
-    margin: 0,
-    marginBottom: 24,
+  tagline: {
+    fontSize: 11, color: '#C8A96E', letterSpacing: 2.4, textTransform: 'uppercase' as const,
+    marginTop: 6, fontWeight: 600,
   },
-  companySection: {
-    marginBottom: 24,
+  divider: {
+    width: 56, height: 2, margin: '18px auto 14px',
+    background: 'linear-gradient(90deg, transparent, #5EA8A2, transparent)',
   },
-  companyLabel: {
-    display: 'block',
-    fontSize: 10,
-    fontWeight: 600,
-    color: '#666',
-    marginBottom: 10,
-    letterSpacing: '1px',
-  },
-  companyGrid: {
-    display: 'flex',
-    gap: 8,
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 20,
-  },
-  field: {
-    textAlign: 'left' as const,
-  },
+  subtitle: { fontSize: 13.5, color: '#8d979c', margin: '0 0 22px' },
+  form: { display: 'flex', flexDirection: 'column' as const, gap: 18 },
+  field: { textAlign: 'left' as const },
   label: {
-    display: 'block',
-    fontSize: 12,
-    fontWeight: 500,
-    color: '#aaa',
-    marginBottom: 8,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
+    display: 'block', fontSize: 11, fontWeight: 600, color: '#9aa4a8',
+    marginBottom: 7, textTransform: 'uppercase' as const, letterSpacing: 1,
   },
   input: {
-    width: '100%',
-    padding: '14px 16px',
-    fontSize: 15,
-    borderRadius: 10,
-    border: '1px solid #333',
-    background: '#0d0d0d',
-    color: '#fff',
-    outline: 'none',
-    transition: 'border-color 0.2s',
-    boxSizing: 'border-box' as const,
+    width: '100%', padding: '13px 15px', fontSize: 15, borderRadius: 11,
+    border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(9,13,14,0.85)',
+    color: '#eef1f2', outline: 'none', boxSizing: 'border-box' as const,
+  },
+  pwToggle: {
+    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+    background: 'transparent', border: 'none', color: '#5EA8A2', fontSize: 12,
+    fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5, padding: '6px 8px',
   },
   button: {
-    width: '100%',
-    padding: '14px 24px',
-    fontSize: 15,
-    fontWeight: 600,
-    borderRadius: 10,
-    border: 'none',
-    background: '#85c2be',
-    color: '#000',
-    marginTop: 8,
-    transition: 'all 0.2s',
+    width: '100%', padding: '14px 24px', fontSize: 15, fontWeight: 700, borderRadius: 11,
+    border: 'none', marginTop: 6, color: '#04211f',
+    background: 'linear-gradient(135deg, #6fb8b2 0%, #5EA8A2 60%, #4c948e 100%)',
+    boxShadow: '0 8px 22px rgba(94,168,162,0.25)', transition: 'transform .12s, opacity .2s',
   },
   error: {
-    padding: '12px 16px',
-    borderRadius: 10,
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    color: '#ef4444',
-    fontSize: 13,
+    padding: '11px 14px', borderRadius: 10, background: 'rgba(229,100,93,0.10)',
+    border: '1px solid rgba(229,100,93,0.35)', color: '#e5645d', fontSize: 13,
     textAlign: 'left' as const,
   },
-  footer: {
-    marginTop: 32,
-    fontSize: 12,
-    color: '#555',
-  },
+  footer: { marginTop: 30, fontSize: 11.5, color: '#5c666b', letterSpacing: 0.4 },
 }

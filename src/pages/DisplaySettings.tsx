@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Toast from '../components/Toast'
+import { supabase } from '../lib/supabase'
 import {
   useSettings, applyTheme as applyThemeGlobal,
   applyFontSize as applyFontSizeGlobal,
@@ -181,10 +182,97 @@ const RADIUS_OPTIONS = [
   { value: 24, label: 'Pill' },
 ]
 
+// ── Login Branding: upload the company logo shown on the sign-in screen ──
+// Stored as a compressed data URL in system_settings (key 'branding'), so the
+// login page can show it before authentication with no storage buckets.
+function BrandingCard({ notify }: { notify: (msg: string, type?: 'success' | 'error') => void }) {
+  const [logo, setLogo] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    supabase.from('system_settings').select('value').eq('key', 'branding').maybeSingle()
+      .then(({ data }) => {
+        try { const v = JSON.parse(data?.value || '{}'); if (v.logo) setLogo(v.logo) } catch {}
+      }, () => {})
+  }, [])
+
+  const onFile = (file: File | undefined) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) { notify('Choose an image file (PNG with transparency works best).', 'error'); return }
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      // resize to max 480px on the long side, keep transparency, compress
+      const scale = Math.min(1, 480 / Math.max(img.width, img.height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const dataUrl = canvas.toDataURL('image/png')
+      URL.revokeObjectURL(url)
+      if (dataUrl.length > 400_000) {
+        notify('Logo is too complex even after compression. Use a simpler PNG (the icon-only variant works well).', 'error')
+        return
+      }
+      setLogo(dataUrl); setDirty(true)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); notify('Could not read that image.', 'error') }
+    img.src = url
+  }
+
+  const save = async (removing = false) => {
+    setSaving(true)
+    const value = JSON.stringify({ logo: removing ? null : logo, updated_at: new Date().toISOString() })
+    const { error } = await supabase.from('system_settings')
+      .upsert({ key: 'branding', value }, { onConflict: 'key' })
+    setSaving(false)
+    if (error) { notify(error.message, 'error'); return }
+    if (removing) { setLogo(null) }
+    setDirty(false)
+    notify(removing ? 'Logo removed — login screen shows the default mark.' : 'Logo saved — it now appears on the login screen.')
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <BrandingCard notify={notify} />
+      <div className="card-title" style={{ marginBottom: 6 }}>Login Branding</div>
+      <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
+        Upload your logo to display on the sign-in screen. A PNG with a transparent background
+        looks best on the dark card — the white or pink-maroon icon-only variants of the Malkia
+        mark are ideal. It is resized automatically.
+      </div>
+      <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{
+          width: 150, height: 92, borderRadius: 12, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', border: '1px dashed var(--border2)',
+          background: 'linear-gradient(180deg, rgba(30,36,40,0.9), rgba(22,27,30,0.95))',
+        }}>
+          {logo
+            ? <img src={logo} alt="Logo preview" style={{ maxWidth: 130, maxHeight: 76, objectFit: 'contain' }} />
+            : <span style={{ fontSize: 11, color: 'var(--text3)' }}>No logo set</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>
+            Choose image
+            <input type="file" accept="image/*" style={{ display: 'none' }}
+              onChange={e => onFile(e.target.files?.[0])} />
+          </label>
+          <button className="btn btn-primary btn-sm" disabled={!dirty || !logo || saving}
+            onClick={() => save(false)}>{saving ? 'Saving…' : 'Save logo'}</button>
+          {logo && <button className="btn btn-ghost btn-sm" disabled={saving}
+            onClick={() => save(true)}>Remove</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DisplaySettings() {
   const { settings, updateSlice } = useSettings()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const notify = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
   const [saving, setSaving] = useState(false)
 
   // Local draft state — initialized from the shared settings, updated as
