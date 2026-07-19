@@ -15,6 +15,14 @@ interface Props {
 
 export default function SalesDayBook({ onEdit }: Props) {
   const [sales, setSales] = useState<SDBSale[]>([])
+  // Day Close status: if today has been closed (daily_closes), say so and show
+  // the variance — this page is where the cashier lands after closing.
+  const [dayClosed, setDayClosed] = useState<{ closed_by: string | null; cash_variance: number } | null>(null)
+  useEffect(() => {
+    supabase.from('daily_closes').select('closed_by, cash_variance')
+      .eq('close_date', new Date().toISOString().slice(0, 10)).maybeSingle()
+      .then(({ data }) => { if (data) setDayClosed({ closed_by: data.closed_by, cash_variance: Number(data.cash_variance) }) }, () => {})
+  }, [])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
 
@@ -237,6 +245,12 @@ export default function SalesDayBook({ onEdit }: Props) {
 
   return (
     <div className="page">
+      {dayClosed && (
+        <div style={{ padding: '10px 16px', borderRadius: 10, marginBottom: 14, fontSize: 13, fontWeight: 700,
+          border: '1px solid var(--green)', background: 'rgba(63,185,143,.08)', color: 'var(--green)' }}>
+          ✓ DAY CLOSED{dayClosed.closed_by ? ` by ${dayClosed.closed_by}` : ''} · cash variance {Math.round(dayClosed.cash_variance).toLocaleString()} · new cash sales for today are locked
+        </div>
+      )}
       {/* HEADER */}
       <div className="page-header">
         <div>
