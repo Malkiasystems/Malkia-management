@@ -235,7 +235,6 @@ function BrandingCard({ notify }: { notify: (msg: string, type?: 'success' | 'er
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <BrandingCard notify={notify} />
       <div className="card-title" style={{ marginBottom: 6 }}>Login Branding</div>
       <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
         Upload your logo to display on the sign-in screen. A PNG with a transparent background
@@ -355,6 +354,7 @@ export default function DisplaySettings() {
 
   return (
     <div className="page">
+      <BrandingCard notify={notify} />
       <div className="page-header" style={{ marginBottom: 24 }}>
         <div>
           <div className="page-title">Display Settings</div>
