@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import { reverseImportPayments } from '../../lib/importOrderVoid'
 import Toast from '../../components/Toast'
 import { FG } from '../../components/FormHelpers'
 import { tzs, today } from '../../lib/utils'
@@ -351,66 +352,45 @@ export default function ImportOrder({ onNav }: Props) {
     if (!ok) return
 
     try {
-      // Reverse each payment journal
-      for (const pmt of payments) {
-        if (!pmt.journal_id) continue
-        // Read original journal_lines
-        const { data: lines } = await supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit')
-          .eq('journal_id', pmt.journal_id)
-        if (!lines || lines.length === 0) continue
+      // MW-DB-23. Reversal now runs inside void_import_payment (migration 036),
+      // one transaction per payment. The old inline block set journals.status
+      // to 'cancelled', which journals_status_check rejects, zeroed journal_lines
+      // in place, deleted the vendor ledger row, and updated suppliers.balance_tzs
+      // by client-side read-modify-write. None of it was error checked.
+      const voidResult = await reverseImportPayments(
+        payments.map(p => ({
+          journal_id:   p.journal_id ?? null,
+          amount_tzs:   p.amount_tzs,
+          payment_type: p.payment_type,
+          agent_name:   p.agent_name ?? null,
+        })),
+        activeOrder.supplier_id ?? null,
+        suppliers.map(s => ({ id: s.id, name: s.name })),
+        user?.full_name || 'System',
+        activeOrder.ref,
+      )
 
-        // Reverse account balances
-        for (const ln of lines) {
-          // Original Dr → reverse with Cr (and vice versa)
-          await supabase.rpc('update_account_balance', {
-            p_account_id: ln.account_id,
-            p_debit: ln.credit,
-            p_credit: ln.debit,
-          })
-        }
-
-        // Zero out the original journal lines so TB doesn't see them
-        await supabase
-          .from('journal_lines')
-          .update({ debit: 0, credit: 0 })
-          .eq('journal_id', pmt.journal_id)
-
-        // Cancel the journal
-        await supabase
-          .from('journals')
-          .update({
-            status: 'cancelled',
-            description: 'CANCELLED via Import Order void — ' + activeOrder.ref,
-          })
-          .eq('id', pmt.journal_id)
-
-        // Reverse vendor ledger entry (it had amount_tzs = -pmt.amount_tzs)
-        await supabase
-          .from('vendor_ledger_entries')
-          .delete()
-          .eq('journal_id', pmt.journal_id)
-
-        // Reverse supplier balance
-        const targetSupplierId = pmt.payment_type === 'supplier_deposit' || pmt.payment_type === 'supplier_balance'
-          ? activeOrder.supplier_id
-          : (suppliers.find(s => s.name === pmt.agent_name)?.id || null)
-        if (targetSupplierId) {
-          const sup = suppliers.find(s => s.id === targetSupplierId)
-          if (sup) {
-            await supabase.from('suppliers')
-              .update({ balance_tzs: (sup.balance_tzs || 0) + pmt.amount_tzs })
-              .eq('id', targetSupplierId)
-          }
-        }
+      // Partial failure must not be silent. Stop before voiding the order so the
+      // order and its payments cannot disagree about what was reversed.
+      if (!voidResult.success) {
+        showToast(
+          `${voidResult.error}. ${voidResult.reversed.length} reversal(s) posted and kept. ` +
+          `Order NOT voided. First error: ${voidResult.failed[0]?.error ?? 'unknown'}`,
+          'error',
+        )
+        await loadAll()
+        return
       }
 
-      // Mark the import_payments rows as voided (keep audit trail)
-      await supabase
-        .from('import_payments')
-        .update({ notes: 'VOIDED via order void' })
-        .eq('order_id', activeOrder.id)
+      // Append to payment notes, never overwrite them.
+      for (const pmt of payments) {
+        if (!pmt.id) continue
+        const stamp = `[REVERSED ${new Date().toISOString().slice(0, 10)}]`
+        await supabase
+          .from('import_payments')
+          .update({ notes: pmt.notes ? `${pmt.notes} ${stamp}` : stamp })
+          .eq('id', pmt.id)
+      }
 
       // Void the order itself
       await supabase
