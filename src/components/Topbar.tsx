@@ -155,7 +155,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
 
       // Pages — the full app directory, not a hand-picked subset.
       matchPages(q, 6).forEach(p => {
-        allResults.push({ type: 'page', id: p.page, title: p.label, subtitle: 'Page', page: p.page })
+        allResults.push({ type: 'page', id: p.page, title: p.label, subtitle: p.module, page: p.page, icon: p.icon })
       })
 
       if (safe) {
