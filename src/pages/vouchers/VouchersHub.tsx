@@ -12,6 +12,7 @@ const SECTIONS = [
       { icon: 'transfer', name: 'Bank Transfer', desc: 'Between your own accounts', color: 'rgba(61,139,255,.12)', page: 'bank-transfer' as Page },
       { icon: 'petty', name: 'Petty Cash', desc: 'Small cash office expenses', color: 'rgba(255,211,42,.12)', page: 'petty-cash' as Page },
       { icon: 'contra', name: 'Contra Entry', desc: 'Cash deposit to bank or withdrawal', color: 'rgba(168,85,247,.12)', page: 'contra' as Page },
+      { icon: 'cash-in', name: 'Bank Opening Balances', desc: 'What each bank and till held at cutover — once per account', color: 'rgba(0,229,160,.12)', page: 'bank-opening-balance' as Page },
     ]
   },
   {
