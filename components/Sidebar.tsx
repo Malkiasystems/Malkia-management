@@ -4,7 +4,41 @@ import { useAuth, canAccessPage } from '../lib/useAuth'
 import { requestExpenseRegisterTab } from '../lib/expenseRegisterTab'
 import { getActiveCompany, supabase } from '../lib/supabase'
 
+
+// ── Hover physics ───────────────────────────────────────────────────────────
+// Main rail keys pop: a 2px lift with a whisper of scale, accent glow blooming
+// beneath, icon stroke igniting to the accent. Sub-buttons do a lighter 1px
+// lift with an inset accent edge. Press dips back down, so the rail feels like
+// real keys. Reduced motion keeps the glow and drops the movement.
+const SB_CSS = (
+  <style>{`
+    .sb-key { transition: all .15s cubic-bezier(.2,.8,.3,1); will-change: transform; }
+    .sb-key:hover { transform: translateY(-2px) scale(1.05); background: var(--surface2) !important; box-shadow: 0 6px 16px rgba(0,0,0,.45), 0 0 14px var(--accent-dim); }
+    .sb-key:active { transform: translateY(0) scale(.96); }
+    .sb-key:hover svg { stroke: var(--accent); filter: drop-shadow(0 0 5px var(--accent-dim)); }
+    .sb-key:hover .sb-label { color: var(--text2) !important; }
+    .sb-sub { transition: all .13s ease; }
+    .sb-sub:hover { transform: translateY(-1px); background: var(--surface3) !important; box-shadow: inset 2px 0 0 var(--accent); }
+    .sb-sub:hover svg { stroke: var(--accent); }
+    .sb-rail { transition: width .2s ease; }
+    .sb-rail-x .sb-key:hover { transform: translateY(-1px); }
+    @media (prefers-reduced-motion: reduce) {
+      .sb-key:hover, .sb-sub:hover, .sb-key:active { transform: none; }
+      .sb-rail { transition: none; }
+    }
+  `}</style>
+)
+
+// ── Collapse / expand ───────────────────────────────────────────────────────
+// The app's layout math hangs off the --sidebar CSS var (src/index.css,
+// default 68px). We drive it from here: collapsed keeps the 68px icon rail,
+// expanded widens to 200px with full label rows. State lives per browser.
+const SIDEBAR_LS_KEY = 'malkia-sidebar-expanded'
+const SIDEBAR_W_COLLAPSED = '68px'
+const SIDEBAR_W_EXPANDED = '200px'
+
 const VOUCHER_PAGES: Page[] = [
+  'day-close',
   'vouchers', 'cash-sale', 'cash-payment', 'cash-receipt', 'bank-payment',
   'bank-receipt', 'bank-transfer', 'petty-cash', 'contra', 'sales-invoice',
   'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
@@ -45,18 +79,23 @@ const SETTINGS_SUB: { label: string; page: Page; icon: string }[] = [
 
 const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'All Vouchers', page: 'vouchers',         icon: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2 M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z' },
+  { label: 'Day Close',    page: 'day-close',        icon: 'M12 8v4l2.5 2.5 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z' },
   { label: 'Posted',       page: 'posted-vouchers',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
 ]
 
-const ACCOUNTS_PAGES: Page[] = ['chart-of-accounts', 'banks', 'cash-center', 'balance-sheet', 'pnl', 'trial-balance']
+const ACCOUNTS_PAGES: Page[] = ['chart-of-accounts', 'banks', 'cash-center', 'cash-flow', 'balance-sheet', 'pnl', 'trial-balance', 'ledger-health', 'product-profit', 'ar-followup']
 
 const ACCOUNTS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Chart',       page: 'chart-of-accounts', icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' },
   { label: 'Banks',       page: 'banks',             icon: 'M3 10L12 3l9 7 M5 10v8 M10.5 10v8 M16 10v8 M2 18h20' },
   { label: 'Cash Center', page: 'cash-center',       icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
+  { label: 'Cash Flow',   page: 'cash-flow',         icon: 'M17 3v6h6 M23 3l-6.5 6.5 M7 21v-6H1 M1 21l6.5-6.5 M12 8v8 M8 12h8' },
   { label: 'Bal. Sheet',  page: 'balance-sheet',     icon: 'M12 3v18 M5 7h14 M7 7l-2 5a3 3 0 0 0 6 0l-2-5 M17 7l-2 5a3 3 0 0 0 6 0l-2-5' },
   { label: 'P&L',         page: 'pnl',               icon: 'M3 3v18h18 M7 14l4-4 3 3 5-6' },
   { label: 'Trial Bal.',  page: 'trial-balance',     icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
+  { label: 'Health',      page: 'ledger-health',     icon: 'M22 12h-4l-3 9L9 3l-3 9H2' },
+  { label: 'Prod. Profit', page: 'product-profit',   icon: 'M3 3v18h18 M7 16l4-6 3 3 5-8' },
+  { label: 'AR Chase',    page: 'ar-followup',       icon: 'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z' },
 ]
 
 const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
@@ -129,6 +168,14 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
 }
 
 export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    try { return localStorage.getItem(SIDEBAR_LS_KEY) === '1' } catch { return false }
+  })
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar', expanded ? SIDEBAR_W_EXPANDED : SIDEBAR_W_COLLAPSED)
+    try { localStorage.setItem(SIDEBAR_LS_KEY, expanded ? '1' : '0') } catch { /* private mode */ }
+  }, [expanded])
+
   const [salesOpen, setSalesOpen] = useState(false)
   const [expensesOpen, setExpensesOpen] = useState(false)
   const [crmOpen, setCrmOpen] = useState(false)
@@ -137,6 +184,22 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [vouchersOpen, setVouchersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
+
+  // Reveal the submenu of whichever section the current page belongs to, so
+  // deep links and refreshes land with the right group expanded. Manual
+  // collapse still works: clicking the section header closes it without
+  // navigating, so this effect (keyed on page change) does not re-open it.
+  useEffect(() => {
+    const INVENTORY_PAGES: Page[] = ['inventory', 'stock-transfer', 'stock-transfer-outgoing', 'stock-transfer-approvals', 'dispatch', 'stock-movements', 'stock-movement-report', 'stock-as-of', 'internal-use-returns', 'stock-count']
+    if (VOUCHER_PAGES.includes(current)) setVouchersOpen(true)
+    else if (SALES_PAGES.includes(current)) setSalesOpen(true)
+    else if (EXPENSE_PAGES.includes(current)) setExpensesOpen(true)
+    else if (CRM_PAGES.includes(current)) setCrmOpen(true)
+    else if (SETTINGS_PAGES.includes(current)) setSettingsOpen(true)
+    else if (HRM_PAGES.includes(current)) setHrmOpen(true)
+    else if (ACCOUNTS_PAGES.includes(current)) setAccountsOpen(true)
+    else if (INVENTORY_PAGES.includes(current)) setInventoryOpen(true)
+  }, [current])
   
   const { permissions } = useAuth()
 
@@ -298,13 +361,33 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleAccountsSub = ACCOUNTS_SUB.filter(sub => canAccess(sub.page))
 
   return (
-    <div style={{
+    <div className={expanded ? 'sb-rail sb-rail-x' : 'sb-rail'} style={{
       width: 'var(--sidebar)', background: 'var(--surface)',
       borderRight: '1px solid var(--border)', display: 'flex',
-      flexDirection: 'column', alignItems: 'center',
+      flexDirection: 'column', alignItems: expanded ? 'stretch' : 'center',
       padding: '10px 0', flexShrink: 0, overflowY: 'auto', scrollbarWidth: 'none',
       position: 'relative'
     }}>
+      {SB_CSS}
+
+      {/* Rail head: the collapse toggle, pinned above the nav so its position
+          never moves as sections open and close. */}
+      <div
+        onClick={() => setExpanded(v => !v)}
+        title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+          justifyContent: expanded ? 'flex-start' : 'center',
+          padding: expanded ? '6px 12px' : '6px 0', margin: '0 0 6px',
+          color: 'var(--text3)',
+        }}>
+        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"
+          style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
+          <path d="M13 17l5-5-5-5 M6 17l5-5-5-5" />
+        </svg>
+        {expanded && <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>Collapse</span>}
+      </div>
+
       {filteredNav.map((item, i) => {
         if ('sep' in item && item.sep) return (
           <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
@@ -329,6 +412,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
         const isImportActive = IMPORT_PAGES.includes(current)
+        const isAccountsActive = ACCOUNTS_PAGES.includes(current)
         const active =
           current === navItem.page ||
           (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive && !isHrmActive) ||
@@ -337,7 +421,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           (navItem.page === 'import-register' && isImportActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
           (navItem.page === 'settings' && isSettingsActive) ||
-          (navItem.page === 'hrm' && isHrmActive)
+          (navItem.page === 'hrm' && isHrmActive) ||
+          (navItem.page === 'chart-of-accounts' && isAccountsActive)
 
         const isSalesItem = navItem.page === 'sales'
         const isExpenseItem = navItem.page === 'expense-register'
@@ -347,7 +432,6 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isVouchersItem = navItem.page === 'vouchers'
         const isInventoryItem = navItem.page === 'inventory'
         const isAccountsItem = navItem.page === 'chart-of-accounts'
-        const isAccountsActive = ACCOUNTS_PAGES.includes(current)
 
         return (
           <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -355,55 +439,85 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
               onClick={() => {
                 if (navItem.coming || !navItem.page) return
                 if (isExpenseItem) {
-                  setExpensesOpen(o => !o)
-                  setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
-                  requestExpenseRegisterTab('transactions')
-                  onNav('expense-register')
+                  if (expensesOpen) { setExpensesOpen(false) } else {
+                    setExpensesOpen(true)
+                    setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
+                    requestExpenseRegisterTab('transactions')
+                    onNav('expense-register')
+                  }
                 } else if (isSalesItem) {
-                  setSalesOpen(o => !o)
-                  setExpensesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false)
-                  onNav('sales')
+                  if (salesOpen) { setSalesOpen(false) } else {
+                    setSalesOpen(true)
+                    setExpensesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
+                    onNav('sales')
+                  }
                 } else if (isVouchersItem) {
-                  setVouchersOpen(o => !o)
-                  setSalesOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('vouchers')
+                  if (vouchersOpen) { setVouchersOpen(false) } else {
+                    setVouchersOpen(true)
+                    setSalesOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('vouchers')
+                  }
                 } else if (isInventoryItem) {
-                  setInventoryOpen(o => !o)
-                  setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('inventory')
+                  if (inventoryOpen) { setInventoryOpen(false) } else {
+                    setInventoryOpen(true)
+                    setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('inventory')
+                  }
                 } else if (isAccountsItem) {
-                  setAccountsOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('chart-of-accounts')
+                  if (accountsOpen) { setAccountsOpen(false) } else {
+                    setAccountsOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
+                    onNav('chart-of-accounts')
+                  }
                 } else if (isCrmItem) {
-                  setCrmOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('crm-hub')
+                  if (crmOpen) { setCrmOpen(false) } else {
+                    setCrmOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('crm-hub')
+                  }
                 } else if (isSettingsItem) {
-                  setSettingsOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false); setExpensesOpen(false)
-                  onNav('settings')
+                  if (settingsOpen) { setSettingsOpen(false) } else {
+                    setSettingsOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('settings')
+                  }
                 } else if (isHrmItem) {
-                  setHrmOpen(o => !o)
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setExpensesOpen(false)
-                  onNav('hrm')
+                  if (hrmOpen) { setHrmOpen(false) } else {
+                    setHrmOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    onNav('hrm')
+                  }
                 } else {
                   setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
                   onNav(navItem.page)
                 }
               }}
-              style={{
+              className="sb-key"
+              style={expanded ? {
+                display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10,
+                height: 38, padding: '0 12px', borderRadius: 8,
+                borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                background: active ? 'var(--accent-dim)' : 'transparent',
+                opacity: navItem.coming ? 0.4 : 1,
+                margin: '1px 6px',
+                position: 'relative', cursor: navItem.coming ? 'default' : 'pointer'
+              } : {
                 width: 52, height: 52, display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 3,
                 borderRadius: 10,
                 borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
                 background: active ? 'var(--accent-dim)' : 'transparent',
                 opacity: navItem.coming ? 0.4 : 1,
-                transition: 'all .15s', margin: '1px 0',
+                margin: '1px 0',
                 position: 'relative', cursor: navItem.coming ? 'default' : 'pointer'
               }}>
-              <span style={{ fontSize: 18 }}><SideIcon name={navItem.icon || 'home'} active={active} /></span>
-              <span style={{
+              <span style={{ fontSize: 18, display: 'flex', flexShrink: 0 }}><SideIcon name={navItem.icon || 'home'} active={active} /></span>
+              <span className="sb-label" style={expanded ? {
+                fontSize: 11, fontWeight: 600,
+                color: active ? 'var(--accent)' : 'var(--text2)',
+                letterSpacing: '.2px', whiteSpace: 'nowrap',
+                overflow: 'hidden', textOverflow: 'ellipsis',
+              } : {
                 fontSize: 8, fontWeight: 600,
                 color: active ? 'var(--accent)' : 'var(--text3)',
                 textTransform: 'uppercase', letterSpacing: '.4px'
@@ -436,21 +550,22 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             </div>
 
             {/* Inventory sub-menu */}
-            {Boolean(isInventoryItem) && (inventoryOpen || current === 'inventory' || current === 'stock-transfer' || current === 'stock-transfer-outgoing' || current === 'stock-transfer-approvals' || current === 'dispatch' || current === 'stock-movements' || current === 'stock-movement-report' || current === 'stock-as-of' || current === 'internal-use-returns' || current === 'stock-count') && visibleInventorySub.length > 0 && (
+            {Boolean(isInventoryItem) && inventoryOpen && visibleInventorySub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page
                   const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : sub.page === 'stock-movements' ? (stockInCount || 0) : 0
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ position:'relative', display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ position:'relative', display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                       {subBadge > 0 && (
                         <span style={{ position:'absolute', top:2, right:8, minWidth:14, height:14, padding:'0 3px', borderRadius:7, background:'var(--accent)', color:'#fff', fontSize:8, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{subBadge}</span>
                       )}
@@ -461,20 +576,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Accounts sub-menu */}
-            {Boolean(isAccountsItem) && (accountsOpen || isAccountsActive) && visibleAccountsSub.length > 0 && (
+            {Boolean(isAccountsItem) && accountsOpen && visibleAccountsSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleAccountsSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -482,20 +598,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Vouchers sub-menu */}
-            {Boolean(isVouchersItem) && (vouchersOpen || current === 'vouchers' || current === 'posted-vouchers') && visibleVouchersSub.length > 0 && (
+            {Boolean(isVouchersItem) && vouchersOpen && visibleVouchersSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleVouchersSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -503,7 +620,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Expenses sub-menu */}
-            {Boolean(isExpenseItem) && (expensesOpen || isExpenseActive) && visibleExpenseSub.length > 0 && (
+            {Boolean(isExpenseItem) && expensesOpen && visibleExpenseSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleExpenseSub.map(sub => {
                   // Tab items (Budget, Recurring) all point at expense-register;
@@ -512,14 +629,15 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   const subActive = current === sub.page && !sub.tab
                   return (
                     <div key={sub.label} onClick={() => { if (sub.page === 'expense-register') requestExpenseRegisterTab(sub.tab || 'transactions'); onNav(sub.page) }}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -527,20 +645,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Sales sub-menu */}
-            {Boolean(isSalesItem) && (salesOpen || isSalesActive) && visibleSalesSub.length > 0 && (
+            {Boolean(isSalesItem) && salesOpen && visibleSalesSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSalesSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -548,20 +667,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* CRM sub-menu */}
-            {Boolean(isCrmItem) && (crmOpen || isCrmActive) && visibleCrmSub.length > 0 && (
+            {Boolean(isCrmItem) && crmOpen && visibleCrmSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleCrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -569,20 +689,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* Settings sub-menu */}
-            {Boolean(isSettingsItem) && (settingsOpen || isSettingsActive) && visibleSettingsSub.length > 0 && (
+            {Boolean(isSettingsItem) && settingsOpen && visibleSettingsSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSettingsSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -590,20 +711,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             )}
 
             {/* HRM sub-menu */}
-            {Boolean(isHrmItem) && (hrmOpen || isHrmActive) && visibleHrmSub.length > 0 && (
+            {Boolean(isHrmItem) && hrmOpen && visibleHrmSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleHrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
-                      style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'6px 4px', cursor:'pointer',
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={{ fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
