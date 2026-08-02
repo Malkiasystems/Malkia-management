@@ -55,6 +55,7 @@ const EXTENDED_LABELS: Record<string, string> = {
   'hrm-recruitment': 'Recruitment',
   'hrm-events': 'Events',
   'audit-trail': 'Audit Trail',
+  'bank-opening-balance': 'Bank Opening Balances',
   'bank-payment': 'Bank Payment',
   'cash-receipt': 'Cash Receipt',
   'company-branding': 'Company Branding',

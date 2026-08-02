@@ -118,6 +118,7 @@ const Purchase = lazy(() => import('./pages/vouchers/Purchase'))
 const PurchaseInvoice = lazy(() => import('./pages/vouchers/PurchaseInvoice'))
 const PurchaseReturn = lazy(() => import('./pages/vouchers/PurchaseReturn'))
 const OpeningStock = lazy(() => import('./pages/vouchers/OpeningStock'))
+const BankOpeningBalance = lazy(() => import('./pages/vouchers/BankOpeningBalance'))
 const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
 const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
 const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
@@ -638,6 +639,7 @@ function AppContent() {
       case 'purchase':          return <Purchase onNav={navigate} />
       case 'purchase-return':   return <PurchaseReturn onNav={navigate} />
       case 'opening-stock':     return <OpeningStock onNav={navigate} />
+      case 'bank-opening-balance': return <BankOpeningBalance onNav={navigate} />
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-approvals': return <IncomingTransfers onNav={navigate} />

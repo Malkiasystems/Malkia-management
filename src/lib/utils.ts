@@ -6,7 +6,16 @@ export const formatDate = (date: string) =>
 export const genRef = (prefix: string, num: number) =>
   `${prefix}-${String(num).padStart(4, '0')}`
 
-export const today = () => new Date().toISOString().split('T')[0]
+// Format a Date as YYYY-MM-DD in LOCAL time. Never use toISOString() for
+// calendar dates: it converts to UTC first, and Tanzania is UTC+3, so local
+// midnight on the 1st becomes 21:00 on the 30th of the PREVIOUS month.
+export const localIso = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// Local calendar date. The previous toISOString version returned YESTERDAY for
+// anyone posting between midnight and 03:00 EAT, so a late-night cash sale was
+// dated to the day before and landed in the wrong day-close.
+export const today = () => localIso(new Date())
 
 export const getStatus = (qty: number, reorder: number): 'critical' | 'low' | 'ok' => {
   if (qty === 0) return 'critical'
