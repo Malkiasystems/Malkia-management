@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 
@@ -16,8 +16,8 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 export default function PurchaseRegister() {
   const [records, setRecords] = useState<PurchaseRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
-  const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
+  const [fromDate, setFromDate] = useState(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
+  const [toDate, setToDate] = useState(localIso(new Date()))
   const [typeFilter, setTypeFilter] = useState('all')
   const [filterCat, setFilterCat] = useState('all')
   const { categories } = useCategories()

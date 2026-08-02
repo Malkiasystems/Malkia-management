@@ -8,6 +8,8 @@
 // ============================================================================
 
 import { useState, useEffect, useCallback } from 'react'
+import { clampFrom } from './ledgerCutover'
+import { localIso } from './utils'
 import { supabase } from './supabase'
 import type { DashboardData, FinancialData, OperationsData, MoneyDelta } from './dashboardTypes'
 
@@ -17,12 +19,19 @@ import type { DashboardData, FinancialData, OperationsData, MoneyDelta } from '.
 
 function monthBounds(d = new Date()) {
   const y = d.getFullYear(), m = d.getMonth()
-  const iso = (dt: Date) => dt.toISOString().slice(0, 10)
+  // localIso, NOT toISOString: UTC conversion made every window start one day
+  // early in UTC+3, so "this month" quietly wore the last day of the previous
+  // month. Fourth sighting of this bug today (today(), Banks posting date,
+  // getMonthPeriod, and now here).
+  //
+  // monthStart is additionally clamped to the ledger cutover: the accounts do
+  // not count anything before it, so the dashboard must not either, or its
+  // headline disagrees with the balance sheet one tab over.
   return {
-    monthStart: iso(new Date(y, m, 1)),
-    prevStart: iso(new Date(y, m - 1, 1)),
-    prevEnd: iso(new Date(y, m, 0)),
-    today: iso(d),
+    monthStart: clampFrom(localIso(new Date(y, m, 1))),
+    prevStart: localIso(new Date(y, m - 1, 1)),
+    prevEnd: localIso(new Date(y, m, 0)),
+    today: localIso(d),
     label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
   }
 }
@@ -62,7 +71,7 @@ export function useDashboard(canViewFinancials: boolean) {
 
 // ── Operational tier (always) ────────────────────────────────────────────────
 async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<OperationsData> {
-  const todayIso = new Date().toISOString().split('T')[0]
+  const todayIso = localIso(new Date())
   const [salesRes, prodRes, empRes, leaveRes, retailRes, b2bRes, apprRes, recentRes] = await Promise.all([
     supabase.from('vouchers').select('type, total_amount, posting_date, status')
       .in('type', ['cash_sale', 'sales_invoice']).eq('status', 'posted').gte('posting_date', b.monthStart),

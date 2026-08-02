@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 import { printHtmlDocument } from '../lib/printDocument'
 
@@ -182,7 +182,7 @@ export default function PricingPage(_props: Props) {
   // Pricelist config
   const [plTier, setPlTier] = useState<PriceTier>('retail')
   const [plBundles, setPlBundles] = useState(true)
-  const [plValid, setPlValid] = useState(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0])
+  const [plValid, setPlValid] = useState(localIso(new Date(Date.now() + 30 * 86400000)))
   const [plWhatsapp, setPlWhatsapp] = useState('+255754123456')
   const [plNote, setPlNote] = useState('')
   const [plCats, setPlCats] = useState<string[]>([])

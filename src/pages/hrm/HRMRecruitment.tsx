@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { localIso } from '../../lib/utils'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
 import type { HRMProps, JobOpening, Applicant } from './hrmTypes'
@@ -16,7 +17,7 @@ export default function HRMRecruitment({ onNav: _onNav, hrmMode: _hrmMode = 'com
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [jobForm, setJobForm] = useState({ title: '', department: 'Marketing', contract_type: 'Full-time', salary_range: '', deadline: '', description: '' })
-  const [appForm, setAppForm] = useState({ job_opening_id: '', full_name: '', phone: '', stage: 'applied', application_date: new Date().toISOString().split('T')[0], notes: '' })
+  const [appForm, setAppForm] = useState({ job_opening_id: '', full_name: '', phone: '', stage: 'applied', application_date: localIso(new Date()), notes: '' })
 
   useEffect(() => { load() }, [])
 

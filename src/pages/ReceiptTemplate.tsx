@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { printHtmlDocument } from '../lib/printDocument'
 
@@ -557,7 +558,7 @@ export default function ReceiptTemplatePage() {
   }
 
   const SAMPLE: ReceiptVoucher = {
-    ref: 'CS-10-0042', posting_date: new Date().toISOString().split('T')[0],
+    ref: 'CS-10-0042', posting_date: localIso(new Date()),
     description: 'Cash Sale — Fatuma Said', total_amount: 185000, subtotal: 185000,
     payment_method: 'M-Pesa', notes: '', posted_by: 'Barbra Kabendera',
     customers: { name: 'Fatuma Said', whatsapp: '+255 743 100 212', pregnancy_stage: '28 weeks Pregnant', crown_points: 1240 },

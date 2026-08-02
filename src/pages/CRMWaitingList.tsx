@@ -8,6 +8,7 @@
 // a NEW enquiry (never bought before) — they warrant different follow-up.
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState, useCallback } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/useAuth'
 import { renderElementToPdfBlob } from '../lib/customerDocuments'
@@ -189,7 +190,7 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     const csv = [head.join(','), ...body].join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    a.download = `waiting-list-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+    a.download = `waiting-list-${localIso(new Date())}.csv`; a.click()
   }
 
   const exportPdf = async () => {
@@ -228,7 +229,7 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     try {
       const blob = await renderElementToPdfBlob(el)
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-      a.download = `waiting-list-${new Date().toISOString().slice(0, 10)}.pdf`; a.click()
+      a.download = `waiting-list-${localIso(new Date())}.pdf`; a.click()
     } catch (err: any) { flash('PDF failed: ' + (err?.message || 'unknown'), 'err') }
     finally { document.body.removeChild(el); setBusy('') }
   }

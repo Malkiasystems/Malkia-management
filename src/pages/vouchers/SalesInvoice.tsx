@@ -4,7 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import Toast from '../../components/Toast'
 import DraftBanner from '../../components/DraftBanner'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { today, tzs, getPostedBy } from '../../lib/utils'
+import { today, tzs, getPostedBy, localIso } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
@@ -318,7 +318,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       _viewMode: true,
       _invoiceRemaining: ledger?.remaining_amount ?? voucher.total_amount,
       _invoicePaid: (voucher.total_amount || 0) - (ledger?.remaining_amount ?? voucher.total_amount),
-      _statementDate: new Date().toISOString().split('T')[0],
+      _statementDate: localIso(new Date()),
     }
 
     setLastInvoice(enriched)
@@ -402,7 +402,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     if (c.payment_terms) set('paymentTerms', c.payment_terms)
     if (c.credit_period > 0) {
       const due = new Date(); due.setDate(due.getDate() + c.credit_period)
-      set('dueDate', due.toISOString().split('T')[0])
+      set('dueDate', localIso(due))
     }
     setShowDrop(false); setCustResults([])
   }

@@ -1,6 +1,7 @@
 // src/pages/ProductProfit.tsx — which products earn their shelf space.
 // GMROI = margin earned in the period per shilling currently tied up in stock.
 import { useEffect, useState } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 
 interface Row { product_name: string; qty_sold: number; revenue: number; cost: number
@@ -9,8 +10,8 @@ const fmt = (n: number | null) => n === null ? '—' : Math.round(n).toLocaleStr
 
 export default function ProductProfit() {
   const d = new Date(); const start = new Date(d.getFullYear(), d.getMonth() - 2, 1)
-  const [from, setFrom] = useState(start.toISOString().slice(0, 10))
-  const [to, setTo] = useState(d.toISOString().slice(0, 10))
+  const [from, setFrom] = useState(localIso(start))
+  const [to, setTo] = useState(localIso(d))
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

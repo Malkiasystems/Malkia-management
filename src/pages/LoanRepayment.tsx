@@ -16,6 +16,7 @@
 //  3. POSTED_BY: pass the signed-in user. Falls back to a placeholder below.
 //
 // The supabase import path in loanRepaymentPost.ts and useLoans.ts assumes
+import { localIso } from '../lib/utils'
 // '../lib/supabase'. Fix those two lines if your client lives elsewhere.
 
 import { useMemo, useState } from 'react';
@@ -41,7 +42,7 @@ const C = {
 const fmt = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localIso(new Date());
 
 const PAYMENT_METHODS = [
   { value: 'bank_transfer', label: 'Bank transfer' },

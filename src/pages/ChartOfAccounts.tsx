@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { getCutoverDate, cutoverDateSync, clampFrom, cutoverNote } from '../lib/ledgerCutover'
 import { printHtmlDocument } from '../lib/printDocument'
 
@@ -81,9 +81,9 @@ export default function ChartOfAccounts() {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [loadingLedger, setLoadingLedger] = useState(false)
-  const [fromDate, setFromDate] = useState(clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]))
+  const [fromDate, setFromDate] = useState(clampFrom(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))))
   const [cutover, setCutover] = useState(cutoverDateSync())
-  const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
+  const [toDate, setToDate] = useState(localIso(new Date()))
   const [showExport, setShowExport] = useState(false)
   const printRef = useRef<HTMLDivElement>(null)
 
@@ -446,10 +446,10 @@ export default function ChartOfAccounts() {
             <button className="btn btn-primary btn-sm" onClick={applyDateFilter}>Load</button>
           </div>
           {[
-            { label: 'Today', f: new Date().toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
-            { label: 'This Week', f: new Date(Date.now()-6*86400000).toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
-            { label: 'This Month', f: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
-            { label: 'This Year', f: `${new Date().getFullYear()}-01-01`, t: new Date().toISOString().split('T')[0] },
+            { label: 'Today', f: localIso(new Date()), t: localIso(new Date()) },
+            { label: 'This Week', f: localIso(new Date(Date.now()-6*86400000)), t: localIso(new Date()) },
+            { label: 'This Month', f: localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), t: localIso(new Date()) },
+            { label: 'This Year', f: `${new Date().getFullYear()}-01-01`, t: localIso(new Date()) },
           ].map(p => (
             <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setFromDate(p.f); setToDate(p.t); if (selectedAccount) fetchLedger(selectedAccount, p.f, p.t) }}>{p.label}</button>
           ))}

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { postLedgerEntry } from '../lib/itemLedger'
@@ -394,7 +395,7 @@ async function writeProducts(rows: MappedRow[], locations: StockLocation[]): Pro
   let ok = 0; let failed = 0; const errors: string[] = []
   // One shared import ref per batch so the audit trail groups entries together
   const importRef = `IMPORT-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '').slice(0, 12)}`
-  const importDate = new Date().toISOString().slice(0, 10)
+  const importDate = localIso(new Date())
 
   for (const row of rows) {
     const coerced = coerceRow(row, 'products', locations)
@@ -529,7 +530,7 @@ async function writeOpeningBalances(rows: MappedRow[]): Promise<{ ok: number; fa
     if (!acctId) { failed++; errors.push(`Account not found: ${row['account_code'] || row['account_name']}`); continue }
     const { error } = await supabase.from('ledger_entries').insert({
       account_id: acctId, amount, description: row['description'] || 'Opening balance import',
-      entry_date: row['date'] || new Date().toISOString().slice(0,10),
+      entry_date: row['date'] || localIso(new Date()),
       entry_type: 'opening_balance', source: 'import',
     })
     if (error) { failed++; errors.push(error.message) } else ok++

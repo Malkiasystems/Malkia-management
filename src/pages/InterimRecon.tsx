@@ -12,7 +12,7 @@
 import { useState } from 'react'
 import { useInterimRecon } from '../lib/useInterimRecon'
 import { BUCKET_LABELS, type ReconBucket } from '../lib/interimReconTypes'
-import { tzs, formatDate } from '../lib/utils'
+import { tzs, formatDate, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
@@ -49,7 +49,7 @@ export default function InterimRecon({ onNav: _onNav }: { onNav?: (p: Page) => v
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `interim-1121-reconciliation-${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `interim-1121-reconciliation-${localIso(new Date())}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }

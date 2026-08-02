@@ -5,6 +5,7 @@
 // .range() where result sets can be large.
 
 import { useCallback, useEffect, useState } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 
 // ---------- types ----------
@@ -86,7 +87,7 @@ export function useCashCenter() {
 
       // ---------- 1. DAILY POSITION: last 30 days of movements through cash ----------
       const since30 = new Date(); since30.setDate(since30.getDate() - 30)
-      const since30s = since30.toISOString().slice(0, 10)
+      const since30s = localIso(since30)
       type Mv = { posting_date: string; debit: number; credit: number; description: string | null }
       const moves = await fetchAll<Mv>((from, to) =>
         supabase.from('journal_lines')
@@ -120,7 +121,7 @@ export function useCashCenter() {
       const byDay = byDayRev.reverse()
 
       const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7)
-      const weekAgoS = weekAgo.toISOString().slice(0, 10)
+      const weekAgoS = localIso(weekAgo)
       const weekMoves = moves.filter(m => m.posting_date >= weekAgoS)
       const biggestIn = weekMoves.filter(m => m.debit > 0).sort((a, b) => b.debit - a.debit)[0] ?? null
       const biggestOut = weekMoves.filter(m => m.credit > 0).sort((a, b) => b.credit - a.credit)[0] ?? null
@@ -135,7 +136,7 @@ export function useCashCenter() {
 
       // ---------- shared: sales velocity (last 8 weeks of cash inflows from sales) ----------
       const since56 = new Date(); since56.setDate(since56.getDate() - 56)
-      const since56s = since56.toISOString().slice(0, 10)
+      const since56s = localIso(since56)
       const { data: salesV, error: e2 } = await supabase
         .from('vouchers').select('posting_date, total_amount, type')
         .in('type', ['cash_sale', 'sales_invoice'])
@@ -169,8 +170,8 @@ export function useCashCenter() {
       for (let w = 0; w < 13; w++) {
         const ws = new Date(monday); ws.setDate(ws.getDate() + w * 7)
         const we = new Date(ws); we.setDate(we.getDate() + 6)
-        const wsS = ws.toISOString().slice(0, 10)
-        const weS = we.toISOString().slice(0, 10)
+        const wsS = localIso(ws)
+        const weS = localIso(we)
         const detail: ForecastWeek['detail'] = []
 
         // inflow: sales run-rate

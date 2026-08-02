@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
-import { getStatus, tzs } from '../lib/utils'
+import { getStatus, tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter from '../components/CategoryFilter'
 import { makeCategoryPredicate } from '../components/CategoryFilter'
@@ -384,7 +384,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
       {
         reportType: 'inventory',
         title: 'Stock Summary',
-        asAt: new Date().toISOString().split('T')[0],
+        asAt: localIso(new Date()),
         filters: [
           { label: 'Location', value: locName },
           { label: 'Category', value: catName },

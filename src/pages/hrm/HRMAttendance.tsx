@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { localIso } from '../../lib/utils'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
 import type { HRMProps, AttendanceEntry } from './hrmTypes'
@@ -24,18 +25,18 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
   // Filters & View
   const [tab, setTab] = useState<'today' | 'log' | 'weekly'>('today')
   const [filterDept, setFilterDept] = useState('all')
-  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
+  const [logDate, setLogDate] = useState(localIso(new Date()))
   const [weekStart, setWeekStart] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1)
-    return d.toISOString().split('T')[0]
+    return localIso(d)
   })
 
   // Modal
   const [showModal, setShowModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
-  const [form, setForm] = useState({ employee_id: '', date: new Date().toISOString().split('T')[0], clock_in: '', clock_out: '', entry_type: 'office', status: 'present', notes: '' })
+  const [form, setForm] = useState({ employee_id: '', date: localIso(new Date()), clock_in: '', clock_out: '', entry_type: 'office', status: 'present', notes: '' })
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localIso(new Date())
 
   useEffect(() => {
     load()
@@ -80,7 +81,7 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
     const end = new Date(weekStart)
     end.setDate(end.getDate() + 6)
     let query = supabase.from('hrm_attendance').select('*, employee:hrm_employees(id, full_name, department)')
-      .gte('date', weekStart).lte('date', end.toISOString().split('T')[0]).order('date')
+      .gte('date', weekStart).lte('date', localIso(end)).order('date')
     if (selfFilter) query = query.eq('employee_id', linkedEmployeeId)
     const { data } = await query
     setWeeklyData(data || [])
@@ -191,7 +192,7 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
   const weekDays = useMemo(() => {
     const days: string[] = []
     const start = new Date(weekStart)
-    for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(start.getDate() + i); days.push(d.toISOString().split('T')[0]) }
+    for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(start.getDate() + i); days.push(localIso(d)) }
     return days
   }, [weekStart])
 
@@ -324,9 +325,9 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
           <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: 12, fontWeight: 800 }}>Daily Attendance Log</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button onClick={() => { const d = new Date(logDate); d.setDate(d.getDate() - 1); setLogDate(d.toISOString().split('T')[0]) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>&lt;</button>
+              <button onClick={() => { const d = new Date(logDate); d.setDate(d.getDate() - 1); setLogDate(localIso(d)) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>&lt;</button>
               <input type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 6, fontSize: 12, fontFamily: 'var(--mono)' }} />
-              <button onClick={() => { const d = new Date(logDate); d.setDate(d.getDate() + 1); setLogDate(d.toISOString().split('T')[0]) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>&gt;</button>
+              <button onClick={() => { const d = new Date(logDate); d.setDate(d.getDate() + 1); setLogDate(localIso(d)) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>&gt;</button>
               {logDate !== today && <button onClick={() => setLogDate(today)} style={{ background: 'var(--accent)', border: 'none', color: '#000', padding: '4px 10px', borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Today</button>}
             </div>
           </div>
@@ -364,9 +365,9 @@ export default function HRMAttendance({ onNav: _onNav, hrmMode = 'company', link
           <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: 12, fontWeight: 800 }}>Weekly Summary</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d.toISOString().split('T')[0]) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>&lt; Prev</button>
+              <button onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(localIso(d)) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>&lt; Prev</button>
               <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{weekStart} to {weekDays[6]}</span>
-              <button onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d.toISOString().split('T')[0]) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Next &gt;</button>
+              <button onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(localIso(d)) }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Next &gt;</button>
             </div>
           </div>
           {loading ? (

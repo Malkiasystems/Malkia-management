@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import { useUserLocation } from '../lib/useUserLocation'
 import { useAuth } from '../lib/useAuth'
@@ -32,7 +32,7 @@ export default function StockValuationReport() {
   const [locations, setLocations] = useState<StockLoc[]>([])
   // Cache: productId → { locCode → qty }
   const [perLoc, setPerLoc] = useState<Record<string, Record<string, number>>>({})
-  const [asAt] = useState(new Date().toISOString().split('T')[0])
+  const [asAt] = useState(localIso(new Date()))
   const { categories } = useCategories()
 
   useEffect(() => { load() }, [])

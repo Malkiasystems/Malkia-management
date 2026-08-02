@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 
 interface APEntry {
   supplier_id: string; supplier_name: string
@@ -24,7 +24,7 @@ export default function APAgingReport() {
   const [entries, setEntries] = useState<APEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [showExport, setShowExport] = useState(false)
-  const [asAt] = useState(new Date().toISOString().split('T')[0])
+  const [asAt] = useState(localIso(new Date()))
 
   useEffect(() => { load() }, [])
 

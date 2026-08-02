@@ -2,7 +2,7 @@ import { insertJournalWithRetry } from '../../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
-import { tzs } from '../../lib/utils'
+import { tzs, localIso } from '../../lib/utils'
 import Toast from '../../components/Toast'
 import type { HRMProps, HRMAsset } from './hrmTypes'
 
@@ -83,7 +83,7 @@ export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEm
 
         const ref = `FA-${form.asset_tag}`
         const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
-          ref: 'JV-' + ref, posting_date: form.issued_date || new Date().toISOString().split('T')[0],
+          ref: 'JV-' + ref, posting_date: form.issued_date || localIso(new Date()),
           description: `Asset Purchase — ${form.asset_name} — ${form.asset_tag}`,
           journal_type: 'asset_purchase', source_type: 'asset_purchase', source_ref: ref,
           posted_by: userName, status: 'posted',
@@ -98,7 +98,7 @@ export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEm
         await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
 
         await supabase.from('vouchers').insert({
-          ref, type: 'asset_purchase', posting_date: form.issued_date || new Date().toISOString().split('T')[0],
+          ref, type: 'asset_purchase', posting_date: form.issued_date || localIso(new Date()),
           description: `Asset Purchase — ${form.asset_name}`,
           total_amount: value, status: 'posted', journal_id: journal.id,
           notes: form.notes || null, posted_by: userName,

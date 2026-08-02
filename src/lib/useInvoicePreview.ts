@@ -15,6 +15,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback } from 'react'
+import { localIso } from './utils'
 import { supabase } from './supabase'
 
 export const FALLBACK_INVOICE_SETTINGS = {
@@ -80,7 +81,7 @@ export function useInvoicePreview() {
       _viewMode: true,
       _invoiceRemaining: remaining,
       _invoicePaid: (v.total_amount || 0) - remaining,
-      _statementDate: new Date().toISOString().split('T')[0],
+      _statementDate: localIso(new Date()),
     })
     setLoading(false)
   }, [])

@@ -2,13 +2,14 @@
 // Aging from customer_ledger_entries; promises logged in ar_promises so
 // "who did we chase, what did they promise, is it overdue" has a home.
 import { useEffect, useState } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 
 interface Debtor { customer_id: string; name: string; amount: number; oldest_days: number }
 interface Promise_ { id: string; customer_id: string; promised_amount: number; contact_date: string
   due_date: string; note: string | null; status: string; name?: string }
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US')
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localIso(new Date())
 
 export default function ARFollowup() {
   const [debtors, setDebtors] = useState<Debtor[]>([])

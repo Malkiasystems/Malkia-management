@@ -27,6 +27,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useMemo } from 'react'
+import { localIso } from '../../lib/utils'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
 import type { Page } from '../../lib/types'
@@ -54,7 +55,7 @@ const SAMPLE_CUSTOMER: MergeCustomer = {
     // EDD that gives ~28 weeks pregnant when previewed
     const d = new Date()
     d.setDate(d.getDate() + 12 * 7)  // 12 weeks from now → 28 weeks pregnant
-    return d.toISOString().slice(0, 10)
+    return localIso(d)
   })(),
   delivery_date: null,
   crown_points: 1250,

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
-import { tzs, formatDate } from '../lib/utils'
+import { tzs, formatDate, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 import { printHtmlDocument } from '../lib/printDocument'
 
@@ -53,9 +53,9 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
   // Statement date range
   const [stmtFrom, setStmtFrom] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 3)
-    return d.toISOString().split('T')[0]
+    return localIso(d)
   })
-  const [stmtTo, setStmtTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [stmtTo, setStmtTo] = useState(() => localIso(new Date()))
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)

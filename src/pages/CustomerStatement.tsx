@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs, today } from '../lib/utils'
+import { tzs, today, localIso } from '../lib/utils'
 import { useCompanySettings } from '../lib/useCompanySettings'
 import { loadWAConfig, sendWhatsApp } from '../lib/whatsapp'
 import type { WAConfig } from '../lib/whatsapp'
@@ -71,7 +71,7 @@ function presetRange(days: number): { from: string; to: string } {
   if (days < 0) return { from: '2000-01-01', to }   // "all time" = very old from date
   const d = new Date()
   d.setDate(d.getDate() - days)
-  return { from: d.toISOString().split('T')[0], to }
+  return { from: localIso(d), to }
 }
 
 // ─── Doc-type label + color helpers ───────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 import type { Page } from '../lib/types'
@@ -20,7 +20,7 @@ export default function SalesDayBook({ onEdit }: Props) {
   const [dayClosed, setDayClosed] = useState<{ closed_by: string | null; cash_variance: number } | null>(null)
   useEffect(() => {
     supabase.from('daily_closes').select('closed_by, cash_variance')
-      .eq('close_date', new Date().toISOString().slice(0, 10)).maybeSingle()
+      .eq('close_date', localIso(new Date())).maybeSingle()
       .then(({ data }) => { if (data) setDayClosed({ closed_by: data.closed_by, cash_variance: Number(data.cash_variance) }) }, () => {})
   }, [])
   const [loading, setLoading] = useState(true)
@@ -39,7 +39,7 @@ export default function SalesDayBook({ onEdit }: Props) {
   })
 
   // Filters
-  const today = new Date().toISOString().split('T')[0]
+  const today = localIso(new Date())
   const [fromDate, setFromDate] = useState(today)
   const [toDate, setToDate] = useState(today)
   const [voucherType, setVoucherType] = useState('all')
@@ -59,8 +59,8 @@ export default function SalesDayBook({ onEdit }: Props) {
   const loadTrend = async () => {
     const end = new Date()
     const start = new Date(Date.now() - 29 * 86400000)
-    const startStr = start.toISOString().split('T')[0]
-    const endStr = end.toISOString().split('T')[0]
+    const startStr = localIso(start)
+    const endStr = localIso(end)
     const { data } = await supabase
       .from('vouchers')
       .select('posting_date, total_amount, type')
@@ -69,7 +69,7 @@ export default function SalesDayBook({ onEdit }: Props) {
       .lte('posting_date', endStr)
     const byDate: Record<string, number> = {}
     for (let i = 0; i < 30; i++) {
-      const d = new Date(Date.now() - (29 - i) * 86400000).toISOString().split('T')[0]
+      const d = localIso(new Date(Date.now() - (29 - i) * 86400000))
       byDate[d] = 0
     }
     ;(data || []).forEach((v: any) => {
@@ -280,9 +280,9 @@ export default function SalesDayBook({ onEdit }: Props) {
 
         {/* Quick date presets */}
         {[
-          { label: 'Today', from: new Date().toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
-          { label: 'This Week', from: new Date(Date.now() - 6*86400000).toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
-          { label: 'This Month', from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] },
+          { label: 'Today', from: localIso(new Date()), to: localIso(new Date()) },
+          { label: 'This Week', from: localIso(new Date(Date.now() - 6*86400000)), to: localIso(new Date()) },
+          { label: 'This Month', from: localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: localIso(new Date()) },
         ].map(p => (
           <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setFromDate(p.from); setToDate(p.to); loadSales(p.from, p.to) }}>{p.label}</button>
         ))}

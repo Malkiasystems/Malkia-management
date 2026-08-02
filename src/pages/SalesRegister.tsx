@@ -6,7 +6,7 @@ import { useBundleSales } from '../lib/useBundles'
 import { useSalesTargets, calcTargetProgress } from '../lib/useSalesTargets'
 import type { SalesTarget, TargetProgress } from '../lib/useSalesTargets'
 import Toast from '../components/Toast'
-import { tzs, getPostedBy } from '../lib/utils'
+import { tzs, getPostedBy, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 // ── Types ───────────────────────────────────────────────────
@@ -51,13 +51,13 @@ interface Props {
 type Tab = 'transactions' | 'products' | 'customers' | 'salespeople' | 'bundles' | 'compare' | 'targets'
 type TypeFilter = 'all' | 'cash' | 'credit'
 
-const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
-const todayStr = () => new Date().toISOString().split('T')[0]
-const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
+const monthStart = () => localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+const todayStr = () => localIso(new Date())
+const daysAgo = (n: number) => localIso(new Date(Date.now() - n * 86400000))
 
 // ── To-date period helpers ─────────────────────────────────────────────
 // "Quarter" is calendar quarter: Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec
-const isoDate = (d: Date) => d.toISOString().split('T')[0]
+const isoDate = (d: Date) => localIso(d)
 const quarterStartMonth = (m: number) => Math.floor(m / 3) * 3  // 0,3,6,9
 const yearStart = (y: number) => isoDate(new Date(y, 0, 1))
 const quarterStartFor = (y: number, m: number) => isoDate(new Date(y, quarterStartMonth(m), 1))
@@ -556,7 +556,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     else if (periodType === 'quarterly') d.setMonth(d.getMonth() + 3)
     else d.setMonth(d.getMonth() + 1)
     d.setDate(d.getDate() - 1)
-    return d.toISOString().split('T')[0]
+    return localIso(d)
   }
   const saveTarget = async () => {
     if (!targetForm.name.trim()) { setToast({ msg: 'Target name required', type: 'error' }); return }
@@ -1134,7 +1134,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               {[
-                { label: 'This Month vs Last Month', cur: [monthStart(), todayStr()], prev: [new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().split('T')[0], new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().split('T')[0]] },
+                { label: 'This Month vs Last Month', cur: [monthStart(), todayStr()], prev: [localIso(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)), localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 0))] },
                 { label: 'This Week vs Last Week', cur: [daysAgo(6), todayStr()], prev: [daysAgo(13), daysAgo(7)] },
                 { label: 'Last 30 vs Prior 30', cur: [daysAgo(29), todayStr()], prev: [daysAgo(59), daysAgo(30)] },
               ].map((p, i) => (

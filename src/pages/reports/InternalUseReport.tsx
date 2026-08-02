@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
-import { tzs, today } from '../../lib/utils'
+import { tzs, today, localIso } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 import Toast from '../../components/Toast'
 import VoucherVerifyButton from '../../components/VoucherVerifyButton'
@@ -75,7 +75,7 @@ function rangeFromPreset(days: number | 'fy'): { from: string; to: string } {
   }
   if (days < 0) return { from: '2000-01-01', to }
   const d = new Date(); d.setDate(d.getDate() - days)
-  return { from: d.toISOString().split('T')[0], to }
+  return { from: localIso(d), to }
 }
 
 // Consistent category colors, matched to the voucher form.

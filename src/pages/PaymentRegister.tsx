@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs, getPostedBy } from '../lib/utils'
+import { tzs, getPostedBy, localIso } from '../lib/utils'
 import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod } from '../lib/useExpenseBudgets'
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import { useRecurringExpenses } from '../lib/useRecurringExpenses'
@@ -49,8 +49,8 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
 }
 
-const monthStart = () => clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
-const todayStr = () => new Date().toISOString().split('T')[0]
+const monthStart = () => clampFrom(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
+const todayStr = () => localIso(new Date())
 
 const TYPE_LABEL: Record<string, string> = {
   cash_payment: 'Payment Voucher', petty_cash: 'Petty Cash',

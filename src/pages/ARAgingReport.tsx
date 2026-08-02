@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { printHtmlDocument } from '../lib/printDocument'
 
 interface AREntry {
@@ -33,7 +33,7 @@ export default function ARAgingReport() {
   const [entries, setEntries] = useState<AREntry[]>([])
   const [loading, setLoading] = useState(true)
   const [showExport, setShowExport] = useState(false)
-  const [asAt] = useState(new Date().toISOString().split('T')[0])
+  const [asAt] = useState(localIso(new Date()))
 
   useEffect(() => { load() }, [])
 

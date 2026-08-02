@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { printHtmlDocument } from '../lib/printDocument'
 
 interface VATLine { posting_date: string; ref: string; type: string; description: string; gross: number; vat: number; net: number }
@@ -17,8 +17,8 @@ export default function VATReport() {
   const [lines, setLines] = useState<VATLine[]>([])
   const [loading, setLoading] = useState(true)
   const [showExport, setShowExport] = useState(false)
-  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
-  const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
+  const [fromDate, setFromDate] = useState(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
+  const [toDate, setToDate] = useState(localIso(new Date()))
 
   useEffect(() => { load() }, [])
 

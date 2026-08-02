@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props {
@@ -44,7 +44,7 @@ export default function CRMDashboard({ onNav }: Props) {
     setLoading(true)
 
     const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    const monthStart = localIso(new Date(now.getFullYear(), now.getMonth(), 1))
 
     // Parallel queries
     const [

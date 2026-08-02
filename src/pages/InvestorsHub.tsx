@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
-import { tzs, today } from '../lib/utils'
+import { tzs, today, localIso } from '../lib/utils'
 import { validatePostingDate } from '../lib/dateValidation'
 import { useAuth } from '../lib/useAuth'
 import { printHtmlDocument } from '../lib/printDocument'
@@ -63,9 +63,9 @@ export default function InvestorsHub() {
 
   // Reports
   const [reportFrom, setReportFrom] = useState(() => {
-    const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().split('T')[0]
+    const d = new Date(); d.setMonth(d.getMonth() - 3); return localIso(d)
   })
-  const [reportTo, setReportTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [reportTo, setReportTo] = useState(() => localIso(new Date()))
   const [reportNotes, setReportNotes] = useState('Key milestones and strategic plans for the next quarter.')
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }

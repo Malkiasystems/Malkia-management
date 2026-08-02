@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs, getPostedBy } from '../lib/utils'
+import { tzs, getPostedBy, localIso } from '../lib/utils'
 import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod, distributeAnnual, distributeQuarterly } from '../lib/useExpenseBudgets'
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import Toast from '../components/Toast'
@@ -24,8 +24,8 @@ export default function PnL() {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
-  const [customFrom, setCustomFrom] = useState(() => clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]))
-  const [customTo, setCustomTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [customFrom, setCustomFrom] = useState(() => clampFrom(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))))
+  const [customTo, setCustomTo] = useState(() => localIso(new Date()))
 
   // Period-filtered actuals (for monthly/custom views)
   const [periodActuals, setPeriodActuals] = useState<Record<string, { debit: number; credit: number }>>({})

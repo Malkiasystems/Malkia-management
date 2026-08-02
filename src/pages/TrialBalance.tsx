@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { printHtmlDocument } from '../lib/printDocument'
 
 interface TBAccount {
@@ -62,7 +62,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
 export default function TrialBalance() {
   const [accounts, setAccounts] = useState<TBAccount[]>([])
   const [loading, setLoading] = useState(true)
-  const [asAt, setAsAt] = useState(new Date().toISOString().split('T')[0])
+  const [asAt, setAsAt] = useState(localIso(new Date()))
   const [showExport, setShowExport] = useState(false)
 
   useEffect(() => { load() }, [])

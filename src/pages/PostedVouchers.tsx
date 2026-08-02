@@ -11,6 +11,7 @@
 // Reads only. Nothing here edits or deletes a posted voucher.
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { localIso } from '../lib/utils'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/useAuth'
@@ -269,7 +270,7 @@ export default function PostedVouchers({ onNav: _onNav }: Props) {
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, typeDef(typeKey).label.slice(0, 28))
-    XLSX.writeFile(wb, `Posted_${typeKey}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `Posted_${typeKey}_${localIso(new Date())}.xlsx`)
   }
   const exportPdf = async () => {
     setBusy('Building PDF…')
@@ -280,7 +281,7 @@ export default function PostedVouchers({ onNav: _onNav }: Props) {
       document.body.removeChild(el)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url; a.download = `Posted_${typeKey}_${new Date().toISOString().slice(0, 10)}.pdf`; a.click()
+      a.href = url; a.download = `Posted_${typeKey}_${localIso(new Date())}.pdf`; a.click()
       URL.revokeObjectURL(url)
     } catch (e: any) { flash('PDF export failed: ' + (e?.message || 'unknown'), 'err') }
     finally { setBusy('') }

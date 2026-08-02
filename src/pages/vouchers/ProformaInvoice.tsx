@@ -5,7 +5,7 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import DraftBanner from '../../components/DraftBanner'
 import { nextRef } from '../../lib/refs'
-import { today, tzs, getPostedBy } from '../../lib/utils'
+import { today, tzs, getPostedBy, localIso } from '../../lib/utils'
 import { loadWAConfig, sendWhatsApp } from '../../lib/whatsapp'
 import type { WAConfig } from '../../lib/whatsapp'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
@@ -149,7 +149,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
     // Auto-calc validUntil from validity (only for new proformas)
     if (!editVoucherId) {
       const d = new Date(); d.setDate(d.getDate() + 7)
-      set('validUntil', d.toISOString().split('T')[0])
+      set('validUntil', localIso(d))
     }
 
     const close = (e: MouseEvent) => {
@@ -166,7 +166,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
     if (editingId) return
     const days = parseInt(form.validity) || 7
     const d = new Date(form.date); d.setDate(d.getDate() + days)
-    set('validUntil', d.toISOString().split('T')[0])
+    set('validUntil', localIso(d))
   }, [form.validity, form.date, editingId])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────

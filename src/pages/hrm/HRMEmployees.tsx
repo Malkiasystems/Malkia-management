@@ -2,7 +2,7 @@ import { insertJournalWithRetry } from '../../lib/refs'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
-import { tzs } from '../../lib/utils'
+import { tzs, localIso } from '../../lib/utils'
 import Toast from '../../components/Toast'
 import type { HRMProps, Employee, EmployeeLetter, HRMAsset, SalaryAdvance, EmergencyContact } from './hrmTypes'
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS, getInitials, DEFAULT_HR_SETTINGS } from './hrmTypes'
@@ -298,7 +298,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
     // Track salary change
     if (newGross !== oldGross && newGross > 0) {
       await supabase.from('hrm_salary_history').insert({
-        employee_id: drawerEmp.id, effective_date: new Date().toISOString().split('T')[0],
+        employee_id: drawerEmp.id, effective_date: localIso(new Date()),
         old_gross: oldGross, new_gross: newGross,
         reason: 'Profile update', approved_by: user?.full_name || 'System',
       })
@@ -559,7 +559,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>COMPANY LETTERS</div>
-                  {canManage && !readOnly && <button onClick={() => { setLetterForm({ letter_type: 'Offer Letter', issued_date: new Date().toISOString().split('T')[0], issued_by: '', notes: '' }); setShowLetterModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Letter</button>}
+                  {canManage && !readOnly && <button onClick={() => { setLetterForm({ letter_type: 'Offer Letter', issued_date: localIso(new Date()), issued_by: '', notes: '' }); setShowLetterModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Letter</button>}
                 </div>
                 {letters.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No letters issued yet</div>
@@ -599,7 +599,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>SALARY ADVANCES / LOANS</div>
-                  {canManage && !readOnly && <button onClick={() => { setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: new Date().toISOString().split('T')[0], source_account: cashAccounts[0]?.id || '', notes: '' }); setShowAdvanceModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Advance</button>}
+                  {canManage && !readOnly && <button onClick={() => { setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: localIso(new Date()), source_account: cashAccounts[0]?.id || '', notes: '' }); setShowAdvanceModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Advance</button>}
                 </div>
                 {advances.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No advances on record</div>

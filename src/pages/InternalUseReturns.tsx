@@ -8,6 +8,7 @@
 // stock stay balanced. Un-returned stock can be written off (stays expensed).
 // ════════════════════════════════════════════════════════════════════════════
 import { useEffect, useState, useCallback } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/useAuth'
 import { insertJournalWithRetry } from '../lib/refs'
@@ -54,7 +55,7 @@ export default function InternalUseReturns({ onNav: _onNav }: Props) {
     setBusy(l.id)
     try {
       const value = rq * (l.unit_cost || 0)
-      const today = new Date().toISOString().slice(0, 10)
+      const today = localIso(new Date())
 
       // 1. Reversing journal: Dr Inventory, Cr expense (only if accounts known)
       if (l.inventory_account_id && l.expense_account_id && value > 0) {

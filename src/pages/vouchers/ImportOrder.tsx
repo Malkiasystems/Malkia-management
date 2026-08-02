@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { reverseImportPayments } from '../../lib/importOrderVoid'
 import Toast from '../../components/Toast'
 import { FG } from '../../components/FormHelpers'
-import { tzs, today } from '../../lib/utils'
+import { tzs, today, localIso } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import { useUserLocation } from '../../lib/useUserLocation'
@@ -385,7 +385,7 @@ export default function ImportOrder({ onNav }: Props) {
       // Append to payment notes, never overwrite them.
       for (const pmt of payments) {
         if (!pmt.id) continue
-        const stamp = `[REVERSED ${new Date().toISOString().slice(0, 10)}]`
+        const stamp = `[REVERSED ${localIso(new Date())}]`
         await supabase
           .from('import_payments')
           .update({ notes: pmt.notes ? `${pmt.notes} ${stamp}` : stamp })

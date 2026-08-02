@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -89,7 +90,7 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
   const thisInvoicePaid = voucher._invoicePaid ?? 0
   const isPaid = isViewMode && thisInvoiceRemaining <= 0.5
   const isPartial = isViewMode && thisInvoicePaid > 0.5 && thisInvoiceRemaining > 0.5
-  const statementDate = voucher._statementDate || new Date().toISOString().split('T')[0]
+  const statementDate = voucher._statementDate || localIso(new Date())
   const mono = "'DM Mono', 'Courier New', monospace"
   const display = "'Syne', 'Georgia', serif"
   const body = "'Instrument Sans', 'Helvetica Neue', sans-serif"

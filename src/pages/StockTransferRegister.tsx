@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import { useUserLocation } from '../lib/useUserLocation'
 import { useAuth } from '../lib/useAuth'
@@ -46,8 +46,8 @@ export default function StockTransferRegister() {
   const [linesByRef, setLinesByRef] = useState<Record<string, TransferLine[] | 'loading'>>({})
   // Default to start of the current year (not current month) so the register
   // shows transfer history by default instead of hiding it behind a 1-day window.
-  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0])
-  const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
+  const [fromDate, setFromDate] = useState(localIso(new Date(new Date().getFullYear(), 0, 1)))
+  const [toDate, setToDate] = useState(localIso(new Date()))
   const [locFilter, setLocFilter] = useState('all')
   const [filterCat, setFilterCat] = useState('all')
   const [locations, setLocations] = useState<{code:string;name:string}[]>([])
@@ -216,9 +216,9 @@ export default function StockTransferRegister() {
             <button className="btn btn-primary btn-sm" onClick={() => load()}>Load</button>
           </div>
           {[
-            { label: 'Today', f: new Date().toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
-            { label: 'This Week', f: new Date(Date.now()-6*86400000).toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
-            { label: 'This Month', f: new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().split('T')[0], t: new Date().toISOString().split('T')[0] },
+            { label: 'Today', f: localIso(new Date()), t: localIso(new Date()) },
+            { label: 'This Week', f: localIso(new Date(Date.now()-6*86400000)), t: localIso(new Date()) },
+            { label: 'This Month', f: localIso(new Date(new Date().getFullYear(),new Date().getMonth(),1)), t: localIso(new Date()) },
           ].map(p => (
             <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setFromDate(p.f); setToDate(p.t); load(p.f, p.t) }}>{p.label}</button>
           ))}

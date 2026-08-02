@@ -9,6 +9,7 @@
 // (edit CUTOVER_DATE when the fresh books open).
 
 import { useEffect, useState } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 
 const CUTOVER_DATE = '2026-08-01'
@@ -21,9 +22,9 @@ const fmt = (n: number) => {
 }
 
 const firstOfMonth = () => {
-  const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10)
+  const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1))
 }
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localIso(new Date())
 
 export default function CashFlow() {
   const [from, setFrom] = useState(firstOfMonth())

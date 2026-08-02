@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useBundles, useBundleSales } from '../lib/useBundles'
 import type { Bundle, BundleFormData } from '../lib/useBundles'
 import Toast from '../components/Toast'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 
 interface Props { onNav?: (p: Page) => void }
@@ -20,8 +20,8 @@ export default function Bundles(_props: Props) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<BundleFormData>({ code: '', name: '', description: '', bundle_price: 0, is_active: true, items: [{ product_id: '', qty: 1 }] })
 
-  const today = new Date().toISOString().split('T')[0]
-  const thirtyAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+  const today = localIso(new Date())
+  const thirtyAgo = localIso(new Date(Date.now() - 30 * 86400000))
   const [fromDate, setFromDate] = useState(thirtyAgo)
   const [toDate, setToDate] = useState(today)
   const { sales: bundleSales, totalBundlesSold, totalRevenue, totalSavingsGiven, byBundle, loading: salesLoading, refresh: refreshSales } = useBundleSales(fromDate, toDate)

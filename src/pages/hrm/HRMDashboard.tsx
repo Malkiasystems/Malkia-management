@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { localIso } from '../../lib/utils'
 import { supabase } from '../../lib/supabase'
 import type { HRMProps, Employee } from './hrmTypes'
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS } from './hrmTypes'
@@ -17,10 +18,10 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
     const [empRes, leaveRes, assetRes, evtRes] = await Promise.all([
       supabase.from('hrm_employees').select('*').eq('is_active', true).order('full_name'),
       supabase.from('hrm_leave_requests').select('employee_id').eq('status', 'approved')
-        .gte('start_date', new Date().toISOString().split('T')[0])
-        .lte('start_date', new Date().toISOString().split('T')[0]),
+        .gte('start_date', localIso(new Date()))
+        .lte('start_date', localIso(new Date())),
       supabase.from('hrm_assets').select('id').eq('status', 'assigned'),
-      supabase.from('hrm_events').select('*').gte('event_date', new Date().toISOString().split('T')[0]).order('event_date').limit(5),
+      supabase.from('hrm_events').select('*').gte('event_date', localIso(new Date())).order('event_date').limit(5),
     ])
     const emps = empRes.data || []
     setEmployees(emps)

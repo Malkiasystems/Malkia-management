@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { localIso } from '../../lib/utils'
 import { supabase } from '../../lib/supabase'
 import Toast from '../../components/Toast'
 import type { HRMProps, HRMEvent } from './hrmTypes'
@@ -39,7 +40,7 @@ export default function HRMEvents({ onNav: _onNav, hrmMode: _hrmMode = 'company'
     setToast('Event created'); setToastType('success'); setShowModal(false); load()
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localIso(new Date())
   const upcoming = events.filter(e => e.event_date >= today)
   const filtered = filterType === 'all' ? events : events.filter(e => e.event_type === filterType)
   const filteredUpcoming = filtered.filter(e => e.event_date >= today)

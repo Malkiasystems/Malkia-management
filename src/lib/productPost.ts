@@ -25,6 +25,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import { supabase } from './supabase'
+import { localIso } from './utils'
 import { postLedgerEntry } from './itemLedger'
 
 export interface ProductPayload {
@@ -54,7 +55,7 @@ export interface ProductPostResult {
   warning?: string
 }
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localIso(new Date())
 
 /**
  * Create a product and, when an opening qty is given, place that stock at a

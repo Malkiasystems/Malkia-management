@@ -4,13 +4,14 @@
 // expected. Cash variance posts to 6950 Cash Over/Short via the safe RPC, the
 // day locks against further cash sales (DB trigger, migration 036).
 import { useEffect, useState } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import type { Page } from '../lib/types'
 
 const NOTES = [10000, 5000, 2000, 1000, 500, 200, 100, 50]
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US')
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => localIso(new Date())
 
 interface CloseRow { close_date: string; expected: any; counted: any; cash_variance: number; note: string | null; closed_by: string | null }
 

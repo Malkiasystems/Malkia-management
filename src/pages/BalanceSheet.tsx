@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import { printHtmlDocument } from '../lib/printDocument'
 
 interface BSAccount { code: string; name: string; balance: number; category: string; type: string }
@@ -64,7 +64,7 @@ export default function BalanceSheet() {
   const [revenue, setRevenue] = useState<BSAccount[]>([])
   const [expenses, setExpenses] = useState<BSAccount[]>([])
   const [loading, setLoading] = useState(true)
-  const [asAt] = useState(new Date().toISOString().split('T')[0])
+  const [asAt] = useState(localIso(new Date()))
   const [showExport, setShowExport] = useState(false)
 
   useEffect(() => { load() }, [])

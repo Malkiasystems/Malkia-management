@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { today } from '../lib/utils'
+import { today, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 import { MalkiaInvoice } from './InvoiceTemplate'
 import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../lib/whatsapp'
@@ -54,7 +54,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [fromDate, setFromDate] = useState(() => {
-    const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0, 10)
+    const d = new Date(); d.setMonth(d.getMonth() - 3); return localIso(d)
   })
   const [toDate, setToDate] = useState(today())
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -114,7 +114,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
       _viewMode: true,
       _invoiceRemaining: ledger?.remaining_amount ?? voucher.total_amount,
       _invoicePaid: (voucher.total_amount || 0) - (ledger?.remaining_amount ?? voucher.total_amount),
-      _statementDate: new Date().toISOString().split('T')[0],
+      _statementDate: localIso(new Date()),
     }
 
     setPreviewVoucher(enriched)

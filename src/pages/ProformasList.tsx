@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { today } from '../lib/utils'
+import { today, localIso } from '../lib/utils'
 import { nextRef } from '../lib/refs'
 import { MalkiaProforma, DEFAULT_PROFORMA } from './ProformaTemplate'
 import type { ProformaSettings } from './ProformaTemplate'
@@ -80,7 +80,7 @@ export default function ProformasList({ onNav, onEdit }: Props) {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [fromDate, setFromDate] = useState(() => {
-    const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().slice(0, 10)
+    const d = new Date(); d.setMonth(d.getMonth() - 3); return localIso(d)
   })
   const [toDate, setToDate] = useState(today())
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')

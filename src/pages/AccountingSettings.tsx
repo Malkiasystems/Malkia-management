@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getPettyCashCeiling, savePettyCashCeiling, DEFAULT_PETTY_CASH_CEILING, getExpenseVendorRules, saveExpenseVendorRules } from '../lib/expenseSettings';
 import { supabase } from '../lib/supabase';
-import { getPostedBy } from '../lib/utils';
+import { getPostedBy, localIso } from '../lib/utils';
 
 type Tab = 'fiscal' | 'golive' | 'rules' | 'log';
 
@@ -173,8 +173,8 @@ export default function AccountingSettings() {
         periods_to_insert.push({
           fiscal_year_id: fy.id,
           name: monthName,
-          start_date: monthStart.toISOString().split('T')[0],
-          end_date: monthEnd.toISOString().split('T')[0],
+          start_date: localIso(monthStart),
+          end_date: localIso(monthEnd),
           status: autoLockHistorical && monthEnd < new Date() ? 'locked' : 'open',
           locked_by: autoLockHistorical && monthEnd < new Date() ? getPostedBy() : null,
           locked_at: autoLockHistorical && monthEnd < new Date() ? new Date().toISOString() : null,

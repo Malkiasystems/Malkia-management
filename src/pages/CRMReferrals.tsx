@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 import { useAuth } from '../lib/useAuth'
 import { submitForApproval } from '../lib/useApproval'
@@ -314,7 +314,7 @@ export default function CRMReferrals({ onNav }: Props) {
       typeCode:        'ambassador_settings_change',
       referenceType:   'other',
       referenceId:     crypto.randomUUID(),  // synthetic — no voucher to attach to
-      referenceNumber: `AMB-CFG-${new Date().toISOString().slice(0, 10)}`,
+      referenceNumber: `AMB-CFG-${localIso(new Date())}`,
       summary:         summaryParts.join(' · '),
       payload:         changes,
       requestedBy:     user.id,

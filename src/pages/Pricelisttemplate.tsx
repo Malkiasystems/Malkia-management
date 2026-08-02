@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { printHtmlDocument } from '../lib/printDocument'
@@ -198,7 +199,7 @@ export default function PricelistTemplate() {
     })
     const csv = rows.map(r => r.join(',')).join('\n')
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    a.download = `Malkia_Pricelist_${new Date().toISOString().split('T')[0]}.csv`; a.click()
+    a.download = `Malkia_Pricelist_${localIso(new Date())}.csv`; a.click()
   }
 
   const Toggle = ({ label, k }: { label: string; k: keyof PLSettings }) => (
