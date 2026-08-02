@@ -17,13 +17,15 @@ import { deriveMethod, refLabel, refPlaceholder } from '../../lib/paymentMethods
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
 import CategorySelect from '../../components/CategorySelect'
+import QuickAddPayee, { type PayeeRole } from '../../components/QuickAddPayee'
+import { GuideTip } from '../../components/GuideMode'
 import { getExpenseVendorRules } from '../../lib/expenseSettings'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 
 interface DBAccount { id: string; code: string; name: string; type: string; category: string; balance?: number | null; parent_id?: string | null; allow_direct_posting?: boolean | null; sort_order?: number | null }
-interface DBSupplier { id: string; name: string; balance_tzs: number }
+interface DBSupplier { id: string; name: string; balance_tzs: number; is_supplier?: boolean | null; is_vendor?: boolean | null }
 
 export default function CashPayment({ onNav }: Props) {
   const { user, can, isSuperAdmin } = useAuth()
@@ -64,7 +66,46 @@ export default function CashPayment({ onNav }: Props) {
   const canBypassApproval = (approvalCheck?.superAdminBypass ?? false) && isSuperAdmin()
   const needsApproval = !!approvalCheck?.requiresApproval && !!approvalCheck?.blockPosting && !canBypassApproval
   const approvalNotice = approvalCheck ? formatApprovalNotice(approvalCheck) : ''
-  const vendorMissing = requireVendor && !form.supplierId
+  // Who is being paid. 'supplier' = stock suppliers (their AP balance and
+  // statement update), 'vendor' = operational vendors (rent, internet,
+  // services), 'other' = one-off payee typed by hand. One table, role flags;
+  // NULL counts as allowed so pre-split rows appear in both lists.
+  const [payeeType, setPayeeType] = useState<'supplier' | 'vendor' | 'other'>('supplier')
+  const [quickAdd, setQuickAdd] = useState<PayeeRole | null>(null)
+  const supplierList = suppliers.filter(sp => sp.is_supplier !== false)
+  const vendorList = suppliers.filter(sp => sp.is_vendor !== false)
+  const vendorMissing = requireVendor && payeeType !== 'other' && !form.supplierId
+
+  const switchPayeeType = (t: 'supplier' | 'vendor' | 'other') => {
+    if (t === payeeType) return
+    setPayeeType(t)
+    // A selection cannot survive the switch, and neither can the debit
+    // account: Supplier locks it to 2010, and moving off Supplier must force
+    // a fresh, conscious category pick rather than silently leaving AP
+    // selected on a rent payment.
+    setForm(f => ({ ...f, supplierId: '', expAccount: '' }))
+  }
+
+  // ─── Supplier payments settle AP ───────────────────────────────────────
+  // Before this, the journal debited whatever category was picked while
+  // suppliers.balance_tzs and the vendor ledger still dropped, so the AP
+  // subledger moved and GL 2010 never did: they quietly diverged on every
+  // supplier payment. The debit side is locked to 2010 whenever payee type
+  // is Supplier. Vendor and Other keep the category picker, because those
+  // genuinely are expenses.
+  const apAccount = accounts.find(a => a.code === '2010')
+  useEffect(() => {
+    if (payeeType === 'supplier' && apAccount && form.expAccount !== apAccount.id) {
+      setForm(f => ({ ...f, expAccount: apAccount.id }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payeeType, accounts])
+
+  const handleQuickAddCreated = async (id: string, name: string) => {
+    setQuickAdd(null)
+    await loadSuppliers()
+    setForm(f => ({ ...f, supplierId: id, payTo: name }))
+  }
 
   useEffect(() => {
     loadAccounts()
@@ -78,7 +119,7 @@ export default function CashPayment({ onNav }: Props) {
   }
 
   const loadSuppliers = async () => {
-    const { data } = await supabase.from('suppliers').select('id, name, balance_tzs').eq('is_active', true).order('name')
+    const { data } = await supabase.from('suppliers').select('id, name, balance_tzs, is_supplier, is_vendor').eq('is_active', true).order('name')
     if (data) setSuppliers(data)
   }
 
@@ -177,7 +218,13 @@ export default function CashPayment({ onNav }: Props) {
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
     if (!form.cashAccount) { showToast('Please select cash/bank account', 'error'); return }
     if (!form.expAccount) { showToast('Please select expense/debit account', 'error'); return }
-    if (requireVendor && !form.supplierId) { showToast('A vendor is required for cash payments. Select a supplier.', 'error'); return }
+    if (requireVendor && payeeType !== 'other' && !form.supplierId) { showToast('Select the supplier or vendor being paid.', 'error'); return }
+    // Supplier payments settle a liability, not an expense. If the lock has
+    // been defeated by a stale draft or a missing account, refuse rather
+    // than let GL and subledger diverge again.
+    if (payeeType === 'supplier' && (!apAccount || form.expAccount !== apAccount.id)) {
+      showToast('Supplier payments settle Accounts Payable (2010). Account 2010 was not found or not selected.', 'error'); return
+    }
     // Reference is OPTIONAL on money out, by decision: payments are often
     // posted before the money physically moves (approval-first control), so
     // demanding an ID here only taught people to invent one. The narration
@@ -341,12 +388,39 @@ export default function CashPayment({ onNav }: Props) {
             <FG label="Voucher Ref" req><input className="form-input" value={form.ref} readOnly  /></FG>
             <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
           </div>
-          <FG label="Supplier (if paying a supplier)">
-            <select className="form-input" value={form.supplierId} onChange={e => handleSupplierChange(e.target.value)}>
-              <option value="">— Select supplier (optional) —</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} · Balance: TZS {s.balance_tzs?.toLocaleString()}</option>)}
-            </select>
+          <FG label="Payee Type" req>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className={`btn btn-sm ${payeeType === 'supplier' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => switchPayeeType('supplier')}>Supplier</button>
+              <button type="button" className={`btn btn-sm ${payeeType === 'vendor' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => switchPayeeType('vendor')}>Vendor</button>
+              <button type="button" className={`btn btn-sm ${payeeType === 'other' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => switchPayeeType('other')}>Other</button>
+            </div>
+            <GuideTip>Who is this money going to? <strong>Supplier</strong> = someone who supplies you stock — their balance and statement update, and the payment settles what you owe them. <strong>Vendor</strong> = operational providers like rent, internet, transport or services. <strong>Other</strong> = a one-off payee typed by hand; nothing is tracked against a saved account.</GuideTip>
           </FG>
+          {payeeType === 'supplier' && (
+            <FG label="Supplier" req>
+              <select className="form-input" value={form.supplierId}
+                onChange={e => e.target.value === '__add__' ? setQuickAdd('supplier') : handleSupplierChange(e.target.value)}>
+                <option value="">— Select supplier —</option>
+                {supplierList.map(sp => <option key={sp.id} value={sp.id}>{sp.name} · Balance: TZS {sp.balance_tzs?.toLocaleString()}</option>)}
+                <option value="__add__">＋ Add new supplier…</option>
+              </select>
+              <GuideTip>Paying one reduces what you owe them: the debit locks to 2010 Accounts Payable, and the payment lands on their statement.</GuideTip>
+            </FG>
+          )}
+          {payeeType === 'vendor' && (
+            <FG label="Vendor" req>
+              <select className="form-input" value={form.supplierId}
+                onChange={e => e.target.value === '__add__' ? setQuickAdd('vendor') : handleSupplierChange(e.target.value)}>
+                <option value="">— Select vendor —</option>
+                {vendorList.map(sp => <option key={sp.id} value={sp.id}>{sp.name} · Balance: TZS {sp.balance_tzs?.toLocaleString()}</option>)}
+                <option value="__add__">＋ Add new vendor…</option>
+              </select>
+              <GuideTip>Saved operational vendors — landlord, internet, security. Choosing one keeps every payment to them on one statement.</GuideTip>
+            </FG>
+          )}
           <FG label="Pay To (Payee)" req>
             <input className="form-input" placeholder="e.g. Meditech Tanzania, John Msomi" value={form.payTo} onChange={e => set('payTo', e.target.value)} />
           </FG>
@@ -383,7 +457,12 @@ export default function CashPayment({ onNav }: Props) {
             )}
           </FG>
           <FG label="Expense / Debit Account" req>
-            <CategorySelect accounts={expenseAccounts} value={form.expAccount} onChange={v => set('expAccount', v)} placeholder="— Select category —" />
+            {payeeType === 'supplier' ? (
+              <input className="form-input" value="2010 — Accounts Payable (locked for supplier payments)" readOnly
+                style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }} />
+            ) : (
+              <CategorySelect accounts={expenseAccounts} value={form.expAccount} onChange={v => set('expAccount', v)} placeholder="— Select category —" />
+            )}
           </FG>
 
           {form.amount && form.cashAccount && form.expAccount && (
@@ -412,6 +491,9 @@ export default function CashPayment({ onNav }: Props) {
         </div>
       </div>
 
+      {quickAdd && (
+        <QuickAddPayee role={quickAdd} onCreated={handleQuickAddCreated} onClose={() => setQuickAdd(null)} />
+      )}
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </VoucherPage>
   )
