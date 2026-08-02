@@ -179,8 +179,12 @@ export default function OpeningLoans({ onNav }: Props) {
 
       // Subledger detail. Written after the journal so the GL is never left
       // without its backing rows if the insert fails.
+      // Refs continue from what is already recorded. The first version
+      // restarted at OL-001 every round, so the second round collided with
+      // the first on loans_ref_unique: the journal posted, the subledger row
+      // bounced, and the error wore a misleading message.
       const rows = filled.map((l, i) => ({
-        ref: `OL-${String(i + 1).padStart(3, '0')}`,
+        ref: `OL-${String(recorded.length + i + 1).padStart(3, '0')}`,
         lender: l.lender.trim(),
         lender_type: l.lenderType,
         principal: parseFloat(l.principal) || 0,
