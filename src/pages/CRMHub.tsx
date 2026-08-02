@@ -213,103 +213,44 @@ export default function CRMHub({ onNav }: Props) {
   const loadData = async () => {
     setLoading(true)
 
-    // Try to load from Supabase
-    const { data: customers } = await supabase.from('customers').select('*').eq('is_active', true)
-    const { data: convos } = await supabase.from('conversations').select('*').order('last_message_at', { ascending: false }).limit(5)
-    const { data: feedback } = await supabase.from('feedback').select('*').order('created_at', { ascending: false }).limit(4)
+    // One aggregate RPC + three tiny bounded fetches, all in parallel.
+    // The previous version awaited TEN queries sequentially (3-4s of pure
+    // round-trip latency from Tanzania to eu-west-1) and three of them
+    // fetched whole tables — 1,490 customers and 2,000+ sales rows — which
+    // PostgREST silently caps at 1,000, so the tier counts, points totals
+    // and top-customer ranking were computed from whichever thousand rows
+    // happened to arrive. crm_hub_stats() does the arithmetic in SQL where
+    // it is exact and instant.
+    const [{ data: hub }, { data: convos }, { data: feedback }, { data: pointsActivityData }] = await Promise.all([
+      supabase.rpc('crm_hub_stats'),
+      supabase.from('conversations').select('*').order('last_message_at', { ascending: false }).limit(5),
+      supabase.from('feedback').select('*').order('created_at', { ascending: false }).limit(4),
+      supabase.from('crown_points_log').select('id, points, type, source, description, created_at, customer_id, customers(name)').order('created_at', { ascending: false }).limit(5),
+    ])
 
-    // Load counts from CRM tables
-    const { count: unreadCount } = await supabase.from('conversations').select('*', { count: 'exact', head: true }).gt('unread_count', 0)
-    const { count: ticketCount } = await supabase.from('feedback').select('*', { count: 'exact', head: true }).in('status', ['new', 'in_progress'])
-    const { count: referralCount } = await supabase.from('referrals').select('*', { count: 'exact', head: true })
-    const { count: autoCount } = await supabase.from('crm_automations').select('*', { count: 'exact', head: true }).eq('is_active', true)
-    const { count: preorderCount } = await supabase.from('preorders').select('*', { count: 'exact', head: true }).eq('status', 'pending')
-    const { data: pointsData } = await supabase.from('crown_points_log').select('points, type')
-    
-    const pointsIssued = pointsData?.filter(p => p.type === 'earn').reduce((sum, p) => sum + p.points, 0) || 0
-    const pointsRedeemed = pointsData?.filter(p => p.type === 'redeem').reduce((sum, p) => sum + Math.abs(p.points), 0) || 0
-
-    // Calculate customer LTV from vouchers
-    const { data: customerSales } = await supabase
-      .from('vouchers')
-      .select('customer_id, total_amount')
-      .in('type', ['cash_sale', 'sales_invoice'])
-      .eq('status', 'posted')
-      .not('customer_id', 'is', null)
-
-    // Aggregate sales by customer
-    const customerStats: Record<string, { ltv: number; orders: number }> = {}
-    customerSales?.forEach(v => {
-      if (!v.customer_id) return
-      if (!customerStats[v.customer_id]) customerStats[v.customer_id] = { ltv: 0, orders: 0 }
-      customerStats[v.customer_id].ltv += v.total_amount || 0
-      customerStats[v.customer_id].orders += 1
+    const h = (hub || {}) as Record<string, any>
+    setStats({
+      totalCustomers: Number(h.total_customers) || 0,
+      unreadMessages: Number(h.unread) || 0,
+      openTickets: Number(h.open_tickets) || 0,
+      upsellRate: 0,
+      totalReferrals: Number(h.referrals) || 0,
+      crownMembers: (Number(h.crown) || 0) + (Number(h.gold) || 0),
+      activeAutomations: Number(h.automations) || 0,
+      csatScore: 0,
+      preOrders: Number(h.preorders) || 0,
+      mamaCount: Number(h.mama) || 0,
+      goldCount: Number(h.gold) || 0,
+      crownCount: Number(h.crown) || 0,
+      inactiveCount: 0,
+      referralRevenue: 0,
+      pointsIssued: Number(h.points_issued) || 0,
+      pointsRedeemed: Number(h.points_redeemed) || 0,
     })
-
-    if (customers && customers.length > 0) {
-      const mama = customers.filter(c => !c.crown_tier || c.crown_tier === 'mama').length
-      const gold = customers.filter(c => c.crown_tier === 'gold').length
-      const crown = customers.filter(c => c.crown_tier === 'crown').length
-      
-      // Enrich customers with calculated stats
-      const enrichedCustomers = customers.map(c => ({
-        ...c,
-        lifetime_value: customerStats[c.id]?.ltv || c.lifetime_value || 0,
-        total_orders: customerStats[c.id]?.orders || c.total_orders || 0
-      }))
-      
-      setStats({
-        totalCustomers: customers.length,
-        unreadMessages: unreadCount || 0,
-        openTickets: ticketCount || 0,
-        upsellRate: 0,
-        totalReferrals: referralCount || 0,
-        crownMembers: crown + gold,
-        activeAutomations: autoCount || 0,
-        csatScore: 0,
-        preOrders: preorderCount || 0,
-        mamaCount: mama,
-        goldCount: gold,
-        crownCount: crown,
-        inactiveCount: 0,
-        referralRevenue: 0,
-        pointsIssued: pointsIssued,
-        pointsRedeemed: pointsRedeemed
-      })
-
-      setTopCustomers(enrichedCustomers
-        .sort((a, b) => (b.lifetime_value || 0) - (a.lifetime_value || 0))
-        .slice(0, 5)
-        .map(c => ({
-          id: c.id,
-          name: c.name,
-          ltv: c.lifetime_value || 0,
-          orders: c.total_orders || 0,
-          tier: c.crown_tier || 'mama',
-          referrals: 0
-        })))
-    } else {
-      // No customers yet - show zeros
-      setStats({
-        totalCustomers: 0,
-        unreadMessages: 0,
-        openTickets: 0,
-        upsellRate: 0,
-        totalReferrals: 0,
-        crownMembers: 0,
-        activeAutomations: 0,
-        csatScore: 0,
-        preOrders: 0,
-        mamaCount: 0,
-        goldCount: 0,
-        crownCount: 0,
-        inactiveCount: 0,
-        referralRevenue: 0,
-        pointsIssued: 0,
-        pointsRedeemed: 0
-      })
-      setTopCustomers([])
-    }
+    setTopCustomers(((h.top_customers || []) as any[]).map(c => ({
+      id: c.id, name: c.name, ltv: Number(c.ltv) || 0,
+      orders: Number(c.orders) || 0, tier: c.tier || 'mama', referrals: 0,
+    })))
 
     // Conversations
     if (convos && convos.length > 0) {
@@ -363,7 +304,6 @@ export default function CRMHub({ onNav }: Props) {
     }
 
     // Points activity
-    const { data: pointsActivityData } = await supabase.from('crown_points_log').select('id, points, type, source, description, created_at, customer_id, customers(name)').order('created_at', { ascending: false }).limit(5)
     if (pointsActivityData && pointsActivityData.length > 0) {
       setPointsActivity(pointsActivityData.map((p: any) => ({
         id: p.id, customer_name: p.customers?.name || 'Customer', action: p.description || p.source, points: p.points, timestamp: p.created_at
