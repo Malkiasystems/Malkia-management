@@ -60,6 +60,8 @@ const EXTENDED_LABELS: Record<string, string> = {
   'new-loan': 'New Loan',
   'opening-loans': 'Opening Loans',
   'loan-repayment': 'Loan Repayment',
+  'attendance-kiosk': 'Attendance Kiosk (shop screen)',
+  'attendance-checkin': 'Check In / Out',
   'bank-payment': 'Bank Payment',
   'cash-receipt': 'Cash Receipt',
   'company-branding': 'Company Branding',

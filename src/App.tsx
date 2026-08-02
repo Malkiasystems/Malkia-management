@@ -123,6 +123,8 @@ const Loans = lazy(() => import('./pages/Loans'))
 const NewLoan = lazy(() => import('./pages/vouchers/NewLoan'))
 const OpeningLoans = lazy(() => import('./pages/vouchers/OpeningLoans'))
 const LoanRepayment = lazy(() => import('./pages/vouchers/LoanRepayment'))
+const AttendanceKiosk = lazy(() => import('./pages/hrm/AttendanceKiosk'))
+const AttendanceCheckIn = lazy(() => import('./pages/hrm/AttendanceCheckIn'))
 const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
 const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
 const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
@@ -648,6 +650,8 @@ function AppContent() {
       case 'new-loan':          return <NewLoan onNav={navigate} />
       case 'opening-loans':     return <OpeningLoans onNav={navigate} />
       case 'loan-repayment':    return <LoanRepayment onNav={navigate} />
+      case 'attendance-kiosk':  return <AttendanceKiosk />
+      case 'attendance-checkin': return <AttendanceCheckIn />
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-approvals': return <IncomingTransfers onNav={navigate} />
