@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react'
 import { supabase } from '../lib/supabase'
 import { useInvoicePreview } from '../lib/useInvoicePreview'
 import InvoicePreviewModal from '../components/InvoicePreviewModal'
@@ -48,6 +48,53 @@ const SEGMENTS: Record<'cash' | 'wholesale' | 'debtor', string[]> = {
   debtor:    ['Corporate', 'Wholesale'],
 }
 const PAYMENT_TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET60', 'NET90']
+
+// ─── What the list actually needs ───────────────────────────────────────────
+// `customers` has 68 columns. This page reads 23 of them: the table cells, the
+// edit form, and the flags the filters key on. select('*') was shipping the
+// other 45 as well — measured on live data, 2.27 MB of JSON for 1409 cash
+// contacts against 0.78 MB for this list. Two thirds of every load was
+// columns nothing on screen ever looked at.
+//
+// KEEP THIS IN SYNC with the edit form. Every field openEdit() reads and
+// save() writes is here on purpose; drop one and the form silently opens
+// blank and then saves the blank over a good value. If you add a field to
+// the form, add the column here in the same commit.
+const LIST_COLUMNS = [
+  'id', 'customer_number', 'name', 'company', 'contact_person',
+  'customer_type', 'segment', 'whatsapp', 'email', 'phone', 'address',
+  'tin_number', 'credit_limit', 'credit_period', 'payment_terms',
+  'balance', 'crown_points', 'is_active', 'is_hidden',
+  'last_purchase_date', 'notes', 'stage_paused', 'life_stage',
+].join(', ')
+
+// ─── List cache ─────────────────────────────────────────────────────────────
+// Module-level so it outlives the component: switching to the ledger and back,
+// or flipping between the cash and wholesale tabs, is a state change here
+// rather than another 0.78 MB down the wire.
+//
+// Deliberately NOT persisted to localStorage. Customer balances are money on
+// screen, and a stale balance read off disk minutes or days later is worse
+// than a spinner. In memory only, 2 minute ceiling, dies on reload.
+//
+// Any write to a customer must call invalidateCustomerCache(). The reads are
+// the easy half; invalidation is where this kind of cache goes wrong.
+const LIST_TTL_MS = 120_000
+type ListTab = 'cash' | 'wholesale'
+const listCache = new Map<ListTab, { rows: Customer[]; at: number }>()
+
+function readListCache(tab: ListTab): Customer[] | null {
+  const hit = listCache.get(tab)
+  if (!hit) return null
+  if (Date.now() - hit.at > LIST_TTL_MS) { listCache.delete(tab); return null }
+  return hit.rows
+}
+function writeListCache(tab: ListTab, rows: Customer[]) {
+  listCache.set(tab, { rows, at: Date.now() })
+}
+export function invalidateCustomerCache() {
+  listCache.clear()
+}
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -213,7 +260,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     setBulkSelectedTemplateId('')
     setBulkAdvanceStage('')
     setSelectedIds(new Set())
-    load()  // refresh in case stage was advanced
+    invalidateCustomerCache(); load({ force: true })  // stage may have advanced
   }
 
 
@@ -229,58 +276,97 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     if (c) { setRestored(true); openLedger(c) }
   }, [openLedgerId, customers, restored])
 
-  const load = async () => {
+  const load = async (opts: { force?: boolean } = {}) => {
+    // Serve the last answer instantly when it is still warm. Tab switches and
+    // coming back from a ledger or a statement were both full reloads before
+    // this, which on mobile data meant staring at a spinner for a list the
+    // browser had already downloaded a moment earlier.
+    if (!opts.force) {
+      const hit = readListCache(tab)
+      if (hit) { setCustomers(hit); setLoading(false); return }
+    }
+
     setLoading(true)
+
     // For the wholesale tab, accept BOTH 'wholesale' (canonical) AND
     // 'debtor' (legacy) so a partially-migrated DB still renders correctly.
     // We pull hidden rows in the query and filter them out in `filtered`
     // below so the "Show hidden" toggle is a client-side flip rather than
     // a round-trip.
-    // Supabase caps any select at 1000 rows by default. Once the contact book
-    // passed 1000, everyone after that silently vanished from the list (and from
-    // the metrics join, so they rendered "unclassified"). Page through instead.
+    //
+    // Supabase caps any select at 1000 rows by default, so this still pages.
+    // What changed is the SHAPE of the paging. It used to be strictly
+    // sequential: every customer page awaited, then the metrics fetched in
+    // chunks of 200 ids, each chunk awaited. At 1409 cash contacts that is
+    // 2 + 8 = 10 round trips one after another. Over Tanzanian mobile data
+    // at ~200ms each, that is roughly two seconds of pure waiting before a
+    // single byte of the second page is asked for.
+    //
+    // Now: page 0 of customers and page 0 of metrics go out together, then
+    // page 1 of both together, and so on. Two waves instead of ten trips.
     const PAGE = 1000
-    const all: Customer[] = []
-    for (let from = 0; ; from += PAGE) {
-      const q = tab === 'cash'
-        ? supabase.from('customers').select('*')
+
+    const customerPage = (from: number) => (
+      tab === 'cash'
+        ? supabase.from('customers').select(LIST_COLUMNS)
             .eq('customer_type', 'cash').eq('is_active', true).order('name').range(from, from + PAGE - 1)
-        : supabase.from('customers').select('*')
+        : supabase.from('customers').select(LIST_COLUMNS)
             .in('customer_type', ['wholesale', 'debtor']).eq('is_active', true).order('name').range(from, from + PAGE - 1)
-      const { data: page, error } = await q
-      if (error || !page) break
-      all.push(...(page as Customer[]))
-      if (page.length < PAGE) break
-    }
-    if (all.length === 0 && customers.length === 0) { setLoading(false); return }
+    )
 
-    let rows = all
+    // Metrics only matter on the cash tab. Paged by range rather than chunked
+    // by id: the old `.in(200 ids)` shape was a workaround for the 1000-row
+    // cap, but range() solves the same problem in a fifth of the requests and
+    // without stuffing 200 UUIDs into a URL.
+    const metricsPage = (from: number) => (
+      supabase.from('customer_metrics')
+        .select('customer_id, life_stage, lifecycle_stage')
+        .order('customer_id').range(from, from + PAGE - 1)
+    )
 
-    // For cash customers, also pull life_stage/lifecycle_stage from customer_metrics view.
-    // IMPORTANT: fetch metrics only for the customers actually loaded, keyed by id.
-    // Selecting the whole view hits Supabase's default 1000-row cap, so any customer
-    // beyond that returned no match and rendered as "unclassified" even though the
-    // view had classified them correctly. Chunked to stay inside URL length limits.
-    if (tab === 'cash' && rows.length > 0) {
-      const ids = rows.map(r => r.id)
-      const byId = new Map<string, { life_stage: LifeStage | null; lifecycle_stage: string | null }>()
-      const CHUNK = 200
-      for (let i = 0; i < ids.length; i += CHUNK) {
-        const slice = ids.slice(i, i + CHUNK)
-        const { data: metrics } = await supabase
-          .from('customer_metrics')
-          .select('customer_id, life_stage, lifecycle_stage')
-          .in('customer_id', slice)
-        for (const m of (metrics || []) as Array<{ customer_id: string; life_stage: LifeStage | null; lifecycle_stage: string | null }>) {
-          byId.set(m.customer_id, { life_stage: m.life_stage, lifecycle_stage: m.lifecycle_stage })
+    const all: Customer[] = []
+    const byId = new Map<string, { life_stage: LifeStage | null; lifecycle_stage: string | null }>()
+    let moreCustomers = true
+    let moreMetrics = tab === 'cash'
+
+    for (let from = 0; moreCustomers || moreMetrics; from += PAGE) {
+      const [cRes, mRes] = await Promise.all([
+        moreCustomers ? customerPage(from) : Promise.resolve(null),
+        moreMetrics ? metricsPage(from) : Promise.resolve(null),
+      ])
+
+      if (cRes) {
+        const page = (cRes.data ?? null) as Customer[] | null
+        if (cRes.error || !page) moreCustomers = false
+        else {
+          all.push(...page)
+          if (page.length < PAGE) moreCustomers = false
         }
       }
-      rows = rows.map(r => {
-        const m = byId.get(r.id)
-        return { ...r, life_stage: m?.life_stage ?? null, lifecycle_stage: m?.lifecycle_stage ?? null }
-      })
+
+      if (mRes) {
+        const page = (mRes.data ?? null) as Array<{ customer_id: string; life_stage: LifeStage | null; lifecycle_stage: string | null }> | null
+        if (mRes.error || !page) moreMetrics = false
+        else {
+          for (const m of page) byId.set(m.customer_id, { life_stage: m.life_stage, lifecycle_stage: m.lifecycle_stage })
+          if (page.length < PAGE) moreMetrics = false
+        }
+      }
+
+      // Guard against a query that keeps returning full pages forever.
+      if (from > PAGE * 50) break
     }
 
+    if (all.length === 0 && customers.length === 0) { setLoading(false); return }
+
+    const rows: Customer[] = tab === 'cash'
+      ? all.map(r => {
+          const m = byId.get(r.id)
+          return { ...r, life_stage: m?.life_stage ?? null, lifecycle_stage: m?.lifecycle_stage ?? null }
+        })
+      : all
+
+    writeListCache(tab, rows)
     setCustomers(rows)
     setLoading(false)
   }
@@ -379,7 +465,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
         if (error) throw new Error(error.message)
         showToast(`${displayName} added — ${customerNumber}`)
       }
-      setView('list'); load()
+      setView('list'); invalidateCustomerCache(); load({ force: true })
     } catch (err: any) { showToast(err.message || 'Save failed', 'error') }
     finally { setSaving(false) }
   }
@@ -400,7 +486,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     const { error } = await supabase.from('customers').update({ is_hidden: goingHidden }).eq('id', c.id)
     if (error) { showToast(error.message, 'error'); return }
     showToast(goingHidden ? `${c.company || c.name} hidden` : `${c.company || c.name} restored`)
-    load()
+    invalidateCustomerCache(); load({ force: true })
   }
 
   // ── Delete (hard) ─────────────────────────────────────────────────────
@@ -429,31 +515,46 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     const { error } = await supabase.from('customers').delete().eq('id', c.id)
     if (error) { showToast(error.message, 'error'); return }
     showToast(`${c.company || c.name} deleted`)
-    load()
+    invalidateCustomerCache(); load({ force: true })
   }
 
   // Stats
   const totalBalance = customers.reduce((s, c) => s + (c.balance || 0), 0)
   const totalCredit = customers.reduce((s, c) => s + (c.credit_limit || 0), 0)
 
-  const filtered = customers.filter(c => {
-    // On the wholesale tab, hide soft-hidden contacts unless the toggle
-    // is on. The cash tab ignores this flag (no hide UI on cash side).
-    if (tab === 'wholesale' && !showHidden && c.is_hidden) return false
-    if (segFilter !== 'all' && c.segment !== segFilter.toLowerCase()) return false
-    if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !(c.whatsapp || '').includes(search) && !(c.customer_number || '').toLowerCase().includes(search.toLowerCase())) return false
-    if (tab === 'cash') {
-      if (stageFilter === 'unclassified' && c.life_stage) return false
-      if (stageFilter !== 'all' && stageFilter !== 'unclassified' && c.life_stage !== stageFilter) return false
-      if (showPausedOnly && !c.stage_paused) return false
-    }
-    return true
-  })
+  // MEMOISED. This used to run on every render, and so did the sort below it,
+  // because useTableSort memoises on `rows` and `rows` was a brand new array
+  // identity each time. At 1409 contacts that meant a full filter plus a full
+  // multi-key sort on every keystroke, every hover, every toast.
+  //
+  // deferredSearch keeps the input itself responsive: React paints the
+  // character you typed immediately and re-runs the list at lower priority,
+  // so the box never feels like it is fighting you.
+  const deferredSearch = useDeferredValue(search)
+  const filtered = useMemo(() => {
+    const q = deferredSearch.trim().toLowerCase()
+    return customers.filter(c => {
+      // On the wholesale tab, hide soft-hidden contacts unless the toggle
+      // is on. The cash tab ignores this flag (no hide UI on cash side).
+      if (tab === 'wholesale' && !showHidden && c.is_hidden) return false
+      if (segFilter !== 'all' && c.segment !== segFilter.toLowerCase()) return false
+      if (q && !c.name.toLowerCase().includes(q) && !(c.whatsapp || '').includes(deferredSearch.trim()) && !(c.customer_number || '').toLowerCase().includes(q)) return false
+      if (tab === 'cash') {
+        if (stageFilter === 'unclassified' && c.life_stage) return false
+        if (stageFilter !== 'all' && stageFilter !== 'unclassified' && c.life_stage !== stageFilter) return false
+        if (showPausedOnly && !c.stage_paused) return false
+      }
+      return true
+    })
+  }, [customers, tab, showHidden, segFilter, deferredSearch, stageFilter, showPausedOnly])
 
   // ── Sort wiring ────────────────────────────────────────────────────────
   // Uses useTableSort: click to sort, shift-click for multi-column.
   // Persisted per-tab so cash and debtors don't fight over the same key.
-  const sortAccessor = (row: Customer, key: string): unknown => {
+  // useCallback with no deps: useTableSort lists `accessor` in its memo deps,
+  // so a fresh function identity per render invalidated the memo every time
+  // and the sort re-ran regardless of whether anything had changed.
+  const sortAccessor = useCallback((row: Customer, key: string): unknown => {
     switch (key) {
       case 'customer_number':   return row.customer_number
       case 'name':              return row.name
@@ -468,12 +569,41 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       case 'life_stage':        return row.life_stage
       default:                  return undefined
     }
-  }
+  }, [])
 
   const sortStorageKey = tab === 'cash' ? 'malkia.customers.sort.cash' : 'malkia.customers.sort.wholesale'
   const defaultSort = useMemo(() => [{ key: 'name', direction: 'asc' as const }], [])
   const { sorted, onHeaderClick, getSortIndex, getSortDir } =
     useTableSort<Customer>(filtered, { storageKey: sortStorageKey, defaultSort, accessor: sortAccessor })
+
+  // ── Render window ─────────────────────────────────────────────────────────
+  // Each row in this table is roughly fifteen elements with inline style
+  // objects and per-row hover handlers. Painting 1409 of them is around
+  // twenty thousand nodes, and React re-reconciles all of them on any state
+  // change. That is the part that felt slow AFTER the data had arrived.
+  //
+  // So paint a window and grow it. 120 rows is more than fills any screen;
+  // the sentinel row at the bottom pulls in the next 120 as the user scrolls,
+  // so nothing is unreachable and there is no page-number UI to learn.
+  // Everything above still operates on the FULL filtered set: the counts, the
+  // totals, and select-all are unchanged, because a window that quietly
+  // shrinks a bulk WhatsApp send would be a much worse bug than a slow list.
+  const WINDOW_STEP = 120
+  const [windowSize, setWindowSize] = useState(WINDOW_STEP)
+  useEffect(() => { setWindowSize(WINDOW_STEP) }, [tab, deferredSearch, segFilter, stageFilter, showPausedOnly, showHidden])
+  const visible = useMemo(() => sorted.slice(0, windowSize), [sorted, windowSize])
+  const hiddenCount = sorted.length - visible.length
+
+  const sentinelRef = useRef<HTMLTableRowElement | null>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || hiddenCount <= 0) return
+    const io = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) setWindowSize(n => n + WINDOW_STEP)
+    }, { rootMargin: '400px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hiddenCount])
 
   // Running balance for ledger
   const ledgerWithBalance = () => {
@@ -847,7 +977,10 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
           <div className="page-sub">AR · Cash contacts · Wholesale contacts · <span className="sync-dot"></span> Live</div>
         </div>
         <div className="page-actions">
-          <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={load}><Ic n="refresh" /> Refresh</button>
+          {/* Refresh means refresh: bypass the cache, not re-serve it. Also
+              note the arrow — passing `load` directly handed React's click
+              event in as the options object. */}
+          <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => { invalidateCustomerCache(); load({ force: true }) }}><Ic n="refresh" /> Refresh</button>
           {(tab === 'cash' || canCreateCustomers) ? (
             <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add {tab==='cash'?'Contact':'Wholesale Contact'}</button>
           ) : (
@@ -1034,7 +1167,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map((c, i) => (
+                  {visible.map((c, i) => (
                     <tr key={c.id ?? i} style={{ cursor:'pointer' }}
                       onClick={() => openLedger(c)}
                       onMouseEnter={e => (e.currentTarget.style.background='var(--surface2)')}
@@ -1117,6 +1250,13 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                       </td>
                     </tr>
                   ))}
+                  {hiddenCount > 0 && (
+                    <tr ref={sentinelRef}>
+                      <td colSpan={12} style={{ textAlign:'center', padding:'14px 0', fontSize:11, color:'var(--text3)' }}>
+                        Showing {visible.length} of {sorted.length} — scroll for more
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
