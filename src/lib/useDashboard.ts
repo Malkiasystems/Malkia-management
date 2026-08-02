@@ -72,7 +72,7 @@ export function useDashboard(canViewFinancials: boolean) {
 // ── Operational tier (always) ────────────────────────────────────────────────
 async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<OperationsData> {
   const todayIso = localIso(new Date())
-  const [salesRes, prodRes, empRes, leaveRes, retailRes, b2bRes, apprRes, recentRes] = await Promise.all([
+  const [salesRes, prodRes, empRes, leaveRes, retailCountRes, retailNewRes, b2bRes, apprRes, recentRes] = await Promise.all([
     supabase.from('vouchers').select('type, total_amount, posting_date, status')
       .in('type', ['cash_sale', 'sales_invoice']).eq('status', 'posted').gte('posting_date', b.monthStart),
     supabase.from('products').select('id, name, qty_on_hand, reorder_point, category, is_active').eq('is_active', true),
@@ -88,7 +88,12 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
     // 'on_leave' when entry_type is 'leave'. Read the real data rather than
     // adding a boolean column that nothing in the app would ever set.
     supabase.from('hrm_attendance').select('employee_id').eq('date', todayIso).eq('status', 'on_leave'),
-    supabase.from('customers').select('id, customer_type, created_at').eq('customer_type', 'cash'),
+    // COUNTS, not rows. The row version fetched every cash customer and hit
+    // PostgREST's 1,000-row cap, so the dashboard reported exactly 1,000
+    // retail customers (real figure: 1,490 and climbing) and understated the
+    // new-this-month number whenever the cap bit.
+    supabase.from('customers').select('id', { count: 'exact', head: true }).eq('customer_type', 'cash'),
+    supabase.from('customers').select('id', { count: 'exact', head: true }).eq('customer_type', 'cash').gte('created_at', b.monthStart),
     supabase.from('b2b_accounts').select('stage, next_action_date, won_at, is_archived'),
     supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.from('vouchers').select('ref, description, type, total_amount, status')
@@ -121,8 +126,8 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
   const onLeave = new Set(((leaveRes.data || []) as any[]).map(r => r.employee_id)).size
 
   // CRM retail
-  const retail = (retailRes.data || []) as any[]
-  const newRetailThisMonth = retail.filter(c => c.created_at && c.created_at >= b.monthStart).length
+  const retailCustomers = retailCountRes.count || 0
+  const newRetailThisMonth = retailNewRes.count || 0
 
   // CRM B2B
   const b2b = (b2bRes.data || []) as any[]
@@ -143,7 +148,7 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
     inventory: { products: prods.length, lowStock, outOfStock },
     hrm: { headcount, onLeave },
     crm: {
-      retailCustomers: retail.length,
+      retailCustomers,
       newRetailThisMonth,
       b2bProspects: live.length,
       b2bOverdue,
