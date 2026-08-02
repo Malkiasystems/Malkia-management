@@ -415,7 +415,9 @@ function AppContent() {
   // Nothing about component signatures changed — navigate() still takes
   // a Page string, it just also updates the hash now.
   const hashToPage = (): Page => {
-    const raw = window.location.hash.replace(/^#\/?/, '').trim()
+    // Split off any query string first: '#/attendance-checkin?c=123456'
+    // routes to attendance-checkin, and the page itself reads the query.
+    const raw = window.location.hash.replace(/^#\/?/, '').split('?')[0].trim()
     // Empty hash → dashboard. Any non-empty value is trusted as a Page
     // because canAccessPage() below will reject invalid/forbidden routes
     // and fall through to a ComingSoon/access-denied render.

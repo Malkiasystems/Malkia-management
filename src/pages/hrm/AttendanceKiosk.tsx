@@ -48,11 +48,23 @@ export default function AttendanceKiosk() {
       }}>
         {code}
       </div>
+      {code !== '······' && (
+        <img
+          alt="Scan to check in"
+          width={190} height={190}
+          style={{ borderRadius: 12, background: '#fff', padding: 10 }}
+          // Third-party QR render of a 45-second code plus a public page URL:
+          // nothing durable leaks. If the image fails (offline shop wifi),
+          // onError hides it and the digits above remain the whole story.
+          src={`https://api.qrserver.com/v1/create-qr-code/?size=190x190&data=${encodeURIComponent(`${window.location.origin}${window.location.pathname}#/attendance-checkin?c=${code}`)}`}
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+        />
+      )}
       <div style={{ width: 'min(420px, 80vw)', height: 6, background: 'var(--surface2)', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${(left / 45) * 100}%`, background: left < 10 ? 'var(--red)' : 'var(--accent)', transition: 'width 1s linear' }} />
       </div>
       <div style={{ fontSize: 14, color: 'var(--text3)' }}>
-        Open MalkiaOS on <strong>your own phone</strong> → Check In → enter this code.
+        Scan the QR with <strong>your own phone</strong>, or open MalkiaOS → Check In and type the code.
         New code every 45 seconds.
       </div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text3)' }}>

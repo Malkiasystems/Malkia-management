@@ -29,7 +29,13 @@ interface Emp { id: string; full_name: string }
 export default function AttendanceCheckIn() {
   const [emps, setEmps] = useState<Emp[]>([])
   const [empId, setEmpId] = useState(() => { try { return localStorage.getItem('malkia.attendance.emp') || '' } catch { return '' } })
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(() => {
+    // Deep link from the kiosk QR: #/attendance-checkin?c=123456. The code
+    // is only ever 45 seconds old, so prefilling it is the same trust as
+    // the user typing what the screen shows.
+    const m = window.location.hash.match(/[?&]c=(\d{6})/)
+    return m ? m[1] : ''
+  })
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; msg: string; late?: boolean } | null>(null)
 
