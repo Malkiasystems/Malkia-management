@@ -27,6 +27,11 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
 import { useAuth } from '../../lib/useAuth'
+import {
+  loadNegativeCashPolicy, computeCashShortfall, evaluateCashPolicy,
+  cashShortfallMessage, cashOverridePrompt, NEGATIVE_CASH_PERMISSION,
+  type NegativeCashPolicy,
+} from '../../lib/cashPolicy'
 import { computeLoan, type InterestMethod } from '../../lib/loanMath'
 import type { Page } from '../../lib/types'
 
@@ -38,7 +43,7 @@ interface LoanRow {
   total_repayable: number | null; periods: number; periods_per_year: number
   liability_account_id: string | null; status: string
 }
-interface Acct { id: string; code: string; name: string }
+interface Acct { id: string; code: string; name: string; balance?: number | null }
 
 // MalkiaOS: Interest Expense already exists at 7030. Tarakimu seeds it at
 // 6200, but 6200 here is Branding & Marketing, and interest booked as
@@ -46,7 +51,7 @@ interface Acct { id: string; code: string; name: string }
 const INTEREST_CODE = '7030'
 
 export default function LoanRepayment({ onNav }: Props) {
-  const { user } = useAuth()
+  const { user, can, isSuperAdmin } = useAuth()
   const postedByName = user?.full_name || 'System'
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -59,6 +64,8 @@ export default function LoanRepayment({ onNav }: Props) {
 
   const [loanId, setLoanId] = useState('')
   const [bankId, setBankId] = useState('')
+  const [cashPolicy, setCashPolicy] = useState<NegativeCashPolicy>('allow')
+  useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
   const [date, setDate] = useState(today())
   const [payment, setPayment] = useState('')
   const [principalPart, setPrincipalPart] = useState('')
@@ -79,7 +86,7 @@ export default function LoanRepayment({ onNav }: Props) {
         .select('id, ref, lender, principal, interest_method, annual_rate_pct, total_repayable, periods, periods_per_year, liability_account_id, status')
         .eq('status', 'active').order('lender'),
       supabase.from('accounts')
-        .select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
+        .select('id, code, name, balance').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
       supabase.from('loan_repayments').select('loan_id').eq('status', 'paid'),
     ])
     setLoans((ls as LoanRow[]) || [])
@@ -132,6 +139,16 @@ export default function LoanRepayment({ onNav }: Props) {
       showToast('This loan has no liability account set. Fix it on the Loans page first.', 'error'); return
     }
 
+    // Overdraw gate: repaying a loan from an account that does not hold the
+    // money just converts a loan liability into a bank overdraft.
+    {
+      const payFrom = banks.find(a => a.id === bankId)
+      const shortfall = computeCashShortfall(payFrom, pay)
+      const canOverride = can(NEGATIVE_CASH_PERMISSION) || isSuperAdmin()
+      const verdict = evaluateCashPolicy(shortfall, cashPolicy, canOverride, false)
+      if (verdict === 'blocked' && shortfall) { showToast(cashShortfallMessage(shortfall, cashPolicy, canOverride), 'error'); return }
+      if (verdict === 'needs_override' && shortfall) { if (!window.confirm(cashOverridePrompt(shortfall))) return }
+    }
     setPosting(true)
     try {
       const { data: intAcct } = await supabase.from('accounts')
