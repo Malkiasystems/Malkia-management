@@ -352,3 +352,73 @@ select.form-input { cursor: pointer; appearance: none; }
   .mobile-drawer-item-active { background: var(--surface2); color: var(--accent); }
   .mobile-drawer-item-active .mobile-drawer-item-ic { color: var(--accent); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DASHBOARD PRESENTATION
+   Ported from the Tarakimu build. Presentation only: no data path, no tenant
+   logic. The onboarding-checklist rules (.orbit, .route-wipe, .setup-collapse,
+   .task-main, .confetti-bit, .ring-*) are deliberately left out, since that
+   feature does not exist here.
+
+   --kpi-tone is set per card by DashboardFinancial / DashboardOperations, and
+   defaults to the active theme accent, so these follow midnight / malkia /
+   accountant / obsidian rather than hardcoding a colour.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.kpi { position: relative; --kpi-tone: var(--accent); }
+.kpi::before {
+  content: ''; position: absolute; top: 0; left: 14px; right: 14px; height: 2px;
+  border-radius: 2px; opacity: .75;
+  background: linear-gradient(90deg, transparent, var(--kpi-tone), transparent);
+}
+.skel { background: var(--surface2); border-radius: 8px; position: relative; overflow: hidden; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Entrance: fade up 8px, 60ms stagger driven by a --d index on each card */
+  .dash-anim {
+    opacity: 0; transform: translateY(8px);
+    animation: dashRise .5s cubic-bezier(.22, .9, .3, 1) forwards;
+    animation-delay: calc(var(--d, 0) * 60ms);
+  }
+  @keyframes dashRise { to { opacity: 1; transform: translateY(0); } }
+
+  .kpi { transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+  .kpi:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px -16px rgba(0, 0, 0, .9),
+                0 0 0 1px color-mix(in srgb, var(--kpi-tone) 30%, transparent);
+  }
+  .duo-icon { transition: filter .15s ease; }
+  .kpi:hover .duo-icon { filter: brightness(1.28) saturate(1.1); }
+
+  /* Greeting sweep and the live radar dot */
+  .grad-name {
+    background: linear-gradient(100deg, var(--text) 38%, var(--accent) 50%, var(--text) 62%);
+    background-size: 240% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: gradSweep 1.5s ease .25s 1 both;
+  }
+  @keyframes gradSweep { from { background-position: 130% 0; } to { background-position: -30% 0; } }
+  .live-dot { position: relative; }
+  .live-dot::after {
+    content: ''; position: absolute; inset: -3px; border-radius: 50%;
+    border: 1px solid var(--green); animation: radarPing 2.4s ease-out infinite;
+  }
+  @keyframes radarPing {
+    0% { transform: scale(.55); opacity: .9; }
+    75% { transform: scale(2.3); opacity: 0; }
+    100% { opacity: 0; }
+  }
+  .btn-spin-icon svg { transition: transform .3s ease; }
+  .btn-spin-icon:hover svg { transform: rotate(180deg); }
+  .btn-nudge-icon svg { transition: transform .18s ease; }
+  .btn-nudge-icon:hover svg { transform: translateX(2px) scale(1.05); }
+
+  .skel::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 32%, rgba(255, 255, 255, .05) 50%, transparent 68%);
+    background-size: 220% 100%;
+    animation: skelShimmer 1.4s linear infinite;
+  }
+  @keyframes skelShimmer { from { background-position: 190% 0; } to { background-position: -90% 0; } }
+}

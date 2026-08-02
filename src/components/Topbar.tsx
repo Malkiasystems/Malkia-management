@@ -26,6 +26,36 @@ interface SearchResult {
   title: string
   subtitle: string
   page?: Page
+  icon?: string
+}
+
+// ── Recent jumps ────────────────────────────────────────────────────────────
+// The last few things opened THROUGH search, per browser. Shown when the box
+// is focused before typing, so the second visit to anything is one keystroke.
+const RECENT_KEY = 'malkia.search.recent'
+const loadRecents = (): SearchResult[] => {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]') } catch { return [] }
+}
+const pushRecent = (r: SearchResult) => {
+  try {
+    const list = [r, ...loadRecents().filter(x => !(x.type === r.type && x.id === r.id))].slice(0, 6)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list))
+  } catch { /* private mode */ }
+}
+
+// Section metadata: order, heading, and tint per result type.
+const SECTION: Record<SearchResult['type'], { order: number; label: string; tint: string }> = {
+  page:     { order: 0, label: 'Pages',     tint: 'var(--accent)' },
+  voucher:  { order: 1, label: 'Vouchers',  tint: 'var(--blue)' },
+  product:  { order: 2, label: 'Products',  tint: 'var(--green)' },
+  customer: { order: 3, label: 'Customers', tint: 'var(--yellow)' },
+}
+
+// Title with the matched fragment struck in the accent colour.
+function Highlight({ text, q }: { text: string; q: string }) {
+  const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1
+  if (i < 0) return <>{text}</>
+  return <>{text.slice(0, i)}<span style={{ color: 'var(--accent)' }}>{text.slice(i, i + q.length)}</span>{text.slice(i + q.length)}</>
 }
 
 export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) {
@@ -187,6 +217,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
         }
       }
 
+      allResults.sort((a, b) => SECTION[a.type].order - SECTION[b.type].order)
       setResults(allResults)
       setShowResults(true)
       setSelectedIndex(0)
@@ -197,7 +228,15 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
     return () => clearTimeout(debounce)
   }, [query])
 
+  // Empty box + focus = recent jumps, so returning to anything is instant.
+  const showRecents = () => {
+    if (query.trim()) return
+    const rec = loadRecents()
+    if (rec.length) { setResults(rec); setShowResults(true); setSelectedIndex(0) }
+  }
+
   const handleSelect = (result: SearchResult) => {
+    pushRecent(result)
     setQuery('')
     setShowResults(false)
     
@@ -241,8 +280,8 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
     product: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z',
     customer: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
   }
-  const getTypeIcon = (type: string) => {
-    const d = typeIconPath[type] || 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35'
+  const getTypeIcon = (r: { type: string; icon?: string }) => {
+    const d = r.icon || typeIconPath[r.type] || 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35'
     return <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={d}/></svg>
   }
 
@@ -288,7 +327,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
               style={styles.searchInput}
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onFocus={() => query && setShowResults(true)}
+              onFocus={() => { if (query) setShowResults(true); else showRecents() }}
               onKeyDown={handleKeyDown}
             />
             {loading && <span style={{ fontSize: 10, color: 'var(--text3)' }}>...</span>}
@@ -297,24 +336,48 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
           {/* Search Results Dropdown */}
           {showResults && results.length > 0 && (
             <div style={styles.dropdown}>
-              {results.map((r, i) => (
-                <div 
-                  key={`${r.type}-${r.id}`}
-                  style={{
-                    ...styles.resultItem,
-                    background: i === selectedIndex ? 'var(--surface2)' : 'transparent',
-                  }}
-                  onClick={() => handleSelect(r)}
-                  onMouseEnter={() => setSelectedIndex(i)}
-                >
-                  <span style={styles.resultIcon}>{getTypeIcon(r.type)}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={styles.resultTitle}>{r.title}</div>
-                    <div style={styles.resultSub}>{r.subtitle}</div>
-                  </div>
-                  <span style={styles.resultType}>{r.type}</span>
+              {!query.trim() && (
+                <div style={styles.sectionHead}>
+                  <span style={{ color: 'var(--text3)' }}>Recent</span>
                 </div>
-              ))}
+              )}
+              {results.map((r, i) => {
+                const sec = SECTION[r.type]
+                const firstOfSection = query.trim() !== '' && (i === 0 || results[i - 1].type !== r.type)
+                return (
+                  <div key={`${r.type}-${r.id}`}>
+                    {firstOfSection && (
+                      <div style={styles.sectionHead}>
+                        <span style={{ color: sec.tint }}>{sec.label}</span>
+                        <span style={styles.sectionRule} />
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        ...styles.resultItem,
+                        background: i === selectedIndex ? 'var(--surface2)' : 'transparent',
+                        borderLeft: `2px solid ${i === selectedIndex ? sec.tint : 'transparent'}`,
+                      }}
+                      onClick={() => handleSelect(r)}
+                      onMouseEnter={() => setSelectedIndex(i)}
+                    >
+                      <span style={{ ...styles.resultIcon, color: sec.tint }}>{getTypeIcon(r)}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={styles.resultTitle}><Highlight text={r.title} q={query.trim()} /></div>
+                        <div style={styles.resultSub}>{r.subtitle}</div>
+                      </div>
+                      {i === selectedIndex && (
+                        <svg width="12" height="12" fill="none" stroke="var(--text3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              <div style={styles.hintBar}>
+                <span><b style={styles.kbd}>↑↓</b> navigate</span>
+                <span><b style={styles.kbd}>Enter</b> open</span>
+                <span><b style={styles.kbd}>Esc</b> close</span>
+              </div>
             </div>
           )}
 
@@ -501,6 +564,27 @@ const styles: Record<string, React.CSSProperties> = {
   },
   resultIcon: {
     fontSize: 16,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 24, height: 24, flexShrink: 0,
+    background: 'var(--surface2)', borderRadius: 6,
+  },
+  sectionHead: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: '8px 12px 4px',
+    fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700,
+    textTransform: 'uppercase' as const, letterSpacing: 1.5,
+  },
+  sectionRule: { flex: 1, height: 1, background: 'var(--border)' },
+  hintBar: {
+    display: 'flex', gap: 14, justifyContent: 'flex-end',
+    padding: '7px 12px', borderTop: '1px solid var(--border)',
+    fontSize: 10, color: 'var(--text3)', position: 'sticky' as const, bottom: 0,
+    background: 'var(--surface)',
+  },
+  kbd: {
+    fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 9,
+    background: 'var(--surface2)', border: '1px solid var(--border)',
+    borderRadius: 4, padding: '1px 5px', marginRight: 3,
   },
   resultTitle: {
     fontSize: 13,
@@ -516,15 +600,6 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-  },
-  resultType: {
-    fontSize: 9,
-    color: 'var(--text3)',
-    textTransform: 'uppercase',
-    fontFamily: 'DM Mono, monospace',
-    padding: '2px 6px',
-    background: 'var(--surface2)',
-    borderRadius: 4,
   },
   right: {
     display: 'flex',
