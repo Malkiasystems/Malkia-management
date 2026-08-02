@@ -13,6 +13,8 @@ const SECTIONS = [
       { icon: 'petty', name: 'Petty Cash', desc: 'Small cash office expenses', color: 'rgba(255,211,42,.12)', page: 'petty-cash' as Page },
       { icon: 'contra', name: 'Contra Entry', desc: 'Cash deposit to bank or withdrawal', color: 'rgba(168,85,247,.12)', page: 'contra' as Page },
       { icon: 'cash-in', name: 'Bank Opening Balances', desc: 'What each bank and till held at cutover — once per account', color: 'rgba(0,229,160,.12)', page: 'bank-opening-balance' as Page },
+      { icon: 'cash-in', name: 'New Loan', desc: 'Record borrowed money — bank, SACCOS, or informal', color: 'rgba(61,139,255,.12)', page: 'new-loan' as Page },
+      { icon: 'cash-in', name: 'Opening Loans', desc: 'Loans that existed before the books — once', color: 'rgba(61,139,255,.12)', page: 'opening-loans' as Page },
     ]
   },
   {
