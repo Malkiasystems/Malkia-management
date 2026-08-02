@@ -603,7 +603,7 @@ function AppContent() {
       case 'location-settings': return <LocationSettings />
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
       case 'pricelist-template': return <PricingPage onNav={navigate} />
-      case 'banks':             return <Banks />
+      case 'banks':             return <Banks onNav={navigate} />
       case 'cash-center':       return <CashCenter />
       case 'cash-flow':         return <CashFlow />
       case 'ledger-health':     return <LedgerHealth />

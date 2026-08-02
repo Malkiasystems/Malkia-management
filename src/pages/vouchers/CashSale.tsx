@@ -305,7 +305,9 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                        pm.toLowerCase().includes('mixx') ? 'mixx' :
                        pm.toLowerCase().includes('nmb') ? 'nmb' :
                        pm.toLowerCase().includes('crdb') ? 'crdb' :
-                       pm.toLowerCase().includes('pos') ? 'pos' : 'cash'
+                       // POS drafts predate the tile's removal; the card
+                       // machine settles into CRDB, so they resume there.
+                       pm.toLowerCase().includes('pos') ? 'crdb' : 'cash'
       setSelectedMethod(methodId)
       
       // Set POD status
@@ -1372,7 +1374,6 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   {isPOD && <div style={{ color: 'var(--yellow)' }}>Receipt posted manually after delivery</div>}
                   <div style={{ color: 'var(--text3)' }}>Inventory deducted · COGS → 5010 · Revenue → 4010</div>
                   <div style={{ color: 'var(--yellow)' }}>{crownPoints} Crown pts will be awarded</div>
-                  {!isPOD && currentMethod.id === 'pos' && <div style={{ color: 'var(--blue)' }}>POS → tagged separately in GL reports from CRDB transfers</div>}
                   {deliveryTotal > 0 && <div style={{ color: 'var(--blue)' }}>{tzs(deliveryTotal)} → Delivery & Shipping Float (2085)</div>}
                 </div>
 
