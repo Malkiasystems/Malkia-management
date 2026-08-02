@@ -14,6 +14,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../lib/useAuth'
 
 const DEVICE_KEY = 'malkia.attendance.device'
 function deviceId(): string {
@@ -27,8 +28,15 @@ function deviceId(): string {
 interface Emp { id: string; full_name: string }
 
 export default function AttendanceCheckIn() {
+  const { user } = useAuth()
+  // Identity comes from the LOGIN. The picker only exists for a login not yet
+  // linked to an employee record: choosing a name once welds it permanently
+  // (server-enforced, unique both ways). After that, no picker — the page
+  // greets you, and the server ignores any employee id a client sends.
+  const [linkedName, setLinkedName] = useState<string | null>(null)
   const [emps, setEmps] = useState<Emp[]>([])
-  const [empId, setEmpId] = useState(() => { try { return localStorage.getItem('malkia.attendance.emp') || '' } catch { return '' } })
+  const [empId, setEmpId] = useState('')
+  const [checking, setChecking] = useState(true)
   const [code, setCode] = useState(() => {
     // Deep link from the kiosk QR: #/attendance-checkin?c=123456. The code
     // is only ever 45 seconds old, so prefilling it is the same trust as
@@ -40,15 +48,30 @@ export default function AttendanceCheckIn() {
   const [result, setResult] = useState<{ ok: boolean; msg: string; late?: boolean } | null>(null)
 
   useEffect(() => {
-    supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name')
-      .then(({ data }) => data && setEmps(data as Emp[]))
-  }, [])
+    if (!user?.id) return
+    let alive = true
+    ;(async () => {
+      const { data: me } = await supabase.from('hrm_employees')
+        .select('full_name').eq('user_id', user.id).eq('is_active', true).maybeSingle()
+      if (!alive) return
+      if (me) { setLinkedName(me.full_name) }
+      else {
+        // only UNCLAIMED employees are offered — a name already linked to a
+        // login cannot be picked by anyone else
+        const { data } = await supabase.from('hrm_employees')
+          .select('id, full_name').eq('is_active', true).is('user_id', null).order('full_name')
+        if (alive && data) setEmps(data as Emp[])
+      }
+      setChecking(false)
+    })()
+    return () => { alive = false }
+  }, [user?.id])
 
   const punch = async () => {
-    if (!empId) { setResult({ ok: false, msg: 'Choose your name' }); return }
+    if (!user?.id) { setResult({ ok: false, msg: 'Sign in first' }); return }
+    if (!linkedName && !empId) { setResult({ ok: false, msg: 'First time: choose your name to link it to your login' }); return }
     if (code.trim().length !== 6) { setResult({ ok: false, msg: 'Enter the 6-digit code from the shop screen' }); return }
     setBusy(true); setResult(null)
-    try { localStorage.setItem('malkia.attendance.emp', empId) } catch { /* private mode */ }
 
     // GPS is best-effort with a short timeout: a punch must not hang on a
     // phone with location off. The server flags no_gps rather than refusing.
@@ -65,12 +88,14 @@ export default function AttendanceCheckIn() {
     }
 
     const { data, error } = await supabase.rpc('attendance_punch', {
-      p_employee_id: empId, p_device_id: deviceId(), p_code: code.trim(),
+      p_user_id: user.id, p_device_id: deviceId(), p_code: code.trim(),
+      p_claim_employee_id: linkedName ? null : (empId || null),
       p_lat: pos.lat, p_lng: pos.lng,
     })
     setBusy(false); setCode('')
     if (error) { setResult({ ok: false, msg: error.message }); return }
     if (!data?.ok) { setResult({ ok: false, msg: data?.error || 'Punch refused' }); return }
+    if (!linkedName && data?.name) setLinkedName(String(data.name))
     setResult({
       ok: true, late: !!data.late,
       msg: data.type === 'in'
@@ -84,13 +109,25 @@ export default function AttendanceCheckIn() {
       <div className="page-header"><h1 className="page-title">Check In / Out</h1></div>
 
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div>
-          <label style={{ fontSize: 11, letterSpacing: 1, color: 'var(--text3)', textTransform: 'uppercase' }}>Your name</label>
-          <select className="form-input" value={empId} onChange={e => setEmpId(e.target.value)} style={{ marginTop: 6 }}>
-            <option value="">— Select —</option>
-            {emps.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-          </select>
-        </div>
+        {checking ? (
+          <div style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 13, padding: 8 }}>Checking your record…</div>
+        ) : linkedName ? (
+          <div style={{ textAlign: 'center', padding: '10px 0' }}>
+            <div style={{ fontSize: 11, letterSpacing: 1, color: 'var(--text3)', textTransform: 'uppercase' }}>Punching as</div>
+            <div style={{ fontSize: 19, fontWeight: 700, marginTop: 4 }}>{linkedName}</div>
+          </div>
+        ) : (
+          <div>
+            <label style={{ fontSize: 11, letterSpacing: 1, color: 'var(--text3)', textTransform: 'uppercase' }}>First time: choose your name</label>
+            <select className="form-input" value={empId} onChange={e => setEmpId(e.target.value)} style={{ marginTop: 6 }}>
+              <option value="">— Select —</option>
+              {emps.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+              This locks your name to your login permanently. Choose carefully — only a manager can undo it.
+            </div>
+          </div>
+        )}
         <div>
           <label style={{ fontSize: 11, letterSpacing: 1, color: 'var(--text3)', textTransform: 'uppercase' }}>Code from the shop screen</label>
           <input className="form-input" inputMode="numeric" pattern="[0-9]*" maxLength={6} placeholder="000000"
@@ -113,8 +150,8 @@ export default function AttendanceCheckIn() {
 
       <div style={{ marginTop: 14, fontSize: 11.5, color: 'var(--text3)', lineHeight: 1.6 }}>
         First punch of the day checks you in; the last one checks you out.
-        This phone becomes yours after the first punch — a different phone will
-        refuse your name until a manager re-assigns it.
+        Your name comes from your login, and this phone becomes yours after the
+        first punch — another phone or another login cannot punch for you.
       </div>
     </div>
   )
