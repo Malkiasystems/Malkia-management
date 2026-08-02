@@ -4,6 +4,7 @@ import { tzs, getPostedBy } from '../lib/utils'
 import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod, distributeAnnual, distributeQuarterly } from '../lib/useExpenseBudgets'
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import Toast from '../components/Toast'
+import { clampFrom } from '../lib/ledgerCutover'
 
 interface AccountBalance { id: string; code: string; name: string; type: string; category: string; balance: number }
 
@@ -23,7 +24,7 @@ export default function PnL() {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
-  const [customFrom, setCustomFrom] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
+  const [customFrom, setCustomFrom] = useState(() => clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]))
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().split('T')[0])
 
   // Period-filtered actuals (for monthly/custom views)

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { getCutoverDate, cutoverDateSync, clampFrom, cutoverNote } from '../lib/ledgerCutover'
 
 interface Account {
   id: string; code: string; name: string; type: string
@@ -79,7 +80,8 @@ export default function ChartOfAccounts() {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [loadingLedger, setLoadingLedger] = useState(false)
-  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
+  const [fromDate, setFromDate] = useState(clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]))
+  const [cutover, setCutover] = useState(cutoverDateSync())
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
   const [showExport, setShowExport] = useState(false)
   const printRef = useRef<HTMLDivElement>(null)
@@ -176,34 +178,29 @@ export default function ChartOfAccounts() {
 
   const fetchLedger = async (acct: Account, from: string, to: string) => {
     setLoadingLedger(true)
+    const cut = await getCutoverDate()
+    setCutover(cut)
+    const f = clampFrom(from, cut)
+
+    // Filtered server-side through the embedded journals relation. The previous
+    // version fetched every line for the account unbounded, so any account past
+    // 1,000 lines (1020 M-Pesa has 2,296, 1110 has 2,085, 5010 has 2,036) came
+    // back truncated to the oldest 1,000 and the recent entries vanished.
     const { data: lines } = await supabase
       .from('journal_lines')
-      .select('id, debit, credit, description, journal_id')
+      .select('id, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
       .eq('account_id', acct.id)
+      .gte('journals.posting_date', f)
+      .lte('journals.posting_date', to)
+      .eq('journals.status', 'posted')
       .order('created_at', { ascending: true })
 
     if (!lines || lines.length === 0) { setLedger([]); setLoadingLedger(false); return }
 
-    const journalIds = [...new Set(lines.map((l: any) => l.journal_id))]
-    const { data: journals } = await supabase
-      .from('journals')
-      .select('id, ref, posting_date, journal_type, source_ref, status')
-      .in('id', journalIds)
-      .gte('posting_date', from)
-      .lte('posting_date', to)
-      .eq('status', 'posted')
-      .order('posting_date', { ascending: true })
-
-    if (!journals) { setLedger([]); setLoadingLedger(false); return }
-
-    const jMap: Record<string, any> = {}
-    journals.forEach((j: any) => { jMap[j.id] = j })
-
     let running = 0
     const entries = lines
-      .filter((l: any) => jMap[l.journal_id])
       .map((l: any) => {
-        const j = jMap[l.journal_id]
+        const j = l.journals
         running += (l.debit || 0) - (l.credit || 0)
         return {
           id: l.id, posting_date: j.posting_date,
@@ -466,6 +463,9 @@ export default function ChartOfAccounts() {
             <div>
               <div className="card-title">{acct.code} — {acct.name}</div>
               <div className="card-sub">{fromDate} to {toDate}</div>
+              {fromDate <= cutover && (
+                <div className="card-sub" style={{ marginTop: 4, fontSize: 11, color: 'var(--text3)' }}>{cutoverNote(cutover)}</div>
+              )}
             </div>
           </div>
           {loadingLedger ? (

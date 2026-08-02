@@ -4,6 +4,7 @@ import { tzs, getPostedBy } from '../lib/utils'
 import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod } from '../lib/useExpenseBudgets'
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import { useRecurringExpenses } from '../lib/useRecurringExpenses'
+import { clampFrom } from '../lib/ledgerCutover'
 import type { RecurringExpense, UnpaidRecurring } from '../lib/useRecurringExpenses'
 import { setExpensePrefill } from '../lib/expensePrefill'
 import { consumeExpenseRegisterTab, subscribeExpenseRegisterTab } from '../lib/expenseRegisterTab'
@@ -48,7 +49,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
 }
 
-const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
+const monthStart = () => clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
 const todayStr = () => new Date().toISOString().split('T')[0]
 
 const TYPE_LABEL: Record<string, string> = {

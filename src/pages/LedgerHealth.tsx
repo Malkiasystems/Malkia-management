@@ -58,9 +58,10 @@ export default function LedgerHealth() {
             </div>
           ))}
           <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 14, lineHeight: 1.6 }}>
-            Known pre-cutover fails: the 145 unbalanced cash sales (1,232,788) show under trial balance and
-            unbalanced journals until corrected, and 6012 NSSF appears under hidden money if deactivated with
-            a balance. From 1 August, everything here should be green every day.
+            The books were reopened on 2 August 2026. These checks inspect journals posted on or after that
+            date only, so the 145 unbalanced cash sales (1,232,788), the 46 orphan headers and the 6012 NSSF
+            balance no longer appear here. Those rows are still on file and still browsable, they are simply
+            outside the current period. Everything here should be green every day.
           </div>
         </>
       )}

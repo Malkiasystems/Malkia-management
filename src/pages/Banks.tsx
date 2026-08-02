@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { getCutoverDate, cutoverDateSync, clampFrom, cutoverNote } from '../lib/ledgerCutover'
 
 interface BankAccount {
   id: string
@@ -64,8 +65,9 @@ export default function Banks() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [loadingLedger, setLoadingLedger] = useState(false)
-  const [fromDate, setFromDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
+  const [fromDate, setFromDate] = useState(clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]))
   const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0])
+  const [cutover, setCutover] = useState(cutoverDateSync())
   const [monthStats, setMonthStats] = useState<Record<string, { in: number; out: number }>>({})
   const [statementBalance, setStatementBalance] = useState('')
   const [showReconcile, setShowReconcile] = useState(false)
@@ -89,18 +91,23 @@ export default function Banks() {
 
   const loadMonthStats = async (accts: BankAccount[]) => {
     const stats: Record<string, { in: number; out: number }> = {}
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]
+    const cut = await getCutoverDate()
+    setCutover(cut)
+    const monthStart = clampFrom(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], cut)
     const todayStr = new Date().toISOString().split('T')[0]
 
-    // Fetch all month journal lines for bank accounts in one query
+    // Bounded in the query rather than in JS. The unbounded version hit the
+    // same 1,000-row ceiling as loadLedger and quietly understated the month.
     const ids = accts.map(a => a.id)
     const { data } = await supabase
       .from('journal_lines')
-      .select('account_id, debit, credit, journals(posting_date)')
+      .select('account_id, debit, credit, journals!inner(posting_date, status)')
       .in('account_id', ids)
+      .gte('journals.posting_date', monthStart)
+      .lte('journals.posting_date', todayStr)
+      .eq('journals.status', 'posted')
 
     if (data) {
-      // Filter by month in JS
       data.forEach((l: any) => {
         const pd = l.journals?.posting_date || ''
         if (pd >= monthStart && pd <= todayStr) {
@@ -114,39 +121,34 @@ export default function Banks() {
   }
 
   const loadLedger = async (acct: BankAccount, from?: string, to?: string) => {
-    const f = from || fromDate
+    const cut = await getCutoverDate()
+    setCutover(cut)
+    const f = clampFrom(from || fromDate, cut)
     const t = to || toDate
     setLoadingLedger(true)
-    // Step 1: get all journal lines for this account
+
+    // One query, filtered server-side through the embedded journals relation.
+    //
+    // This previously fetched EVERY line for the account with no bound, then
+    // filtered by date in a second pass. M-Pesa 1020 carries 2,296 lines, and
+    // PostgREST caps a request at 1,000 rows, so the oldest 1,000 came back and
+    // everything recent was silently dropped. Filtering in the query removes
+    // both problems at once: the range is bounded and the cutover is respected.
     const { data: lines } = await supabase
       .from('journal_lines')
-      .select('id, debit, credit, description, journal_id')
+      .select('id, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
       .eq('account_id', acct.id)
+      .gte('journals.posting_date', f)
+      .lte('journals.posting_date', t)
+      .eq('journals.status', 'posted')
       .order('created_at', { ascending: true })
 
     if (!lines || lines.length === 0) { setLedger([]); setLoadingLedger(false); return }
 
-    // Step 2: get journal headers to filter by date and get ref/type
-    const journalIds = [...new Set(lines.map((l: any) => l.journal_id))]
-    const { data: journals } = await supabase
-      .from('journals')
-      .select('id, ref, posting_date, journal_type, source_ref, status')
-      .in('id', journalIds)
-      .gte('posting_date', f)
-      .lte('posting_date', t)
-      .eq('status', 'posted')
-
-    if (!journals) { setLedger([]); setLoadingLedger(false); return }
-
-    const journalMap: Record<string, any> = {}
-    journals.forEach((j: any) => { journalMap[j.id] = j })
-
-    // Step 3: join and build ledger
     let running = 0
     const entries = lines
-      .filter((l: any) => journalMap[l.journal_id])
       .map((l: any) => {
-        const j = journalMap[l.journal_id]
+        const j = l.journals
         running += (l.debit || 0) - (l.credit || 0)
         return {
           id: l.id,
@@ -371,6 +373,9 @@ export default function Banks() {
                       <div>
                         <div className="card-title">{selected.name} — Statement</div>
                         <div className="card-sub">{fromDate} to {toDate} · {ledger.length} entries</div>
+                        {fromDate <= cutover && (
+                          <div className="card-sub" style={{ marginTop: 4, fontSize: 11, color: 'var(--text3)' }}>{cutoverNote(cutover)}</div>
+                        )}
                       </div>
                       <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Icon name="export" size={13} /> Export
