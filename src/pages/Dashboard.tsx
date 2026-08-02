@@ -23,6 +23,7 @@ import DashboardFinancial from './dashboard/DashboardFinancial'
 import DashboardOperations from './dashboard/DashboardOperations'
 import DashboardReel from './dashboard/DashboardReel'
 import { Ic } from './dashboard/dashboardUi'
+import ShortcutTiles from '../components/ShortcutTiles'
 
 interface Props { onNav: (p: Page) => void }
 
@@ -104,6 +105,11 @@ export default function Dashboard({ onNav }: Props) {
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => onNav('vouchers')}>+ New Voucher</button>
         </div>
+      </div>
+
+      {/* Shortcuts sit between the greeting and the dashboard proper. */}
+      <div className="dash-anim" style={{ '--d': 1 } as CSSProperties}>
+        <ShortcutTiles onNav={onNav} fin={data?.financial} canViewFinancials={canViewFinancials} />
       </div>
 
       {loading && <Skeleton />}

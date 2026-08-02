@@ -48,13 +48,88 @@ export const THEME_VARS: Record<string, Record<string, string>> = {
     '--accent': '#a855f7', '--accent2': '#9333ea', '--accent-dim': 'rgba(168,85,247,0.12)',
     '--text': '#fafafa', '--text2': '#a1a1aa', '--text3': '#71717a',
   },
+  // These four were offered in the Display Settings picker but were missing
+  // here, so applyTheme fell through to midnight and choosing them appeared to
+  // do nothing at all.
+  forest: {
+    '--bg': '#0c1210', '--surface': '#121a17', '--surface2': '#1a2520', '--surface3': '#223029',
+    '--border': 'rgba(16,185,129,0.12)', '--border2': 'rgba(16,185,129,0.22)',
+    '--accent': '#10b981', '--accent2': '#059669', '--accent-dim': 'rgba(16,185,129,0.12)',
+    '--text': '#e8f0ec', '--text2': '#9aaca2', '--text3': '#5a706a',
+  },
+  light: {
+    '--bg': '#f8fafc', '--surface': '#ffffff', '--surface2': '#f1f5f9', '--surface3': '#e2e8f0',
+    '--border': 'rgba(0,0,0,0.08)', '--border2': 'rgba(0,0,0,0.15)',
+    '--accent': '#0ea5e9', '--accent2': '#0284c7', '--accent-dim': 'rgba(14,165,233,0.12)',
+    '--text': '#0f172a', '--text2': '#475569', '--text3': '#94a3b8',
+  },
+  sepia: {
+    '--bg': '#f5f1e8', '--surface': '#fffbf5', '--surface2': '#ebe5d8', '--surface3': '#ddd6c8',
+    '--border': 'rgba(0,0,0,0.08)', '--border2': 'rgba(0,0,0,0.15)',
+    '--accent': '#b45309', '--accent2': '#92400e', '--accent-dim': 'rgba(180,83,9,0.12)',
+    '--text': '#292524', '--text2': '#57534e', '--text3': '#a8a29e',
+  },
+  nord: {
+    '--bg': '#2e3440', '--surface': '#3b4252', '--surface2': '#434c5e', '--surface3': '#4c566a',
+    '--border': 'rgba(216,222,233,0.1)', '--border2': 'rgba(216,222,233,0.2)',
+    '--accent': '#88c0d0', '--accent2': '#81a1c1', '--accent-dim': 'rgba(136,192,208,0.15)',
+    '--text': '#eceff4', '--text2': '#d8dee9', '--text3': '#7b88a1',
+  },
+  // Daylight: the light theme carrying the Malkia teal rather than a generic
+  // sky blue, so the brand survives the switch to white.
+  daylight: {
+    '--bg': '#f7faf9', '--surface': '#ffffff', '--surface2': '#eef4f3', '--surface3': '#dfe9e8',
+    '--border': 'rgba(15,42,40,0.10)', '--border2': 'rgba(15,42,40,0.18)',
+    '--accent': '#3f8a84', '--accent2': '#2f6f6a', '--accent-dim': 'rgba(63,138,132,0.14)',
+    '--text': '#12211f', '--text2': '#4a5c5a', '--text3': '#849694',
+  },
+}
+
+// ─── Day / night ────────────────────────────────────────────────────────────
+// 'auto' is not a palette, it is a rule: daylight while the sun is up, the
+// user's chosen dark theme after it sets. Local clock, not UTC, and no
+// geolocation: Dar es Salaam sits close enough to the equator that 06:00-18:00
+// holds all year to within about twenty minutes.
+export const AUTO_THEME_KEY = 'auto'
+const DAY_START_HOUR = 6
+const DAY_END_HOUR = 18
+export const AUTO_DAY_THEME = 'daylight'
+export const AUTO_NIGHT_THEME = 'malkia'
+
+export function isDaytime(d = new Date()): boolean {
+  const h = d.getHours()
+  return h >= DAY_START_HOUR && h < DAY_END_HOUR
+}
+
+/** Turn a stored preference into a palette key. Only 'auto' resolves. */
+export function resolveTheme(themeKey: string): string {
+  if (themeKey !== AUTO_THEME_KEY) return themeKey
+  return isDaytime() ? AUTO_DAY_THEME : AUTO_NIGHT_THEME
 }
 
 // ─── Apply functions (pure DOM mutations, callable from anywhere) ──────────
 
+let autoTimer: ReturnType<typeof setInterval> | null = null
+
 export function applyTheme(themeKey: string) {
-  const theme = THEME_VARS[themeKey] || THEME_VARS.midnight
+  const resolved = resolveTheme(themeKey)
+  const theme = THEME_VARS[resolved] || THEME_VARS.midnight
   Object.entries(theme).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
+
+  // A till screen stays open all day. Without this, a browser opened at 09:00
+  // would still be showing daylight at 21:00. Checked every ten minutes, which
+  // is cheap and lands the switch within ten minutes of the boundary.
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null }
+  if (themeKey === AUTO_THEME_KEY) {
+    let last = resolved
+    autoTimer = setInterval(() => {
+      const next = resolveTheme(AUTO_THEME_KEY)
+      if (next === last) return
+      last = next
+      const vars = THEME_VARS[next] || THEME_VARS.midnight
+      Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
+    }, 10 * 60 * 1000)
+  }
 }
 
 export function applyFontSize(size: number) {

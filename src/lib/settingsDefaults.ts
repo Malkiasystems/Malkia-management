@@ -218,7 +218,7 @@ export const DEFAULT_REGIONAL: RegionalSettings = {
 }
 
 export const DEFAULT_DISPLAY: DisplaySettings = {
-  theme: 'midnight',
+  theme: 'auto',
   font_size: 14,
   border_radius: 10,
   animations_enabled: true,

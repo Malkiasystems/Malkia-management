@@ -11,6 +11,31 @@ import { DEFAULT_DISPLAY } from '../lib/settingsDefaults'
 
 // Theme definitions
 const THEMES = {
+  auto: {
+    name: 'Auto (day / night)',
+    description: 'Daylight while the sun is up, Malkia dark after 6pm',
+    preview: ['#f7faf9', '#0f1419', '#3f8a84', '#85c2be'],
+    vars: {}
+  },
+  daylight: {
+    name: 'Daylight',
+    description: 'White background carrying the Malkia teal',
+    preview: ['#f7faf9', '#ffffff', '#3f8a84', '#2f6f6a'],
+    vars: {
+      '--bg': '#f7faf9',
+      '--surface': '#ffffff',
+      '--surface2': '#eef4f3',
+      '--surface3': '#dfe9e8',
+      '--border': 'rgba(15,42,40,0.10)',
+      '--border2': 'rgba(15,42,40,0.18)',
+      '--accent': '#3f8a84',
+      '--accent2': '#2f6f6a',
+      '--accent-dim': 'rgba(63,138,132,0.14)',
+      '--text': '#12211f',
+      '--text2': '#4a5c5a',
+      '--text3': '#849694',
+    }
+  },
   midnight: {
     name: 'Midnight',
     description: 'Default dark theme with warm accents',

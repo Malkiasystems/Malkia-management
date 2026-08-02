@@ -168,8 +168,14 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
 }
 
 export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
+  // Expanded is the default. Only an explicit collapse by this user, on this
+  // browser, keeps the narrow rail: a missing key means "never chose", which
+  // should land on the wider, more legible rail rather than the icon strip.
   const [expanded, setExpanded] = useState<boolean>(() => {
-    try { return localStorage.getItem(SIDEBAR_LS_KEY) === '1' } catch { return false }
+    try {
+      const v = localStorage.getItem(SIDEBAR_LS_KEY)
+      return v === null ? true : v === '1'
+    } catch { return true }
   })
   useEffect(() => {
     document.documentElement.style.setProperty('--sidebar', expanded ? SIDEBAR_W_EXPANDED : SIDEBAR_W_COLLAPSED)
