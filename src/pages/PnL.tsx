@@ -70,9 +70,12 @@ export default function PnL() {
     if (periodType === 'monthly') {
       const [y, m] = selectedMonth.split('-').map(Number)
       const p = getMonthPeriod(y, m - 1)
-      fromDate = p.start; toDate = p.end
+      // clampFrom: August 2026 legitimately starts on the 1st, but the books
+      // were reopened on the 2nd, so the cutover month's P&L must not count
+      // its own first day. Other months pass through untouched.
+      fromDate = clampFrom(p.start); toDate = p.end
     } else {
-      fromDate = customFrom; toDate = customTo
+      fromDate = clampFrom(customFrom); toDate = customTo
     }
 
     setPeriodLoading(true)

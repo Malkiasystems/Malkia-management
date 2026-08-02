@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { localIso } from './utils'
 import { supabase } from './supabase'
 
 export interface ExpenseBudget {
@@ -149,9 +150,13 @@ export function buildBudgetLines(
 export function getMonthPeriod(year: number, month: number): { start: string; end: string } {
   const start = new Date(year, month, 1)
   const end = new Date(year, month + 1, 0)
+  // localIso, NOT toISOString: toISOString converts to UTC first, and in
+  // UTC+3 local midnight on the 1st is 21:00 on the LAST DAY OF THE PREVIOUS
+  // MONTH. Every "monthly" P&L and budget window silently started one day
+  // early, so August's report was quietly wearing 31 July's sales.
   return {
-    start: start.toISOString().split('T')[0],
-    end: end.toISOString().split('T')[0]
+    start: localIso(start),
+    end: localIso(end),
   }
 }
 
