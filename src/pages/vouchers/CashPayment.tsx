@@ -7,6 +7,12 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import MoneyInput from '../../components/MoneyInput'
+import {
+  loadNegativeCashPolicy, computeCashShortfall, evaluateCashPolicy,
+  cashShortfallMessage, cashOverridePrompt, NEGATIVE_CASH_PERMISSION,
+  type NegativeCashPolicy,
+} from '../../lib/cashPolicy'
 import { deriveMethod, methodLabel, isRefRequired, refLabel, refPlaceholder } from '../../lib/paymentMethods'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
@@ -20,7 +26,7 @@ interface DBAccount { id: string; code: string; name: string; type: string; cate
 interface DBSupplier { id: string; name: string; balance_tzs: number }
 
 export default function CashPayment({ onNav }: Props) {
-  const { user, isSuperAdmin } = useAuth()
+  const { user, can, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -104,6 +110,11 @@ export default function CashPayment({ onNav }: Props) {
       if (sup) set('payTo', sup.name)
     }
   }
+
+  // Negative cash policy. Loaded once; the library declines to enforce if the
+  // column is missing, so this is inert until migration 038 has run.
+  const [cashPolicy, setCashPolicy] = useState<NegativeCashPolicy>('allow')
+  useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
 
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
   // Asset "pots" you can pay OUT of (e.g. a rent float / prepaid / deposit).
@@ -190,6 +201,24 @@ export default function CashPayment({ onNav }: Props) {
     if (check.requiresApproval && check.blockPosting && !canBypass) {
       await submitCashPaymentForApproval(amount, check.reason || 'Approval required')
       return
+    }
+
+    // ─── Overdraw gate ─────────────────────────────────────────────────
+    // A till cannot hold a negative balance. Checked here rather than in the
+    // ledger so the user is told before anything is written, and told which
+    // account and by how much.
+    {
+      const payingFrom = accounts.find(a => a.id === form.cashAccount)
+      const shortfall = computeCashShortfall(payingFrom, amount)
+      const canOverrideCash = can(NEGATIVE_CASH_PERMISSION) || isSuperAdmin()
+      const verdict = evaluateCashPolicy(shortfall, cashPolicy, canOverrideCash, false)
+      if (verdict === 'blocked' && shortfall) {
+        showToast(cashShortfallMessage(shortfall, cashPolicy, canOverrideCash), 'error')
+        return
+      }
+      if (verdict === 'needs_override' && shortfall) {
+        if (!window.confirm(cashOverridePrompt(shortfall))) return
+      }
     }
 
     setPosting(true)
@@ -323,7 +352,7 @@ export default function CashPayment({ onNav }: Props) {
             <input className="form-input" placeholder="e.g. Meditech Tanzania, John Msomi" value={form.payTo} onChange={e => set('payTo', e.target.value)} />
           </FG>
           <FG label="Amount (TZS)" req>
-            <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="0" value={form.amount} onChange={e => set('amount', e.target.value)} />
+            <MoneyInput className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="0" value={form.amount} onChange={n => set('amount', n ? String(n) : '')} />
           </FG>
           <FG label="Narration">
             <textarea className="form-input" rows={3} placeholder="What was this payment for?" value={form.narration} onChange={e => set('narration', e.target.value)} style={{ resize: 'none' }} />
