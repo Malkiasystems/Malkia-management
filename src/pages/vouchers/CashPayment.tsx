@@ -13,7 +13,7 @@ import {
   cashShortfallMessage, cashOverridePrompt, NEGATIVE_CASH_PERMISSION,
   type NegativeCashPolicy,
 } from '../../lib/cashPolicy'
-import { deriveMethod, methodLabel, isRefRequired, refLabel, refPlaceholder } from '../../lib/paymentMethods'
+import { deriveMethod, refLabel, refPlaceholder } from '../../lib/paymentMethods'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
 import CategorySelect from '../../components/CategorySelect'
@@ -130,8 +130,6 @@ export default function CashPayment({ onNav }: Props) {
   const payMethod = creditMode === 'asset' || !payAcct
     ? 'cash'
     : deriveMethod(payAcct.code, payAcct.name)
-  const refRequired = isRefRequired(payMethod)
-  const refMissing = refRequired && !form.chequeNo.trim() && !!form.cashAccount && amountNum > 0
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -180,11 +178,12 @@ export default function CashPayment({ onNav }: Props) {
     if (!form.cashAccount) { showToast('Please select cash/bank account', 'error'); return }
     if (!form.expAccount) { showToast('Please select expense/debit account', 'error'); return }
     if (requireVendor && !form.supplierId) { showToast('A vendor is required for cash payments. Select a supplier.', 'error'); return }
-    // Money going out needs a reference for every non-cash method, exactly as
-    // money coming in does. Mirrors CashReceipt.
-    if (refRequired && !form.chequeNo.trim()) {
-      showToast(`${refLabel(payMethod)} is required for ${methodLabel(payMethod)} payments`, 'error'); return
-    }
+    // Reference is OPTIONAL on money out, by decision: payments are often
+    // posted before the money physically moves (approval-first control), so
+    // demanding an ID here only taught people to invent one. The narration
+    // carries the description; the ref is captured when it exists and the
+    // register can list unreferenced payments for backfill. Money IN keeps
+    // its strict ref in CashReceipt: a customer who has paid has the ID.
     if (!user) { showToast('You must be signed in', 'error'); return }
 
     // Date lock enforcement
@@ -357,16 +356,10 @@ export default function CashPayment({ onNav }: Props) {
           <FG label="Narration">
             <textarea className="form-input" rows={3} placeholder="What was this payment for?" value={form.narration} onChange={e => set('narration', e.target.value)} style={{ resize: 'none' }} />
           </FG>
-          <FG label={refLabel(payMethod)} req={refRequired}>
+          <FG label={`${refLabel(payMethod)} (optional)`}>
             <input className="form-input"
-              style={refMissing ? { borderColor: 'var(--red)' } : undefined}
               placeholder={refPlaceholder(payMethod)}
               value={form.chequeNo} onChange={e => set('chequeNo', e.target.value)} />
-            {refMissing && (
-              <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>
-                Required for {methodLabel(payMethod)}. This is what Finance matches against the statement.
-              </div>
-            )}
           </FG>
         </div>
 
@@ -410,7 +403,6 @@ export default function CashPayment({ onNav }: Props) {
           <FG label="Branch" req>
             <select className="form-input" value={form.branch} onChange={e => set('branch', e.target.value)}>
               <option>DSM HQ</option>
-              <option>Arusha Branch</option>
             </select>
           </FG>
 
