@@ -648,7 +648,15 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
           const { data: bankAcct } = await supabase.from('accounts').select('id').eq('code', currentMethod.accountCode).single()
           bankAccountId = bankAcct?.id
         }
-        if (bankAccountId) {
+        // The auto receipt was built for a clearing-account flow where deposit
+        // bank and payment-method account DIFFER. In this chart of accounts
+        // they are the same account by construction, so the journal it posted
+        // was Dr X / Cr X on one account: net zero, two ghost rows on every
+        // statement, and doubled gross in/out on the Banks tiles. Posting it
+        // is only meaningful between two distinct accounts, so it is gated,
+        // not removed: configure a clearing account and it comes back to life.
+        const receiptCreditAcctId = accountMap[currentMethod.accountCode]
+        if (bankAccountId && receiptCreditAcctId && bankAccountId !== receiptCreditAcctId) {
           const { data: receiptJournal, error: rjErr } = await insertJournalWithRetry({
             ref: 'JV-' + receiptRef, posting_date: postingDate,
             description: `Auto Bank Receipt — ${currentMethod.label} — ${ref}`,
@@ -662,10 +670,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
             const receiptJLines: any[] = []
             const lineAmount = isSplit ? total - totalSplitPaid : total
             receiptJLines.push({ journal_id: receiptJournal.id, line_number: 1, account_id: bankAccountId, description: `${currentMethod.label}${paymentRef ? ' · ' + paymentRef : ''} — From ${ref}`, debit: lineAmount, credit: 0 })
-            const primaryAcctId = accountMap[currentMethod.accountCode]
-            if (primaryAcctId) {
-              receiptJLines.push({ journal_id: receiptJournal.id, line_number: 2, account_id: primaryAcctId, description: `Deposit received — ${ref}`, debit: 0, credit: lineAmount })
-            }
+            receiptJLines.push({ journal_id: receiptJournal.id, line_number: 2, account_id: receiptCreditAcctId, description: `Deposit received — ${ref}`, debit: 0, credit: lineAmount })
             const { error: rjlErr } = await supabase.from('journal_lines').insert(receiptJLines)
             if (!rjlErr) {
               await Promise.all(receiptJLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))

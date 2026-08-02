@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { accountBrand, defaultColorForNature, iconForNature, hexToTint } from '../components/accountBrand'
 import { tzs, localIso, today } from '../lib/utils'
+import { clampFrom } from '../lib/ledgerCutover'
 import { usePermission } from '../lib/useAuth'
 import type { Page } from '../lib/types'
 
@@ -110,7 +111,7 @@ export default function Banks({ onNav }: Props) {
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [loadingLedger, setLoadingLedger] = useState(false)
-  const [fromDate, setFromDate] = useState(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
+  const [fromDate, setFromDate] = useState(clampFrom(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))))
   const [toDate, setToDate] = useState(localIso(new Date()))
   const [monthStats, setMonthStats] = useState<Record<string, { in: number; out: number }>>({})
   const [statementBalance, setStatementBalance] = useState('')
@@ -340,7 +341,7 @@ export default function Banks({ onNav }: Props) {
 
   const loadMonthStats = async (accts: BankAccount[]) => {
     const stats: Record<string, { in: number; out: number }> = {}
-    const monthStart = localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+    const monthStart = clampFrom(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
     const todayStr = localIso(new Date())
 
     // Bounded in the query. The unbounded version hit the same 1,000-row cap
