@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import {
+  loadNegativeCashPolicy, computeCashShortfall, evaluateCashPolicy,
+  cashShortfallMessage, cashOverridePrompt, NEGATIVE_CASH_PERMISSION,
+  type NegativeCashPolicy,
+} from '../../lib/cashPolicy'
+import { useAuth } from '../../lib/useAuth'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -10,17 +16,21 @@ import type { Page } from '../../lib/types'
 interface Props { onNav: (p: Page) => void }
 
 export default function ContraEntry({ onNav }: Props) {
+  const { can, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
-  const [accounts, setAccounts] = useState<{id:string;code:string;name:string}[]>([])
+  const [accounts, setAccounts] = useState<{id:string;code:string;name:string;balance?:number|null}[]>([])
   const [form, setForm] = useState({ date: today(), ref: '', fromId: '', toId: '', amount: '', notes: '' })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  const [cashPolicy, setCashPolicy] = useState<NegativeCashPolicy>('allow')
+  useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
 
   useEffect(() => { loadAccounts(); loadNextRef() }, [])
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, balance').eq('category', 'Cash & Bank').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
   const loadNextRef = async () => {
@@ -34,6 +44,17 @@ export default function ContraEntry({ onNav }: Props) {
     if (!form.fromId || !form.toId) { showToast('Select both accounts', 'error'); return }
     if (form.fromId === form.toId) { showToast('Source and destination cannot be the same', 'error'); return }
     if (!form.amount || parseFloat(form.amount) <= 0) { showToast('Enter a valid amount', 'error'); return }
+    // Moving money out of an account it does not hold is still an overdraw,
+    // even when the destination is another of your own accounts.
+    {
+      const fromAcct = accounts.find(a => a.id === form.fromId)
+      const amountNum = parseFloat(form.amount) || 0
+      const shortfall = computeCashShortfall(fromAcct, amountNum)
+      const canOverride = can(NEGATIVE_CASH_PERMISSION) || isSuperAdmin()
+      const verdict = evaluateCashPolicy(shortfall, cashPolicy, canOverride, false)
+      if (verdict === 'blocked' && shortfall) { showToast(cashShortfallMessage(shortfall, cashPolicy, canOverride), 'error'); return }
+      if (verdict === 'needs_override' && shortfall) { if (!window.confirm(cashOverridePrompt(shortfall))) return }
+    }
     setPosting(true)
     const amount = parseFloat(form.amount)
     const fromAcct = accounts.find(a => a.id === form.fromId)

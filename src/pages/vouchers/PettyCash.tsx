@@ -6,6 +6,11 @@ import Toast from '../../components/Toast'
 import { today, tzs } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import {
+  loadNegativeCashPolicy, computeCashShortfall, evaluateCashPolicy,
+  cashShortfallMessage, cashOverridePrompt, NEGATIVE_CASH_PERMISSION,
+  type NegativeCashPolicy,
+} from '../../lib/cashPolicy'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
@@ -17,7 +22,7 @@ interface Props { onNav: (p: Page) => void }
 interface ExpLine { desc: string; amount: number; accountId: string }
 
 export default function PettyCash({ onNav }: Props) {
-  const { user, isSuperAdmin } = useAuth()
+  const { user, can, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -33,6 +38,9 @@ export default function PettyCash({ onNav }: Props) {
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => { loadData() }, [])
+
+  const [cashPolicy, setCashPolicy] = useState<NegativeCashPolicy>('allow')
+  useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
 
   const loadData = async () => {
     const [{ data: accts }, { data: petty }, newRef] = await Promise.all([
@@ -123,6 +131,17 @@ export default function PettyCash({ onNav }: Props) {
       return
     }
 
+
+    // ─── Overdraw gate ─────────────────────────────────────────────────
+    // 1040 is the account that once reached minus fifteen million because
+    // nothing ever said no. Now something says no, or asks for the override.
+    {
+      const shortfall = computeCashShortfall({ id: pettyCashId!, code: '1040', name: 'Petty Cash', balance: pettyCashBal }, total)
+      const canOverride = can(NEGATIVE_CASH_PERMISSION) || isSuperAdmin()
+      const verdict = evaluateCashPolicy(shortfall, cashPolicy, canOverride, false)
+      if (verdict === 'blocked' && shortfall) { showToast(cashShortfallMessage(shortfall, cashPolicy, canOverride), 'error'); return }
+      if (verdict === 'needs_override' && shortfall) { if (!window.confirm(cashOverridePrompt(shortfall))) return }
+    }
     setPosting(true)
     try {
       const { data: jRaw, error: jErr } = await insertJournalWithRetry({

@@ -7,6 +7,11 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import {
+  loadNegativeCashPolicy, computeCashShortfall, evaluateCashPolicy,
+  cashShortfallMessage, cashOverridePrompt, NEGATIVE_CASH_PERMISSION,
+  type NegativeCashPolicy,
+} from '../../lib/cashPolicy'
 import { checkApprovalRequired, submitForApproval } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
@@ -14,7 +19,7 @@ interface Props { onNav: (p: Page) => void }
 interface DBAccount { id: string; code: string; name: string }
 
 export default function BankTransfer({ onNav }: Props) {
-  const { user, isSuperAdmin } = useAuth()
+  const { user, can, isSuperAdmin } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -28,7 +33,7 @@ export default function BankTransfer({ onNav }: Props) {
   useEffect(() => { loadAccounts(); loadNextRef() }, [])
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name')
+    const { data } = await supabase.from('accounts').select('id, code, name, balance')
       .eq('type', 'asset').eq('category', 'Cash & Bank').eq('is_active', true).order('code')
     if (data) setAccounts(data)
   }
@@ -39,6 +44,9 @@ export default function BankTransfer({ onNav }: Props) {
   }
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
+
+  const [cashPolicy, setCashPolicy] = useState<NegativeCashPolicy>('allow')
+  useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
 
   const post = async () => {
     if (!form.fromAccount || !form.toAccount) { showToast('Please select both accounts', 'error'); return }
@@ -58,6 +66,15 @@ export default function BankTransfer({ onNav }: Props) {
       return
     }
 
+    // A transfer cannot send money an account does not hold.
+    {
+      const fromAcct = accounts.find(a => a.id === form.fromAccount)
+      const shortfall = computeCashShortfall(fromAcct, amount)
+      const canOverride = can(NEGATIVE_CASH_PERMISSION) || isSuperAdmin()
+      const verdict = evaluateCashPolicy(shortfall, cashPolicy, canOverride, false)
+      if (verdict === 'blocked' && shortfall) { showToast(cashShortfallMessage(shortfall, cashPolicy, canOverride), 'error'); return }
+      if (verdict === 'needs_override' && shortfall) { if (!window.confirm(cashOverridePrompt(shortfall))) return }
+    }
     setPosting(true)
 
     try {
