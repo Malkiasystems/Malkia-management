@@ -68,7 +68,13 @@ export default function OpeningLoans({ onNav }: Props) {
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [loading, setLoading] = useState(true)
+  // MANUAL lock. The one-shot auto lock assumed every opening loan arrives in
+  // a single sitting; real life posts them in rounds. The voucher now stays
+  // open, shows what is already recorded so nothing is entered twice blind,
+  // and the person who finishes presses Lock. Dedup lives in the visible
+  // subledger list, not in a guess.
   const [alreadyPosted, setAlreadyPosted] = useState(false)
+  const [recorded, setRecorded] = useState<{ lender: string; principal: number; is_long: boolean }[]>([])
   const [loans, setLoans] = useState<DraftLoan[]>([blankLoan()])
   const [date, setDate] = useState(today())
 
@@ -80,11 +86,30 @@ export default function OpeningLoans({ onNav }: Props) {
 
   const checkExisting = async () => {
     setLoading(true)
-    const { count } = await supabase.from('loans')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_opening', true)
-    if ((count || 0) > 0) setAlreadyPosted(true)
+    const [{ data: lockRow }, { data: existing }] = await Promise.all([
+      supabase.from('system_settings').select('value').eq('key', 'opening_loans_locked').maybeSingle(),
+      supabase.from('loans')
+        .select('lender, principal, liability_account_id, accounts:liability_account_id(code)')
+        .eq('is_opening', true).order('created_at'),
+    ])
+    try {
+      const v = typeof lockRow?.value === 'string' ? JSON.parse(lockRow.value) : lockRow?.value
+      setAlreadyPosted(!!v?.locked)
+    } catch { setAlreadyPosted(false) }
+    setRecorded((existing || []).map((l: any) => ({
+      lender: l.lender, principal: Number(l.principal), is_long: l.accounts?.code === '2500',
+    })))
     setLoading(false)
+  }
+
+  const lockVoucher = async () => {
+    if (!window.confirm('Lock Opening Loans? Nobody can post further opening loans until it is unlocked in system settings.')) return
+    const { error } = await supabase.from('system_settings')
+      .update({ value: JSON.stringify({ locked: true, locked_by: postedByName, locked_at: date }) })
+      .eq('key', 'opening_loans_locked')
+    if (error) { showToast(error.message, 'error'); return }
+    setAlreadyPosted(true)
+    showToast('Opening Loans locked')
   }
 
   const setLoan = (i: number, patch: Partial<DraftLoan>) =>
@@ -98,7 +123,7 @@ export default function OpeningLoans({ onNav }: Props) {
   const grandTotal = currentTotal + longTermTotal
 
   const post = async () => {
-    if (alreadyPosted) { showToast('Opening loans have already been recorded', 'error'); return }
+    if (alreadyPosted) { showToast('Opening Loans is locked. Unlock it in system settings to post more.', 'error'); return }
     if (!filled.length) { showToast('Add at least one loan with a lender and an amount', 'error'); return }
 
     for (const l of filled) {
@@ -146,7 +171,7 @@ export default function OpeningLoans({ onNav }: Props) {
       })
       if (jErr) {
         if (jErr.code === '23505' || /already has an opening balance/i.test(jErr.message)) {
-          setAlreadyPosted(true)
+          await checkExisting()
           throw new Error('A loan account already has an opening balance recorded. This can only be done once. To correct it, void the existing opening balance journal first.')
         }
         throw jErr
@@ -175,8 +200,9 @@ export default function OpeningLoans({ onNav }: Props) {
         throw new Error(`The journal posted, but the loan details failed to save: ${lErr.message}. Add them on the Loans page.`)
       }
 
-      showToast('Opening loans recorded', 'success')
-      setAlreadyPosted(true)
+      showToast('Opening loans recorded. Post the next round, or press Lock when the last one is in.', 'success')
+      setLoans([blankLoan()])
+      await checkExisting()
       setTimeout(() => onNav('loans'), 1600)
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
@@ -192,20 +218,46 @@ export default function OpeningLoans({ onNav }: Props) {
     <VoucherPage
       title="Opening Loans"
       icon=""
-      subtitle="Money the business already owed when it started using the app. One time only"
+      subtitle="Money the business already owed when it started using the app. Post in rounds, lock when done"
       color="rgba(var(--accent-rgb),.12)"
       onPost={post}
       postLabel={posting ? 'Posting…' : 'Record Opening Loans'}
       postPosition="bottom"
       postDisabled={alreadyPosted || loading}
-      postDisabledReason={alreadyPosted ? 'Opening loans have already been recorded' : 'Loading'}
+      postDisabledReason={alreadyPosted ? 'Opening Loans is locked' : 'Loading'}
       journalNote={`Dr ${EQUITY_CODE} Opening Balance Equity · Cr ${CURRENT_CODE} / ${LONGTERM_CODE} · Run once at go-live`}
     >
+      {recorded.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div>
+              <div className="card-title">Already recorded</div>
+              <div className="card-sub">Do not enter these again; each posting adds to the liability</div>
+            </div>
+            {!alreadyPosted && (
+              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)', border: '1px solid var(--red)' }} onClick={lockVoucher}>
+                Lock — all opening loans are in
+              </button>
+            )}
+          </div>
+          {recorded.map((r, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+              <span>{r.lender}{r.is_long ? ' · long-term' : ''}</span>
+              <span style={{ fontFamily: 'var(--mono)' }}>{tzs(r.principal)}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, fontWeight: 600, fontSize: 13 }}>
+            <span>Recorded so far</span>
+            <span style={{ fontFamily: 'var(--mono)' }}>{tzs(recorded.reduce((s, r) => s + r.principal, 0))}</span>
+          </div>
+        </div>
+      )}
+
       {alreadyPosted && (
         <div style={{ background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 'var(--r)', padding: 14, marginBottom: 16, fontSize: 12, color: 'var(--red)' }}>
-          Opening loans have already been recorded, so this voucher is locked. Posting again would
-          double the liability while the journal still balanced, which no report would flag. To
-          correct a mistake, void the existing opening balance journal first.
+          Opening Loans is locked. Posting more would grow the opening liability after the books
+          were declared complete. To add a genuinely forgotten loan, unlock it first: set
+          opening_loans_locked to false in system settings, post, then lock again.
         </div>
       )}
 
