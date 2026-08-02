@@ -22,6 +22,7 @@ import type { Page } from '../../lib/types'
 import { postCashSale, updateCashSale } from '../../lib/cashSalePost'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import DraftBanner from '../../components/DraftBanner'
+import { printHtmlDocument } from '../../lib/printDocument'
 
 interface Props {
   editVoucherId?: string | null
@@ -1399,16 +1400,13 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-primary" onClick={() => {
-                const win = window.open('', '_blank')
-                if (!win) return
                 const el = document.getElementById('malkia-receipt-modal')
                 if (!el) return
-                win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt ${lastVoucher.ref}</title>
+                const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt ${lastVoucher.ref}</title>
                   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
                   <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
                   </head><body>${el.innerHTML}</body></html>`)
-                win.document.close()
-                setTimeout(() => win.print(), 600)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
               }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Print / Save PDF

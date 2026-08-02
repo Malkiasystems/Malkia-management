@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface VATLine { posting_date: string; ref: string; type: string; description: string; gross: number; vat: number; net: number }
 
@@ -56,10 +57,9 @@ export default function VATReport() {
   }
 
   const exportPDF = () => {
-    const win = window.open('', '_blank'); if (!win) return
     const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     const rows = lines.map(l => `<tr><td>${l.posting_date}</td><td style="font-family:'DM Mono',monospace;color:#D48744">${l.ref}</td><td>${l.type.replace(/_/g,' ')}</td><td>${l.description}</td><td class="num">${l.gross.toLocaleString()}</td><td class="num" style="color:#c0392b">${l.vat.toLocaleString()}</td><td class="num">${l.net.toLocaleString()}</td></tr>`).join('')
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>VAT Report</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>VAT Report</title>
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap');
         *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Instrument Sans',sans-serif;color:#1a1a1a;padding:40px;font-size:11px}
@@ -92,7 +92,7 @@ export default function VATReport() {
       <div class="tra-note">⚠ This is an output VAT report only. Input VAT (purchases) should be deducted from this amount before filing with TRA. Net VAT payable = Output VAT − Input VAT.</div>
       <div class="footer"><span>Malkia Wellness Group Ltd · TIN: — · VRN: —</span><span>MalkiaOS v1.0 · For TRA submission preparation</span></div>
     </body></html>`)
-    win.document.close(); setTimeout(() => win.print(), 500)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   return (

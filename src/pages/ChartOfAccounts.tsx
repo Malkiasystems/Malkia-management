@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
 import { getCutoverDate, cutoverDateSync, clampFrom, cutoverNote } from '../lib/ledgerCutover'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface Account {
   id: string; code: string; name: string; type: string
@@ -225,8 +226,7 @@ export default function ChartOfAccounts() {
 
   // Export to PDF via print
   const exportPDF = () => {
-    const win = window.open('', '_blank')
-    if (!win || !selectedAccount) return
+    if (!selectedAccount) return
     const acct = selectedAccount
     const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -241,7 +241,7 @@ export default function ChartOfAccounts() {
         <td class="num ${e.running_balance >= 0 ? 'pos' : 'neg'}">${e.running_balance.toLocaleString()}</td>
       </tr>`).join('')
 
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8">
       <title>Account Ledger — ${acct.code} ${acct.name}</title>
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap');
@@ -316,8 +316,7 @@ export default function ChartOfAccounts() {
         <span>MalkiaOS v1.0 · Confidential · For internal use only</span>
       </div>
     </body></html>`)
-    win.document.close()
-    setTimeout(() => { win.print() }, 500)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   // Export to CSV (Excel-compatible)

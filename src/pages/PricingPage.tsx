@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { tzs } from '../lib/utils'
 import type { Page } from '../lib/types'
+import { printHtmlDocument } from '../lib/printDocument'
 
 // ── TYPES ───────────────────────────────────────────────────
 interface Product {
@@ -247,14 +248,11 @@ export default function PricingPage(_props: Props) {
   const downloadPricelist = () => {
     const el = document.getElementById('malkia-pricelist-doc')
     if (!el) return
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Malkia ${plTier} Price List</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Malkia ${plTier} Price List</title>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
       <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
     </head><body>${el.outerHTML}</body></html>`)
-    win.document.close()
-    setTimeout(() => win.print(), 600)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   // ── FILTER ──────────────────────────────────────────────

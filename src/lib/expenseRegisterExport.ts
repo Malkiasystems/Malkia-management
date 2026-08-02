@@ -6,6 +6,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import * as XLSX from 'xlsx'
+import { printHtmlDocument } from './printDocument'
 
 export interface ExpenseExportRow {
   date: string
@@ -62,8 +63,6 @@ export function exportExpenseExcel(rows: ExpenseExportRow[], meta: ExpenseExport
 
 // ─── PDF (branded print window) ──────────────────────────────────────────────
 export function exportExpensePDF(rows: ExpenseExportRow[], meta: ExpenseExportMeta) {
-  const win = window.open('', '_blank')
-  if (!win) return
 
   const bodyRows = rows.map(r => `
     <tr>
@@ -79,7 +78,7 @@ export function exportExpensePDF(rows: ExpenseExportRow[], meta: ExpenseExportMe
       <td>${esc(r.postedBy)}</td>
     </tr>`).join('')
 
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(meta.title)}</title>
+  const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(meta.title)}</title>
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;padding:24px}
@@ -112,8 +111,7 @@ export function exportExpensePDF(rows: ExpenseExportRow[], meta: ExpenseExportMe
       <div>Total Paid Out: <b>TZS ${money(meta.totalOut)}</b></div>
     </div>
   </body></html>`)
-  win.document.close()
-  setTimeout(() => win.print(), 500)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
 }
 
 function esc(s: unknown): string {

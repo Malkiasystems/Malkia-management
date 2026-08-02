@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface AREntry {
   customer_id: string; customer_name: string; whatsapp: string
@@ -89,13 +90,12 @@ export default function ARAgingReport() {
   }
 
   const exportPDF = () => {
-    const win = window.open('', '_blank'); if (!win) return
     const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     const custRows = Object.values(byCustomer).sort((a, b) => b.total - a.total).map(c => `
       <tr style="background:#f8f8f8;font-weight:600"><td colspan="5">${c.name} <span style="color:#888;font-size:10px;font-family:'DM Mono',monospace">${c.whatsapp}</span></td><td class="num" style="font-weight:700">${c.total.toLocaleString()}</td></tr>
       ${c.entries.map(e => `<tr><td style="font-family:'DM Mono',monospace;color:#D48744;font-size:10px">${e.document_ref}</td><td>${e.document_type}</td><td>${e.due_date}</td><td>${Math.max(0, e.days_overdue)} days</td><td style="color:${e.bucket==='Current'?'#1a7a4a':e.bucket.includes('90+')?'#c0392b':'#e67e22'}">${e.bucket}</td><td class="num">${e.remaining_amount.toLocaleString()}</td></tr>`).join('')}
     `).join('')
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>AR Aging</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>AR Aging</title>
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap');
         *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Instrument Sans',sans-serif;color:#1a1a1a;padding:40px;font-size:11px}
@@ -124,7 +124,7 @@ export default function ARAgingReport() {
       </table>
       <div class="footer"><span>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</span><span>MalkiaOS v1.0 · Confidential</span></div>
     </body></html>`)
-    win.document.close(); setTimeout(() => win.print(), 500)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   return (

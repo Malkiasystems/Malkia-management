@@ -15,6 +15,7 @@ import { useCategories } from '../../lib/useCategories'
 import { useUserLocation } from '../../lib/useUserLocation'
 import { useAuth } from '../../lib/useAuth'
 import { useSettings } from '../../lib/settingsLoader'
+import { printHtmlDocument } from '../../lib/printDocument'
 
 interface Props {
   onNav: (p: Page) => void
@@ -1664,12 +1665,10 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             <button className="btn btn-primary" onClick={() => {
               const el = document.getElementById('malkia-invoice')
               if (!el) return
-              const win = window.open('', '_blank')
-              if (!win) return
               // Read the active brand color so print CSS can flatten the
               // 3-color bottom gradient to this solid value.
               const brandColor = invoiceSettings?.primary_color || '#85c2be'
-              win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceFileBase()}</title>
+              const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceFileBase()}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
                 <style>
                   /* Core reset */
@@ -1710,8 +1709,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                   }
                 </style>
               </head><body>${el.outerHTML}</body></html>`)
-              win.document.close()
-              setTimeout(() => win.print(), 600)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
             }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               Print / PDF

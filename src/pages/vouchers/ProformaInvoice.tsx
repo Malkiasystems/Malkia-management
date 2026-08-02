@@ -13,6 +13,7 @@ import { useSettings } from '../../lib/settingsLoader'
 import type { Page } from '../../lib/types'
 import { MalkiaProforma, DEFAULT_PROFORMA } from '../ProformaTemplate'
 import type { ProformaSettings, ProformaVoucher } from '../ProformaTemplate'
+import { printHtmlDocument } from '../../lib/printDocument'
 
 // ─────────────────────────────────────────────────────────────────────────────
 interface Props {
@@ -482,9 +483,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
   const printProforma = () => {
     const el = document.getElementById('malkia-proforma')
     if (!el) return
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Proforma ${lastVoucher?.ref}</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Proforma ${lastVoucher?.ref}</title>
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600;700&display=block" rel="stylesheet">
@@ -507,7 +506,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
         ]).then(() => { window.focus(); window.print(); });
       </script>
       </body></html>`)
-    win.document.close()
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   const copyShareLink = () => {

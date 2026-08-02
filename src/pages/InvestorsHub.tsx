@@ -6,6 +6,7 @@ import { FG } from '../components/FormHelpers'
 import { tzs, today } from '../lib/utils'
 import { validatePostingDate } from '../lib/dateValidation'
 import { useAuth } from '../lib/useAuth'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface Shareholder {
   id: string; name: string; share_class: string
@@ -291,9 +292,7 @@ export default function InvestorsHub() {
       `<tr><td class="mono">${a.code}</td><td>${a.name}</td><td class="num" style="font-weight:700">${Math.round(a.balance || 0).toLocaleString()}</td></tr>`
     ).join('')
 
-    const win = window.open('', '_blank')
-    if (!win) { showToast('Pop-up blocked', 'error'); return }
-    win.document.write(`<!DOCTYPE html><html><head><title>Investor Report - ${t.company_name}</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><title>Investor Report - ${t.company_name}</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500&family=DM+Sans:wght@500;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box} body{font-family:'DM Sans',sans-serif;color:#222;background:#fff}
@@ -361,8 +360,7 @@ export default function InvestorsHub() {
         </div>
       </div>
     </div></body></html>`)
-    win.document.close()
-    setTimeout(() => win.print(), 600)
+    if (!printRes.ok && printRes.error) showToast(printRes.error, 'error')
   }
 
   // ── RENDER ─────────────────────────────────────────

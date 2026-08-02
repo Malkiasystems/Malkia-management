@@ -4,6 +4,7 @@ import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { tzs, formatDate } from '../lib/utils'
 import type { Page } from '../lib/types'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface SupplierRow {
   id: string; code: string; name: string; contact_person: string; is_supplier?: boolean; is_vendor?: boolean
@@ -200,9 +201,7 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
       </tr>
     `).join('')
 
-    const win = window.open('', '_blank')
-    if (!win) { showToast('Pop-up blocked', 'error'); return }
-    win.document.write(`<!DOCTYPE html><html><head><title>Vendor Statement - ${selected.name}</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><title>Vendor Statement - ${selected.name}</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@500&family=DM+Sans:wght@500;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box} body{font-family:'DM Sans',sans-serif;color:#222;background:#fff}
@@ -283,8 +282,7 @@ export default function Suppliers({ onNav }: { onNav?: (p: Page) => void }) {
       </div>
     </div>
     </body></html>`)
-    win.document.close()
-    setTimeout(() => win.print(), 600)
+    if (!printRes.ok && printRes.error) showToast(printRes.error, 'error')
   }
 
   // ── EXPORT STATEMENT CSV ──────────────────────────────

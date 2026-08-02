@@ -3,6 +3,17 @@
   --surface: #111318;
   --surface2: #181b22;
   --surface3: #1e2129;
+
+  /* Alias tokens.
+     18 files reference --card, --fg and --muted 98 times between them, but
+     nothing ever defined them, so those rules resolved to nothing: cards with
+     no background, text with no colour. All four themes in settingsLoader set
+     --surface2, --text and --text3 inline on the root element and none of them
+     set these three, so the breakage was in every theme, not just one.
+     Aliases resolve at use time, so they follow whichever theme is active. */
+  --card: var(--surface2);
+  --fg: var(--text);
+  --muted: var(--text3);
   --border: rgba(255,255,255,0.07);
   --border2: rgba(255,255,255,0.13);
   --accent: #d4874a;

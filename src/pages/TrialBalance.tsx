@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface TBAccount {
   code: string; name: string; type: string; category: string
@@ -96,8 +97,6 @@ export default function TrialBalance() {
   }, {} as Record<string, TBAccount[]>)
 
   const exportPDF = () => {
-    const win = window.open('', '_blank')
-    if (!win) return
     const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     const rows = Object.entries(grouped).map(([type, accts]) => `
       <tr class="section-row"><td colspan="4">${type}</td></tr>
@@ -108,7 +107,7 @@ export default function TrialBalance() {
         <td class="num neg">${a.credit > 0 ? a.credit.toLocaleString() : '—'}</td>
       </tr>`).join('')}
     `).join('')
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Trial Balance</title><style>${PDF_BASE_STYLES}</style></head><body>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Trial Balance</title><style>${PDF_BASE_STYLES}</style></head><body>
       ${MALKIA_PDF_HEADER('Trial Balance', `As at ${asAt}`, now)}
       <table>
         <thead><tr><th>Code</th><th>Account Name</th><th class="num">Debit (TZS)</th><th class="num">Credit (TZS)</th></tr></thead>
@@ -118,8 +117,7 @@ export default function TrialBalance() {
       <div class="balanced">${balanced ? '✓ BALANCED — Debits equal Credits' : `⚠ DIFFERENCE: ${Math.abs(totalDebit - totalCredit).toLocaleString()} TZS`}</div>
       <div class="footer"><span>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</span><span>MalkiaOS v1.0 · Confidential</span></div>
     </body></html>`)
-    win.document.close()
-    setTimeout(() => win.print(), 500)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   const exportCSV = () => {

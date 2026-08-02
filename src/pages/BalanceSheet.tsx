@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface BSAccount { code: string; name: string; balance: number; category: string; type: string }
 
@@ -154,7 +155,6 @@ export default function BalanceSheet() {
   }
 
   const exportPDF = () => {
-    const win = window.open('', '_blank'); if (!win) return
     const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     const renderSection = (accts: BSAccount[], _label: string) => {
       const g = grouped(accts)
@@ -163,7 +163,7 @@ export default function BalanceSheet() {
         ${catAccts.map(a => `<div class="account-row"><div><span class="account-code">${a.code}</span> ${a.name}</div><div class="account-bal">${present(a).toLocaleString()}</div></div>`).join('')}
       `).join('')
     }
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Balance Sheet</title><style>${PDF_STYLES}</style></head><body>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Balance Sheet</title><style>${PDF_STYLES}</style></head><body>
       <div class="header">
         <div class="logo-area"><div class="logo-mark"><div class="logo-inner"></div></div><div><div class="company-name">Malkia Wellness Group Ltd</div><div class="company-sub">Dar es Salaam, Tanzania · MalkiaOS Financial Reports</div></div></div>
         <div><div class="doc-title">Balance Sheet</div><div class="doc-meta">As at ${asAt}<br>Generated: ${now}</div></div>
@@ -192,7 +192,7 @@ export default function BalanceSheet() {
       <div class="balanced-badge">${balanced ? '✓ BALANCED — Assets = Liabilities + Equity' : `⚠ UNBALANCED — Difference: ${tzs(Math.abs(difference))}`}</div>
       <div class="footer"><span>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</span><span>MalkiaOS v1.0 · Confidential · Internal use only</span></div>
     </body></html>`)
-    win.document.close(); setTimeout(() => win.print(), 500)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   const exportCSV = () => {

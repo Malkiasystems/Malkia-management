@@ -24,6 +24,7 @@
  */
 
 import { supabase } from './supabase'
+import { printHtmlDocument } from './printDocument'
 
 export interface StockReportItem {
   sku: string
@@ -257,13 +258,7 @@ export async function exportStockReportPDF(
         <div class="stat"><div class="stat-label">Healthy Stock</div><div class="stat-val green">${items.length - zeroStock - lowStock}</div></div>
       `
 
-  const win = window.open('', '_blank')
-  if (!win) {
-    alert('Could not open the print window — please allow pop-ups for this site and try again.')
-    return
-  }
-
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(meta.title)}</title>
+  const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(meta.title)}</title>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
@@ -365,5 +360,5 @@ export async function exportStockReportPDF(
       }
     </script>
   </body></html>`)
-  win.document.close()
+    if (!printRes.ok && printRes.error) alert(printRes.error)
 }

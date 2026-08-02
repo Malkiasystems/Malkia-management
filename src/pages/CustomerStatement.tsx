@@ -16,6 +16,7 @@ import { loadWAConfig, sendWhatsApp } from '../lib/whatsapp'
 import type { WAConfig } from '../lib/whatsapp'
 import type { Page } from '../lib/types'
 import Toast from '../components/Toast'
+import { printHtmlDocument } from '../lib/printDocument'
 
 interface Props {
   customerId: string
@@ -333,9 +334,7 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
   const printStatement = () => {
     const el = document.getElementById('customer-statement')
     if (!el || !customer) return
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ${customer.company || customer.name}</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ${customer.company || customer.name}</title>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
       <style>
         *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
@@ -355,8 +354,7 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
         }
       </style>
     </head><body>${el.outerHTML}</body></html>`)
-    win.document.close()
-    setTimeout(() => win.print(), 600)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
   }
 
   const downloadPNG = () => {

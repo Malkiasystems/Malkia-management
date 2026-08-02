@@ -8,6 +8,8 @@
  *   exportDetailPDF — per-voucher detail PDF (one card per voucher with line items)
  */
 
+import { printHtmlDocument } from './printDocument'
+
 export interface SDBSale {
   id: string; ref: string; type?: string; posting_date: string; description: string
   total_amount: number; subtotal: number; payment_method: string
@@ -212,9 +214,7 @@ export function exportPDF(data: ExportData) {
     </tr>`
   }).join('')
 
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
+  const printRes1 = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
@@ -360,8 +360,7 @@ export function exportPDF(data: ExportData) {
       </div>
     </div>
   ${stampHtml(data.dayClosed)}</body></html>`)
-  win.document.close()
-  setTimeout(() => win.print(), 600)
+  if (!printRes1.ok && printRes1.error) alert(printRes1.error)
 }
 
 // ── DETAIL PDF EXPORT (per-voucher breakdown) ──────────────────────────
@@ -449,9 +448,7 @@ export function exportDetailPDF(data: ExportData) {
     `
   }).join('')
 
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
+  const printRes2 = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
@@ -528,6 +525,5 @@ export function exportDetailPDF(data: ExportData) {
       </div>
     </div>
   ${stampHtml(data.dayClosed)}</body></html>`)
-  win.document.close()
-  setTimeout(() => win.print(), 600)
+  if (!printRes2.ok && printRes2.error) alert(printRes2.error)
 }
