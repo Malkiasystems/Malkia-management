@@ -343,12 +343,16 @@ export default function Banks({ onNav }: Props) {
     const monthStart = localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
     const todayStr = localIso(new Date())
 
-    // Fetch all month journal lines for bank accounts in one query
+    // Bounded in the query. The unbounded version hit the same 1,000-row cap
+    // as loadLedger and quietly reported MONTH IN/OUT as zero.
     const ids = accts.map(a => a.id)
     const { data } = await supabase
       .from('journal_lines')
-      .select('account_id, debit, credit, journals(posting_date)')
+      .select('account_id, debit, credit, journals!inner(posting_date, status)')
       .in('account_id', ids)
+      .gte('journals.posting_date', monthStart)
+      .lte('journals.posting_date', todayStr)
+      .eq('journals.status', 'posted')
 
     if (data) {
       // Filter by month in JS
@@ -368,36 +372,29 @@ export default function Banks({ onNav }: Props) {
     const f = from || fromDate
     const t = to || toDate
     setLoadingLedger(true)
-    // Step 1: get all journal lines for this account
+    // One query, filtered server-side through the embedded journals relation.
+    //
+    // The two-step version this replaces fetched EVERY line for the account
+    // unbounded and oldest-first, and PostgREST caps a response at 1,000 rows.
+    // M-Pesa 1020 carries 2,300+ lines, so the cap returned only the OLDEST
+    // thousand, none from the requested range, and the statement rendered
+    // empty under a correct balance. Fixed once on the pre-port page, lost in
+    // the wholesale port, now fixed at the source.
     const { data: lines } = await supabase
       .from('journal_lines')
-      .select('id, debit, credit, description, journal_id')
+      .select('id, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
       .eq('account_id', acct.id)
+      .gte('journals.posting_date', f)
+      .lte('journals.posting_date', t)
+      .eq('journals.status', 'posted')
       .order('created_at', { ascending: true })
 
     if (!lines || lines.length === 0) { setLedger([]); setLoadingLedger(false); return }
 
-    // Step 2: get journal headers to filter by date and get ref/type
-    const journalIds = [...new Set(lines.map((l: any) => l.journal_id))]
-    const { data: journals } = await supabase
-      .from('journals')
-      .select('id, ref, posting_date, journal_type, source_ref, status')
-      .in('id', journalIds)
-      .gte('posting_date', f)
-      .lte('posting_date', t)
-      .eq('status', 'posted')
-
-    if (!journals) { setLedger([]); setLoadingLedger(false); return }
-
-    const journalMap: Record<string, any> = {}
-    journals.forEach((j: any) => { journalMap[j.id] = j })
-
-    // Step 3: join and build ledger
     let running = 0
     const entries = lines
-      .filter((l: any) => journalMap[l.journal_id])
       .map((l: any) => {
-        const j = journalMap[l.journal_id]
+        const j = l.journals
         running += (l.debit || 0) - (l.credit || 0)
         return {
           id: l.id,
