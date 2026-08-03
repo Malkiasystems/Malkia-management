@@ -217,7 +217,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     const n = parseFloat(v) || 0
     return cartonEntry ? cartonsToPieces(n, targetProdUpc) : n
   }
-  type AllocProgress = { name: string; target_value: number; current: number; pct: number }
+  type AllocProgress = { name: string; target_value: number; current: number; pct: number; employee_ids: string[] }
   type TargetProgressX = TargetProgress & { allocProgress?: AllocProgress[] }
   const [targetProgress, setTargetProgress] = useState<TargetProgressX[]>([])
 
@@ -386,8 +386,68 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       const current = t.metric === 'revenue'
         ? mine.reduce((s: number, l: any) => s + (l.total || 0), 0)
         : mine.reduce((s: number, l: any) => s + (l.qty || 0), 0)
-      return { name: a.name, target_value: a.target_value, current, pct: a.target_value > 0 ? (current / a.target_value) * 100 : 0 }
+      return { name: a.name, target_value: a.target_value, current, pct: a.target_value > 0 ? (current / a.target_value) * 100 : 0, employee_ids: a.employee_ids || [] }
     })
+  }
+
+  // ── Allocation drill-down ────────────────────────────────
+  // Click an allocation row → per-person/group detail: customers, amount
+  // invoiced, units, margin, per-member split. Fetched on open, scoped to the
+  // target's window + product/category and the allocation's people.
+  type DrillCustomer = { name: string; whatsapp: string; tx: number; units: number; revenue: number; margin: number; last: string }
+  type DrillMember = { name: string; tx: number; units: number; revenue: number; margin: number }
+  type DrillData = {
+    target: SalesTarget; alloc: AllocProgress
+    tx: number; units: number; revenue: number; invoiced: number; retail: number
+    margin: number; customers: DrillCustomer[]; members: DrillMember[]
+  }
+  const [drill, setDrill] = useState<DrillData | null>(null)
+  const [drillLoading, setDrillLoading] = useState(false)
+
+  const openAllocDrill = async (t: SalesTarget, ap: AllocProgress) => {
+    if (ap.employee_ids.length === 0) return
+    setDrillLoading(true)
+    setDrill({ target: t, alloc: ap, tx: 0, units: 0, revenue: 0, invoiced: 0, retail: 0, margin: 0, customers: [], members: [] })
+    const { data } = await supabase
+      .from('vouchers')
+      .select(`id, ref, type, posting_date, total_amount, salesperson_id, customer_id, description,
+        customers(id, name, whatsapp),
+        voucher_lines(qty, total, unit_cost, product_id, products(id, category))`)
+      .in('type', ['cash_sale', 'sales_invoice'])
+      .eq('status', 'posted')
+      .gte('posting_date', t.start_date).lte('posting_date', t.end_date)
+      .in('salesperson_id', ap.employee_ids)
+      .order('posting_date', { ascending: false })
+    const cat = t.category ? makeCategoryPredicate(t.category, categories) : null
+    const inScope = (l: any) =>
+      (!t.product_id || l.product_id === t.product_id) &&
+      (!cat || (l.products && cat(l.products.category)))
+    const custMap: Record<string, DrillCustomer> = {}
+    const memMap: Record<string, DrillMember> = {}
+    let tx = 0, units = 0, revenue = 0, invoiced = 0, retail = 0, margin = 0
+    for (const v of (data as any[]) || []) {
+      const scoped = (v.voucher_lines || []).filter(inScope)
+      if (scoped.length === 0) continue
+      const vUnits = scoped.reduce((s: number, l: any) => s + (l.qty || 0), 0)
+      const vRev = scoped.reduce((s: number, l: any) => s + (l.total || 0), 0)
+      const vMargin = scoped.reduce((s: number, l: any) => s + (l.total || 0) - (l.qty || 0) * (l.unit_cost || 0), 0)
+      tx++; units += vUnits; revenue += vRev; margin += vMargin
+      if (v.type === 'sales_invoice') invoiced += vRev; else retail += vRev
+      const ck = v.customer_id || `__walkin_${v.customers?.name || v.description || 'Walk-in'}`
+      if (!custMap[ck]) custMap[ck] = { name: v.customers?.name || v.description || 'Walk-in', whatsapp: v.customers?.whatsapp || '', tx: 0, units: 0, revenue: 0, margin: 0, last: '' }
+      const c = custMap[ck]; c.tx++; c.units += vUnits; c.revenue += vRev; c.margin += vMargin
+      if (!c.last || v.posting_date > c.last) c.last = v.posting_date
+      const emp = salespeople.find(s => s.id === v.salesperson_id)
+      const mk = emp?.full_name || 'Unknown'
+      if (!memMap[mk]) memMap[mk] = { name: mk, tx: 0, units: 0, revenue: 0, margin: 0 }
+      const m = memMap[mk]; m.tx++; m.units += vUnits; m.revenue += vRev; m.margin += vMargin
+    }
+    setDrill({
+      target: t, alloc: ap, tx, units, revenue, invoiced, retail, margin,
+      customers: Object.values(custMap).sort((a, b) => b.revenue - a.revenue),
+      members: Object.values(memMap).sort((a, b) => b.revenue - a.revenue),
+    })
+    setDrillLoading(false)
   }
 
   // Load target progress
@@ -1442,7 +1502,8 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                       return (tp.allocProgress && tp.allocProgress.length > 0) ? (
                         <div style={{ marginBottom: 14 }}>
                           {tp.allocProgress.map((ap, api) => (
-                            <div key={api} style={{ marginBottom: 8 }}>
+                            <div key={api} style={{ marginBottom: 8, cursor: 'pointer' }} title="Click for detail: customers, invoiced, margin"
+                              onClick={() => openAllocDrill(t, ap)}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
                                 <span style={{ fontWeight: 600 }}>{ap.name}</span>
                                 <span style={{ fontFamily: 'var(--mono)', color: ap.pct >= 100 ? 'var(--green)' : 'var(--text3)' }}>
@@ -1536,6 +1597,105 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       {/* ═══════════════════════════════════════════════════
           TARGET FORM MODAL
          ═══════════════════════════════════════════════════ */}
+      {drill && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}
+          onClick={e => { if (e.target === e.currentTarget) setDrill(null) }}>
+          <div className="card" style={{ width: 640, maxWidth: '94vw', maxHeight: '86vh', overflowY: 'auto', padding: 24 }}>
+            {(() => {
+              const t = drill.target
+              const upc = t.product_id ? (products.find(p => p.id === t.product_id)?.units_per_carton || 0) : 0
+              const q = (v: number) => upc >= 2 ? fmtDualQty(Math.round(v), upc) : v.toLocaleString()
+              const mPct = drill.revenue > 0 ? Math.round((drill.margin / drill.revenue) * 100) : 0
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <div>
+                      <div style={{ fontSize: 17, fontWeight: 700, fontFamily: 'var(--display)' }}>{drill.alloc.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>
+                        {t.name} · {t.start_date} to {t.end_date}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                        {drill.alloc.employee_ids.map(id => salespeople.find(s => s.id === id)?.full_name || '?').join(' · ')}
+                      </div>
+                    </div>
+                    <button onClick={() => setDrill(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text3)' }}>×</button>
+                  </div>
+
+                  <div style={{ margin: '14px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 5 }}>
+                      <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: drill.alloc.pct >= 100 ? 'var(--green)' : 'var(--accent)' }}>
+                        {t.metric === 'revenue' ? tzs(drill.alloc.current) : q(drill.alloc.current)}
+                      </span>
+                      <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+                        {t.metric === 'revenue' ? tzs(drill.alloc.target_value) : q(drill.alloc.target_value)} · {Math.round(drill.alloc.pct)}%
+                      </span>
+                    </div>
+                    <div style={{ height: 8, background: 'var(--surface3)', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(100, drill.alloc.pct)}%`, background: drill.alloc.pct >= 100 ? 'var(--green)' : 'var(--accent)', borderRadius: 4 }}></div>
+                    </div>
+                  </div>
+
+                  {drillLoading ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text3)', padding: '24px 0' }}>Loading…</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+                        <div className="stat-card"><div className="stat-label">Sold ({t.product_id ? 'this product' : 'in scope'})</div><div className="stat-value" style={{ fontSize: 15 }}>{q(drill.units)}</div><div className="stat-change">{drill.tx} transactions</div></div>
+                        <div className="stat-card green"><div className="stat-label">Revenue</div><div className="stat-value" style={{ fontSize: 15 }}>{tzs(drill.revenue)}</div><div className="stat-change">Invoiced {tzs(drill.invoiced)} · Retail {tzs(drill.retail)}</div></div>
+                        <div className="stat-card amber"><div className="stat-label">Margin</div><div className="stat-value" style={{ fontSize: 15 }}>{tzs(drill.margin)}</div><div className="stat-change">{mPct}% of revenue</div></div>
+                      </div>
+
+                      {drill.members.length > 1 && (
+                        <>
+                          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>By member</div>
+                          <div className="table-wrap" style={{ marginBottom: 16 }}>
+                            <table>
+                              <thead><tr><th>Member</th><th className="td-right">Txns</th><th className="td-right">Sold</th><th className="td-right">Revenue</th><th className="td-right">Margin</th></tr></thead>
+                              <tbody>
+                                {drill.members.map((m, mi) => (
+                                  <tr key={mi}>
+                                    <td className="td-bold">{m.name}</td>
+                                    <td className="td-right td-mono">{m.tx}</td>
+                                    <td className="td-right td-mono">{q(m.units)}</td>
+                                    <td className="td-right td-mono td-green">{m.revenue.toLocaleString()}</td>
+                                    <td className="td-right td-mono">{m.margin.toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+
+                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Customers ({drill.customers.length})</div>
+                      <div className="table-wrap">
+                        <table>
+                          <thead><tr><th>Customer</th><th className="td-right">Txns</th><th className="td-right">Sold</th><th className="td-right">Revenue</th><th className="td-right">Margin</th><th>Last</th></tr></thead>
+                          <tbody>
+                            {drill.customers.length === 0 ? (
+                              <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text3)', padding: '16px 0' }}>No posted sales in this window yet. Sales posted before salesperson enforcement carry no salesperson and cannot be attributed here.</td></tr>
+                            ) : drill.customers.map((c, ci) => (
+                              <tr key={ci}>
+                                <td className="td-bold">{c.name}</td>
+                                <td className="td-right td-mono">{c.tx}</td>
+                                <td className="td-right td-mono">{q(c.units)}</td>
+                                <td className="td-right td-mono td-green">{c.revenue.toLocaleString()}</td>
+                                <td className="td-right td-mono">{c.margin.toLocaleString()}</td>
+                                <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{c.last}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      )}
+
       {showTargetForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }} onClick={e => { if (e.target === e.currentTarget) { setShowTargetForm(false); resetTargetForm() } }}>
           <div style={{ background: 'var(--card)', borderRadius: 12, padding: 24, width: '90%', maxWidth: 520, maxHeight: '90vh', overflow: 'auto' }}>
