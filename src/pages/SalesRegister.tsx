@@ -1383,6 +1383,11 @@ export default function SalesRegister({ onEdit }: Props = {}) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16, marginBottom: 24 }}>
               {targetProgress.map((tp) => {
                 const t = tp.target
+                // Carton-aware formatting for the whole card when the target's
+                // product is carton-packed. Units metric only; revenue stays TZS.
+                const cardUpc = t.product_id ? (products.find(p => p.id === t.product_id)?.units_per_carton || 0) : 0
+                const qty = (v: number) => cardUpc >= 2 ? fmtDualQty(Math.round(v), cardUpc) : v.toLocaleString() + ' units'
+                const rate = (v: number) => cardUpc >= 2 ? `${v.toFixed(1)} pcs (${(v / cardUpc).toFixed(1)} ctn)` : v.toFixed(1)
                 const progressColor = tp.percentage >= 100 ? 'var(--green)' : tp.onTrack ? 'var(--accent)' : 'var(--yellow)'
                 const statusText = tp.percentage >= 100 ? 'TARGET HIT!' : tp.onTrack ? 'On Track' : 'Behind Pace'
                 const statusColor = tp.percentage >= 100 ? 'var(--green)' : tp.onTrack ? 'var(--green)' : 'var(--red)'
@@ -1412,10 +1417,10 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                     <div style={{ marginBottom: 14 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
                         <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: progressColor }}>
-                          {t.metric === 'revenue' ? tzs(tp.current) : tp.current.toLocaleString() + ' units'}
+                          {t.metric === 'revenue' ? tzs(tp.current) : qty(tp.current)}
                         </span>
                         <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
-                          {t.metric === 'revenue' ? tzs(t.target_value) : t.target_value.toLocaleString() + ' units'}
+                          {t.metric === 'revenue' ? tzs(t.target_value) : qty(t.target_value)}
                         </span>
                       </div>
                       <div style={{ height: 10, background: 'var(--surface3)', borderRadius: 5, overflow: 'hidden' }}>
@@ -1433,9 +1438,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         <span style={{ color: statusColor, fontWeight: 700 }}>{statusText}</span>
                       </div>
                     {(() => {
-                      const t2 = tp.target
-                      const upc = t2.product_id ? (products.find(p => p.id === t2.product_id)?.units_per_carton || 0) : 0
-                      const fmtV = (v: number) => t2.metric === 'revenue' ? tzs(v) : (upc >= 2 ? fmtDualQty(v, upc) : v.toLocaleString())
+                      const fmtV = (v: number) => t.metric === 'revenue' ? tzs(v) : (cardUpc >= 2 ? fmtDualQty(v, cardUpc) : v.toLocaleString())
                       return (tp.allocProgress && tp.allocProgress.length > 0) ? (
                         <div style={{ marginBottom: 14 }}>
                           {tp.allocProgress.map((ap, api) => (
@@ -1466,7 +1469,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--text)' }}>
                           {t.metric === 'revenue'
                             ? (tp.dailyRunRate >= 1000000 ? (tp.dailyRunRate / 1000000).toFixed(1) + 'M' : (tp.dailyRunRate / 1000).toFixed(0) + 'K')
-                            : tp.dailyRunRate.toFixed(1)}
+                            : rate(tp.dailyRunRate)}
                         </div>
                         <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>Daily Rate</div>
                       </div>
@@ -1474,7 +1477,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--mono)', color: tp.onTrack ? 'var(--green)' : 'var(--red)' }}>
                           {t.metric === 'revenue'
                             ? (tp.requiredDailyRate === Infinity ? '∞' : tp.requiredDailyRate >= 1000000 ? (tp.requiredDailyRate / 1000000).toFixed(1) + 'M' : (tp.requiredDailyRate / 1000).toFixed(0) + 'K')
-                            : (tp.requiredDailyRate === Infinity ? '∞' : tp.requiredDailyRate.toFixed(1))}
+                            : (tp.requiredDailyRate === Infinity ? '∞' : rate(tp.requiredDailyRate))}
                         </div>
                         <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>Need/Day</div>
                       </div>
@@ -1482,8 +1485,8 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
                     {tp.remaining > 0 && (
                       <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)', textAlign: 'center' }}>
-                        Remaining: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{t.metric === 'revenue' ? tzs(tp.remaining) : tp.remaining.toLocaleString() + ' units'}</span>
-                        {' · '}Projected: <span style={{ color: tp.onTrack ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{t.metric === 'revenue' ? tzs(tp.projectedTotal) : Math.round(tp.projectedTotal).toLocaleString()}</span>
+                        Remaining: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{t.metric === 'revenue' ? tzs(tp.remaining) : qty(tp.remaining)}</span>
+                        {' · '}Projected: <span style={{ color: tp.onTrack ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{t.metric === 'revenue' ? tzs(tp.projectedTotal) : qty(tp.projectedTotal)}</span>
                       </div>
                     )}
                   </div>
