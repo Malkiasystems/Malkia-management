@@ -536,6 +536,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   // deferredSearch keeps the input itself responsive: React paints the
   // character you typed immediately and re-runs the list at lower priority,
   // so the box never feels like it is fighting you.
+  // Assigned-salesperson filter (wholesale tab). 'none' = unassigned.
+  const [spFilter, setSpFilter] = useState('all')
   const deferredSearch = useDeferredValue(search)
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
@@ -544,6 +546,10 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       // is on. The cash tab ignores this flag (no hide UI on cash side).
       if (tab === 'wholesale' && !showHidden && c.is_hidden) return false
       if (segFilter !== 'all' && c.segment !== segFilter.toLowerCase()) return false
+      if (tab === 'wholesale' && spFilter !== 'all') {
+        const sp = (c as any).assigned_salesperson_id || null
+        if (spFilter === 'none' ? sp !== null : sp !== spFilter) return false
+      }
       if (q && !c.name.toLowerCase().includes(q) && !(c.whatsapp || '').includes(deferredSearch.trim()) && !(c.customer_number || '').toLowerCase().includes(q)) return false
       if (tab === 'cash') {
         if (stageFilter === 'unclassified' && c.life_stage) return false
@@ -552,7 +558,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       }
       return true
     })
-  }, [customers, tab, showHidden, segFilter, deferredSearch, stageFilter, showPausedOnly])
+  }, [customers, tab, showHidden, segFilter, spFilter, deferredSearch, stageFilter, showPausedOnly])
 
   // ── Sort wiring ────────────────────────────────────────────────────────
   // Uses useTableSort: click to sort, shift-click for multi-column.
@@ -597,6 +603,50 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   const WINDOW_STEP = 120
   const [windowSize, setWindowSize] = useState(WINDOW_STEP)
   useEffect(() => { setWindowSize(WINDOW_STEP) }, [tab, deferredSearch, segFilter, stageFilter, showPausedOnly, showHidden])
+  // ── Export (current filtered + sorted view) ────────────────────────────
+  // Excel via the xlsx dependency; PDF via a print window (the browser's
+  // "Save as PDF"), which needs no extra library and matches how invoices
+  // are printed elsewhere in the app.
+  const exportRows = () => sorted.map(c => ({
+    Number: c.customer_number || '',
+    Name: c.name,
+    Company: c.company || '',
+    Contact: (c as any).contact_person || '',
+    Segment: c.segment || '',
+    WhatsApp: c.whatsapp || '',
+    Terms: c.payment_terms || '',
+    'Credit Limit': c.credit_limit || 0,
+    Balance: (c as any).balance ?? '',
+    Salesperson: salespeople.find(s => s.id === (c as any).assigned_salesperson_id)?.full_name || '',
+    'Last Purchase': (c as any).last_purchase_date || '',
+  }))
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx')
+    const ws = XLSX.utils.json_to_sheet(exportRows())
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, tab === 'cash' ? 'Cash Customers' : 'Wholesale')
+    XLSX.writeFile(wb, `customers-${tab}-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+  const exportPdf = () => {
+    const rows = exportRows()
+    const th = Object.keys(rows[0] || { Name: '' })
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<html><head><title>Customers — ${tab}</title><style>
+      body{font-family:Arial,sans-serif;font-size:11px;margin:24px}
+      h2{margin:0 0 2px} .sub{color:#666;font-size:10px;margin-bottom:14px}
+      table{border-collapse:collapse;width:100%} th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}
+      th{background:#f2f2f2} td.num{text-align:right;font-variant-numeric:tabular-nums}
+      @media print{ body{margin:8mm} }
+    </style></head><body>
+      <h2>Malkia Wellness Group — Customers (${tab === 'cash' ? 'Cash' : 'Wholesale'})</h2>
+      <div class="sub">${rows.length} customers · exported ${new Date().toLocaleString()}</div>
+      <table><thead><tr>${th.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r => `<tr>${th.map(h => `<td class="${typeof (r as any)[h] === 'number' ? 'num' : ''}">${typeof (r as any)[h] === 'number' ? (r as any)[h].toLocaleString() : String((r as any)[h])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      <script>window.onload = () => window.print()</` + `script></body></html>`)
+    w.document.close()
+  }
+
   const visible = useMemo(() => sorted.slice(0, windowSize), [sorted, windowSize])
   const hiddenCount = sorted.length - visible.length
 
@@ -1074,12 +1124,26 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
           {SEGMENTS[tab==='cash'?'cash':'wholesale'].map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
         </select>
         {tab==='wholesale' && (
-          <label style={{ display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--text3)',cursor:'pointer' }}
-            title="Hidden contacts are excluded from pickers but still appear in reports and statements">
-            <input type="checkbox" checked={showHidden} onChange={e => setShowHidden(e.target.checked)} />
-            Show hidden
-          </label>
+          <>
+            <select className="form-input" style={{ fontSize:12,padding:'7px 10px',width:170 }} value={spFilter} onChange={e => setSpFilter(e.target.value)}
+              title="Filter by assigned salesperson">
+              <option value="all">All Salespeople</option>
+              <option value="none">Unassigned</option>
+              {salespeople.map(s => <option key={s.id} value={s.id}>{spLabel(s)}</option>)}
+            </select>
+            <label style={{ display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--text3)',cursor:'pointer' }}
+              title="Hidden contacts are excluded from pickers but still appear in reports and statements">
+              <input type="checkbox" checked={showHidden} onChange={e => setShowHidden(e.target.checked)} />
+              Show hidden
+            </label>
+          </>
         )}
+        <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+          <button className="btn btn-ghost btn-sm" style={{ fontSize:11 }} onClick={exportExcel}
+            title="Download the current filtered list as an Excel file">⬇ Excel</button>
+          <button className="btn btn-ghost btn-sm" style={{ fontSize:11 }} onClick={exportPdf}
+            title="Open a print view of the current filtered list — use Save as PDF">⬇ PDF</button>
+        </div>
         {tab==='cash' && (
           <>
             <select
