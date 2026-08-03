@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useAuth } from '../lib/useAuth'
 import { useSalespeople } from '../lib/useSalespeople'
 import { supabase } from '../lib/supabase'
 import { useCategories } from '../lib/useCategories'
@@ -140,6 +141,11 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
   // Entity filters (product / customer / salesperson), applied client-side
   // to the loaded window and flowing into every tab's aggregates.
+  // Targets are money-adjacent policy: only super admins or holders of
+  // sales_targets.manage may create, edit, pause or delete them (and their
+  // allocations). Everyone else sees them read-only.
+  const { isSuperAdmin, can } = useAuth()
+  const canManageTargets = isSuperAdmin() || can('sales_targets.manage')
   const { salespeople, label: spLabel } = useSalespeople()
   // Salesperson display name: hrm employee when salesperson_id is set (new
   // vouchers), else posted_by (legacy rows predating salesperson_id).
@@ -666,6 +672,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   }
   const saveTarget = async () => {
     if (!targetForm.name.trim()) { setToast({ msg: 'Target name required', type: 'error' }); return }
+    if (!canManageTargets) { setToast({ msg: 'You do not have permission to manage targets', type: 'error' }); return }
     const val = toPieces(targetForm.target_value)
     if (!val || val <= 0) { setToast({ msg: 'Target value must be > 0', type: 'error' }); return }
     const badAlloc = allocDrafts.find(a => a.employee_ids.length === 0 || !(toPieces(a.value) > 0))
@@ -1367,7 +1374,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
             <div style={{ fontSize: 13, color: 'var(--text3)' }}>{targets.filter(t => t.is_active).length} active target{targets.filter(t => t.is_active).length !== 1 ? 's' : ''}</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn btn-ghost btn-sm" onClick={loadTargetProgress}>Refresh Progress</button>
-              <button className="btn btn-primary" onClick={openNewTarget}>+ New Target</button>
+              {canManageTargets && <button className="btn btn-primary" onClick={openNewTarget}>+ New Target</button>}
             </div>
           </div>
 
@@ -1390,6 +1397,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         {t.product_id && <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>Product: {products.find(p => p.id === t.product_id)?.name || 'Loading...'}</div>}
                         {t.category && <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>Category: {t.category}</div>}
                       </div>
+                      {canManageTargets && (
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 10 }} onClick={() => openEditTarget(t)}>Edit</button>
                         <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 10, color: 'var(--text3)' }} onClick={() => toggleTarget(t.id, false)}>Pause</button>
@@ -1397,6 +1405,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                           if (confirm('Delete this target?')) { await removeTarget(t.id); setToast({ msg: 'Target deleted', type: 'success' }) }
                         }}>×</button>
                       </div>
+                      )}
                     </div>
 
                     {/* Progress bar */}
@@ -1500,7 +1509,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         <td style={{ fontSize: 11 }}>{t.metric}</td>
                         <td className="td-right td-mono">{t.metric === 'revenue' ? tzs(t.target_value) : t.target_value.toLocaleString()}</td>
                         <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{t.start_date} to {t.end_date}</td>
-                        <td><button className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={() => toggleTarget(t.id, true)}>Reactivate</button></td>
+                        <td>{canManageTargets && <button className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={() => toggleTarget(t.id, true)}>Reactivate</button>}</td>
                       </tr>
                     ))}
                   </tbody>
