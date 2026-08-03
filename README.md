@@ -1,44 +1,36 @@
-# MW-DB-23 — ImportOrder void path fix
-
-## Files
-
-| Path | New/Edited |
-|---|---|
-| `src/lib/migrations/036_import_order_void.sql` | NEW |
-| `src/lib/importOrderVoid.ts` | NEW |
-| `src/pages/vouchers/ImportOrder.tsx` | EDITED |
+# Bank statement reconciliation and charge posting
 
 ## Deploy order
+1. Run `migrations/037_bank_statement_reconciliation.sql` **BEFORE** deploying the code.
+2. Deploy `src/`.
+3. Add a route to `src/pages/BankReconciliation.tsx`.
 
-1. **Run migration `036_import_order_void.sql` FIRST**, before the code deploy.
-   It is additive (CREATE OR REPLACE FUNCTION + GRANT). It touches no data and is
-   safe to run more than once.
-   *Already applied to `ebokhvibnypiomzqimfg` on 25 July as `036_import_order_void`.
-   The file is included so the repo and the database agree.*
-2. Deploy the two TypeScript files.
+## What it does
+Imports a bank or mobile money statement, walks the running balance to prove the
+statement adds up, works out which printed service charges actually left the
+account, and posts only the approved ones as a balanced journal.
 
-Deploying the code without the migration breaks the void button (the RPC will not
-exist). Running the migration without the code changes nothing.
+## Verified against MalkiaOS (ebokhvibnypiomzqimfg) on 2026-08-03
+- `journals.ref` is UNIQUE, so refs come from `seq_bank_charge_ref`
+- `assert_journal_balanced` is DEFERRABLE; every journal posts 2+ balanced lines
+- `assert_after_cutover` blocks `posting_date < ledger_cutover_date()`
+- `accounts.balance` has no trigger and is updated inside the RPC transaction
+- RLS is disabled on accounts/journals/journal_lines, so these tables match
 
-## What changed in ImportOrder.tsx
+## Tested (BEGIN/ROLLBACK against production)
+- pre-cutover line rejected with a clear message
+- one journal per entry date, debits = credits
+- charges that were printed but not borne never post
+- import status returns to `reviewed` while pending lines remain
 
-Only the payment-reversal block inside the Level 2 void handler, plus one import.
-Nothing else in the file was touched. No existing function was removed or disabled.
+## Files
+- `src/lib/bankStatement/statementTypes.ts` types
+- `src/lib/bankStatement/statementParse.ts` Mixx by Yas + generic CSV adapters
+- `src/lib/bankStatement/statementReconcile.ts` pure reconciliation logic
+- `src/lib/bankStatement/statementPost.ts` mutations
+- `src/hooks/useBankStatements.ts` reads
+- `src/pages/BankReconciliation.tsx` page, with GuideToggle and GuideTip
 
-- Reversal now goes through `reverseImportPayments()` → `void_import_payment` RPC,
-  one transaction per payment.
-- Partial failure halts before the order is voided, and reports which payments were
-  reversed and which failed.
-- Payment `notes` are now appended to, not overwritten, and only for the payment row
-  being stamped rather than every row on the order.
-
-## Follow-up this does not fix
-
-- `ImportOrder.tsx` is 1,082 lines and still mixes UI, state, posting, stock and
-  average-cost logic. Recommended split: `importOrderPost.ts` (payments, receives,
-  landed-cost adjustments), `importOrderTypes.ts`, `useImportOrders.ts` (reads).
-  This bundle deliberately does not attempt that; it is a behaviour fix, not a refactor.
-- MW-DB-24: `suppliers.balance_tzs` read-modify-write still present at lines 187, 192
-  and in `PurchaseInvoice.tsx`.
-- MW-DB-25: the three direct `journals` inserts still bypass `insertJournalWithRetry`.
-- MW-DB-26: import orders still write no `vouchers` rows.
+## Import paths
+Written against `@/lib/supabase`, `@/components/GuideToggle`, `@/components/GuideTip`.
+Adjust if MalkiaOS uses relative paths.
