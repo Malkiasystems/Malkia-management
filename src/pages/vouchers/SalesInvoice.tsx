@@ -130,8 +130,6 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const [salespersonId, setSalespersonId] = useState('')
   // When the chosen customer has assigned_salesperson_id, the picker locks.
   const [spLocked, setSpLocked] = useState(false)
-  // Active staff names for the legacy free-text salesperson display.
-  const [staff, setStaff] = useState<string[]>([])
   // Per-line search query for the inline searchable product picker. Keyed
   // by line index. `null` = picker closed, string = picker open with query.
   const [productSearch, setProductSearch] = useState<Record<number, string | null>>({})
@@ -191,7 +189,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   useEffect(() => {
-    loadProducts(); loadSettings(); loadAllCustomers(); loadCashAccounts(); loadStaff()
+    loadProducts(); loadSettings(); loadAllCustomers(); loadCashAccounts()
     supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
       .then(({ data }) => {
         if (data) {
@@ -218,14 +216,6 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     return () => document.removeEventListener('mousedown', close)
   }, [editVoucherId])
 
-  // Active staff for the Salesperson picker. Falls back silently if the
-  // column set differs; we only need names.
-  const loadStaff = () => {
-    supabase.from('users').select('full_name').order('full_name')
-      .then(({ data }) => {
-        if (data) setStaff([...new Set(data.map((u: any) => u.full_name).filter(Boolean))])
-      })
-  }
 
   // Default invoicing location (set in Inventory Settings). When present and
   // valid, the location is fixed and the picker is read-only.

@@ -203,13 +203,14 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   // Allocation rows being edited. value is a string in the CURRENT entry unit.
   type AllocDraft = { name: string; employee_ids: string[]; value: string }
   const [allocDrafts, setAllocDrafts] = useState<AllocDraft[]>([])
+  const [products, setProducts] = useState<{ id: string; name: string; sku: string; category: string; units_per_carton?: number | null }[]>([])
+  // Derived AFTER products is declared (used by the target form below).
   const targetProdUpc = products.find(p => p.id === targetForm.product_id)?.units_per_carton || 0
   const cartonEntry = targetForm.metric === 'units' && targetUnit === 'ctn' && targetProdUpc >= 2
   const toPieces = (v: string) => {
     const n = parseFloat(v) || 0
     return cartonEntry ? cartonsToPieces(n, targetProdUpc) : n
   }
-  const [products, setProducts] = useState<{ id: string; name: string; sku: string; category: string; units_per_carton?: number | null }[]>([])
   type AllocProgress = { name: string; target_value: number; current: number; pct: number }
   type TargetProgressX = TargetProgress & { allocProgress?: AllocProgress[] }
   const [targetProgress, setTargetProgress] = useState<TargetProgressX[]>([])
@@ -388,7 +389,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     const activeTs = targets.filter(t => t.is_active)
     if (activeTs.length === 0) { setTargetProgress([]); return }
 
-    const results: TargetProgress[] = []
+    const results: TargetProgressX[] = []
     for (const t of activeTs) {
       if (t.product_id) {
         const { data: lines } = await supabase
