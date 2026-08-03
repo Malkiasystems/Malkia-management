@@ -1,32 +1,31 @@
+// ════════════════════════════════════════════════════════════════════════════
 // statementPost.ts
-// All mutations for statement import and charge posting. Nothing in here
-// decides what is postable; that judgement lives in statementReconcile.ts.
+//
+// Mutations for statement import and charge posting. Nothing here decides what
+// is postable — that judgement lives in statementReconcile.ts and is enforced
+// again inside the post_statement_charges RPC (migration 037), which posts
+// journals and updates the balance cache in ONE transaction. The RPC refuses
+// pre-cutover dates and lines whose charges were not actually borne.
+// ════════════════════════════════════════════════════════════════════════════
 
-import { supabase } from '@/lib/supabase';
+import { supabase } from '../supabase'
 import type {
-  ParsedRow, ReconciledRow, StatementSource, StatementSummary,
-  StatementImport, StatementLine, PostChargesResult,
-} from './statementTypes';
+  ReconciledRow, StatementSource, StatementSummary,
+  StatementImport, PostChargesResult,
+} from './statementTypes'
 
 export interface SaveImportArgs {
-  accountId: string;
-  source: StatementSource;
-  fileName: string | null;
-  fileHash: string | null;
-  periodStart: string;
-  periodEnd: string;
-  statedOpening: number;
-  statedClosing: number;
-  rows: ReconciledRow[];
-  summary: StatementSummary;
-  createdBy: string | null;
-}
-
-/** Reads the cutover so the UI can grey out rows it will never be allowed to post. */
-export async function fetchCutoverDate(): Promise<string | null> {
-  const { data, error } = await supabase.rpc('ledger_cutover_date');
-  if (error) throw new Error(error.message);
-  return (data as string) ?? null;
+  accountId: string
+  source: StatementSource
+  fileName: string | null
+  fileHash: string | null
+  periodStart: string
+  periodEnd: string
+  statedOpening: number
+  statedClosing: number
+  rows: ReconciledRow[]
+  summary: StatementSummary
+  createdBy: string | null
 }
 
 export async function saveImport(args: SaveImportArgs): Promise<StatementImport> {
@@ -50,16 +49,14 @@ export async function saveImport(args: SaveImportArgs): Promise<StatementImport>
       created_by: args.createdBy,
     })
     .select()
-    .single();
+    .single()
 
   if (error) {
-    if (error.code === '23505') {
-      throw new Error('This statement has already been imported for this account.');
-    }
-    throw new Error(error.message);
+    if (error.code === '23505') throw new Error('This statement has already been imported for this account.')
+    throw new Error(error.message)
   }
 
-  const payload = args.rows.map((r) => ({
+  const payload = args.rows.map(r => ({
     import_id: imp.id,
     account_id: args.accountId,
     line_no: r.lineNo,
@@ -76,41 +73,39 @@ export async function saveImport(args: SaveImportArgs): Promise<StatementImport>
     balance_break: r.balanceBreak,
     printed_charge: r.printedCharge,
     charge_borne: r.chargeBorne,
-    // only charges we actually bore become candidates; the rest are recorded
-    // for the audit trail but can never reach the ledger
+    // Only charges this account actually bore become candidates. Everything
+    // else is stored for the audit trail but can never reach the ledger.
     status: !r.chargeBorne
       ? 'unmatched'
       : r.beforeCutover
         ? 'charge_historical'
         : 'charge_pending',
-  }));
+  }))
 
-  const { error: lineErr } = await supabase.from('bank_statement_lines').insert(payload);
+  const { error: lineErr } = await supabase.from('bank_statement_lines').insert(payload)
   if (lineErr) {
-    // the import row would otherwise be orphaned and block a clean retry
-    await supabase.from('bank_statement_imports').delete().eq('id', imp.id);
+    // an orphaned import row would block a clean retry via the file-hash index
+    await supabase.from('bank_statement_imports').delete().eq('id', imp.id)
     if (lineErr.code === '23505') {
-      throw new Error(
-        'One or more transactions in this file were already imported from another statement. Nothing was saved.',
-      );
+      throw new Error('One or more transactions in this file were already imported from another statement. Nothing was saved.')
     }
-    throw new Error(lineErr.message);
+    throw new Error(lineErr.message)
   }
 
-  return imp as StatementImport;
+  return imp as StatementImport
 }
 
 export interface PostChargesArgs {
-  importId: string;
-  lineIds: string[];
-  expenseAccountId: string;
-  /** set when the original payment was already captured gross, making this a reclass */
-  contraAccountId?: string | null;
-  postedBy: string | null;
+  importId: string
+  lineIds: string[]
+  expenseAccountId: string
+  /** set only when the original payment was captured gross, making this a reclass */
+  contraAccountId?: string | null
+  postedBy: string | null
 }
 
 export async function postCharges(args: PostChargesArgs): Promise<PostChargesResult[]> {
-  if (!args.lineIds.length) throw new Error('Select at least one charge to post.');
+  if (!args.lineIds.length) throw new Error('Select at least one charge to post.')
 
   const { data, error } = await supabase.rpc('post_statement_charges', {
     p_import_id: args.importId,
@@ -118,32 +113,16 @@ export async function postCharges(args: PostChargesArgs): Promise<PostChargesRes
     p_expense_account_id: args.expenseAccountId,
     p_contra_account_id: args.contraAccountId ?? null,
     p_posted_by: args.postedBy,
-  });
+  })
 
-  if (error) throw new Error(error.message);
-  return (data ?? []) as PostChargesResult[];
-}
-
-export async function ignoreLine(lineId: string): Promise<void> {
-  const { error } = await supabase
-    .from('bank_statement_lines')
-    .update({ status: 'ignored' })
-    .eq('id', lineId);
-  if (error) throw new Error(error.message);
-}
-
-export async function setImportNotes(importId: string, notes: string): Promise<void> {
-  const { error } = await supabase
-    .from('bank_statement_imports')
-    .update({ notes })
-    .eq('id', importId);
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(error.message)
+  return (data ?? []) as PostChargesResult[]
 }
 
 export async function abandonImport(importId: string): Promise<void> {
   const { error } = await supabase
     .from('bank_statement_imports')
     .update({ status: 'abandoned' })
-    .eq('id', importId);
-  if (error) throw new Error(error.message);
+    .eq('id', importId)
+  if (error) throw new Error(error.message)
 }

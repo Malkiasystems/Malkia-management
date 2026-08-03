@@ -1,3 +1,6 @@
+-- Applied to ebokhvibnypiomzqimfg on 2026-08-03 via MCP (supabase_migrations:
+-- bank_statement_reconciliation). Kept in the repo for the record. Safe to
+-- re-run: all DDL is IF NOT EXISTS / CREATE OR REPLACE.
 -- 037_bank_statement_reconciliation.sql
 -- Bank / mobile money statement import, reconciliation, and approved charge posting.
 -- RUN THIS BEFORE DEPLOYING THE CODE IN THIS DELIVERABLE.
@@ -13,7 +16,7 @@
 --   * RLS is disabled on accounts / journals / journal_lines (single-tenant app),
 --     so these tables follow the same convention
 
-begin;
+
 
 create sequence if not exists seq_bank_charge_ref;
 
@@ -201,12 +204,10 @@ begin
     values (v_j, v_ln, v_credit_account,
             'Bank charges ' || to_char(d.entry_date, 'DD/MM/YYYY'), 0, d.total);
 
-    -- accounts.balance is an application-maintained cache (no trigger exists),
-    -- so it is updated here inside the same transaction
-    update accounts set balance = coalesce(balance, 0) + d.total
-     where id = p_expense_account_id;
-    update accounts set balance = coalesce(balance, 0) - d.total
-     where id = v_credit_account;
+    -- one code path for the balance cache, same function the client uses,
+    -- but inside this transaction so it can never half-apply
+    perform update_account_balance(p_expense_account_id, d.total, 0);
+    perform update_account_balance(v_credit_account, 0, d.total);
 
     journal_id   := v_j;
     posting_date := d.entry_date;
@@ -231,4 +232,4 @@ $$;
 comment on function post_statement_charges is
   'Posts approved, actually-borne statement service charges to an expense account. Refuses dates before ledger_cutover_date().';
 
-commit;
+

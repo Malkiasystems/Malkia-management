@@ -129,6 +129,7 @@ const KEYWORDS: Record<string, string> = {
   'product-profit': 'gmroi profitability margin dead stock slow movers',
   'ar-followup': 'receivables debtors chase promises aging collect owed',
   'day-close': 'z report till drawer count eod end of day cashier close reconciliation',
+  'bank-recon': 'bank reconciliation statement import mixx tigo mpesa charges service fees match',
 }
 
 // Pages that should never be a search destination.
@@ -176,7 +177,7 @@ const PAGE_ICON: Record<string, string> = {
   'cash-sale': P.banknote, 'cash-center': P.banknote, 'day-close': P.banknote, 'petty-cash': P.banknote,
   'cash-receipt': P.receipt, 'bank-receipt': P.receipt,
   'cash-payment': P.card, 'new-expense': P.card, 'expense-register': P.card, 'payment-register': P.card, 'loan-repayment': P.card,
-  'banks': P.landmark, 'bank-transfer': P.refresh,
+  'banks': P.landmark, 'bank-recon': P.landmark, 'bank-transfer': P.refresh,
   'pnl': P.calc, 'trial-balance': P.calc, 'ledger': P.calc, 'ledger-health': P.calc, 'vat-report': P.calc, 'chart-of-accounts': P.calc, 'accounting-settings': P.calc, 'cash-flow': P.calc,
   'inventory': P.box, 'bundles': P.box, 'services': P.box, 'stock-count': P.clipboard, 'stock-as-of': P.clipboard,
   'grn': P.truck, 'purchase': P.truck, 'purchase-register': P.truck, 'imports': P.truck, 'import-register': P.truck, 'suppliers': P.truck,

@@ -39,6 +39,7 @@ const StockMovementReport = lazy(() => import('./pages/StockMovementReport'))
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
+const BankReconciliation = lazy(() => import('./pages/BankReconciliation'))
 const Customers = lazy(() => import('./pages/Customers'))
 const CustomerStatement = lazy(() => import('./pages/CustomerStatement'))
 const Suppliers = lazy(() => import('./pages/Suppliers'))
@@ -612,6 +613,7 @@ function AppContent() {
       case 'inventory-settings': return <InventorySettings onNav={navigate} />
       case 'pricelist-template': return <PricingPage onNav={navigate} />
       case 'banks':             return <Banks onNav={navigate} />
+      case 'bank-recon':        return <BankReconciliation onNav={navigate} />
       case 'cash-center':       return <CashCenter />
       case 'cash-flow':         return <CashFlow />
       case 'ledger-health':     return <LedgerHealth />

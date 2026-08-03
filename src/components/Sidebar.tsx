@@ -86,11 +86,12 @@ const VOUCHERS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Posted',       page: 'posted-vouchers',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13l2 2 4-4' },
 ]
 
-const ACCOUNTS_PAGES: Page[] = ['chart-of-accounts', 'banks', 'cash-center', 'cash-flow', 'balance-sheet', 'pnl', 'trial-balance', 'ledger-health', 'product-profit', 'ar-followup', 'loans', 'loan-repayment']
+const ACCOUNTS_PAGES: Page[] = ['chart-of-accounts', 'banks', 'bank-recon', 'cash-center', 'cash-flow', 'balance-sheet', 'pnl', 'trial-balance', 'ledger-health', 'product-profit', 'ar-followup', 'loans', 'loan-repayment']
 
 const ACCOUNTS_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Chart',       page: 'chart-of-accounts', icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' },
   { label: 'Banks',       page: 'banks',             icon: 'M3 10L12 3l9 7 M5 10v8 M10.5 10v8 M16 10v8 M2 18h20' },
+  { label: 'Bank Recon',  page: 'bank-recon',        icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
   { label: 'Cash Center', page: 'cash-center',       icon: 'M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
   { label: 'Cash Flow',   page: 'cash-flow',         icon: 'M17 3v6h6 M23 3l-6.5 6.5 M7 21v-6H1 M1 21l6.5-6.5 M12 8v8 M8 12h8' },
   { label: 'Bal. Sheet',  page: 'balance-sheet',     icon: 'M12 3v18 M5 7h14 M7 7l-2 5a3 3 0 0 0 6 0l-2-5 M17 7l-2 5a3 3 0 0 0 6 0l-2-5' },

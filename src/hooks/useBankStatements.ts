@@ -1,79 +1,64 @@
+// ════════════════════════════════════════════════════════════════════════════
 // useBankStatements.ts
-// Reads for the bank reconciliation screen.
+//
+// Reads for the Bank Reconciliation page. Mutations live in
+// lib/bankStatement/statementPost.ts.
+// ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import type { StatementImport, StatementLine } from '@/lib/bankStatement/statementTypes';
+import { useCallback, useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import type { StatementImport } from '../lib/bankStatement/statementTypes'
 
-export interface CashAccount {
-  id: string;
-  code: string;
-  name: string;
+export interface PickerAccount {
+  id: string
+  code: string
+  name: string
 }
 
-export function useCashAccounts() {
-  const [accounts, setAccounts] = useState<CashAccount[]>([]);
-  const [expenseAccounts, setExpenseAccounts] = useState<CashAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+/** Cash & Bank accounts for the statement picker, expense accounts for posting. */
+export function useReconAccounts() {
+  const [cashAccounts, setCashAccounts] = useState<PickerAccount[]>([])
+  const [expenseAccounts, setExpenseAccounts] = useState<PickerAccount[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    let live = true;
-    (async () => {
+    let live = true
+    ;(async () => {
       const [cash, exp] = await Promise.all([
         supabase.from('accounts').select('id, code, name')
           .eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
         supabase.from('accounts').select('id, code, name')
           .eq('type', 'expense').eq('is_active', true)
           .eq('allow_direct_posting', true).order('code'),
-      ]);
-      if (!live) return;
-      setAccounts((cash.data ?? []) as CashAccount[]);
-      setExpenseAccounts((exp.data ?? []) as CashAccount[]);
-      setLoading(false);
-    })();
-    return () => { live = false; };
-  }, []);
+      ])
+      if (!live) return
+      setCashAccounts((cash.data ?? []) as PickerAccount[])
+      setExpenseAccounts((exp.data ?? []) as PickerAccount[])
+      setLoading(false)
+    })()
+    return () => { live = false }
+  }, [])
 
-  return { accounts, expenseAccounts, loading };
+  return { cashAccounts, expenseAccounts, loading }
 }
 
 export function useStatementImports(accountId: string | null) {
-  const [imports, setImports] = useState<StatementImport[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [imports, setImports] = useState<StatementImport[]>([])
+  const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async () => {
-    if (!accountId) { setImports([]); return; }
-    setLoading(true);
+    if (!accountId) { setImports([]); return }
+    setLoading(true)
     const { data } = await supabase
       .from('bank_statement_imports')
       .select('*')
       .eq('account_id', accountId)
       .neq('status', 'abandoned')
-      .order('period_start', { ascending: false });
-    setImports((data ?? []) as StatementImport[]);
-    setLoading(false);
-  }, [accountId]);
+      .order('period_start', { ascending: false })
+    setImports((data ?? []) as StatementImport[])
+    setLoading(false)
+  }, [accountId])
 
-  useEffect(() => { void refresh(); }, [refresh]);
-  return { imports, loading, refresh };
-}
-
-export function useStatementLines(importId: string | null) {
-  const [lines, setLines] = useState<StatementLine[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const refresh = useCallback(async () => {
-    if (!importId) { setLines([]); return; }
-    setLoading(true);
-    const { data } = await supabase
-      .from('bank_statement_lines')
-      .select('*')
-      .eq('import_id', importId)
-      .order('line_no');
-    setLines((data ?? []) as StatementLine[]);
-    setLoading(false);
-  }, [importId]);
-
-  useEffect(() => { void refresh(); }, [refresh]);
-  return { lines, loading, refresh };
+  useEffect(() => { void refresh() }, [refresh])
+  return { imports, loading, refresh }
 }
