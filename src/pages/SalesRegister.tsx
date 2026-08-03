@@ -5,10 +5,10 @@ import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 import { useBundleSales } from '../lib/useBundles'
 import { useSalesTargets, calcTargetProgress } from '../lib/useSalesTargets'
-import type { SalesTarget, TargetProgress } from '../lib/useSalesTargets'
+import type { SalesTarget, TargetProgress, TargetAllocation } from '../lib/useSalesTargets'
 import Toast from '../components/Toast'
 import { tzs, getPostedBy, localIso } from '../lib/utils'
-import { fmtDualQty } from '../lib/uom'
+import { fmtDualQty, cartonsToPieces } from '../lib/uom'
 import type { Page } from '../lib/types'
 
 // ── Types ───────────────────────────────────────────────────
@@ -188,7 +188,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const [compareLoading, setCompareLoading] = useState(false)
 
   // Targets
-  const { targets, loading: targetsLoading, create: createTarget, update: updateTarget, remove: removeTarget, toggle: toggleTarget } = useSalesTargets()
+  const { targets, loading: targetsLoading, create: createTarget, update: updateTarget, remove: removeTarget, toggle: toggleTarget, saveAllocations } = useSalesTargets()
   const [showTargetForm, setShowTargetForm] = useState(false)
   const [editingTarget, setEditingTarget] = useState<SalesTarget | null>(null)
   const [targetForm, setTargetForm] = useState({
@@ -197,8 +197,22 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     product_id: '', category: '', salesperson_id: '', start_date: monthStart(), end_date: '',
     notes: ''
   })
-  const [products, setProducts] = useState<{ id: string; name: string; sku: string; category: string }[]>([])
-  const [targetProgress, setTargetProgress] = useState<TargetProgress[]>([])
+  // Carton entry for unit targets on carton-packed products. Values are
+  // CONVERTED TO PIECES on save; the DB only ever stores pieces.
+  const [targetUnit, setTargetUnit] = useState<'pcs' | 'ctn'>('pcs')
+  // Allocation rows being edited. value is a string in the CURRENT entry unit.
+  type AllocDraft = { name: string; employee_ids: string[]; value: string }
+  const [allocDrafts, setAllocDrafts] = useState<AllocDraft[]>([])
+  const targetProdUpc = products.find(p => p.id === targetForm.product_id)?.units_per_carton || 0
+  const cartonEntry = targetForm.metric === 'units' && targetUnit === 'ctn' && targetProdUpc >= 2
+  const toPieces = (v: string) => {
+    const n = parseFloat(v) || 0
+    return cartonEntry ? cartonsToPieces(n, targetProdUpc) : n
+  }
+  const [products, setProducts] = useState<{ id: string; name: string; sku: string; category: string; units_per_carton?: number | null }[]>([])
+  type AllocProgress = { name: string; target_value: number; current: number; pct: number }
+  type TargetProgressX = TargetProgress & { allocProgress?: AllocProgress[] }
+  const [targetProgress, setTargetProgress] = useState<TargetProgressX[]>([])
 
   // Bundles
   const { sales: bundleSales, totalBundlesSold, totalRevenue: bundleRevenue, totalSavingsGiven, byBundle, loading: bundlesLoading, refresh: refreshBundles } = useBundleSales(fromDate, toDate)
@@ -348,9 +362,26 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   }, [compareFrom, compareTo])
 
   const loadProducts = useCallback(async () => {
-    const { data } = await supabase.from('products').select('id, name, sku, category').eq('is_active', true).order('name')
+    const { data } = await supabase.from('products').select('id, name, sku, category, units_per_carton').eq('is_active', true).order('name')
     if (data) setProducts(data)
   }, [])
+
+  // Per-allocation attainment from the same lines used for the parent.
+  // Each line carries vouchers.salesperson_id; an allocation counts lines
+  // whose salesperson is one of its employee_ids. Legacy vouchers with no
+  // salesperson count toward the parent but toward no allocation — shown as
+  // the gap between the parent bar and the sum of allocation bars.
+  const allocProgressFromLines = (t: SalesTarget, lines: any[]) => {
+    const allocs = t.allocations || []
+    if (allocs.length === 0) return undefined
+    return allocs.map(a => {
+      const mine = lines.filter((l: any) => l.vouchers?.salesperson_id && a.employee_ids.includes(l.vouchers.salesperson_id))
+      const current = t.metric === 'revenue'
+        ? mine.reduce((s: number, l: any) => s + (l.total || 0), 0)
+        : mine.reduce((s: number, l: any) => s + (l.qty || 0), 0)
+      return { name: a.name, target_value: a.target_value, current, pct: a.target_value > 0 ? (current / a.target_value) * 100 : 0 }
+    })
+  }
 
   // Load target progress
   const loadTargetProgress = useCallback(async () => {
@@ -372,7 +403,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         const current = t.metric === 'revenue'
           ? spLines.reduce((s: number, l: any) => s + (l.total || 0), 0)
           : spLines.reduce((s: number, l: any) => s + (l.qty || 0), 0)
-        results.push(calcTargetProgress(t, current))
+        results.push({ ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, lines || []) })
       } else if (t.category) {
         const { data: lines } = await supabase
           .from('voucher_lines')
@@ -386,11 +417,11 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         const current = t.metric === 'revenue'
           ? spLines2.reduce((s: number, l: any) => s + (l.total || 0), 0)
           : spLines2.reduce((s: number, l: any) => s + (l.qty || 0), 0)
-        results.push(calcTargetProgress(t, current))
+        results.push({ ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, lines || []) })
       } else {
         let q = supabase
           .from('vouchers')
-          .select('total_amount, voucher_lines(qty)')
+          .select('total_amount, salesperson_id, voucher_lines(qty)')
           .in('type', ['cash_sale', 'sales_invoice'])
           .eq('status', 'posted')
           .gte('posting_date', t.start_date)
@@ -400,7 +431,12 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         const current = t.metric === 'revenue'
           ? (data || []).reduce((s: number, v: any) => s + (v.total_amount || 0), 0)
           : (data || []).reduce((s: number, v: any) => s + (v.voucher_lines || []).reduce((a: number, l: any) => a + (l.qty || 0), 0), 0)
-        results.push(calcTargetProgress(t, current))
+        const vLines = (data || []).map((v: any) => ({
+          total: v.total_amount || 0,
+          qty: (v.voucher_lines || []).reduce((a: number, l: any) => a + (l.qty || 0), 0),
+          vouchers: { salesperson_id: v.salesperson_id },
+        }))
+        results.push({ ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, vLines) })
       }
     }
     setTargetProgress(results)
@@ -608,12 +644,15 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   // ── Target Form Helpers ───────────────────────────────────
   const resetTargetForm = () => {
     setTargetForm({ name: '', period_type: 'monthly', metric: 'revenue', target_value: '', product_id: '', category: '', salesperson_id: '', start_date: monthStart(), end_date: '', notes: '' })
+    setAllocDrafts([]); setTargetUnit('pcs')
     setEditingTarget(null)
   }
   const openNewTarget = () => { resetTargetForm(); setShowTargetForm(true) }
   const openEditTarget = (t: SalesTarget) => {
     setEditingTarget(t)
     setTargetForm({ name: t.name, period_type: t.period_type, metric: t.metric, target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', salesperson_id: t.salesperson_id || '', start_date: t.start_date, end_date: t.end_date, notes: t.notes || '' })
+    setTargetUnit('pcs')
+    setAllocDrafts((t.allocations || []).map(a => ({ name: a.name, employee_ids: a.employee_ids || [], value: String(a.target_value) })))
     setShowTargetForm(true)
   }
   const autoEndDate = (startDate: string, periodType: string) => {
@@ -626,8 +665,10 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   }
   const saveTarget = async () => {
     if (!targetForm.name.trim()) { setToast({ msg: 'Target name required', type: 'error' }); return }
-    const val = parseFloat(targetForm.target_value)
+    const val = toPieces(targetForm.target_value)
     if (!val || val <= 0) { setToast({ msg: 'Target value must be > 0', type: 'error' }); return }
+    const badAlloc = allocDrafts.find(a => a.employee_ids.length === 0 || !(toPieces(a.value) > 0))
+    if (badAlloc) { setToast({ msg: 'Every allocation needs at least one person and a value > 0', type: 'error' }); return }
     const endDate = targetForm.end_date || autoEndDate(targetForm.start_date, targetForm.period_type)
     const payload = {
       name: targetForm.name.trim(), period_type: targetForm.period_type, metric: targetForm.metric,
@@ -636,8 +677,16 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       start_date: targetForm.start_date, end_date: endDate, is_active: true,
       notes: targetForm.notes || null, created_by: getPostedBy(),
     }
-    const res = editingTarget ? await updateTarget(editingTarget.id, payload) : await createTarget(payload as any)
-    if (res.success) { setToast({ msg: editingTarget ? 'Target updated' : 'Target created', type: 'success' }); setShowTargetForm(false); resetTargetForm() }
+    const res: any = editingTarget ? await updateTarget(editingTarget.id, payload) : await createTarget(payload as any)
+    if (res.success) {
+      const targetId = editingTarget?.id || res.id
+      if (targetId) {
+        const allocs: TargetAllocation[] = allocDrafts.map(a => ({ name: a.name.trim() || 'Unnamed', employee_ids: a.employee_ids, target_value: toPieces(a.value) }))
+        const ar = await saveAllocations(targetId, allocs)
+        if (!ar.success) { setToast({ msg: 'Target saved but allocations failed: ' + ar.error, type: 'error' }); return }
+      }
+      setToast({ msg: editingTarget ? 'Target updated' : 'Target created', type: 'success' }); setShowTargetForm(false); resetTargetForm()
+    }
     else { setToast({ msg: res.error || 'Failed', type: 'error' }) }
   }
 
@@ -1373,6 +1422,28 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: progressColor }}>{tp.percentage.toFixed(1)}%</span>
                         <span style={{ color: statusColor, fontWeight: 700 }}>{statusText}</span>
                       </div>
+                    {(() => {
+                      const t2 = tp.target
+                      const upc = t2.product_id ? (products.find(p => p.id === t2.product_id)?.units_per_carton || 0) : 0
+                      const fmtV = (v: number) => t2.metric === 'revenue' ? tzs(v) : (upc >= 2 ? fmtDualQty(v, upc) : v.toLocaleString())
+                      return (tp.allocProgress && tp.allocProgress.length > 0) ? (
+                        <div style={{ marginBottom: 14 }}>
+                          {tp.allocProgress.map((ap, api) => (
+                            <div key={api} style={{ marginBottom: 8 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                                <span style={{ fontWeight: 600 }}>{ap.name}</span>
+                                <span style={{ fontFamily: 'var(--mono)', color: ap.pct >= 100 ? 'var(--green)' : 'var(--text3)' }}>
+                                  {fmtV(ap.current)} / {fmtV(ap.target_value)} · {Math.round(ap.pct)}%
+                                </span>
+                              </div>
+                              <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(100, ap.pct)}%`, background: ap.pct >= 100 ? 'var(--green)' : 'var(--accent)', borderRadius: 3, transition: 'width .5s ease' }}></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null
+                    })()}
                     </div>
 
                     {/* Countdown stats */}
@@ -1491,13 +1562,93 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                     {salespeople.map(s => <option key={s.id} value={s.id}>{spLabel(s)}</option>)}
                   </select>
                 </div>
+
+                {/* ── Allocations: split this target across people/groups ── */}
+                <div style={{ gridColumn: '1 / -1', border: '1px solid var(--border)', borderRadius: 8, padding: 12, background: 'var(--surface)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
+                      Allocations (optional) — split across individuals or groups
+                    </div>
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '3px 8px' }}
+                      onClick={() => setAllocDrafts(d => [...d, { name: '', employee_ids: [], value: '' }])}>+ Add allocation</button>
+                  </div>
+                  {allocDrafts.length === 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                      No split — the whole target is tracked as one number. Add rows to allocate, e.g. Rahim 100 ctn, Joseph 50 ctn, retail team 50 ctn.
+                    </div>
+                  )}
+                  {allocDrafts.map((a, ai) => (
+                    <div key={ai} style={{ borderTop: ai > 0 ? '1px dashed var(--border)' : 'none', paddingTop: ai > 0 ? 10 : 0, marginTop: ai > 0 ? 10 : 0 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                        <input className="form-input" placeholder="Label — e.g. Rahim / Retail team" value={a.name}
+                          onChange={e => setAllocDrafts(d => d.map((x, xi) => xi === ai ? { ...x, name: e.target.value } : x))}
+                          style={{ flex: 1, fontSize: 12, padding: '5px 8px' }} />
+                        <input className="form-input" type="number" placeholder={cartonEntry ? 'ctn' : targetForm.metric === 'revenue' ? 'TZS' : 'pcs'} value={a.value}
+                          onChange={e => setAllocDrafts(d => d.map((x, xi) => xi === ai ? { ...x, value: e.target.value } : x))}
+                          style={{ width: 90, fontSize: 12, padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--mono)' }} />
+                        <button onClick={() => setAllocDrafts(d => d.filter((_, xi) => xi !== ai))}
+                          style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 16 }}>×</button>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {salespeople.map(s => {
+                          const on = a.employee_ids.includes(s.id)
+                          return (
+                            <button key={s.id}
+                              onClick={() => setAllocDrafts(d => d.map((x, xi) => xi === ai
+                                ? { ...x, employee_ids: on ? x.employee_ids.filter(id => id !== s.id) : [...x.employee_ids, s.id] }
+                                : x))}
+                              style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, cursor: 'pointer',
+                                background: on ? 'var(--accent)' : 'var(--surface3)', color: on ? '#fff' : 'var(--text3)',
+                                border: '1px solid ' + (on ? 'var(--accent)' : 'var(--border)') }}>
+                              {s.full_name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {allocDrafts.length > 0 && (() => {
+                    const allocated = allocDrafts.reduce((s, a) => s + toPieces(a.value), 0)
+                    const parent = toPieces(targetForm.target_value)
+                    const diff = parent - allocated
+                    return (
+                      <div style={{ marginTop: 10, fontSize: 11, fontFamily: 'var(--mono)', color: diff < 0 ? 'var(--yellow)' : 'var(--text3)' }}>
+                        Allocated: {allocated.toLocaleString()} of {parent.toLocaleString() || '—'}
+                        {diff > 0 && ` · ${diff.toLocaleString()} unallocated`}
+                        {diff < 0 && ` · over-allocated by ${(-diff).toLocaleString()} (allowed, but check)`}
+                      </div>
+                    )
+                  })()}
+                </div>
               </div>
 
               <div>
                 <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Target Value ({targetForm.metric === 'revenue' ? 'TZS' : 'units'}) *
+                  Target Value ({targetForm.metric === 'revenue' ? 'TZS' : cartonEntry ? 'cartons' : 'units'}) *
+                  {targetForm.metric === 'units' && targetProdUpc >= 2 && (
+                    <button onClick={() => {
+                        // Converting the unit converts every value already typed,
+                        // so 4800 pcs becomes 200 ctn rather than being reread as
+                        // 200 cartons of cartons.
+                        const to = targetUnit === 'pcs' ? 'ctn' : 'pcs'
+                        const conv = (v: string) => {
+                          const n = parseFloat(v)
+                          if (!n) return v
+                          return to === 'ctn' ? String(n / targetProdUpc) : String(Math.round(n * targetProdUpc))
+                        }
+                        setTargetForm(f => ({ ...f, target_value: conv(f.target_value) }))
+                        setAllocDrafts(d => d.map(a => ({ ...a, value: conv(a.value) })))
+                        setTargetUnit(to)
+                      }}
+                      style={{ marginLeft: 8, fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--mono)' }}>
+                      {targetUnit === 'ctn' ? 'CTN' : 'PCS'}
+                    </button>
+                  )}
                 </div>
-                <input className="form-input" type="number" placeholder={targetForm.metric === 'revenue' ? 'e.g. 50000000' : 'e.g. 500'} value={targetForm.target_value} onChange={e => setTargetForm(f => ({ ...f, target_value: e.target.value }))} />
+                <input className="form-input" type="number" placeholder={targetForm.metric === 'revenue' ? 'e.g. 50000000' : cartonEntry ? 'e.g. 200' : 'e.g. 4800'} value={targetForm.target_value} onChange={e => setTargetForm(f => ({ ...f, target_value: e.target.value }))} />
+                {cartonEntry && parseFloat(targetForm.target_value) > 0 && (
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 3 }}>= {toPieces(targetForm.target_value).toLocaleString()} pieces</div>
+                )}
                 {targetForm.target_value && targetForm.metric === 'revenue' && (
                   <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 4, fontFamily: 'var(--mono)' }}>
                     = {tzs(parseFloat(targetForm.target_value) || 0)}
