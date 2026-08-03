@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { cartonsToPieces, fmtCartonHint } from '../../lib/uom'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import Toast from '../../components/Toast'
@@ -37,14 +38,18 @@ interface DBCustomer {
 interface DBProduct {
   id: string; sku: string; name: string; category: string
   cost_price: number; selling_price: number; qty_on_hand: number
+  units_per_carton?: number | null
 }
 
 interface InvLine {
+  // qty is ALWAYS pieces — the item ledger, stock checks and posting all
+  // consume it unchanged. entryUnit only changes what the qty INPUT shows.
   productId: string; name: string; qty: number
   price: number; discount: number; amount: number
   // How to interpret `discount`: 'percent' means 0-100 %, 'absolute' means TZS
   // off per line (before qty). Defaults to 'percent' for backward compat.
   discountMode?: 'percent' | 'absolute'
+  entryUnit?: 'pcs' | 'ctn'
 }
 
 const TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET45', 'NET60', 'NET90']
@@ -334,7 +339,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   const loadProducts = () => {
-    supabase.from('products').select('id, sku, name, category, cost_price, selling_price, qty_on_hand')
+    supabase.from('products').select('id, sku, name, category, cost_price, selling_price, qty_on_hand, units_per_carton')
       .eq('is_active', true).order('name').then(({ data }) => { if (data) setProducts(data) })
   }
 
@@ -1171,10 +1176,39 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                 {selectedProd && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr auto auto', gap: 10, marginTop: 10, alignItems: 'end' }}>
                     <div>
-                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Qty</div>
-                      <input type="number" className="form-input" min={1}
-                        value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)}
-                        style={{ width: 72, textAlign: 'center', fontSize: 14, fontWeight: 700 }} />
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+                        <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase' }}>Qty</div>
+                        {(selectedProd.units_per_carton || 0) >= 2 && (
+                          <button
+                            onClick={() => {
+                              const nl = [...lines]
+                              nl[i] = { ...nl[i], entryUnit: (nl[i].entryUnit || 'pcs') === 'pcs' ? 'ctn' : 'pcs' }
+                              setLines(nl)
+                            }}
+                            title={`1 carton = ${selectedProd.units_per_carton} pcs`}
+                            style={{ fontSize: 9, padding: '0 6px', borderRadius: 4, background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--mono)' }}>
+                            {(line.entryUnit || 'pcs') === 'ctn' ? 'CTN' : 'PCS'}
+                          </button>
+                        )}
+                      </div>
+                      {(line.entryUnit || 'pcs') === 'ctn' && (selectedProd.units_per_carton || 0) >= 2 ? (
+                        <>
+                          <input type="number" className="form-input" min={0.5} step={0.5}
+                            value={line.qty / selectedProd.units_per_carton!}
+                            onChange={e => updateLine(i, 'qty', cartonsToPieces(parseFloat(e.target.value) || 0, selectedProd.units_per_carton!) || 1)}
+                            style={{ width: 72, textAlign: 'center', fontSize: 14, fontWeight: 700 }} />
+                          <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', marginTop: 2, textAlign: 'center' }}>= {line.qty.toLocaleString()} pcs</div>
+                        </>
+                      ) : (
+                        <>
+                          <input type="number" className="form-input" min={1}
+                            value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)}
+                            style={{ width: 72, textAlign: 'center', fontSize: 14, fontWeight: 700 }} />
+                          {(selectedProd.units_per_carton || 0) >= 2 && (
+                            <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', marginTop: 2, textAlign: 'center' }}>{fmtCartonHint(line.qty, selectedProd.units_per_carton)}</div>
+                          )}
+                        </>
+                      )}
                     </div>
                     <div>
                       <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Unit Price</div>

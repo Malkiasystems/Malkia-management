@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { fmtDualQty } from '../lib/uom'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
@@ -16,6 +17,7 @@ interface DBProduct {
   id: string; sku: string; name: string; category: string
   cost_price: number; selling_price: number; qty_on_hand: number
   reorder_point: number; unit: string; is_active: boolean
+  units_per_carton?: number | null
 }
 
 interface StockLocation { id: string; code: string; name: string; branch_code: string }
@@ -30,7 +32,7 @@ interface ItemLedgerEntry {
 }
 
 const UNITS = ['Piece', 'Pack', 'Bottle', 'Tube', 'Box', 'Set']
-const EMPTY_FORM = { sku: '', name: '', category: '', unit: 'Piece', cost_price: '', selling_price: '', qty_on_hand: '0', reorder_point: '10', opening_location: '' }
+const EMPTY_FORM = { sku: '', name: '', category: '', unit: 'Piece', cost_price: '', selling_price: '', qty_on_hand: '0', reorder_point: '10', opening_location: '', units_per_carton: '' }
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
@@ -108,7 +110,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
     setLoading(true)
     const [{ data }, { data: plData }, { data: transitData }] = await Promise.all([
       supabase.from('products')
-        .select('id, sku, name, category, cost_price, selling_price, qty_on_hand, reorder_point, unit, is_active')
+        .select('id, sku, name, category, cost_price, selling_price, qty_on_hand, reorder_point, unit, is_active, units_per_carton')
         .eq('is_active', true).order('name'),
       supabase.from('product_locations')
         .select('product_id, location_code, qty_on_hand'),
@@ -185,6 +187,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
       cost_price: p.cost_price.toString(), selling_price: p.selling_price.toString(),
       qty_on_hand: p.qty_on_hand.toString(), reorder_point: p.reorder_point.toString(),
       opening_location: '',   // never used on edit — stock moves via vouchers only
+      units_per_carton: p.units_per_carton ? p.units_per_carton.toString() : '',
     })
     setView('edit')
   }
@@ -241,6 +244,9 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
       category: categoryName, unit: form.unit,
       cost_price: parseFloat(form.cost_price), selling_price: parseFloat(form.selling_price),
       reorder_point: parseFloat(form.reorder_point) || 10,
+      // Dual UoM metadata. Empty/0/1 = not carton-packed (stored NULL); DB
+      // check constraint enforces >= 2.
+      units_per_carton: parseInt(form.units_per_carton) >= 2 ? parseInt(form.units_per_carton) : null,
       costing_method: 'average', is_active: true,
     }
     try {
@@ -425,6 +431,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
             <div className="form-row">
               <FG label="SKU" req><input className="form-input" placeholder="e.g. MK-009" value={form.sku} onChange={e => setF('sku', e.target.value)} /></FG>
               <FG label="Unit"><select className="form-input" value={form.unit} onChange={e => setF('unit', e.target.value)}>{UNITS.map(u => <option key={u}>{u}</option>)}</select></FG>
+              <FG label="Pieces per Carton (optional)"><input type="number" className="form-input" min={2} placeholder="e.g. 24 — leave empty if not sold by carton" value={form.units_per_carton} onChange={e => setF('units_per_carton', e.target.value)} /></FG>
             </div>
             <FG label="Product Name" req><input className="form-input" placeholder="e.g. Maternity Support Belt" value={form.name} onChange={e => setF('name', e.target.value)} /></FG>
             <FG label="Category" req>
@@ -561,7 +568,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
         {/* Product summary banner */}
         <div style={{ background: 'linear-gradient(135deg, rgba(10,10,10,1) 0%, rgba(25,25,25,1) 100%)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 14, padding: '18px 24px', marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
           {[
-            { label: 'On Hand', val: `${p.qty_on_hand} ${p.unit}s`, color: p.qty_on_hand === 0 ? 'var(--red)' : p.qty_on_hand <= p.reorder_point ? 'var(--yellow)' : 'var(--green)' },
+            { label: 'On Hand', val: p.units_per_carton ? fmtDualQty(p.qty_on_hand, p.units_per_carton) : `${p.qty_on_hand} ${p.unit}s`, color: p.qty_on_hand === 0 ? 'var(--red)' : p.qty_on_hand <= p.reorder_point ? 'var(--yellow)' : 'var(--green)' },
             { label: 'Cost Price', val: tzs(p.cost_price), color: 'var(--text)' },
             { label: 'Selling Price', val: tzs(p.selling_price), color: 'var(--text)' },
             { label: 'Margin', val: `${margin}%`, color: margin >= 40 ? 'var(--green)' : margin >= 20 ? 'var(--yellow)' : 'var(--red)' },
@@ -784,7 +791,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.category}</td>
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.unit}</td>
                       <td className="td-right td-mono" style={{ color: colors[s], fontWeight: 700 }}>
-                        {effectiveQty}
+                        {fmtDualQty(effectiveQty, p.units_per_carton)}
                         {filterLoc === 'all' && !hasLocations && p.qty_on_hand > 0 && (
                           <div title="This product has stock but no product_locations row. It is hidden from every location filter. Post an Opening Stock voucher to place it." style={{ fontSize: 8, color: 'var(--red)', fontFamily: 'var(--mono)', marginTop: 1 }}>
                             NO LOCATION

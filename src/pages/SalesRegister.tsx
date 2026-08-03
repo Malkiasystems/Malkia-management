@@ -7,12 +7,13 @@ import { useSalesTargets, calcTargetProgress } from '../lib/useSalesTargets'
 import type { SalesTarget, TargetProgress } from '../lib/useSalesTargets'
 import Toast from '../components/Toast'
 import { tzs, getPostedBy, localIso } from '../lib/utils'
+import { fmtDualQty } from '../lib/uom'
 import type { Page } from '../lib/types'
 
 // ── Types ───────────────────────────────────────────────────
 interface VoucherLine {
   id: string; qty: number; unit_price: number; unit_cost: number; total: number
-  products: { id: string; name: string; sku: string; category: string } | null
+  products: { id: string; name: string; sku: string; category: string; units_per_carton?: number | null } | null
 }
 interface Sale {
   id: string; ref: string; description: string; total_amount: number; subtotal: number
@@ -24,7 +25,7 @@ interface Sale {
 interface ProductRow {
   productId: string; sku: string; name: string; category: string
   unitsSold: number; revenue: number; cost: number; margin: number; marginPct: number
-  avgPrice: number; txCount: number
+  avgPrice: number; txCount: number; unitsPerCarton: number | null
 }
 interface CustomerRow {
   customerId: string; name: string; whatsapp: string; segment: string
@@ -130,8 +131,17 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const [tab, setTab] = useState<Tab>('transactions')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
-  // Cash / Credit / All filter (global across tabs)
+  // Retail / Wholesale / All filter (global across tabs).
+  // Retail = cash_sale vouchers, Wholesale = sales_invoice vouchers — the
+  // labels changed (Cash/Credit → Retail/Wholesale) but the underlying
+  // voucher types did not. Values stay 'cash'/'credit' so nothing else moves.
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+
+  // Entity filters (product / customer / salesperson), applied client-side
+  // to the loaded window and flowing into every tab's aggregates.
+  const [filterProduct, setFilterProduct] = useState('all')
+  const [filterCustomer, setFilterCustomer] = useState('all')
+  const [filterSalesperson, setFilterSalesperson] = useState('all')
 
   // Customer drawer state
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null)
@@ -190,15 +200,28 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const loadSales = useCallback(async (from?: string, to?: string) => {
     setLoading(true)
     const f = from || fromDate, t = to || toDate
-    const { data } = await supabase
-      .from('vouchers')
-      .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by,
-        customers(id, name, whatsapp, segment, crown_points),
-        voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category))`)
-      .in('type', ['cash_sale', 'sales_invoice'])
-      .gte('posting_date', f).lte('posting_date', t)
-      .order('posting_date', { ascending: false })
-    if (data) setSales(data as any)
+    // Paged fetch: Supabase caps a response at 1000 rows. One query over a
+    // wide range silently truncated the register (2k+ vouchers in prod), so
+    // totals were wrong with no error. Page until a short page comes back.
+    const PAGE = 1000
+    const all: Sale[] = []
+    for (let pageStart = 0; ; pageStart += PAGE) {
+      const { data, error } = await supabase
+        .from('vouchers')
+        .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by,
+          customers(id, name, whatsapp, segment, crown_points),
+          voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category, units_per_carton))`)
+        .in('type', ['cash_sale', 'sales_invoice'])
+        .eq('status', 'posted')
+        .gte('posting_date', f).lte('posting_date', t)
+        .order('posting_date', { ascending: false })
+        .order('id', { ascending: false })
+        .range(pageStart, pageStart + PAGE - 1)
+      if (error) { console.warn('[register] load failed:', error.message); break }
+      all.push(...((data as any) || []))
+      if (!data || data.length < PAGE) break
+    }
+    setSales(all)
     setLoading(false)
     loadOutstanding()
   }, [fromDate, toDate])
@@ -377,9 +400,31 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const typeFiltered = typeFilter === 'all' ? sales
     : typeFilter === 'cash' ? sales.filter(s => s.type === 'cash_sale')
     : sales.filter(s => s.type === 'sales_invoice')
-  const filtered = filterCat === 'all' ? typeFiltered : typeFiltered.filter(s =>
+  const catFiltered = filterCat === 'all' ? typeFiltered : typeFiltered.filter(s =>
     (s.voucher_lines || []).some(l => l.products && catPredicate(l.products.category))
   )
+  const filtered = catFiltered.filter(s =>
+    (filterProduct === 'all' || (s.voucher_lines || []).some(l => l.products?.id === filterProduct)) &&
+    (filterCustomer === 'all' || (s.customer_id || `__walkin_${s.customers?.name || 'Unknown'}`) === filterCustomer) &&
+    (filterSalesperson === 'all' || (s.posted_by || 'Unassigned') === filterSalesperson)
+  )
+
+  // Options for the entity filters, derived from the loaded window
+  const productOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    sales.forEach(s => (s.voucher_lines || []).forEach(l => { if (l.products) m.set(l.products.id, l.products.name) }))
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [sales])
+  const customerOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    sales.forEach(s => m.set(s.customer_id || `__walkin_${s.customers?.name || 'Unknown'}`, s.customers?.name || s.description || 'Walk-in'))
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [sales])
+  const salespersonOptions = useMemo(() => {
+    const set = new Set<string>()
+    sales.forEach(s => set.add(s.posted_by || 'Unassigned'))
+    return [...set].sort()
+  }, [sales])
   const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
 
   // Cash / Credit totals (always computed off full typeFiltered-agnostic set, so UI can always show split)
@@ -397,17 +442,23 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   // Product aggregation
   const productRows = useMemo(() => {
     const map: Record<string, ProductRow> = {}
-    const src = filterCat === 'all' ? sales : filtered
-    src.forEach(s => {
+    // BUGFIX: this previously read from raw `sales` when no category was set,
+    // so the type (Retail/Wholesale) and other filters visibly did nothing on
+    // this tab. All aggregates now read from the fully filtered set.
+    filtered.forEach(s => {
       (s.voucher_lines || []).forEach(l => {
         if (!l.products) return
         if (filterCat !== 'all' && !catPredicate(l.products.category)) return
+        // When a specific product is filtered, aggregate ONLY that product's
+        // lines — not every line on the vouchers that contain it.
+        if (filterProduct !== 'all' && l.products.id !== filterProduct) return
         const key = l.products.id
         if (!map[key]) {
           map[key] = {
             productId: l.products.id, sku: l.products.sku, name: l.products.name,
             category: l.products.category, unitsSold: 0, revenue: 0, cost: 0,
-            margin: 0, marginPct: 0, avgPrice: 0, txCount: 0
+            margin: 0, marginPct: 0, avgPrice: 0, txCount: 0,
+            unitsPerCarton: l.products.units_per_carton ?? null
           }
         }
         map[key].unitsSold += l.qty
@@ -422,7 +473,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       r.avgPrice = r.unitsSold > 0 ? Math.round(r.revenue / r.unitsSold) : 0
       return r
     }).sort((a, b) => sortDir === 'desc' ? (b[sortCol] as number) - (a[sortCol] as number) : (a[sortCol] as number) - (b[sortCol] as number))
-  }, [sales, filtered, filterCat, catPredicate, sortCol, sortDir])
+  }, [filtered, filterCat, catPredicate, filterProduct, sortCol, sortDir])
 
   const totalProductUnits = productRows.reduce((s, r) => s + r.unitsSold, 0)
   const totalProductRevenue = productRows.reduce((s, r) => s + r.revenue, 0)
@@ -613,9 +664,21 @@ export default function SalesRegister({ onEdit }: Props = {}) {
             <CategoryFilter value={filterCat} onChange={setFilterCat} style={{ width: 170 }} />
             <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
               <button onClick={() => setTypeFilter('all')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'all' ? 'var(--accent)' : 'transparent', color: typeFilter === 'all' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}>All</button>
-              <button onClick={() => setTypeFilter('cash')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'cash' ? 'var(--green)' : 'transparent', color: typeFilter === 'cash' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Cash</button>
-              <button onClick={() => setTypeFilter('credit')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'credit' ? 'var(--blue)' : 'transparent', color: typeFilter === 'credit' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Credit</button>
+              <button title="Cash sales" onClick={() => setTypeFilter('cash')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'cash' ? 'var(--green)' : 'transparent', color: typeFilter === 'cash' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Retail</button>
+              <button title="Credit sales (invoices)" onClick={() => setTypeFilter('credit')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'credit' ? 'var(--blue)' : 'transparent', color: typeFilter === 'credit' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Wholesale</button>
             </div>
+            <select className="form-input" style={{ width: 160, padding: '6px 10px', fontSize: 12 }} value={filterProduct} onChange={e => setFilterProduct(e.target.value)}>
+              <option value="all">All Products</option>
+              {productOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+            <select className="form-input" style={{ width: 160, padding: '6px 10px', fontSize: 12 }} value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)}>
+              <option value="all">All Customers</option>
+              {customerOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+            <select className="form-input" style={{ width: 150, padding: '6px 10px', fontSize: 12 }} value={filterSalesperson} onChange={e => setFilterSalesperson(e.target.value)}>
+              <option value="all">All Salespeople</option>
+              {salespersonOptions.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
             <button className="btn btn-primary btn-sm" onClick={() => { loadSales(); refreshBundles() }}>Load</button>
           </div>
         )}
@@ -725,7 +788,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                     <tr key={i}>
                       <td className="td-mono" style={{ color: 'var(--text3)', fontSize: 11 }}>{s.posting_date}</td>
                       <td className="td-mono td-amber">{s.ref}</td>
-                      <td><span className={`pill ${s.type === 'cash_sale' ? 'pill-green' : 'pill-blue'}`} style={{ fontSize: 10 }}>{s.type === 'cash_sale' ? 'Cash' : 'Credit'}</span></td>
+                      <td><span className={`pill ${s.type === 'cash_sale' ? 'pill-green' : 'pill-blue'}`} style={{ fontSize: 10 }}>{s.type === 'cash_sale' ? 'Retail' : 'Wholesale'}</span></td>
                       <td className="td-bold">{s.customers?.name || s.description}</td>
                       <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{s.customers?.whatsapp || '—'}</td>
                       <td><span className={`pill ${s.payment_method === 'cash' || s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('Pesa') ? 'pill-blue' : 'pill-amber'}`}>{s.payment_method}</span></td>
@@ -746,7 +809,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
                           <td colSpan={6} style={{ padding: '6px 14px 6px 30px', color: 'var(--text3)' }}>
                             <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--green)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
-                            Cash Sales ({cashSales.length} txns · {cashPct}%)
+                            Retail ({cashSales.length} txns · {cashPct}%)
                           </td>
                           <td className="td-right td-mono" style={{ color: 'var(--green)', fontWeight: 700 }}>{cashTotal.toLocaleString()}</td>
                           <td></td>
@@ -754,7 +817,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                         <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
                           <td colSpan={6} style={{ padding: '6px 14px 6px 30px', color: 'var(--text3)' }}>
                             <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--blue)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
-                            Credit Sales ({creditSales.length} txns · {creditPct}%)
+                            Wholesale ({creditSales.length} txns · {creditPct}%)
                           </td>
                           <td className="td-right td-mono" style={{ color: 'var(--blue)', fontWeight: 700 }}>{creditTotal.toLocaleString()}</td>
                           <td></td>
@@ -828,7 +891,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                       <td className="td-mono td-amber" style={{ fontSize: 11 }}>{r.sku}</td>
                       <td className="td-bold" style={{ fontSize: 12 }}>{r.name}</td>
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{r.category}</td>
-                      <td className="td-right td-mono">{r.unitsSold.toLocaleString()}</td>
+                      <td className="td-right td-mono">{fmtDualQty(r.unitsSold, r.unitsPerCarton)}</td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{r.revenue.toLocaleString()}</td>
                       <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{r.cost.toLocaleString()}</td>
                       <td className="td-right" style={{ fontFamily: 'var(--mono)', color: r.marginPct >= 40 ? 'var(--green)' : r.marginPct >= 20 ? 'var(--yellow)' : 'var(--red)' }}>{r.marginPct}%</td>
