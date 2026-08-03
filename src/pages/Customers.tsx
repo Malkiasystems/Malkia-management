@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react'
+import { useSalespeople } from '../lib/useSalespeople'
 import { supabase } from '../lib/supabase'
 import { useInvoicePreview } from '../lib/useInvoicePreview'
 import InvoicePreviewModal from '../components/InvoicePreviewModal'
@@ -63,7 +64,7 @@ const PAYMENT_TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET60', 'NET90']
 const LIST_COLUMNS = [
   'id', 'customer_number', 'name', 'company', 'contact_person',
   'customer_type', 'segment', 'whatsapp', 'email', 'phone', 'address',
-  'tin_number', 'credit_limit', 'credit_period', 'payment_terms',
+  'tin_number', 'credit_limit', 'credit_period', 'payment_terms', 'assigned_salesperson_id',
   'balance', 'crown_points', 'is_active', 'is_hidden',
   'last_purchase_date', 'notes', 'stage_paused', 'life_stage',
 ].join(', ')
@@ -118,7 +119,7 @@ const EMPTY_FORM = {
   segment: 'Retail',
   whatsapp: '', email: '', phone: '', address: '',
   tin_number: '',
-  credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: ''
+  credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: '', assigned_salesperson_id: ''
 }
 
 export default function Customers({ onNav, onViewStatement, onReceipt, initialTab, onTabChange, openLedgerId, onLedgerChange }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string) => void; initialTab?: 'cash'|'wholesale'; onTabChange?: (t: 'cash'|'wholesale') => void; openLedgerId?: string | null; onLedgerChange?: (id: string | null) => void }) {
@@ -166,6 +167,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   const [loadingLedger, setLoadingLedger] = useState(false)
 
   // Form
+  const { salespeople, label: spLabel } = useSalespeople()
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const setF = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -401,7 +403,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       phone: (c as any).phone || '', address: (c as any).address || '',
       tin_number: (c as any).tin_number || '',
       credit_limit: String(c.credit_limit || 0), credit_period: String(c.credit_period || 0),
-      payment_terms: c.payment_terms || 'COD', notes: c.notes || ''
+      payment_terms: c.payment_terms || 'COD', notes: c.notes || '',
+      assigned_salesperson_id: (c as any).assigned_salesperson_id || ''
     })
     setView('form')
   }
@@ -454,6 +457,9 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
         credit_limit: parseFloat(form.credit_limit) || 0,
         credit_period: parseInt(form.credit_period) || 0,
         payment_terms: form.payment_terms, notes: form.notes.trim() || null,
+        // Optional hard lock: sales to this customer must carry exactly this
+        // salesperson (enforced by DB trigger). Empty = no lock.
+        assigned_salesperson_id: form.assigned_salesperson_id || null,
         customer_number: customerNumber, is_active: true,
       }
       if (selected) {
@@ -926,6 +932,12 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                 <FG label="Payment Terms">
                   <select className="form-input" value={form.payment_terms} onChange={e => setF('payment_terms', e.target.value)}>
                     {PAYMENT_TERMS.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </FG>
+                <FG label="Assigned Salesperson (optional)">
+                  <select className="form-input" value={form.assigned_salesperson_id} onChange={e => setF('assigned_salesperson_id', e.target.value)}>
+                    <option value="">— No lock: pick freely on each invoice —</option>
+                    {salespeople.map(s => <option key={s.id} value={s.id}>{spLabel(s)}</option>)}
                   </select>
                 </FG>
                 <div style={{ background:'var(--surface2)',borderRadius:8,padding:'10px 12px',fontSize:11,color:'var(--text3)',marginTop:8 }}>

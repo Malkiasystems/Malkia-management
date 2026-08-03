@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSalespeople } from '../../lib/useSalespeople'
 import { cartonsToPieces, fmtCartonHint } from '../../lib/uom'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
@@ -33,6 +34,7 @@ interface DBCustomer {
   whatsapp: string; balance: number; credit_limit: number
   credit_period: number; payment_terms: string; customer_number: string
   tin_number?: string
+  assigned_salesperson_id?: string | null
 }
 
 interface DBProduct {
@@ -123,7 +125,12 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const [locationCode, setLocationCode] = useState('1001')
   const [invSettings, setInvSettings] = useState<any>(null)
-  // Active staff names for the Salesperson picker (replaces a stale hardcoded list).
+  // Salesperson = an HRM employee (required to post; may differ from logger).
+  const { salespeople, label: spLabel } = useSalespeople()
+  const [salespersonId, setSalespersonId] = useState('')
+  // When the chosen customer has assigned_salesperson_id, the picker locks.
+  const [spLocked, setSpLocked] = useState(false)
+  // Active staff names for the legacy free-text salesperson display.
   const [staff, setStaff] = useState<string[]>([])
   // Per-line search query for the inline searchable product picker. Keyed
   // by line index. `null` = picker closed, string = picker open with query.
@@ -402,6 +409,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
 
   const selectCust = (c: DBCustomer) => {
     setSelectedCust(c)
+    // Customer-locked salesperson: when the customer has an assigned
+    // salesperson, it is hardcoded here AND enforced by a DB trigger — the
+    // picker locks and the voucher cannot post with anyone else.
+    if (c.assigned_salesperson_id) {
+      setSalespersonId(c.assigned_salesperson_id)
+      setSpLocked(true)
+    } else {
+      setSpLocked(false)
+    }
     set('customer', c.company || c.name)
     set('wa', c.whatsapp || '')
     if (c.payment_terms) set('paymentTerms', c.payment_terms)
@@ -444,6 +460,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
+    if (!salespersonId) { showToast('Select a salesperson before posting', 'error'); return }
     if (!selectedCust) { showToast('Select a customer from the database first', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (subtotal <= 0) { showToast('Invoice total must be greater than zero', 'error'); return }
@@ -539,7 +556,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name} — ${form.ref}`,
         journal_type: 'sales_invoice', source_type: 'sales_invoice', source_ref: form.ref,
-        posted_by: form.salesperson || getPostedBy(), status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
@@ -562,7 +579,8 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
         subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
         status: 'posted', customer_id: customerId, journal_id: journal.id,
-        notes: form.notes || null, posted_by: form.salesperson || getPostedBy(),
+        salesperson_id: salespersonId,
+        notes: form.notes || null, posted_by: getPostedBy(),
       }
       if (form.dueDate) voucherPayload.due_date = form.dueDate
       if (form.paymentTerms) voucherPayload.payment_terms = form.paymentTerms
@@ -755,7 +773,8 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         ref: form.ref, posting_date: form.date, due_date: form.dueDate,
         payment_terms: form.paymentTerms, notes: form.notes,
         total_amount: subtotal, vat_amount: vat, subtotal: netRevenue,
-        posted_by: form.salesperson,
+        // Printed invoice shows the salesperson (may differ from logger)
+        posted_by: (salespeople.find(s => s.id === salespersonId)?.full_name) || form.salesperson || '',
         customers: {
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',
@@ -1324,11 +1343,14 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               </div>
               <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
                 <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Salesperson</div>
-                <select className="form-input" value={form.salesperson} onChange={e => set('salesperson', e.target.value)}>
-                  {form.salesperson && !staff.includes(form.salesperson) && <option>{form.salesperson}</option>}
-                  {staff.length === 0 && !form.salesperson && <option value="">— Select —</option>}
-                  {staff.map(n => <option key={n}>{n}</option>)}
+                <select className="form-input" value={salespersonId} disabled={spLocked}
+                  onChange={e => setSalespersonId(e.target.value)}
+                  style={{ borderColor: salespersonId ? undefined : 'var(--red)' }}
+                  title={spLocked ? 'This customer is locked to their assigned salesperson' : 'Required to post'}>
+                  <option value="">— Required —</option>
+                  {salespeople.map(s => <option key={s.id} value={s.id}>{spLabel(s)}</option>)}
                 </select>
+                {spLocked && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Locked to this customer's assigned salesperson</div>}
               </div>
             </div>
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSalespeople } from '../lib/useSalespeople'
 import { supabase } from '../lib/supabase'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
@@ -18,7 +19,7 @@ interface VoucherLine {
 interface Sale {
   id: string; ref: string; description: string; total_amount: number; subtotal: number
   payment_method: string; posting_date: string; status: string; type: string
-  customer_id: string | null; posted_by: string | null
+  customer_id: string | null; posted_by: string | null; salesperson_id: string | null
   customers: { id: string; name: string; whatsapp: string; segment: string; crown_points: number } | null
   voucher_lines: VoucherLine[]
 }
@@ -139,6 +140,16 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
   // Entity filters (product / customer / salesperson), applied client-side
   // to the loaded window and flowing into every tab's aggregates.
+  const { salespeople, label: spLabel } = useSalespeople()
+  // Salesperson display name: hrm employee when salesperson_id is set (new
+  // vouchers), else posted_by (legacy rows predating salesperson_id).
+  const spName = useCallback((s: Sale) => {
+    if (s.salesperson_id) {
+      const e = salespeople.find(x => x.id === s.salesperson_id)
+      if (e) return e.full_name
+    }
+    return s.posted_by || 'Unassigned'
+  }, [salespeople])
   const [filterProduct, setFilterProduct] = useState('all')
   const [filterCustomer, setFilterCustomer] = useState('all')
   const [filterSalesperson, setFilterSalesperson] = useState('all')
@@ -183,7 +194,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const [targetForm, setTargetForm] = useState({
     name: '', period_type: 'monthly' as SalesTarget['period_type'],
     metric: 'revenue' as SalesTarget['metric'], target_value: '',
-    product_id: '', category: '', start_date: monthStart(), end_date: '',
+    product_id: '', category: '', salesperson_id: '', start_date: monthStart(), end_date: '',
     notes: ''
   })
   const [products, setProducts] = useState<{ id: string; name: string; sku: string; category: string }[]>([])
@@ -208,7 +219,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     for (let pageStart = 0; ; pageStart += PAGE) {
       const { data, error } = await supabase
         .from('vouchers')
-        .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by,
+        .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by, salesperson_id,
           customers(id, name, whatsapp, segment, crown_points),
           voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category, units_per_carton))`)
         .in('type', ['cash_sale', 'sales_invoice'])
@@ -351,37 +362,41 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       if (t.product_id) {
         const { data: lines } = await supabase
           .from('voucher_lines')
-          .select('qty, total, vouchers!inner(posting_date, type, status)')
+          .select('qty, total, vouchers!inner(posting_date, type, status, salesperson_id)')
           .eq('product_id', t.product_id)
           .gte('vouchers.posting_date', t.start_date)
           .lte('vouchers.posting_date', t.end_date)
           .in('vouchers.type', ['cash_sale', 'sales_invoice'])
           .eq('vouchers.status', 'posted')
+        const spLines = t.salesperson_id ? (lines || []).filter((l: any) => l.vouchers?.salesperson_id === t.salesperson_id) : (lines || [])
         const current = t.metric === 'revenue'
-          ? (lines || []).reduce((s: number, l: any) => s + (l.total || 0), 0)
-          : (lines || []).reduce((s: number, l: any) => s + (l.qty || 0), 0)
+          ? spLines.reduce((s: number, l: any) => s + (l.total || 0), 0)
+          : spLines.reduce((s: number, l: any) => s + (l.qty || 0), 0)
         results.push(calcTargetProgress(t, current))
       } else if (t.category) {
         const { data: lines } = await supabase
           .from('voucher_lines')
-          .select('qty, total, products!inner(category), vouchers!inner(posting_date, type, status)')
+          .select('qty, total, products!inner(category), vouchers!inner(posting_date, type, status, salesperson_id)')
           .eq('products.category', t.category)
           .gte('vouchers.posting_date', t.start_date)
           .lte('vouchers.posting_date', t.end_date)
           .in('vouchers.type', ['cash_sale', 'sales_invoice'])
           .eq('vouchers.status', 'posted')
+        const spLines2 = t.salesperson_id ? (lines || []).filter((l: any) => l.vouchers?.salesperson_id === t.salesperson_id) : (lines || [])
         const current = t.metric === 'revenue'
-          ? (lines || []).reduce((s: number, l: any) => s + (l.total || 0), 0)
-          : (lines || []).reduce((s: number, l: any) => s + (l.qty || 0), 0)
+          ? spLines2.reduce((s: number, l: any) => s + (l.total || 0), 0)
+          : spLines2.reduce((s: number, l: any) => s + (l.qty || 0), 0)
         results.push(calcTargetProgress(t, current))
       } else {
-        const { data } = await supabase
+        let q = supabase
           .from('vouchers')
           .select('total_amount, voucher_lines(qty)')
           .in('type', ['cash_sale', 'sales_invoice'])
           .eq('status', 'posted')
           .gte('posting_date', t.start_date)
           .lte('posting_date', t.end_date)
+        if (t.salesperson_id) q = q.eq('salesperson_id', t.salesperson_id)
+        const { data } = await q
         const current = t.metric === 'revenue'
           ? (data || []).reduce((s: number, v: any) => s + (v.total_amount || 0), 0)
           : (data || []).reduce((s: number, v: any) => s + (v.voucher_lines || []).reduce((a: number, l: any) => a + (l.qty || 0), 0), 0)
@@ -406,7 +421,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const filtered = catFiltered.filter(s =>
     (filterProduct === 'all' || (s.voucher_lines || []).some(l => l.products?.id === filterProduct)) &&
     (filterCustomer === 'all' || (s.customer_id || `__walkin_${s.customers?.name || 'Unknown'}`) === filterCustomer) &&
-    (filterSalesperson === 'all' || (s.posted_by || 'Unassigned') === filterSalesperson)
+    (filterSalesperson === 'all' || spName(s) === filterSalesperson)
   )
 
   // Options for the entity filters, derived from the loaded window
@@ -422,9 +437,9 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   }, [sales])
   const salespersonOptions = useMemo(() => {
     const set = new Set<string>()
-    sales.forEach(s => set.add(s.posted_by || 'Unassigned'))
+    sales.forEach(s => set.add(spName(s)))
     return [...set].sort()
-  }, [sales])
+  }, [sales, spName])
   const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
 
   // Cash / Credit totals (always computed off full typeFiltered-agnostic set, so UI can always show split)
@@ -545,7 +560,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const salespersonRows = useMemo<SalespersonRow[]>(() => {
     const map: Record<string, SalespersonRow> = {}
     filtered.forEach(s => {
-      const key = s.posted_by || 'Unassigned'
+      const key = spName(s)
       if (!map[key]) map[key] = { name: key, txCount: 0, revenue: 0, cashRevenue: 0, creditRevenue: 0, avgTicket: 0 }
       const p = map[key]
       p.txCount++
@@ -559,7 +574,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     }).sort((a, b) => spSortDir === 'desc'
       ? ((b[spSortCol] as any) > (a[spSortCol] as any) ? 1 : -1)
       : ((a[spSortCol] as any) > (b[spSortCol] as any) ? 1 : -1))
-  }, [filtered, spSortCol, spSortDir])
+  }, [filtered, spSortCol, spSortDir, spName])
 
   // Compare product rows
   const compareProductRows = useMemo(() => {
@@ -592,13 +607,13 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
   // ── Target Form Helpers ───────────────────────────────────
   const resetTargetForm = () => {
-    setTargetForm({ name: '', period_type: 'monthly', metric: 'revenue', target_value: '', product_id: '', category: '', start_date: monthStart(), end_date: '', notes: '' })
+    setTargetForm({ name: '', period_type: 'monthly', metric: 'revenue', target_value: '', product_id: '', category: '', salesperson_id: '', start_date: monthStart(), end_date: '', notes: '' })
     setEditingTarget(null)
   }
   const openNewTarget = () => { resetTargetForm(); setShowTargetForm(true) }
   const openEditTarget = (t: SalesTarget) => {
     setEditingTarget(t)
-    setTargetForm({ name: t.name, period_type: t.period_type, metric: t.metric, target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', start_date: t.start_date, end_date: t.end_date, notes: t.notes || '' })
+    setTargetForm({ name: t.name, period_type: t.period_type, metric: t.metric, target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', salesperson_id: t.salesperson_id || '', start_date: t.start_date, end_date: t.end_date, notes: t.notes || '' })
     setShowTargetForm(true)
   }
   const autoEndDate = (startDate: string, periodType: string) => {
@@ -617,6 +632,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     const payload = {
       name: targetForm.name.trim(), period_type: targetForm.period_type, metric: targetForm.metric,
       target_value: val, product_id: targetForm.product_id || null, category: targetForm.category || null,
+      salesperson_id: targetForm.salesperson_id || null,
       start_date: targetForm.start_date, end_date: endDate, is_active: true,
       notes: targetForm.notes || null, created_by: getPostedBy(),
     }
@@ -1466,6 +1482,13 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                   <select className="form-input" value={targetForm.metric} onChange={e => setTargetForm(f => ({ ...f, metric: e.target.value as SalesTarget['metric'] }))}>
                     <option value="revenue">Revenue (TZS)</option>
                     <option value="units">Units Sold</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Salesperson (optional)</div>
+                  <select className="form-input" value={targetForm.salesperson_id} onChange={e => setTargetForm(f => ({ ...f, salesperson_id: e.target.value }))}>
+                    <option value="">Whole team</option>
+                    {salespeople.map(s => <option key={s.id} value={s.id}>{spLabel(s)}</option>)}
                   </select>
                 </div>
               </div>

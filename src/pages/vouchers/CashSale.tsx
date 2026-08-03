@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSalespeople } from '../../lib/useSalespeople'
 import { supabase } from '../../lib/supabase'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -36,6 +37,9 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [autoRef, setAutoRef] = useState('CS-10-????')
   const [posting, setPosting] = useState(false)
+  // Salesperson (required to post; may differ from the logged-in cashier)
+  const { salespeople, label: spLabel } = useSalespeople()
+  const [salespersonId, setSalespersonId] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [autoReceipt] = useState(true)
   
@@ -640,6 +644,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
     setPosting(true)
     const result = await postCashSale({
+      salespersonId: salespersonId || null,
       newCustName, waInput, lines, dbProducts, selectedCust,
       isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
       townDelivery, upcountryShipping, deliveryAccountId,
@@ -1381,6 +1386,12 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setShowModal(false); if (isEditMode) resetForm() }}>Cancel</button>
                   {!isEditMode && <button className="btn btn-ghost btn-sm" style={{ padding: '10px 14px' }}>Draft</button>}
+                  <select className="form-input" value={salespersonId} onChange={e => setSalespersonId(e.target.value)}
+                    style={{ flex: 1, fontSize: 12, borderColor: salespersonId ? undefined : 'var(--red)' }}
+                    title="Salesperson who made this sale — required to post">
+                    <option value="">Salesperson — required</option>
+                    {salespeople.map(s => <option key={s.id} value={s.id}>{spLabel(s)}</option>)}
+                  </select>
                   <button className="btn btn-primary" onClick={isEditMode ? updateVoucher : post} disabled={posting} style={{ flex: 2, justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 700, opacity: posting ? 0.6 : 1 }}>
                     {posting ? (isEditMode ? 'Updating…' : 'Posting…') : isEditMode ? 'Update Sale' : isPOD ? 'Post POD Sale' : `Post · ${currentMethod.label}`}
                   </button>

@@ -9,6 +9,7 @@ export interface SalesTarget {
   target_value: number
   product_id: string | null
   category: string | null
+  salesperson_id: string | null
   start_date: string
   end_date: string
   is_active: boolean

@@ -155,6 +155,9 @@ function buildReceiptJournalLines(args: {
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface PostParams {
+  // Salesperson (hrm_employees.id). Required by the DB trigger to post; may
+  // differ from the logged-in user (userName/userId stay the LOGGER).
+  salespersonId: string | null
   // Form state
   newCustName: string
   waInput: string
@@ -231,6 +234,7 @@ export interface PostResult {
 
 export async function postCashSale(params: PostParams): Promise<PostResult> {
   const {
+    salespersonId,
     newCustName, waInput, lines, dbProducts, selectedCust,
     isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
     deliveryAccountId,
@@ -244,6 +248,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
 
   // Validations
   if (!newCustName.trim()) return { success: false, error: 'Customer name required' }
+  if (!salespersonId) return { success: false, error: 'Select a salesperson before posting' }
   if (lines.every(l => !l.productId)) return { success: false, error: 'Add at least one product' }
 
   // Stock check — UNCONDITIONAL and location-aware. Previously gated on
@@ -519,6 +524,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     // Create voucher
     const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
       ref, type: 'cash_sale', posting_date: postingDate,
+      salesperson_id: salespersonId,
       description: `Cash Sale — ${newCustName}`,
       subtotal, total_amount: total,
       status: isPOD ? 'draft' : 'posted', branch: 'DSM HQ',
