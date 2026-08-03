@@ -10,6 +10,7 @@ import type { SalesTarget, TargetProgress, TargetAllocation } from '../lib/useSa
 import Toast from '../components/Toast'
 import { tzs, getPostedBy, localIso } from '../lib/utils'
 import { fmtDualQty, cartonsToPieces } from '../lib/uom'
+import { consumeSalesRegisterTab, rememberSalesRegisterTab, subscribeSalesRegisterTab } from '../lib/salesRegisterTab'
 import type { Page } from '../lib/types'
 
 // ── Types ───────────────────────────────────────────────────
@@ -130,7 +131,11 @@ function periodLabel(type: string) {
 
 // ── Main Component ──────────────────────────────────────────
 export default function SalesRegister({ onEdit }: Props = {}) {
-  const [tab, setTab] = useState<Tab>('transactions')
+  // Tab survives refresh (localStorage) and can be set by sidebar shortcuts
+  // (Reports / Targets) via the salesRegisterTab bus — see that file.
+  const [tab, setTab] = useState<Tab>(() => (consumeSalesRegisterTab() as Tab) || 'transactions')
+  useEffect(() => { rememberSalesRegisterTab(tab) }, [tab])
+  useEffect(() => subscribeSalesRegisterTab(t => setTab(t as Tab)), [])
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   // Retail / Wholesale / All filter (global across tabs).
@@ -1502,7 +1507,10 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                       return (tp.allocProgress && tp.allocProgress.length > 0) ? (
                         <div style={{ marginBottom: 14 }}>
                           {tp.allocProgress.map((ap, api) => (
-                            <div key={api} style={{ marginBottom: 8, cursor: 'pointer' }} title="Click for detail: customers, invoiced, margin"
+                            <div key={api} style={{ marginBottom: 8, cursor: 'pointer', padding: '4px 6px', margin: '0 -6px 8px', borderRadius: 6, transition: 'background .12s ease' }}
+                              title="Click for detail: customers, invoiced, margin"
+                              onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-dim)')}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                               onClick={() => openAllocDrill(t, ap)}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
                                 <span style={{ fontWeight: 600 }}>{ap.name}</span>

@@ -96,6 +96,9 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'sales.approve', label: 'Approve Discounts/Refunds' },
       { key: 'sales.approve_advance', label: 'Approve Advance-Paid Invoices' },
       { key: 'sales.export', label: 'Export Sales Data' },
+      // Gates create/edit/pause/delete of sales targets and their allocations
+      // in the Sales Register. Key must match can('sales_targets.manage').
+      { key: 'sales_targets.manage', label: 'Manage Sales Targets' },
     ]
   },
   {

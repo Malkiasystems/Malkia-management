@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth, canAccessPage } from '../lib/useAuth'
 import { requestExpenseRegisterTab } from '../lib/expenseRegisterTab'
+import { requestSalesRegisterTab } from '../lib/salesRegisterTab'
 import { getActiveCompany, supabase } from '../lib/supabase'
 
 
@@ -112,14 +113,15 @@ const INVENTORY_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Stock Count', page: 'stock-count', icon: 'M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
 ]
 
-const SALES_SUB: { label: string; page: Page; icon: string }[] = [
+const SALES_SUB: { label: string; page: Page; icon: string; tab?: 'targets' }[] = [
   { label: 'Cash Sale',     page: 'cash-sale',           icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
   { label: 'Sales Invoice', page: 'sales-invoice',        icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
   { label: 'Invoices',      page: 'sales-invoices-list',  icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M9 13h6 M9 17h6' },
   { label: 'Pay Approvals', page: 'payment-approvals',     icon: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M9 12l2 2 4-4' },
   { label: 'Proformas',     page: 'proformas-list',       icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M12 18v-6 M9 15h6' },
   { label: 'Day Book',      page: 'sales-day-book',       icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
-  { label: 'Register',      page: 'sales-register',       icon: 'M18 20V10M12 20V4M6 20v-6' },
+  { label: 'Reports',       page: 'sales-register',       icon: 'M18 20V10M12 20V4M6 20v-6' },
+  { label: 'Targets',       page: 'sales-register',       icon: 'M13 10V3L4 14h7v7l9-11h-7z', tab: 'targets' },
 ]
 
 const EXPENSE_SUB: { label: string; page: Page; icon: string; tab?: 'budget' | 'recurring' }[] = [
@@ -657,9 +659,12 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
             {Boolean(isSalesItem) && salesOpen && visibleSalesSub.length > 0 && (
               <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSalesSub.map(sub => {
-                  const subActive = current === sub.page
+                  // Reports and Targets both point at sales-register; only the
+                  // plain Reports row shows the active highlight (same rule as
+                  // the Expenses tab shortcuts) so two rows never light at once.
+                  const subActive = current === sub.page && !sub.tab
                   return (
-                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                    <div key={sub.label} onClick={() => { if (sub.page === 'sales-register') requestSalesRegisterTab(sub.tab || 'transactions'); onNav(sub.page) }}
                       className="sb-sub"
                       style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
