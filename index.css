@@ -222,24 +222,29 @@ select.form-input { cursor: pointer; appearance: none; }
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @media (min-width: 769px) {
-  /* Each card becomes its own query container so the figure scales with the
-     card, not the viewport. Safe: every .stat-card in the app (133 instances
-     across 19 files) sits in a grid track, never in a content-sized flex row,
-     so inline-size containment cannot collapse one to zero. Deliberately NOT
-     applied at <=768px, where the mobile rules turn these grids into a
-     content-sized flex strip that containment WOULD collapse. */
-  .stat-card { container-type: inline-size; }
+  /* Fix the CARD WIDTH, not the font. Pages hardcode `repeat(5, 1fr)` inline,
+     which crushes each card to a 174px content box on a 1280px screen. This
+     overrides that with a minimum track width, so a row that cannot fit five
+     readable cards wraps to four (or three) instead of squeezing all five.
 
-  /* 11cqi = 11% of the card's content box.
-       174px card (5-up @ 1280px) -> 19.2px, "8,691,000" = 163px, fits
-       236px card (4-up @ 1440px) -> clamps at 26px, identical to today
-     Browsers without cqi drop this one declaration and keep the 26px base
-     rule, i.e. they degrade to current behaviour rather than breaking. */
-  .stat-value {
-    font-size: clamp(15px, 11cqi, 26px);
-    letter-spacing: -0.035em;   /* was -1px: scales with the font now */
-    overflow-wrap: anywhere;    /* last-resort break, never a silent cut */
+     Why 280px specifically: with auto-fit the narrowest a card can ever get
+     is exactly the minmax floor, right before the column count drops. So the
+     content box is never below 280 - 40 (padding) - 2 (borders) = 238px, and
+     "8,691,000" in Syne ExtraBold at the full 26px measures 220px. It fits at
+     every viewport width from 769px up, with no font shrinking at all.
+
+     auto-fit (not auto-fill) collapses unused tracks, so a row that only has
+     three cards still spreads them across the full width. Same :has() pair
+     the mobile block below already uses, so support is proven in this app. */
+  .grid:has(> .stat-card),
+  div:has(> .stat-card) {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
   }
+
+  /* Last-resort guard. If a figure ever does outgrow the card (a ten-digit
+     total, a longer currency prefix), it wraps instead of being silently
+     truncated. A cut number reads as a valid but different number. */
+  .stat-value { overflow-wrap: anywhere; }
 
   /* Filter rows wrap onto a second line instead of forcing the page sideways.
      Children keep their widths on purpose: a squashed "All Salespeople"
