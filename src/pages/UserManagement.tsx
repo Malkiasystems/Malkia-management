@@ -76,6 +76,11 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
     permissions: [
       { key: 'accounting.view', label: 'View Vouchers' },
       { key: 'accounting.create', label: 'Create Vouchers' },
+      // Receipts are split out from accounting.create because money coming IN
+      // is the one voucher you may want a collections clerk to run without
+      // also granting payments, petty cash, contra and credit notes — which
+      // accounting.create hands over in a single tick.
+      { key: 'accounting.receipt', label: 'Create Receipt Vouchers' },
       { key: 'accounting.edit', label: 'Edit Vouchers' },
       { key: 'accounting.delete', label: 'Delete/Void Vouchers' },
       { key: 'accounting.post', label: 'Post Vouchers' },

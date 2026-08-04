@@ -286,9 +286,19 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'sales-register': ['sales.view'],
   'sales-return': ['sales.create'],
   'cash-payment': ['accounting.create'],
-  'cash-receipt': ['accounting.create'],
+  // Receipt vouchers gate on accounting.receipt ONLY — deliberately not
+  // ['accounting.receipt', 'accounting.create']. canAccessPage uses .some(),
+  // so leaving accounting.create in the list would mean the new permission
+  // could never lock anyone out and the whole split would be decorative.
+  //
+  // customer-receipt-batch is listed because it was previously absent from
+  // this map entirely, and canAccessPage returns true for unmapped pages. It
+  // renders the same CashReceipt component, so it was an open URL that would
+  // have walked straight around this lock.
+  'cash-receipt': ['accounting.receipt'],
+  'customer-receipt-batch': ['accounting.receipt'],
   'bank-payment': ['accounting.create'],
-  'bank-receipt': ['accounting.create'],
+  'bank-receipt': ['accounting.receipt'],
   'bank-transfer': ['accounting.create'],
   'petty-cash': ['accounting.create'],
   'contra': ['accounting.create'],
