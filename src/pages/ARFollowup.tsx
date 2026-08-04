@@ -2,7 +2,7 @@
 // Aging from customer_ledger_entries; promises logged in ar_promises so
 // "who did we chase, what did they promise, is it overdue" has a home.
 import { useEffect, useState } from 'react'
-import { localIso } from '../lib/utils'
+import { localIso, getPostedBy } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 
 interface Debtor { customer_id: string; name: string; amount: number; oldest_days: number }
@@ -57,7 +57,7 @@ export default function ARFollowup() {
     setSaving(true)
     const { error } = await supabase.from('ar_promises').insert({
       customer_id: form.customerId, promised_amount: +form.amount,
-      due_date: form.due, note: form.note || null, created_by: 'Joe Gembe' })
+      due_date: form.due, note: form.note || null, created_by: getPostedBy() })
     setSaving(false)
     if (!error) { setForm({ customerId: '', amount: '', due: today(), note: '' }); load() }
   }

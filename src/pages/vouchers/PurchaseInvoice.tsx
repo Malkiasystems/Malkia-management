@@ -5,7 +5,7 @@ import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import DraftBanner from '../../components/DraftBanner'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
 
@@ -109,7 +109,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
         journal_type: 'purchase_invoice',
         source_type: 'purchase_invoice',
         source_ref: form.ref,
-        posted_by: 'Joe Gembe',
+        posted_by: getPostedBy(),
         status: 'posted',
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
@@ -140,7 +140,7 @@ export default function PurchaseInvoice({ onNav }: Props) {
         supplier_id: form.supplier,
         journal_id: journal.id,
         notes: form.notes,
-        posted_by: 'Joe Gembe',
+        posted_by: getPostedBy(),
       }).select('id').single()
       if (vErr || !voucher) throw new Error(vErr?.message || 'Voucher insert failed')
 

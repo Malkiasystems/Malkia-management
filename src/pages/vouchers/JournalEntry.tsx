@@ -4,7 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { today } from '../../lib/utils'
+import { today, getPostedBy } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import type { Page, JournalLine } from '../../lib/types'
@@ -83,7 +83,7 @@ export default function JournalEntry({ onNav }: Props) {
         p_journal_type: 'loan_payment',
         p_source_type: 'loan_payment',
         p_source_ref: form.ref,
-        p_posted_by: 'Joe Gembe',
+        p_posted_by: getPostedBy(),
         p_branch: null,
         p_lines: [
           { account_id: loanPay.loanId, description: 'Loan repayment (reduces what you owe)', debit: loanAmount, credit: 0 },
@@ -96,7 +96,7 @@ export default function JournalEntry({ onNav }: Props) {
       await supabase.from('vouchers').insert({
         ref: form.ref, type: 'loan_payment', posting_date: form.date,
         description: desc, total_amount: loanAmount, status: 'posted',
-        journal_id: journalId, posted_by: 'Joe Gembe',
+        journal_id: journalId, posted_by: getPostedBy(),
       })
 
       showToast(`${form.ref} posted · ${selectedLoan?.name} reduced by TZS ${fmt(loanAmount)}`)
@@ -119,7 +119,7 @@ export default function JournalEntry({ onNav }: Props) {
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: form.ref, posting_date: form.date, description: form.narration,
         journal_type: form.type, source_type: 'manual',
-        posted_by: 'Joe Gembe', status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       })
       if (jErr || !journalRaw) throw new Error(jErr?.message || 'Journal insert failed')
       const journal = journalRaw
@@ -141,7 +141,7 @@ export default function JournalEntry({ onNav }: Props) {
         ref: form.ref, type: 'journal_entry', posting_date: form.date,
         description: form.narration || `Journal Entry — ${form.ref}`,
         total_amount: totalDr, status: 'posted',
-        journal_id: journal.id, posted_by: 'Joe Gembe',
+        journal_id: journal.id, posted_by: getPostedBy(),
       })
 
       showToast(`${form.ref} posted · ${linesToInsert.length} lines · Balanced at TZS ${totalDr.toLocaleString()}`)

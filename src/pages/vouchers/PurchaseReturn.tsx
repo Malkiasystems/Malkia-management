@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
@@ -79,7 +79,7 @@ export default function PurchaseReturn({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Purchase Return — ${supplier?.name} — ${form.ref}`,
         journal_type: 'purchase_return', source_type: 'purchase_return', source_ref: form.ref,
-        posted_by: 'Joe Gembe', status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -101,7 +101,7 @@ export default function PurchaseReturn({ onNav }: Props) {
         description: `Purchase Return — ${supplier?.name}`,
         total_amount: total, status: 'posted', journal_id: j.id,
         supplier_id: form.supplierId, notes: form.reason + (form.originalGrn ? ' · GRN: ' + form.originalGrn : ''),
-        posted_by: 'Joe Gembe',
+        posted_by: getPostedBy(),
       })
 
       // Reduce stock

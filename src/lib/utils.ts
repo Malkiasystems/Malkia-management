@@ -28,12 +28,19 @@ export const greeting = () => {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
 
-// Current user — replace with auth.currentUser.name when login is added
+// Current user, set by useAuth on every auth state change.
+//
+// This used to fall back to the literal string 'Joe Gembe' when the global was
+// missing, which is the worst possible default for a field that ends up on
+// journals.posted_by: an entry made by anyone during a load race, a stale tab,
+// or a failed session refresh gets permanently stamped with the CEO's name and
+// there is no way to tell those apart from real ones afterwards. 'Unknown' is
+// honest, sorts to the top of any audit query, and is obviously wrong on sight.
 export const getPostedBy = (): string => {
   try {
     const user = (window as any).__malkiaUser
-    return user?.name || 'Joe Gembe'
+    return user?.name || 'Unknown'
   } catch {
-    return 'Joe Gembe'
+    return 'Unknown'
   }
 }

@@ -335,7 +335,7 @@ export default function SalesDayBook({ onEdit }: Props) {
             </div>
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Salesperson</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. Joe, Lilian" value={searchSalesperson} onChange={e => setSearchSalesperson(e.target.value)} />
+              <input className="form-input" style={{ fontSize: 12 }} placeholder="Search by salesperson" value={searchSalesperson} onChange={e => setSearchSalesperson(e.target.value)} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Voucher Type</div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { getPostedBy } from '../lib/utils'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import type { Page } from '../lib/types'
@@ -62,7 +63,11 @@ const DEFAULT: InvSettings = {
   invoice_location_code: '',
 }
 
-const USERS = ['Joe Gembe', 'Jane Mwatonoka', 'Barbra Kabendera', 'Lilian Mallya', 'Sophia Kipanta']
+// Roster is loaded from the users table at runtime, not hardcoded. The old
+// literal list still carried Lilian Mallya, who has left, and was missing
+// Brenda, Epifania, Rahim, Yassir, Elizabeth, Sam and David — so reorder
+// alerts could be addressed to someone gone and never offered to most of
+// the team. Anyone hired or removed now shows up here with no code change.
 const ACCESS_OPTIONS = [{ v: 'admin', l: 'Super Admin only' }, { v: 'all', l: 'All users' }, { v: 'sales', l: 'Sales & Admin' }]
 
 const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: string }) => {
@@ -101,6 +106,15 @@ const Section = ({ icon, title, children }: { icon: string; title: string; child
 
 export default function InventorySettings({ onNav }: Props) {
   const [settings, setSettings] = useState<InvSettings>(DEFAULT)
+  // Active staff, read live from the users table (see the note where the old
+  // hardcoded USERS array used to sit). Falls back to whoever is already
+  // saved in reorder_notify_users so an existing selection never vanishes
+  // from the UI just because the fetch has not resolved yet.
+  const [staff, setStaff] = useState<string[]>([])
+  useEffect(() => {
+    supabase.from('users').select('full_name').eq('is_active', true).order('full_name')
+      .then(({ data }) => { if (data) setStaff(data.map(u => u.full_name).filter(Boolean)) })
+  }, [])
   const [categories, setCategories] = useState<ProductCategory[]>(DEFAULT_CATEGORIES)
   const [groups, setGroups] = useState<string[]>(DEFAULT_GROUPS)
   const [units, setUnits] = useState<string[]>(['Piece', 'Pack', 'Bottle', 'Tube', 'Box', 'Set'])
@@ -366,8 +380,8 @@ export default function InventorySettings({ onNav }: Props) {
               <tbody>
                 {[
                   { role: 'Super Admin (Joe, Jane)', canCost: true, canMargin: true },
-                  { role: 'Sales (Lilian)', canCost: settings.show_cost_to === 'all' || settings.show_cost_to === 'sales', canMargin: settings.show_margin_to === 'all' || settings.show_margin_to === 'sales' },
-                  { role: 'CRM (Barbra)', canCost: settings.show_cost_to === 'all', canMargin: settings.show_margin_to === 'all' },
+                  { role: 'Sales', canCost: settings.show_cost_to === 'all' || settings.show_cost_to === 'sales', canMargin: settings.show_margin_to === 'all' || settings.show_margin_to === 'sales' },
+                  { role: 'CRM', canCost: settings.show_cost_to === 'all', canMargin: settings.show_margin_to === 'all' },
                 ].map(row => (
                   <tr key={row.role} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '8px 10px' }}>{row.role}</td>
@@ -388,7 +402,7 @@ export default function InventorySettings({ onNav }: Props) {
             <Toggle label="Send WhatsApp Reorder Alerts" desc="Send WhatsApp message when a product hits its reorder point." val={settings.reorder_notify_whatsapp} onChange={v => set('reorder_notify_whatsapp', v)} />
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Notify These Users</div>
-              {USERS.map(u => {
+              {Array.from(new Set([...staff, ...settings.reorder_notify_users])).map(u => {
                 const checked = settings.reorder_notify_users.includes(u)
                 return (
                   <div key={u} onClick={() => set('reorder_notify_users', checked ? settings.reorder_notify_users.filter(x => x !== u) : [...settings.reorder_notify_users, u])}
@@ -582,7 +596,7 @@ function ReorderAlerts() {
   }, [])
 
   const acknowledge = async (id: string) => {
-    await supabase.from('reorder_alerts').update({ acknowledged: true, acknowledged_by: 'Joe Gembe', acknowledged_at: new Date().toISOString() }).eq('id', id)
+    await supabase.from('reorder_alerts').update({ acknowledged: true, acknowledged_by: getPostedBy(), acknowledged_at: new Date().toISOString() }).eq('id', id)
     setAlerts(a => a.filter(x => x.id !== id))
   }
 

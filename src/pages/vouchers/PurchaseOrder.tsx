@@ -4,7 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import LineItemsTable from '../../components/LineItemsTable'
 import Toast from '../../components/Toast'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import type { Page, LineItem } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -41,7 +41,7 @@ export default function PurchaseOrder({ onNav }: Props) {
         total_amount: subtotalTZS, status: 'posted',
         supplier_id: form.supplier,
         notes: `${form.currency} @ ${form.fxRate}${form.deliveryDate ? ' · Expected: ' + form.deliveryDate : ''} ${form.notes}`.trim(),
-        posted_by: 'Joe Gembe',
+        posted_by: getPostedBy(),
       })
       setToast(`${form.ref} created · PO saved · No journal posted`)
       setToast2Type('success')

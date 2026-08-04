@@ -10,7 +10,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -64,7 +64,7 @@ export default function ContraEntry({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Contra — ${fromAcct?.name} → ${toAcct?.name} — ${form.ref}`,
         journal_type: 'contra', source_type: 'contra', source_ref: form.ref,
-        posted_by: 'Joe Gembe', status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -85,7 +85,7 @@ export default function ContraEntry({ onNav }: Props) {
         ref: form.ref, type: 'contra', posting_date: form.date,
         description: `Contra — ${fromAcct?.name} → ${toAcct?.name}`,
         total_amount: amount, status: 'posted', journal_id: j.id,
-        posted_by: 'Joe Gembe', notes: form.notes,
+        posted_by: getPostedBy(), notes: form.notes,
       })
 
       showToast(`${form.ref} posted · Dr ${toAcct?.code} / Cr ${fromAcct?.code} · ${tzs(amount)}`)

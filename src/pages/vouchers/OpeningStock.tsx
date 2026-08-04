@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
@@ -76,7 +76,7 @@ export default function OpeningStock({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Opening Stock — ${form.ref} — Total: ${tzs(total)}`,
         journal_type: 'opening_stock', source_type: 'opening_stock', source_ref: form.ref,
-        posted_by: 'Joe Gembe', status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -97,7 +97,7 @@ export default function OpeningStock({ onNav }: Props) {
         ref: form.ref, type: 'opening_stock', posting_date: form.date,
         description: `Opening Stock — ${lines.filter(l => l.qty > 0).length} products — ${tzs(total)}`,
         total_amount: total, status: 'posted', journal_id: j.id,
-        notes: form.notes, posted_by: 'Joe Gembe',
+        notes: form.notes, posted_by: getPostedBy(),
       })
 
       // Update product quantities + item ledger + per-location stock

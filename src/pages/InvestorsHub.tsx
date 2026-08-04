@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
-import { tzs, today, localIso } from '../lib/utils'
+import { tzs, today, localIso, getPostedBy } from '../lib/utils'
 import { validatePostingDate } from '../lib/dateValidation'
 import { useAuth } from '../lib/useAuth'
 import { printHtmlDocument } from '../lib/printDocument'
@@ -209,7 +209,7 @@ export default function InvestorsHub() {
         journal_type: 'equity',
         source_type: 'equity',
         source_ref: jRef,
-        posted_by: 'Joe Gembe',
+        posted_by: getPostedBy(),
         status: 'posted',
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")

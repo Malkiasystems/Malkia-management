@@ -24,7 +24,14 @@ export default function GRN({ onNav }: Props) {
   const [products, setProducts] = useState<DBProduct[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
   const [lines, setLines] = useState<GRNLine[]>([{ productId: '', qty: 1, unitCost: 0, amount: 0 }])
-  const [form, setForm] = useState({ date: today(), ref: 'GRN-10-????', supplier: '', poRef: '', receivedBy: 'Joe Gembe', fxRate: '2540', condition: 'good', notes: '', location_code: '1002' })
+  const [form, setForm] = useState({ date: today(), ref: 'GRN-10-????', supplier: '', poRef: '', receivedBy: '', fxRate: '2540', condition: 'good', notes: '', location_code: '1002' })
+
+  // Active staff, read live from the users table instead of a hardcoded list.
+  const [staff, setStaff] = useState<string[]>([])
+  useEffect(() => {
+    supabase.from('users').select('full_name').eq('is_active', true).order('full_name')
+      .then(({ data }) => { if (data) setStaff(data.map(u => u.full_name).filter(Boolean)) })
+  }, [])
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
@@ -259,7 +266,9 @@ export default function GRN({ onNav }: Props) {
               </FG>
               <FG label="Received By">
                 <select className="form-input" value={form.receivedBy} onChange={e => set('receivedBy', e.target.value)}>
-                  <option>Joe Gembe</option><option>Jane Mwatonoka</option><option>Lilian Mallya</option>
+                  {/* Roster comes from the users table; the old literal list still
+                      offered Lilian Mallya, who has left, and omitted most of the team. */}
+                  {staff.map(n => <option key={n}>{n}</option>)}
                 </select>
               </FG>
             </div>

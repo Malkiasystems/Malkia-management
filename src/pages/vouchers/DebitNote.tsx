@@ -4,7 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -51,7 +51,7 @@ export default function DebitNote({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Debit Note — ${form.customer} — ${form.ref}`,
         journal_type: 'debit_note', source_type: 'debit_note', source_ref: form.ref,
-        posted_by: 'Joe Gembe', status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -74,7 +74,7 @@ export default function DebitNote({ onNav }: Props) {
         total_amount: amount, status: 'posted', journal_id: j.id,
         customer_id: selectedCust?.id || null,
         notes: `${form.reason}${form.originalInv ? ' · Orig: ' + form.originalInv : ''} ${form.notes}`.trim(),
-        posted_by: 'Joe Gembe',
+        posted_by: getPostedBy(),
       })
 
       if (selectedCust?.id) {

@@ -95,12 +95,19 @@ type CategoryKey = typeof CATEGORIES[number]['key']
 // Hardcoded to the current team. Extend here when new staff join; moving to a
 // DB-backed list is a future enhancement (would read from the users table).
 
-const STAFF = ['Joe Gembe', 'Jane Mwatonoka', 'Lilian Mallya', 'Barbra Kabendera', 'Sophia Kipanta', 'Other'] as const
+// Roster loaded from the users table at runtime. The old literal list still
+// carried Lilian Mallya, who has left, and was missing most of the team.
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function InternalUse({ onNav }: Props) {
   const { user, isSuperAdmin } = useAuth()
+  // Active staff, read live from the users table instead of a hardcoded list.
+  const [staff, setStaff] = useState<string[]>([])
+  useEffect(() => {
+    supabase.from('users').select('full_name').eq('is_active', true).order('full_name')
+      .then(({ data }) => { if (data) setStaff(data.map(u => u.full_name).filter(Boolean)) })
+  }, [])
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -116,7 +123,7 @@ export default function InternalUse({ onNav }: Props) {
     date: today(),
     ref: '',
     category: 'sample' as CategoryKey,
-    takenBy: 'Joe Gembe',
+    takenBy: '',
     takenByOther: '',          // only used if takenBy === 'Other'
     recipient: '',             // "Given to Dr Sophia at Aga Khan" etc.
     locationCode: '1001',
@@ -547,7 +554,7 @@ export default function InternalUse({ onNav }: Props) {
         <div className="form-row">
           <FG label="Taken By" req>
             <select className="form-input" value={form.takenBy} onChange={e => set('takenBy', e.target.value)}>
-              {STAFF.map(s => <option key={s} value={s}>{s}</option>)}
+              {[...staff, 'Other'].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </FG>
           {form.takenBy === 'Other' && (
