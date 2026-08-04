@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
 import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
@@ -14,6 +15,7 @@ interface Props {
 
 
 export default function SalesDayBook({ onEdit }: Props) {
+  const vis = useCostVisibility()
   const [sales, setSales] = useState<SDBSale[]>([])
   // Day Close status: if today has been closed (daily_closes), say so and show
   // the variance — this page is where the cashier lands after closing.
@@ -402,7 +404,7 @@ export default function SalesDayBook({ onEdit }: Props) {
         <div className="stat-card green"><div className="stat-label">Cash Sales</div><div className="stat-value">{cashTotal >= 1000000 ? (cashTotal/1000000).toFixed(2)+'M' : (cashTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
         <div className="stat-card blue"><div className="stat-label">Credit Sales</div><div className="stat-value">{creditTotal >= 1000000 ? (creditTotal/1000000).toFixed(2)+'M' : (creditTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
         <div className="stat-card amber"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
-        <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>
+        <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{vis.margin(marginPct)}</div><div className="stat-change up">{vis.canViewMargin ? tzs(totalMargin) : HIDDEN}</div></div>
       </div>
 
       {/* PAYMENT SPLIT (Retail + Wholesale) + STATUS */}
@@ -477,7 +479,7 @@ export default function SalesDayBook({ onEdit }: Props) {
           {filtered.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>
               Avg sale: <span style={{ color: 'var(--text)', fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(Math.round(totalRevenue / filtered.length))}</span> ·
-              Avg margin: <span style={{ color: 'var(--green)', fontFamily: 'var(--mono)', fontWeight: 600 }}> {marginPct}%</span>
+              Avg margin: <span style={{ color: 'var(--green)', fontFamily: 'var(--mono)', fontWeight: 600 }}> {vis.margin(marginPct)}</span>
             </div>
           )}
         </div>

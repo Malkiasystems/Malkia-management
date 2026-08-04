@@ -124,6 +124,13 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'inventory.count', label: 'Stock Count' },
       { key: 'inventory.approve', label: 'Approve Adjustments' },
       { key: 'inventory.export', label: 'Export Inventory' },
+      // Cost and margin are split because they leak different things: cost
+      // exposes supplier pricing and landed cost, margin exposes how much
+      // discounting room there is. Enforced by useCostVisibility() on the
+      // selling and reporting screens. Purchase-side vouchers still show cost
+      // to whoever can open them — you cannot mask the field being typed into.
+      { key: 'inventory.view_cost', label: 'See Product Cost' },
+      { key: 'inventory.view_margin', label: 'See Margin & Profit' },
     ]
   },
   {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { fmtDualQty } from '../lib/uom'
 import { supabase } from '../lib/supabase'
+import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
 import Toast from '../components/Toast'
 import { FG } from '../components/FormHelpers'
 import { getStatus, tzs, localIso } from '../lib/utils'
@@ -73,6 +74,7 @@ const ENTRY_TYPE_LABELS: Record<string, { label: string; color: string; dr: stri
 }
 
 export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
+  const vis = useCostVisibility()
   const userLoc = useUserLocation()
   const { user, can } = useAuth()
   const [products, setProducts] = useState<DBProduct[]>([])
@@ -586,7 +588,7 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
           <div className="stat-card green"><div className="stat-label">Total In</div><div className="stat-value">{totalIn}</div><div className="stat-change">{filteredLedger.filter(e=>(e.qty||0)>0).length} entries</div></div>
           <div className="stat-card red"><div className="stat-label">Total Out</div><div className="stat-value">{totalOut}</div><div className="stat-change">{filteredLedger.filter(e=>(e.qty||0)<0).length} entries</div></div>
           <div className="stat-card blue"><div className="stat-label">Net Movement</div><div className="stat-value">{totalIn - totalOut}</div><div className="stat-change">units</div></div>
-          <div className="stat-card amber"><div className="stat-label">Cost Moved</div><div className="stat-value" style={{ fontSize: 16 }}>{tzs(filteredLedger.reduce((s,e)=>s+Math.abs(e.cost_amount||0),0))}</div></div>
+          <div className="stat-card amber"><div className="stat-label">Cost Moved</div><div className="stat-value" style={{ fontSize: 16 }}>{vis.canViewCost ? tzs(filteredLedger.reduce((s,e)=>s+Math.abs(e.cost_amount||0),0)) : HIDDEN}</div></div>
         </div>
 
         {/* Location + type filters */}
@@ -815,10 +817,10 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                         )}
                       </td>
                       <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{p.reorder_point}</td>
-                      <td className="td-right td-mono" style={{ fontSize: 11 }}>{p.cost_price.toLocaleString()}</td>
+                      <td className="td-right td-mono" style={{ fontSize: 11 }}>{vis.cost(p.cost_price)}</td>
                       <td className="td-right td-mono" style={{ fontSize: 11 }}>{p.selling_price.toLocaleString()}</td>
-                      <td className="td-right td-mono" style={{ color: margin >= 40 ? 'var(--green)' : margin >= 20 ? 'var(--yellow)' : 'var(--red)', fontWeight: 600, fontSize: 12 }}>{margin}%</td>
-                      <td className="td-right td-mono" style={{ fontSize: 11 }}>{(p.cost_price * effectiveQty).toLocaleString()}</td>
+                      <td className="td-right td-mono" style={{ color: !vis.canViewMargin ? 'var(--text3)' : margin >= 40 ? 'var(--green)' : margin >= 20 ? 'var(--yellow)' : 'var(--red)', fontWeight: 600, fontSize: 12 }}>{vis.margin(margin)}</td>
+                      <td className="td-right td-mono" style={{ fontSize: 11 }}>{vis.cost(p.cost_price * effectiveQty)}</td>
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                           <div className="stock-bar"><div className={`stock-fill ${s}`} style={{ width: `${pct}%` }}></div></div>

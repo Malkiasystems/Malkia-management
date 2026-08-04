@@ -8,6 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
 import type { Page } from '../lib/types'
 
 interface Props { onNav?: (p: Page) => void }
@@ -25,6 +26,7 @@ function defaultTs(): string {
 }
 
 export default function StockAsOf({ onNav: _onNav }: Props) {
+  const vis = useCostVisibility()
   const [ts, setTs] = useState(defaultTs())
   const [rows, setRows] = useState<Row[]>([])
   const [locations, setLocations] = useState<string[]>([])
@@ -152,7 +154,7 @@ export default function StockAsOf({ onNav: _onNav }: Props) {
                     <td style={{ padding: '9px 12px', fontWeight: 600 }}>{r.name}</td>
                     <td style={{ padding: '9px 12px', color: 'var(--text3)' }}>{r.category}</td>
                     <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 700 }}>{qtyOf(r)}</td>
-                    <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--mono)' }}>{tzs(r.cost)}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--mono)' }}>{vis.canViewCost ? tzs(r.cost) : HIDDEN}</td>
                     <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 700 }}>{tzs(valOf(r))}</td>
                   </tr>
                 ))}

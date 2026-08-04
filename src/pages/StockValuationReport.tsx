@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
 import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import { useUserLocation } from '../lib/useUserLocation'
@@ -19,6 +20,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 }
 
 export default function StockValuationReport() {
+  const vis = useCostVisibility()
   const userLoc = useUserLocation()
   const { user } = useAuth()
   const [items, setItems] = useState<StockItem[]>([])
@@ -172,9 +174,9 @@ export default function StockValuationReport() {
       </div>
 
       <div className="grid g4" style={{ marginBottom:20 }}>
-        <div className="stat-card blue"><div className="stat-label">Stock Value (Cost)</div><div className="stat-value" style={{ fontSize:18 }}>{tzs(totalValue)}</div><div className="stat-change">At average cost</div></div>
+        <div className="stat-card blue"><div className="stat-label">Stock Value (Cost)</div><div className="stat-value" style={{ fontSize:18 }}>{vis.canViewCost ? tzs(totalValue) : HIDDEN}</div><div className="stat-change">At average cost</div></div>
         <div className="stat-card green"><div className="stat-label">Potential Revenue</div><div className="stat-value" style={{ fontSize:18 }}>{tzs(totalRevPotential)}</div><div className="stat-change">At selling price</div></div>
-        <div className="stat-card amber"><div className="stat-label">Potential GP</div><div className="stat-value" style={{ fontSize:18 }}>{tzs(totalPotentialGP)}</div><div className="stat-change">Avg margin {avgMargin}%</div></div>
+        <div className="stat-card amber"><div className="stat-label">Potential GP</div><div className="stat-value" style={{ fontSize:18 }}>{vis.canViewMargin ? tzs(totalPotentialGP) : HIDDEN}</div><div className="stat-change">Avg margin {vis.margin(avgMargin)}</div></div>
         <div className="stat-card red"><div className="stat-label">Stock Alerts</div><div className="stat-value">{zeroStock + lowStock}</div><div className="stat-change">{zeroStock} out · {lowStock} low</div></div>
       </div>
 
@@ -191,9 +193,9 @@ export default function StockValuationReport() {
                     <td style={{ fontSize:11,color:'var(--text3)' }}>{item.category}</td>
                     <td style={{ fontSize:11,color:'var(--text3)' }}>{item.unit}</td>
                     <td className="td-right td-mono" style={{ fontWeight:600,color:item.qty_on_hand===0?'var(--red)':item.qty_on_hand<=10?'var(--yellow)':'var(--green)' }}>{item.qty_on_hand}</td>
-                    <td className="td-right td-mono" style={{ fontSize:12 }}>{item.cost_price.toLocaleString()}</td>
+                    <td className="td-right td-mono" style={{ fontSize:12 }}>{vis.cost(item.cost_price)}</td>
                     <td className="td-right td-mono" style={{ fontSize:12 }}>{item.selling_price.toLocaleString()}</td>
-                    <td className="td-right" style={{ fontSize:11,fontFamily:'var(--mono)',color:item.margin>=40?'var(--green)':item.margin>=20?'var(--yellow)':'var(--red)',fontWeight:600 }}>{item.margin}%</td>
+                    <td className="td-right" style={{ fontSize:11,fontFamily:'var(--mono)',color:!vis.canViewMargin?'var(--text3)':item.margin>=40?'var(--green)':item.margin>=20?'var(--yellow)':'var(--red)',fontWeight:600 }}>{vis.margin(item.margin)}</td>
                     <td className="td-right td-mono" style={{ fontSize:12,fontWeight:600,color:'var(--blue)' }}>{item.value.toLocaleString()}</td>
                     <td className="td-right td-mono" style={{ fontSize:12,color:'var(--green)' }}>{item.potential_revenue.toLocaleString()}</td>
                   </tr>

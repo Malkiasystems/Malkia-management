@@ -10,6 +10,7 @@ import type { SalesTarget, TargetProgress, TargetAllocation } from '../lib/useSa
 import Toast from '../components/Toast'
 import { tzs, getPostedBy, localIso } from '../lib/utils'
 import { fmtDualQty, fmtCartonBreakdown, cartonsToPieces } from '../lib/uom'
+import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
 import { consumeSalesRegisterTab, rememberSalesRegisterTab, subscribeSalesRegisterTab } from '../lib/salesRegisterTab'
 import type { Page } from '../lib/types'
 
@@ -131,6 +132,7 @@ function periodLabel(type: string) {
 
 // ── Main Component ──────────────────────────────────────────
 export default function SalesRegister({ onEdit }: Props = {}) {
+  const vis = useCostVisibility()
   // Tab survives refresh (localStorage) and can be set by sidebar shortcuts
   // (Reports / Targets) via the salesRegisterTab bus — see that file.
   const [tab, setTab] = useState<Tab>(() => (consumeSalesRegisterTab() as Tab) || 'transactions')
@@ -1000,7 +1002,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
             <div className="stat-card green"><div className="stat-label">Products Sold</div><div className="stat-value">{productRows.length}</div><div className="stat-change up">Unique SKUs</div></div>
             <div className="stat-card amber"><div className="stat-label">Total Units</div><div className="stat-value">{totalProductUnits.toLocaleString()}</div><div className="stat-change up">{productCartonUpc >= 2 ? `Items sold · ${fmtCartonBreakdown(totalProductUnits, productCartonUpc)}` : 'Items sold'}</div></div>
             <div className="stat-card blue"><div className="stat-label">Revenue</div><div className="stat-value">{tzs(totalProductRevenue)}</div><div className="stat-change up">Product sales</div></div>
-            <div className="stat-card green"><div className="stat-label">Gross Margin</div><div className="stat-value">{totalProductRevenue > 0 ? Math.round((totalProductMargin / totalProductRevenue) * 100) : 0}%</div><div className="stat-change up">{tzs(totalProductMargin)}</div></div>
+            <div className="stat-card green"><div className="stat-label">Gross Margin</div><div className="stat-value">{vis.margin(totalProductRevenue > 0 ? (totalProductMargin / totalProductRevenue) * 100 : 0)}</div><div className="stat-change up">{vis.canViewMargin ? tzs(totalProductMargin) : HIDDEN}</div></div>
           </div>
 
           {/* Top 5 visual bar chart */}
@@ -1052,8 +1054,8 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{r.category}</td>
                       <td className="td-right td-mono">{fmtDualQty(r.unitsSold, r.unitsPerCarton)}</td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{r.revenue.toLocaleString()}</td>
-                      <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{r.cost.toLocaleString()}</td>
-                      <td className="td-right" style={{ fontFamily: 'var(--mono)', color: r.marginPct >= 40 ? 'var(--green)' : r.marginPct >= 20 ? 'var(--yellow)' : 'var(--red)' }}>{r.marginPct}%</td>
+                      <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{vis.cost(r.cost)}</td>
+                      <td className="td-right" style={{ fontFamily: 'var(--mono)', color: !vis.canViewMargin ? 'var(--text3)' : r.marginPct >= 40 ? 'var(--green)' : r.marginPct >= 20 ? 'var(--yellow)' : 'var(--red)' }}>{vis.margin(r.marginPct)}</td>
                       <td className="td-right td-mono">{r.avgPrice.toLocaleString()}</td>
                       <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{r.txCount}</td>
                     </tr>
@@ -1064,8 +1066,8 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                     <td colSpan={4} className="td-bold">TOTALS — {productRows.length} products</td>
                     <td className="td-right td-mono">{totalProductUnits.toLocaleString()}</td>
                     <td className="td-right td-mono td-green">{totalProductRevenue.toLocaleString()}</td>
-                    <td className="td-right td-mono">{(totalProductRevenue - totalProductMargin).toLocaleString()}</td>
-                    <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{totalProductRevenue > 0 ? Math.round((totalProductMargin / totalProductRevenue) * 100) : 0}%</td>
+                    <td className="td-right td-mono">{vis.cost(totalProductRevenue - totalProductMargin)}</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{vis.margin(totalProductRevenue > 0 ? (totalProductMargin / totalProductRevenue) * 100 : 0)}</td>
                     <td colSpan={2}></td>
                   </tr>
                 )}
@@ -1148,7 +1150,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                     <td className="td-right td-mono" style={{ color: 'var(--green)' }}>{c.cashRevenue > 0 ? c.cashRevenue.toLocaleString() : '—'}</td>
                     <td className="td-right td-mono" style={{ color: 'var(--blue)' }}>{c.creditRevenue > 0 ? c.creditRevenue.toLocaleString() : '—'}</td>
                     <td className="td-right td-mono td-green" style={{ fontWeight: 700 }}>{c.revenue.toLocaleString()}</td>
-                    <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{c.marginPct}%</td>
+                    <td className="td-right td-mono" style={{ color: 'var(--text3)' }}>{vis.margin(c.marginPct)}</td>
                     <td className="td-right td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{c.lastPurchase}</td>
                   </tr>
                 ))}

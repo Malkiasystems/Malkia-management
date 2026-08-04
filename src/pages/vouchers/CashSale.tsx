@@ -18,6 +18,7 @@ import CustomerContextSection from '../../components/CustomerContextSection'
 import type { CustomerContext } from '../../components/CustomerContextSection'
 import type { Bundle } from '../../lib/useBundles'
 import { PAYMENT_METHODS } from '../../lib/cashSaleTypes'
+import { useCostVisibility } from '../../lib/costVisibility'
 import type { DBProduct, DBCustomer, SaleLine, SplitLine, PaymentMethod } from '../../lib/cashSaleTypes'
 import type { Page } from '../../lib/types'
 import { postCashSale, updateCashSale } from '../../lib/cashSalePost'
@@ -33,6 +34,7 @@ interface Props {
 
 
 export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
+  const vis = useCostVisibility()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [autoRef, setAutoRef] = useState('CS-10-????')
@@ -1367,7 +1369,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                       <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>included</span>
                     </div>
                   )}
-                  {margin > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
+                  {margin > 0 && vis.canViewMargin && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 800, padding: '12px 0 0', borderTop: '1px solid var(--border2)', marginTop: 8 }}>
                     <span>TOTAL</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(total)}</span>
                   </div>
