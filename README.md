@@ -1,29 +1,36 @@
-# Banks page — sortable statement columns
+# Banks page — Export as PDF, Excel, and CSV
 
 ## Deploy
-One file: src/pages/Banks.tsx (full replacement). No migration.
-SUPERSEDES the banks_maximize.zip file — this build contains BOTH the
-maximize feature and column sorting. Deploy this one.
+Two files, must ship together:
+  src/pages/Banks.tsx              (full replacement)
+  src/lib/bankStatementExport.ts   (new)
+No migration. SUPERSEDES banks_maximize.zip and banks_sort_and_maximize.zip —
+this build contains maximize + column sorting + the export menu. Deploy this.
 
 ## What it does
-Every column header on the account statement is clickable:
-- Click → sort ascending. Click again → descending. Third click → clear.
-- Shift+click → stack a secondary sort (1/2/3 priority badges on headers).
-- Active column shows an arrow and priority badge, same affordance as the
-  Customers list (shared lib/useTableSort hook, not a new copy of the logic).
-- Sort choice persists per user in localStorage (malkia.banks.ledger.sort).
-- Money In / Money Out sort as numbers; empty cells always sink to the bottom
-  in either direction. Type sorts by its display label.
-- Works identically in normal and maximized view.
+Both Export buttons (page header and statement card) open a menu:
+  PDF (print / save)  branded A4 document via the popup-then-iframe print
+                      helper (printDocument.ts), Malkia teal/maroon header,
+                      Money In green / Money Out red, totals strip
+  Excel (.xlsx)       title/period/generated header, sized columns, totals
+                      (via the xlsx dependency already in the repo)
+  CSV                 same columns and escaping as before
 
-## Accounting honesty
-Sorting never falsifies the Balance column — each row's value is that entry's
-balance AFTER it posted, true in any order. It just stops "running" visually,
-so while any sort is active the card subtitle says: "sorted — Balance shows
-each entry's balance after posting."
+## Bug fixed on the way
+The old CSV recomputed the running balance over the DISPLAY array — which is
+sorted newest-first — starting from zero, so every exported balance was
+cumulative-backwards. All three formats now re-sort chronologically and carry
+the same per-row running balance the screen shows.
 
-CSV Export stays chronological regardless of on-screen sort. A bank statement
-export is an accounting document; date order is the correct order for it.
+Exports are always chronological regardless of any on-screen column sort:
+a statement is an accounting document, and date order is the only correct
+order for one.
+
+## Conventions
+Export logic lives in a pure lib (bankStatementExport.ts), same pattern as
+expenseRegisterExport.ts / salesDayBookExport.ts; PDF goes through
+printHtmlDocument so blocked popups fall back to the iframe path with a real
+error instead of failing silently.
 
 ## Verified
-tsc -b and vite build pass on the full repo with this file in place.
+tsc -b and vite build pass on the full repo with these files in place.

@@ -2,6 +2,7 @@ import EmptyState from '../components/EmptyState'
 import { GuideTip, GuideToggle } from '../components/GuideMode'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTableSort } from '../lib/useTableSort'
+import { exportStatementCSV, exportStatementExcel, exportStatementPDF, type StatementExportRow, type StatementExportMeta } from '../lib/bankStatementExport'
 import { supabase } from '../lib/supabase'
 import { accountBrand, defaultColorForNature, iconForNature, hexToTint } from '../components/accountBrand'
 import { tzs, localIso, today } from '../lib/utils'
@@ -523,38 +524,47 @@ export default function Banks({ onNav }: Props) {
   const netFlow = totalIn - totalOut
   const diff = selected ? (parseFloat(statementBalance.replace(/,/g, '')) || 0) - selected.balance : 0
 
-  // Export the currently-loaded statement as CSV. Fires from the account
-  // detail's Export button. If no account is selected or the ledger is
-  // empty, this is a no-op. Filename encodes the account name and period.
-  const exportStatement = () => {
+  // Export the currently-loaded statement. Three formats share one row
+  // builder. Rows are re-sorted CHRONOLOGICALLY and carry the same per-row
+  // running_balance the screen shows — the previous CSV recomputed the
+  // running column over the newest-first display array starting from zero,
+  // which made every exported balance cumulative-backwards. Column sorts on
+  // screen never affect the export: a statement is an accounting document,
+  // and date order is the only correct order for one.
+  const [exportOpen, setExportOpen] = useState<null | 'header' | 'card'>(null)
+  useEffect(() => {
+    if (!exportOpen) return
+    const close = () => setExportOpen(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [exportOpen])
+
+  const exportStatement = (kind: 'csv' | 'excel' | 'pdf') => {
     if (!selected || ledger.length === 0) return
-    const escape = (v: string | number) => {
-      const s = String(v ?? '')
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    const chrono = [...ledger].sort((a, b) => a.posting_date.localeCompare(b.posting_date))
+    const rows: StatementExportRow[] = chrono.map(l => ({
+      date: l.posting_date,
+      ref: l.voucher_ref,
+      type: VOUCHER_TYPE_LABEL[l.voucher_type] || l.voucher_type || '—',
+      description: l.description,
+      moneyIn: l.debit || 0,
+      moneyOut: l.credit || 0,
+      balance: l.running_balance ?? 0,
+    }))
+    const meta: StatementExportMeta = {
+      accountName: selected.name,
+      accountCode: selected.code,
+      accountNumber: selected.account_number,
+      fromDate, toDate,
+      totalIn, totalOut, netFlow,
+      count: ledger.length,
     }
-    const header = ['Date', 'Reference', 'Type', 'Description', 'Money In (TZS)', 'Money Out (TZS)', 'Balance (TZS)']
-    let running = 0
-    const rows = ledger.map(l => {
-      running += l.debit - l.credit
-      return [
-        l.posting_date,
-        l.voucher_ref,
-        VOUCHER_TYPE_LABEL[l.voucher_type] || l.voucher_type,
-        l.description,
-        l.debit || '',
-        l.credit || '',
-        running,
-      ].map(escape).join(',')
-    })
-    const csv = [header.map(escape).join(','), ...rows].join('\n')
-    const safeName = selected.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
-    const filename = `${safeName}-statement-${fromDate}-to-${toDate}.csv`
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = filename
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    if (kind === 'csv') exportStatementCSV(rows, meta)
+    else if (kind === 'excel') exportStatementExcel(rows, meta)
+    else {
+      const res = exportStatementPDF(rows, meta)
+      if (!res.ok && res.error) alert(res.error)
+    }
   }
 
   return (
@@ -595,15 +605,32 @@ export default function Banks({ onNav }: Props) {
           <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={loadAccounts}>
             <Icon name="refresh" size={14} /> Refresh
           </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: selected && ledger.length > 0 ? 1 : 0.5 }}
-            onClick={exportStatement}
-            disabled={!selected || ledger.length === 0}
-            title={selected ? 'Download the current statement as CSV' : 'Select an account first'}
-          >
-            <Icon name="export" size={14} /> Export
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: selected && ledger.length > 0 ? 1 : 0.5 }}
+              onClick={e => { e.stopPropagation(); setExportOpen(o => o === 'header' ? null : 'header') }}
+              disabled={!selected || ledger.length === 0}
+              title={selected ? 'Download the current statement as PDF, Excel, or CSV' : 'Select an account first'}
+            >
+              <Icon name="export" size={14} /> Export ▾
+            </button>
+            {exportOpen === 'header' && (
+              <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,.4)', zIndex: 950, minWidth: 160, overflow: 'hidden' }}>
+                {(['pdf', 'excel', 'csv'] as const).map(k => (
+                  <button
+                    key={k}
+                    onClick={() => { exportStatement(k); setExportOpen(null) }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 14px', fontSize: 12, cursor: 'pointer' }}
+                    onMouseEnter={e => { (e.target as HTMLElement).style.background = 'var(--surface2)' }}
+                    onMouseLeave={e => { (e.target as HTMLElement).style.background = 'transparent' }}
+                  >
+                    {k === 'pdf' ? 'PDF (print / save)' : k === 'excel' ? 'Excel (.xlsx)' : 'CSV'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -965,14 +992,32 @@ export default function Banks({ onNav }: Props) {
                         >
                           <Icon name={maximized ? 'minimize' : 'maximize'} size={13} /> {maximized ? 'Restore' : 'Maximize'}
                         </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: ledger.length > 0 ? 1 : 0.5 }}
-                          onClick={exportStatement}
-                          disabled={ledger.length === 0}
-                        >
-                          <Icon name="export" size={13} /> Export
-                        </button>
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: ledger.length > 0 ? 1 : 0.5 }}
+                            onClick={e => { e.stopPropagation(); setExportOpen(o => o === 'card' ? null : 'card') }}
+                            disabled={ledger.length === 0}
+                            title="Download the current statement as PDF, Excel, or CSV"
+                          >
+                            <Icon name="export" size={13} /> Export ▾
+                          </button>
+                          {exportOpen === 'card' && (
+                            <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,.4)', zIndex: 950, minWidth: 160, overflow: 'hidden' }}>
+                              {(['pdf', 'excel', 'csv'] as const).map(k => (
+                  <button
+                    key={k}
+                    onClick={() => { exportStatement(k); setExportOpen(null) }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px 14px', fontSize: 12, cursor: 'pointer' }}
+                    onMouseEnter={e => { (e.target as HTMLElement).style.background = 'var(--surface2)' }}
+                    onMouseLeave={e => { (e.target as HTMLElement).style.background = 'transparent' }}
+                  >
+                    {k === 'pdf' ? 'PDF (print / save)' : k === 'excel' ? 'Excel (.xlsx)' : 'CSV'}
+                  </button>
+                ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
