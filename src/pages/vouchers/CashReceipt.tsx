@@ -145,7 +145,51 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
   // The customer is auto-selected by CustomerPaymentFlow via initialCustomerId.
   // Amount is deliberately NOT prefilled — see the note on Props.
 
-  useEffect(() => { loadAccounts(); loadNextRef() }, [])
+  useEffect(() => { loadAccounts(); loadNextRef(); loadDateSettings() }, [])
+
+  // The posting-date policy already exists in system_settings.inventory_settings
+  // and validatePostingDate() enforces it — but only at Post time. The field
+  // stayed editable until then, so a user could type a date, fill the whole
+  // receipt, and only get told no at the last step. Read the same settings the
+  // validator reads and lock the input up front, so the rule is visible rather
+  // than a trap. Single source of truth: this never invents its own policy.
+  const [invSettings, setInvSettings] = useState<any>(null)
+
+  const loadDateSettings = async () => {
+    const { data } = await supabase.from('system_settings')
+      .select('value').eq('key', 'inventory_settings').single()
+    if (data?.value) { try { setInvSettings(JSON.parse(data.value)) } catch { /* leave unlocked */ } }
+  }
+
+  // Mirrors validatePostingDate() exactly: locked when lock_posting_to_today is
+  // on, unless backdate_super_admin_only grants this user the exception.
+  const dateLocked = !!invSettings?.lock_posting_to_today
+    && !(invSettings?.backdate_super_admin_only && isSuperAdmin())
+
+  // A voucher screen left open overnight would otherwise post to yesterday
+  // while showing a locked field the user never touched.
+  useEffect(() => {
+    if (dateLocked && form.date !== today()) setForm(f => ({ ...f, date: today() }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateLocked, form.date])
+
+  const dmy = (iso: string) => {
+    const [y, m, d] = (iso || '').split('-')
+    return d ? `${d}/${m}/${y}` : iso
+  }
+
+  // One definition, used by both the batch header and the single-receipt form,
+  // so the two can never drift apart.
+  const dateField = dateLocked ? (
+    <>
+      <input className="form-input" value={dmy(form.date)} readOnly />
+      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, fontFamily: 'var(--mono)' }}>
+        Locked to today · set in Inventory Settings
+      </div>
+    </>
+  ) : (
+    <input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} />
+  )
 
   const loadAccounts = async () => {
     const { data } = await supabase.from('accounts')
@@ -494,7 +538,7 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
             <div className="card-title" style={{ marginBottom: 12 }}>Batch Header</div>
             <div className="form-row">
               <FG label="Voucher Ref Prefix" req><input className="form-input" value={form.ref} readOnly /></FG>
-              <FG label="Posting Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
+              <FG label="Posting Date" req>{dateField}</FG>
             </div>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6, fontFamily: 'var(--mono)' }}>
               Each row picks its own deposit account (different customers may have paid into different banks). Method label is auto-derived from the chosen account. New rows default to the last-picked account.
@@ -526,7 +570,7 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
               <div className="card-title" style={{ marginBottom: 16 }}>Receipt Details</div>
               <div className="form-row">
                 <FG label="Voucher Ref" req><input className="form-input" value={form.ref} readOnly /></FG>
-                <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
+                <FG label="Date" req>{dateField}</FG>
               </div>
 
               {receiptType === 'other' && (
