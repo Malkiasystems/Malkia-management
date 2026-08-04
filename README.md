@@ -1,23 +1,29 @@
-# Banks page — full-screen ledger (Maximize)
+# Banks page — sortable statement columns
 
 ## Deploy
-One file: src/pages/Banks.tsx (full replacement). No migration. Nothing else
-changes, and no existing function was removed or disabled — the normal layout,
-reconcile panel, export, edit modal and permissions all behave exactly as before.
+One file: src/pages/Banks.tsx (full replacement). No migration.
+SUPERSEDES the banks_maximize.zip file — this build contains BOTH the
+maximize feature and column sorting. Deploy this one.
 
 ## What it does
-- "Maximize" appears in two places: under Current Balance in the account
-  header, and beside Export on the statement card.
-- Maximized mode lifts the SAME detail panel into a fixed overlay covering the
-  whole viewport (sidebar and topbar included). The tall account header
-  collapses to a one-line bar (icon · name · GL/AC · balance · Exit), and the
-  statement card flexes to fill everything below the date bar.
-- The table body scrolls inside the card with the column headers stuck to the
-  top — the sticky thead already existed in global CSS; it just never had a
-  bounded scroll container on this page until now.
-- Exit via the bar button, the Restore button on the card, or Esc.
-- Date presets, Load, Reconcile, and Export all keep working while maximized.
-- The Edit modal (z 1000) still layers above the overlay (z 900) if opened.
+Every column header on the account statement is clickable:
+- Click → sort ascending. Click again → descending. Third click → clear.
+- Shift+click → stack a secondary sort (1/2/3 priority badges on headers).
+- Active column shows an arrow and priority badge, same affordance as the
+  Customers list (shared lib/useTableSort hook, not a new copy of the logic).
+- Sort choice persists per user in localStorage (malkia.banks.ledger.sort).
+- Money In / Money Out sort as numbers; empty cells always sink to the bottom
+  in either direction. Type sorts by its display label.
+- Works identically in normal and maximized view.
+
+## Accounting honesty
+Sorting never falsifies the Balance column — each row's value is that entry's
+balance AFTER it posted, true in any order. It just stops "running" visually,
+so while any sort is active the card subtitle says: "sorted — Balance shows
+each entry's balance after posting."
+
+CSV Export stays chronological regardless of on-screen sort. A bank statement
+export is an accounting document; date order is the correct order for it.
 
 ## Verified
 tsc -b and vite build pass on the full repo with this file in place.

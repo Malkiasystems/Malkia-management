@@ -1,6 +1,7 @@
 import EmptyState from '../components/EmptyState'
 import { GuideTip, GuideToggle } from '../components/GuideMode'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useTableSort } from '../lib/useTableSort'
 import { supabase } from '../lib/supabase'
 import { accountBrand, defaultColorForNature, iconForNature, hexToTint } from '../components/accountBrand'
 import { tzs, localIso, today } from '../lib/utils'
@@ -97,6 +98,41 @@ const Icon = ({ name, size = 18, color = 'currentColor' }: { name: string; size?
 // category, so any Cash & Bank account will render even if its code is not
 // in this map (it falls back to a neutral tile via cfg()).
 
+function SortableTh({
+  label, sortKey, align, width, onHeaderClick, getSortIndex, getSortDir,
+}: {
+  label: string
+  sortKey: string
+  align?: 'right'
+  width?: number
+  onHeaderClick: (key: string, e?: { shiftKey?: boolean }) => void
+  getSortIndex: (key: string) => number | null
+  getSortDir: (key: string) => 'asc' | 'desc' | null
+}) {
+  const idx = getSortIndex(sortKey)
+  const dir = getSortDir(sortKey)
+  const active = idx !== null
+  const arrow = dir === 'asc' ? '\u2191' : dir === 'desc' ? '\u2193' : ''
+  return (
+    <th
+      className={align === 'right' ? 'td-right' : undefined}
+      style={{ cursor: 'pointer', userSelect: 'none', width }}
+      onClick={e => onHeaderClick(sortKey, { shiftKey: e.shiftKey })}
+      title="Click to sort. Shift+click for multi-column sort."
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {label}
+        {active && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--accent)' }}>
+            <span style={{ fontSize: 10 }}>{arrow}</span>
+            <span style={{ fontSize: 8, fontFamily: 'var(--mono)', background: 'var(--accent-dim)', padding: '0 4px', borderRadius: 3 }}>{idx}</span>
+          </span>
+        )}
+      </span>
+    </th>
+  )
+}
+
 const VOUCHER_TYPE_LABEL: Record<string, string> = {
   cash_sale: 'Cash Sale', cash_payment: 'Payment', cash_receipt: 'Receipt',
   bank_transfer: 'Transfer', grn: 'GRN', purchase_invoice: 'Purchase Inv',
@@ -133,6 +169,38 @@ export default function Banks({ onNav }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [maximized])
+
+  // Column sort for the statement table. Same hook and header affordance as
+  // the Customers list: click to sort (asc → desc → clear), shift-click to
+  // stack a secondary sort, persisted per user in localStorage.
+  //
+  // Sorting does NOT falsify the Balance column — each row's value is that
+  // entry's balance AFTER it posted, which stays true in any display order.
+  // It only stops "running" visually, so the card-sub says as much while a
+  // sort is active.
+  //
+  // useCallback with no deps: useTableSort lists `accessor` in its memo deps,
+  // so an unstable identity would re-sort on every render for nothing.
+  const ledgerSortAccessor = useCallback((r: LedgerEntry, key: string): unknown => {
+    switch (key) {
+      case 'date': return r.posting_date
+      case 'ref': return r.voucher_ref
+      case 'type': return VOUCHER_TYPE_LABEL[r.voucher_type] || r.voucher_type
+      case 'description': return r.description
+      case 'in': return r.debit > 0 ? r.debit : null
+      case 'out': return r.credit > 0 ? r.credit : null
+      case 'balance': return r.running_balance ?? null
+      default: return null
+    }
+  }, [])
+  const {
+    sorted: sortedLedger, sortSpecs: ledgerSortSpecs,
+    onHeaderClick: onLedgerHeaderClick, getSortIndex: getLedgerSortIndex, getSortDir: getLedgerSortDir,
+  } = useTableSort<LedgerEntry>(ledger, {
+    storageKey: 'malkia.banks.ledger.sort',
+    defaultSort: [],
+    accessor: ledgerSortAccessor,
+  })
 
   // Editor state. Set when the user clicks Edit on an existing account or
   // Setup on a preset placeholder. On Save, we UPDATE the existing row (by
@@ -883,7 +951,10 @@ export default function Banks({ onNav }: Props) {
                     <div className="card-header" style={{ marginBottom: 14, flexShrink: 0 }}>
                       <div>
                         <div className="card-title">{selected.name} — Statement</div>
-                        <div className="card-sub">{fromDate} to {toDate} · {ledger.length} entries</div>
+                        <div className="card-sub">
+                          {fromDate} to {toDate} · {ledger.length} entries
+                          {ledgerSortSpecs.length > 0 && ' · sorted — Balance shows each entry\u2019s balance after posting'}
+                        </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <button
@@ -917,17 +988,17 @@ export default function Banks({ onNav }: Props) {
                         <table>
                           <thead>
                             <tr>
-                              <th>Date</th>
-                              <th>Ref</th>
-                              <th>Type</th>
-                              <th>Description</th>
-                              <th className="td-right" style={{ width: 140 }}>Money In</th>
-                              <th className="td-right" style={{ width: 140 }}>Money Out</th>
-                              <th className="td-right" style={{ width: 150 }}>Balance</th>
+                              <SortableTh label="Date" sortKey="date" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
+                              <SortableTh label="Ref" sortKey="ref" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
+                              <SortableTh label="Type" sortKey="type" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
+                              <SortableTh label="Description" sortKey="description" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
+                              <SortableTh label="Money In" sortKey="in" align="right" width={140} onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
+                              <SortableTh label="Money Out" sortKey="out" align="right" width={140} onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
+                              <SortableTh label="Balance" sortKey="balance" align="right" width={150} onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
                             </tr>
                           </thead>
                           <tbody>
-                            {ledger.map((entry, i) => (
+                            {sortedLedger.map((entry, i) => (
                               <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.01)' }}>
                                 <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{entry.posting_date}</td>
                                 <td className="td-mono td-amber" style={{ fontSize: 11 }}>{entry.voucher_ref}</td>
