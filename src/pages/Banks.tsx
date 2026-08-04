@@ -63,6 +63,7 @@ const BANK_PRESETS: BankPreset[] = [
 interface LedgerEntry {
   id: string
   posting_date: string
+  created_at: string
   description: string
   debit: number
   credit: number
@@ -184,7 +185,7 @@ export default function Banks({ onNav }: Props) {
   // so an unstable identity would re-sort on every render for nothing.
   const ledgerSortAccessor = useCallback((r: LedgerEntry, key: string): unknown => {
     switch (key) {
-      case 'date': return r.posting_date
+      case 'date': return `${r.posting_date}|${r.created_at}`
       case 'ref': return r.voucher_ref
       case 'type': return VOUCHER_TYPE_LABEL[r.voucher_type] || r.voucher_type
       case 'description': return r.description
@@ -478,14 +479,24 @@ export default function Banks({ onNav }: Props) {
 
     if (!lines || lines.length === 0) { setLedger([]); setLoadingLedger(false); return }
 
+    // Running balance must follow ACCOUNTING chronology: posting_date first,
+    // creation time second. The old code accumulated in raw created_at order,
+    // which walks a BACKDATED entry (posted today, dated last week) at the
+    // END of the run instead of on its accounting date, skewing every
+    // running figure between the two dates. Sort the composite key first,
+    // then accumulate.
+    const chrono = [...lines].sort((a: any, b: any) =>
+      `${a.journals.posting_date}|${a.created_at || ''}`.localeCompare(`${b.journals.posting_date}|${b.created_at || ''}`))
+
     let running = 0
-    const entries = lines
+    const entries = chrono
       .map((l: any) => {
         const j = l.journals
         running += (l.debit || 0) - (l.credit || 0)
         return {
           id: l.id,
           posting_date: j.posting_date,
+          created_at: l.created_at || '',
           description: l.description || '—',
           debit: l.debit || 0,
           credit: l.credit || 0,
@@ -494,7 +505,13 @@ export default function Banks({ onNav }: Props) {
           running_balance: running,
         }
       })
-      .sort((a: any, b: any) => b.posting_date.localeCompare(a.posting_date))
+      // Display newest-first down to the individual entry. posting_date has
+      // no time component, so a date-only sort left same-day entries in
+      // creation order (oldest at top of the day, NEWEST at the very bottom
+      // of the day's block) — which is exactly how a 21:09 receipt "went
+      // missing" below the scroll fold under 20 earlier entries.
+      .sort((a: any, b: any) =>
+        `${b.posting_date}|${b.created_at}`.localeCompare(`${a.posting_date}|${a.created_at}`))
 
     setLedger(entries)
     setLoadingLedger(false)
@@ -541,7 +558,7 @@ export default function Banks({ onNav }: Props) {
 
   const exportStatement = (kind: 'csv' | 'excel' | 'pdf') => {
     if (!selected || ledger.length === 0) return
-    const chrono = [...ledger].sort((a, b) => a.posting_date.localeCompare(b.posting_date))
+    const chrono = [...ledger].sort((a, b) => `${a.posting_date}|${a.created_at}`.localeCompare(`${b.posting_date}|${b.created_at}`))
     const rows: StatementExportRow[] = chrono.map(l => ({
       date: l.posting_date,
       ref: l.voucher_ref,

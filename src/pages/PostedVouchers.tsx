@@ -55,6 +55,7 @@ interface Row {
   posting_date: string | null
   created_at: string | null
   subtotal: number | null
+  vat_amount: number | null
   total_amount: number | null
   status: string
   payment_method: string | null
@@ -69,7 +70,15 @@ interface Row {
 const tzs = (n: number | null | undefined) =>
   (n == null ? 0 : n).toLocaleString('en-TZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const num = (n: number | null | undefined) => (n == null ? 0 : n)
-const vatOf = (r: Row) => Math.max(0, num(r.total_amount) - num(r.subtotal))
+// VAT is the STORED vat_amount, full stop. The old derivation
+// (total_amount - subtotal) was wrong for every voucher type it touched:
+// on a cash sale that difference is the DELIVERY FEE (total = subtotal +
+// delivery, see cashSalePost.ts), and on receipts, payments, petty cash,
+// transfers and contras — where subtotal is 0 by design — it "found" VAT
+// equal to the entire amount (an 80,000 receipt displayed VAT 80,000; a
+// contra would have displayed VAT 117,000,000). Money-movement vouchers
+// have no VAT; only the VAT engine writes vat_amount, so only it counts.
+const vatOf = (r: Row) => num(r.vat_amount)
 const partyOf = (r: Row) => r.customers?.company || r.customers?.name || '—'
 function fmtDateTime(s: string | null): string {
   if (!s) return '—'
@@ -168,7 +177,7 @@ export default function PostedVouchers({ onNav: _onNav }: Props) {
     const start = reset ? 0 : offset
     let q = supabase
       .from('vouchers')
-      .select('id, ref, type, posting_date, created_at, subtotal, total_amount, status, payment_method, posted_by, description, customer_id, customers(name, company, whatsapp)')
+      .select('id, ref, type, posting_date, created_at, subtotal, vat_amount, total_amount, status, payment_method, posted_by, description, customer_id, customers(name, company, whatsapp)')
       .order('created_at', { ascending: false })
       .range(start, start + PAGE_SIZE - 1)
 
@@ -409,8 +418,8 @@ export default function PostedVouchers({ onNav: _onNav }: Props) {
                   {detail.customers && <Field label="Customer" value={detail.customers.company || detail.customers.name || '—'} />}
                   {detail.customers?.whatsapp && <Field label="WhatsApp" value={detail.customers.whatsapp} />}
                   {detail.payment_method && <Field label="Payment" value={detail.payment_method} />}
-                  <Field label="Subtotal" value={tzs(detail.subtotal)} />
-                  {num(detail.total_amount) > num(detail.subtotal) && <Field label="VAT" value={tzs(num(detail.total_amount) - num(detail.subtotal))} />}
+                  {num(detail.subtotal) > 0 && <Field label="Subtotal" value={tzs(detail.subtotal)} />}
+                  {num(detail.vat_amount) > 0 && <Field label="VAT" value={tzs(detail.vat_amount)} />}
                   <Field label="Amount" value={tzs(detail.total_amount)} />
                   {detail._outstanding > 0 && <Field label="Outstanding" value={tzs(detail._outstanding)} />}
                 </div>
@@ -504,7 +513,7 @@ function buildPrintable(v: any): HTMLDivElement {
       <th style="padding:6px;text-align:right">Total</th></tr></thead><tbody>${lineRows}</tbody></table>` : ''}
     <div style="text-align:right;border-top:2px solid #ddd;padding-top:8px">
       <div>Subtotal: <b>${tzs(v.subtotal)}</b></div>
-      ${num(v.total_amount) > num(v.subtotal) ? `<div>VAT: <b>${tzs(num(v.total_amount) - num(v.subtotal))}</b></div>` : ''}
+      ${num(v.vat_amount) > 0 ? `<div>VAT: <b>${tzs(num(v.vat_amount))}</b></div>` : ''}
       <div style="font-size:15px">Total: <b>${tzs(v.total_amount)}</b></div>
       ${v._outstanding > 0 ? `<div style="color:#b91c1c">Outstanding: <b>${tzs(v._outstanding)}</b></div>` : ''}
     </div>

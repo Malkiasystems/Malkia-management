@@ -1,36 +1,43 @@
-# Banks page — Export as PDF, Excel, and CSV
+# Fix: fabricated VAT on vouchers + "missing" receipt in bank statement
 
 ## Deploy
-Two files, must ship together:
-  src/pages/Banks.tsx              (full replacement)
-  src/lib/bankStatementExport.ts   (new)
-No migration. SUPERSEDES banks_maximize.zip and banks_sort_and_maximize.zip —
-this build contains maximize + column sorting + the export menu. Deploy this.
+Three files, ship together (full replacements):
+  src/pages/PostedVouchers.tsx
+  src/pages/Banks.tsx
+  src/lib/bankStatementExport.ts
+No migration. SUPERSEDES all earlier Banks zips — this contains maximize +
+sorting + export menu + both of today's fixes. Deploy this one only.
 
-## What it does
-Both Export buttons (page header and statement card) open a menu:
-  PDF (print / save)  branded A4 document via the popup-then-iframe print
-                      helper (printDocument.ts), Malkia teal/maroon header,
-                      Money In green / Money Out red, totals strip
-  Excel (.xlsx)       title/period/generated header, sized columns, totals
-                      (via the xlsx dependency already in the repo)
-  CSV                 same columns and escaping as before
+## Finding 1 — the VAT was fabricated (display bug, books are clean)
+RCP-10-1511 and RCP-10-1512 both store vat_amount = 0 in the database.
+The Posted Vouchers page DERIVED VAT as total_amount − subtotal, which is
+wrong for every voucher type it touched:
+  · cash sales: that difference is the DELIVERY FEE (total = subtotal +
+    delivery per cashSalePost.ts) — 507 posted cash sales were showing
+    delivery as "VAT"
+  · receipts/payments/petty cash/transfers/contra: subtotal is 0 by design,
+    so the ENTIRE amount displayed as VAT (your 80,000 receipt → "VAT
+    80,000"; the 117M contra would show "VAT 117,000,000")
+Now: VAT displays the STORED vat_amount only (the VAT engine is its only
+writer), the VAT and Subtotal rows hide when zero, and the same rule applies
+to the table column and the PDF export. Receipts now show Payment + Amount,
+nothing invented.
 
-## Bug fixed on the way
-The old CSV recomputed the running balance over the DISPLAY array — which is
-sorted newest-first — starting from zero, so every exported balance was
-cumulative-backwards. All three formats now re-sort chronologically and carry
-the same per-row running balance the screen shows.
-
-Exports are always chronological regardless of any on-screen column sort:
-a statement is an accounting document, and date order is the only correct
-order for one.
-
-## Conventions
-Export logic lives in a pure lib (bankStatementExport.ts), same pattern as
-expenseRegisterExport.ts / salesDayBookExport.ts; PDF goes through
-printHtmlDocument so blocked popups fall back to the iframe path with a real
-error instead of failing silently.
+## Finding 2 — the 80,000 was never missing
+JV-RCP-10-1511 exists, posted 2026-08-03: Dr 1020 M-Pesa 80,000 / Cr 1050
+AR — B2B 80,000. It was row 21 of 21: posting_date has no time part, so
+same-day entries kept CREATION order, putting the day's newest entry at the
+BOTTOM of the day's block, below the scroll fold. Fixed by ordering on
+(posting_date, created_at):
+  · display: newest day first, newest entry first within the day — a 21:09
+    receipt now tops the 03 Aug block
+  · the Date column sort and all three exports use the same composite
+  · running balance now accumulates in true accounting chronology
+    (posting_date then created_at) instead of raw creation order, so a
+    BACKDATED voucher lands on its accounting date in the running column
+    instead of at the end of the walk
 
 ## Verified
-tsc -b and vite build pass on the full repo with these files in place.
+DB: both receipt journals present, balanced, posted; 1020 cached balance
+1,154,386 includes the 80,000 and matches the sum of postings.
+Build: tsc -b and vite build pass on the full repo.
