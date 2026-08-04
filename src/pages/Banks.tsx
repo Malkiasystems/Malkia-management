@@ -87,6 +87,8 @@ const Icon = ({ name, size = 18, color = 'currentColor' }: { name: string; size?
   if (name === 'trend-down') return <svg {...s} viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>
   if (name === 'reconcile') return <svg {...s} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
   if (name === 'calendar') return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+  if (name === 'maximize') return <svg {...s} viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+  if (name === 'minimize') return <svg {...s} viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
   return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>
 }
 
@@ -116,6 +118,21 @@ export default function Banks({ onNav }: Props) {
   const [monthStats, setMonthStats] = useState<Record<string, { in: number; out: number }>>({})
   const [statementBalance, setStatementBalance] = useState('')
   const [showReconcile, setShowReconcile] = useState(false)
+
+  // Full-screen ledger. The detail panel normally shares a 300px/1fr grid with
+  // the account list AND shares its own column with the header card and the
+  // reconcile panel, which leaves the statement a few rows of visible height
+  // on a laptop. Maximized re-renders the SAME panel inside a fixed overlay:
+  // the account header collapses to one line, the table takes every remaining
+  // pixel, and the sticky thead the global CSS already provides finally has a
+  // scroll container to stick inside. Esc restores.
+  const [maximized, setMaximized] = useState(false)
+  useEffect(() => {
+    if (!maximized) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMaximized(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [maximized])
 
   // Editor state. Set when the user clicks Edit on an existing account or
   // Setup on a preset placeholder. On Save, we UPDATE the existing row (by
@@ -708,12 +725,15 @@ export default function Banks({ onNav }: Props) {
 
         {/* RIGHT — LEDGER */}
         {selected && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
+          <div style={maximized
+            ? { position: 'fixed', inset: 0, zIndex: 900, background: 'var(--bg)', padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }
+            : { display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
             {(() => {
               const c = cfgFor(selected)
               return (
                 <>
-                  {/* Account header */}
+                  {/* Account header (full card — hidden while maximized) */}
+                  {!maximized && (
                   <div style={{ background: 'var(--surface)', border: `1px solid ${c.color}40`, borderRadius: 12, padding: '16px 20px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -739,6 +759,13 @@ export default function Banks({ onNav }: Props) {
                             Edit name, colour, nature
                           </button>
                         )}
+                        <button
+                          onClick={() => setMaximized(true)}
+                          title="Full-screen ledger"
+                          style={{ marginTop: 8, marginLeft: canEdit ? 8 : 0, background: 'transparent', color: 'var(--text3)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                        >
+                          <Icon name="maximize" size={11} /> Maximize
+                        </button>
                       </div>
                     </div>
 
@@ -768,6 +795,30 @@ export default function Banks({ onNav }: Props) {
                       ))}
                     </div>
                   </div>
+                  )}
+
+                  {/* Compact account bar (maximized only) — one line, so the
+                      table below gets every remaining pixel of the viewport */}
+                  {maximized && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--surface)', border: `1px solid ${c.color}40`, borderRadius: 12, padding: '10px 16px', flexShrink: 0 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 10, background: c.accentBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Icon name={c.iconName} size={18} color={c.color} />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontFamily: 'var(--display)', fontSize: 15, fontWeight: 800, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selected.name}</div>
+                        <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+                          GL {selected.code}{selected.account_number ? ` · A/C ${selected.account_number}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase' }}>Current Balance</div>
+                        <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 800, color: selected.balance >= 0 ? 'var(--green)' : 'var(--red)' }}>{tzs(selected.balance)}</div>
+                      </div>
+                      <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }} onClick={() => setMaximized(false)}>
+                        <Icon name="minimize" size={14} /> Exit · Esc
+                      </button>
+                    </div>
+                  )}
 
                   {/* Date filter + Reconcile */}
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -828,20 +879,30 @@ export default function Banks({ onNav }: Props) {
                   )}
 
                   {/* LEDGER TABLE */}
-                  <div className="card" style={{ flex: 1 }}>
-                    <div className="card-header" style={{ marginBottom: 14 }}>
+                  <div className="card" style={maximized ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : { flex: 1 }}>
+                    <div className="card-header" style={{ marginBottom: 14, flexShrink: 0 }}>
                       <div>
                         <div className="card-title">{selected.name} — Statement</div>
                         <div className="card-sub">{fromDate} to {toDate} · {ledger.length} entries</div>
                       </div>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: ledger.length > 0 ? 1 : 0.5 }}
-                        onClick={exportStatement}
-                        disabled={ledger.length === 0}
-                      >
-                        <Icon name="export" size={13} /> Export
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                          onClick={() => setMaximized(m => !m)}
+                          title={maximized ? 'Exit full screen (Esc)' : 'Full-screen ledger'}
+                        >
+                          <Icon name={maximized ? 'minimize' : 'maximize'} size={13} /> {maximized ? 'Restore' : 'Maximize'}
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: ledger.length > 0 ? 1 : 0.5 }}
+                          onClick={exportStatement}
+                          disabled={ledger.length === 0}
+                        >
+                          <Icon name="export" size={13} /> Export
+                        </button>
+                      </div>
                     </div>
 
                     {loadingLedger ? (
@@ -852,7 +913,7 @@ export default function Banks({ onNav }: Props) {
                         No transactions found for this period.
                       </div>
                     ) : (
-                      <div className="table-wrap">
+                      <div className="table-wrap" style={maximized ? { flex: 1, minHeight: 0, overflowY: 'auto' } : undefined}>
                         <table>
                           <thead>
                             <tr>

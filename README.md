@@ -1,50 +1,23 @@
-# Bank Reconciliation — rebuilt against the live repo
+# Banks page — full-screen ledger (Maximize)
 
 ## Deploy
-Migration 037 is ALREADY APPLIED to MalkiaOS (ebokhvibnypiomzqimfg) via MCP,
-tested with a rolled-back smoke test (balanced journal, cache updated through
-update_account_balance, cutover rejection working). Nothing to run.
-Drag these files into the repo (they overwrite) and deploy. Done.
+One file: src/pages/Banks.tsx (full replacement). No migration. Nothing else
+changes, and no existing function was removed or disabled — the normal layout,
+reconcile panel, export, edit modal and permissions all behave exactly as before.
 
-## Files
-NEW
-  src/lib/bankStatement/statementTypes.ts      types
-  src/lib/bankStatement/statementParse.ts      Mixx by Yas + CSV adapters,
-                                               auto-reads OPENING/CLOSING from a pasted header
-  src/lib/bankStatement/statementReconcile.ts  pure logic: balance-chain check,
-                                               borne-vs-printed charge test, cutover awareness
-  src/lib/bankStatement/statementPost.ts       mutations (RPC + import save)
-  src/hooks/useBankStatements.ts               reads
-  src/pages/BankReconciliation.tsx             page (house dark theme, GuideMode,
-                                               Toast, MoneyInput, tzs, usePermission)
-EDITED (must ship together)
-  src/App.tsx              lazy import + case 'bank-recon'
-  src/lib/types.ts         Page union + 'bank-recon'
-  src/components/Sidebar.tsx  Accounts section: "Bank Recon" entry
-  src/lib/pageDirectory.ts    search terms + icon
-  migrations/037_bank_statement_reconciliation.sql  replaced with the applied version
-
-## Fixed from the previous drop (which could not have worked)
-1. `@/` imports — the repo has no path alias; everything is relative now.
-2. GuideToggle/GuideTip — imported from components/GuideMode with the real
-   no-props API, instead of two components that do not exist.
-3. Tailwind classes — the repo has no Tailwind; the page now uses the house
-   CSS variables and inline-style tokens like every other page.
-4. Cutover — read via lib/ledgerCutover (cached, system_settings-backed)
-   instead of a bespoke RPC round-trip.
-5. Money formatting via tzs(), amounts entered via MoneyInput, results via
-   Toast, posting gated by usePermission('accounting.edit').
-6. Page reachable: Sidebar > Accounts > Bank Recon (previously orphaned).
+## What it does
+- "Maximize" appears in two places: under Current Balance in the account
+  header, and beside Export on the statement card.
+- Maximized mode lifts the SAME detail panel into a fixed overlay covering the
+  whole viewport (sidebar and topbar included). The tall account header
+  collapses to a one-line bar (icon · name · GL/AC · balance · Exit), and the
+  statement card flexes to fill everything below the date bar.
+- The table body scrolls inside the card with the column headers stuck to the
+  top — the sticky thead already existed in global CSS; it just never had a
+  bounded scroll container on this page until now.
+- Exit via the bar button, the Restore button on the card, or Esc.
+- Date presets, Load, Reconcile, and Export all keep working while maximized.
+- The Edit modal (z 1000) still layers above the overlay (z 900) if opened.
 
 ## Verified
-- `tsc -b` and `vite build` pass on the full repo with these files in place.
-- Reconciler regression on the real Mixx statement: 13 rows, gap 101,440 on
-  row 5, borne charges 11,305 (6,765 postable, 4,540 pre-cutover), 4,200
-  printed-but-not-ours correctly excluded.
-- RPC smoke test on production (rolled back): BCHG journal balanced,
-  6512 +1,500 / 1021 −1,500 through update_account_balance, import → posted.
-
-## Accounting note
-CashPayment and expense vouchers credit the paying account with the amount
-typed; the carrier's charge is never captured. These charge journals are the
-MISSING entries, not duplicates — no contra account needed for normal use.
+tsc -b and vite build pass on the full repo with this file in place.
