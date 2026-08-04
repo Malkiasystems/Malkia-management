@@ -201,6 +201,60 @@ select.form-input { cursor: pointer; appearance: none; }
 .cs-tag { display: inline-block; margin-top: 20px; background: var(--accent-dim); border: 1px solid rgba(212,135,74,.3); border-radius: 20px; padding: 6px 16px; font-family: var(--mono); font-size: 12px; color: var(--accent); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   LAPTOP / DESKTOP  —  >=769px
+   Two clipping bugs lived in this range. Phones (<=768px) already had their
+   own handling further down; the 769-1400px band had none, so a 1280px
+   MacBook was the worst case in the whole app.
+
+   1. TRUNCATED MONEY.  .stat-value was a hard 26px. A repeat(5,1fr) stat row
+      on a 1280px screen gives each card a 174px content box, but "8,691,000"
+      in Syne ExtraBold measures 220px. .stat-card has overflow:hidden, so the
+      figure was silently cut: TZS 4,986,000 rendered as "4,986,00". That is
+      not a cosmetic bug. A clipped figure reads as a valid but different
+      number, and there is nothing on screen telling you it was cut.
+
+   2. SIDEWAYS PAGE DRAG.  .page-actions had flex-shrink:0 and its children
+      carry hardcoded pixel widths. Sales Register's filter row is ~1268px
+      against 1164px of usable width, so .page (overflow-y:auto, therefore
+      overflow-x:auto) gained a horizontal scrollbar. That is why the stat
+      row below it also looked misaligned: the whole page was scrolled ~32px
+      right, cutting the first card off behind the sidebar.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (min-width: 769px) {
+  /* Fix the CARD WIDTH, not the font. Pages hardcode `repeat(5, 1fr)` inline,
+     which crushes each card to a 174px content box on a 1280px screen. This
+     overrides that with a minimum track width, so a row that cannot fit five
+     readable cards wraps to four (or three) instead of squeezing all five.
+
+     Why 280px specifically: with auto-fit the narrowest a card can ever get
+     is exactly the minmax floor, right before the column count drops. So the
+     content box is never below 280 - 40 (padding) - 2 (borders) = 238px, and
+     "8,691,000" in Syne ExtraBold at the full 26px measures 220px. It fits at
+     every viewport width from 769px up, with no font shrinking at all.
+
+     auto-fit (not auto-fill) collapses unused tracks, so a row that only has
+     three cards still spreads them across the full width. Same :has() pair
+     the mobile block below already uses, so support is proven in this app. */
+  .grid:has(> .stat-card),
+  div:has(> .stat-card) {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+  }
+
+  /* Last-resort guard. If a figure ever does outgrow the card (a ten-digit
+     total, a longer currency prefix), it wraps instead of being silently
+     truncated. A cut number reads as a valid but different number. */
+  .stat-value { overflow-wrap: anywhere; }
+
+  /* Filter rows wrap onto a second line instead of forcing the page sideways.
+     Children keep their widths on purpose: a squashed "All Salespeople"
+     select is worse than a second row. */
+  .page-actions { flex-wrap: wrap; flex-shrink: 1; min-width: 0; max-width: 100%; }
+  .page-actions > * { flex-shrink: 0; }
+  .page-header > *:first-child { min-width: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    MOBILE  —  base responsive rules + mobile navigation shell
    All scoped to <=768px. Desktop rendering is unchanged.
    ═══════════════════════════════════════════════════════════════════════════ */
