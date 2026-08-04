@@ -1069,7 +1069,15 @@ export default function Banks({ onNav }: Props) {
                                     {VOUCHER_TYPE_LABEL[entry.voucher_type] || entry.voucher_type || '—'}
                                   </span>
                                 </td>
-                                <td style={{ fontSize: 12, color: 'var(--text2)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.description}</td>
+                                <td
+                                  // Hovering a shortened description shows the whole text via the
+                                  // native tooltip. In the maximized view there is real width, so
+                                  // the cell wraps and shows everything without needing the hover.
+                                  title={entry.description}
+                                  style={maximized
+                                    ? { fontSize: 12, color: 'var(--text2)', whiteSpace: 'normal', wordBreak: 'break-word' }
+                                    : { fontSize: 12, color: 'var(--text2)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                >{entry.description}</td>
                                 <td className="td-right td-mono" style={{ color: entry.debit > 0 ? 'var(--green)' : 'var(--text3)', fontWeight: entry.debit > 0 ? 600 : 400, fontSize: 12 }}>
                                   {entry.debit > 0 ? tzs(entry.debit) : '—'}
                                 </td>
