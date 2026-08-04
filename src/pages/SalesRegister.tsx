@@ -9,7 +9,7 @@ import { useSalesTargets, calcTargetProgress } from '../lib/useSalesTargets'
 import type { SalesTarget, TargetProgress, TargetAllocation } from '../lib/useSalesTargets'
 import Toast from '../components/Toast'
 import { tzs, getPostedBy, localIso } from '../lib/utils'
-import { fmtDualQty, cartonsToPieces } from '../lib/uom'
+import { fmtDualQty, fmtCartonBreakdown, cartonsToPieces } from '../lib/uom'
 import { consumeSalesRegisterTab, rememberSalesRegisterTab, subscribeSalesRegisterTab } from '../lib/salesRegisterTab'
 import type { Page } from '../lib/types'
 
@@ -602,6 +602,18 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const totalProductRevenue = productRows.reduce((s, r) => s + r.revenue, 0)
   const totalProductMargin = productRows.reduce((s, r) => s + r.margin, 0)
 
+  // ── Carton figure for the Total Units card ──────────────
+  // A carton total only reconciles when every SKU in the total shares one pack
+  // size. Adding 24-packs to 12-packs, or to products sold loose, produces a
+  // "carton" count that matches nothing you could count in the store, so this
+  // returns 0 and the card stays in pieces. Today only Malkia Maternity Pants
+  // (PAD-005) carries units_per_carton at 24, so the carton line appears when
+  // the view is filtered to it and is correctly silent across mixed products.
+  const productCartonUpc = useMemo(() => {
+    const packs = new Set(productRows.filter(r => r.unitsSold > 0).map(r => r.unitsPerCarton || 0))
+    return packs.size === 1 ? (Array.from(packs)[0] || 0) : 0
+  }, [productRows])
+
   // ── Customer aggregation ────────────────────────────────
   const customerRows = useMemo<CustomerRow[]>(() => {
     const map: Record<string, CustomerRow> = {}
@@ -795,7 +807,16 @@ export default function SalesRegister({ onEdit }: Props = {}) {
           </div>
         </div>
         {tab !== 'targets' && (
-          <div className="page-actions">
+          /* This row holds nine fixed-width controls: 2 dates + "to" + category
+             + the 3-way segmented toggle + product + customer + salesperson +
+             Load. That sums to ~1268px, but a 1280px laptop only leaves 1164px
+             after the 68px rail and 24px page padding. .page-actions is
+             flex-shrink: 0 and does not wrap, so the row pushed .page wider
+             than the screen. .page is overflow-y: auto, which makes overflow-x
+             compute to auto, and that is the left/right scrollbar on this page.
+             Other pages have shorter action rows, which is why only this one
+             does it. Wrapping to a second line costs nothing and removes it. */
+          <div className="page-actions" style={{ flexWrap: 'wrap', flexShrink: 1, minWidth: 0, maxWidth: '100%', rowGap: 10 }}>
             <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
             <span style={{ color: 'var(--text3)', fontSize: 12 }}>to</span>
             <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={toDate} onChange={e => setToDate(e.target.value)} />
@@ -977,7 +998,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         <>
           <div className="grid g4" style={{ marginBottom: 20 }}>
             <div className="stat-card green"><div className="stat-label">Products Sold</div><div className="stat-value">{productRows.length}</div><div className="stat-change up">Unique SKUs</div></div>
-            <div className="stat-card amber"><div className="stat-label">Total Units</div><div className="stat-value">{totalProductUnits.toLocaleString()}</div><div className="stat-change up">Items sold</div></div>
+            <div className="stat-card amber"><div className="stat-label">Total Units</div><div className="stat-value">{totalProductUnits.toLocaleString()}</div><div className="stat-change up">{productCartonUpc >= 2 ? `Items sold · ${fmtCartonBreakdown(totalProductUnits, productCartonUpc)}` : 'Items sold'}</div></div>
             <div className="stat-card blue"><div className="stat-label">Revenue</div><div className="stat-value">{tzs(totalProductRevenue)}</div><div className="stat-change up">Product sales</div></div>
             <div className="stat-card green"><div className="stat-label">Gross Margin</div><div className="stat-value">{totalProductRevenue > 0 ? Math.round((totalProductMargin / totalProductRevenue) * 100) : 0}%</div><div className="stat-change up">{tzs(totalProductMargin)}</div></div>
           </div>
@@ -992,7 +1013,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                   <div key={i} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
                       <span style={{ fontWeight: 600 }}>{i + 1}. {r.name}</span>
-                      <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(r.revenue)} · {r.unitsSold} units</span>
+                      <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(r.revenue)} · {(r.unitsPerCarton || 0) >= 2 ? fmtDualQty(r.unitsSold, r.unitsPerCarton) : `${r.unitsSold.toLocaleString()} units`}</span>
                     </div>
                     <div style={{ height: 6, background: 'var(--surface3)', borderRadius: 3 }}>
                       <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent)', borderRadius: 3, transition: 'width .4s ease' }}></div>

@@ -29,3 +29,26 @@ export function fmtCartonHint(qtyPieces: number, unitsPerCarton?: number | null)
 export function cartonsToPieces(cartons: number, unitsPerCarton: number): number {
   return Math.round((cartons || 0) * unitsPerCarton)
 }
+
+/** Exact physical breakdown for a headline total: "118 ctn + 23 pcs", or
+ *  "119 ctn" when it divides evenly. '' when the product is not carton-packed.
+ *
+ *  Deliberately different from fmtDualQty, which rounds the carton count to
+ *  one decimal and then drops it: 2,855 pcs of a 24-pack renders there as
+ *  "119 ctn" when what is actually on the floor is 118 full cartons and 23
+ *  loose pieces. That parenthetical is fine as a rough sense-check next to the
+ *  piece count, but a headline total nobody can reconcile against a physical
+ *  count is worse than no carton figure at all. Use this one for quantities
+ *  actually sold or held; use fmtDualQty for progress and projections, where
+ *  a fractional carton is meaningful. */
+export function fmtCartonBreakdown(qtyPieces: number, unitsPerCarton?: number | null): string {
+  const q = Math.max(0, Math.round(qtyPieces || 0))
+  const upc = unitsPerCarton || 0
+  if (upc < 2 || !q) return ''
+  const full = Math.floor(q / upc)
+  const rem = q - full * upc
+  if (!full) return `${rem.toLocaleString()} pcs`
+  return rem === 0
+    ? `${full.toLocaleString()} ctn`
+    : `${full.toLocaleString()} ctn + ${rem.toLocaleString()} pcs`
+}
