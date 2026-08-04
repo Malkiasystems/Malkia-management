@@ -152,13 +152,16 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
       .select('id, code, name, category').eq('is_active', true).order('code')
     if (data) {
       setAccounts(data)
-      // Default deposit account: the first Cash & Bank account (typically
-      // the main cash till 1001). Users can pick any other Cash & Bank
-      // account from the dropdown — including bank accounts — so this
-      // page no longer needs separate cash vs bank variants.
-      const cashAcc = data.find(a => a.category === 'Cash & Bank' && a.code === '1001')
-        || data.find(a => a.category === 'Cash & Bank')
-      if (cashAcc) setForm(f => ({ ...f, depositAccountId: cashAcc.id }))
+      // Deliberately NO default deposit account. This used to preselect the
+      // first Cash & Bank account (1001, falling back to any Cash & Bank),
+      // which meant a receipt that was actually paid into NMB or M-Pesa would
+      // post to Cash in Hand unless the user noticed and changed it. A wrong
+      // debit here is silent: the receipt still posts, AR still clears, and
+      // the error only surfaces later as a cash count or bank rec that will
+      // not balance. The select already renders "— Select account —" and
+      // canPost() already blocks on an empty depositAccountId, so leaving it
+      // blank forces one conscious choice per receipt and costs one click.
+      // Cash Payment already worked this way; this brings receipts in line.
     }
   }
 
@@ -196,7 +199,13 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
       narration: '',
       otherReceivedFrom: '',
       otherIncomeAccountId: '',
-      // keep: date, method, depositAccountId — likely reused for next receipt
+      // Deposit account is cleared too, not carried over. Keeping the last
+      // one is the same misposting risk as defaulting it: post an NMB receipt,
+      // then bang out a cash one, and it silently goes to NMB. Date is kept
+      // (same day, genuinely reused); method is reset to match a blank
+      // account since it is derived from the account, not chosen directly.
+      depositAccountId: '',
+      method: 'cash',
     }))
     setPaymentState({ selectedCustomer: null, allocatedTotal: 0, unallocatedCredit: 0, allocations: [] })
   }
