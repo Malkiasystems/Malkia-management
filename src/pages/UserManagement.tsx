@@ -162,7 +162,15 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
     icon: 'M18 20V10M12 20V4M6 20v-6',
     color: '#f97316',
     permissions: [
-      { key: 'reports.view', label: 'View Reports' },
+      { key: 'reports.view', label: 'View Operational Reports' },
+      // Split out from reports.view. One tick used to hand over the P&L,
+      // balance sheet, trial balance, cash flow, general ledger, stock
+      // valuation, per-product profit AND the investor numbers — everything
+      // a member of staff would need to work out the company's margins and
+      // net worth. Operational registers (expenses, payments, purchases,
+      // VAT) stay on reports.view so a bookkeeper can do their job without
+      // being handed the whole picture.
+      { key: 'reports.financials', label: 'View Profitability & Net Worth' },
       { key: 'reports.export', label: 'Export Reports' },
     ]
   },

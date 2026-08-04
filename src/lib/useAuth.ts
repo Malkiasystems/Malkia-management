@@ -276,6 +276,28 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'customers': ['customers.view'],
   'suppliers': ['accounting.view'],
   'reports': ['reports.view'],
+
+  // ── Previously UNMAPPED and therefore open to everyone ────────────────────
+  // canAccessPage() returns true for any page missing from this map. These
+  // eleven were never listed, so a user holding a single permission could
+  // reach them by URL. Grouped by what they actually expose:
+  //
+  //   profitability / net worth  → reports.financials
+  //   cash & bank positions      → accounting.view (viewable by more staff,
+  //                                which is the intended split)
+  //   loan vouchers              → accounting.create (they post journals)
+  'ledger': ['reports.financials'],
+  'ledger-health': ['reports.financials'],
+  'cash-flow': ['reports.financials'],
+  'product-profit': ['reports.financials'],
+  'loans': ['reports.financials'],
+  'bank-recon': ['accounting.view'],
+  'cash-center': ['accounting.view'],
+  'vat-report': ['reports.view'],
+  'import-register': ['reports.view'],
+  'new-loan': ['accounting.create'],
+  'loan-repayment': ['accounting.create'],
+  'opening-loans': ['accounting.create'],
   'settings': ['settings.view'],
   'sales': ['sales.view'],
   'cash-sale': ['sales.create'],
@@ -363,23 +385,23 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'templates-hub': ['settings.edit'],
   'integrations-settings': ['settings.edit'],
   'regional-backup-settings': ['settings.edit'],
-  'pnl': ['reports.view'],
-  'trial-balance': ['reports.view'],
+  'pnl': ['reports.financials'],
+  'trial-balance': ['reports.financials'],
   'interim-recon': ['reports.view'],
-  'balance-sheet': ['reports.view'],
+  'balance-sheet': ['reports.financials'],
   'ar-aging': ['reports.view'],
   'ap-aging': ['reports.view'],
-  'stock-valuation': ['reports.view'],
+  'stock-valuation': ['reports.financials'],
   'purchase-register': ['reports.view'],
   'payment-register': ['reports.view'],
   'expense-register': ['reports.view'],
   'stock-transfer-register': ['reports.view', 'inventory.view'],
   'data-import': ['settings.edit'],
   'report-templates': ['settings.edit'],
-  'investors': ['reports.view'],
-  'investors-hub': ['reports.view'],
-  'investors-portfolio': ['reports.view'],
-  'investors-reports': ['reports.view'],
+  'investors': ['reports.financials'],
+  'investors-hub': ['reports.financials'],
+  'investors-portfolio': ['reports.financials'],
+  'investors-reports': ['reports.financials'],
   'bundles': ['sales.view'],
   // HRM Module — view_own gives self-service access, view_all/manage gives company mode
   'hrm': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
