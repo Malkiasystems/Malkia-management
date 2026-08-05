@@ -142,7 +142,7 @@ export default function BankTransfer({ onNav }: Props) {
         const dup = vErr.code === '23505' || /duplicate|unique/i.test(vErr.message)
         throw new Error(dup
           ? `${form.ref} was already posted — this looks like a duplicate submission. Journal ${'JV-' + form.ref} may need review; check the register before retrying.`
-          : 'Voucher record: ' + vErr.message + ` (journal ${journal.ref ?? ''} was created — report this to an administrator)`)
+          : 'Voucher record: ' + vErr.message + ` (a journal for ${form.ref} was created without its voucher — report this to an administrator)`)
       }
 
       showToast(`${form.ref} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
