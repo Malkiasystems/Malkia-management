@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { tzs, localIso } from '../lib/utils'
 import { getCutoverDate, cutoverDateSync, clampFrom, cutoverNote } from '../lib/ledgerCutover'
 import { printHtmlDocument } from '../lib/printDocument'
+import { entryTime, entryTimeSeconds, chronoKey } from '../lib/entryTime'
 
 interface Account {
   id: string; code: string; name: string; type: string
@@ -12,6 +13,7 @@ interface Account {
 interface LedgerEntry {
   id: string
   posting_date: string
+  created_at: string
   description: string
   debit: number
   credit: number
@@ -189,7 +191,7 @@ export default function ChartOfAccounts() {
     // back truncated to the oldest 1,000 and the recent entries vanished.
     const { data: lines } = await supabase
       .from('journal_lines')
-      .select('id, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
+      .select('id, created_at, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
       .eq('account_id', acct.id)
       .gte('journals.posting_date', f)
       .lte('journals.posting_date', to)
@@ -198,13 +200,21 @@ export default function ChartOfAccounts() {
 
     if (!lines || lines.length === 0) { setLedger([]); setLoadingLedger(false); return }
 
+    // Accumulate in ACCOUNTING chronology: posting_date first, entry time
+    // second. Ordering on created_at alone walks a backdated entry at the end
+    // of the run instead of on its accounting date, which skews every running
+    // figure between the two dates.
+    const chrono = [...lines].sort((a: any, b: any) =>
+      chronoKey(a.journals.posting_date, a.created_at).localeCompare(chronoKey(b.journals.posting_date, b.created_at)))
+
     let running = 0
-    const entries = lines
+    const entries = chrono
       .map((l: any) => {
         const j = l.journals
         running += (l.debit || 0) - (l.credit || 0)
         return {
           id: l.id, posting_date: j.posting_date,
+          created_at: l.created_at || '',
           description: l.description || '—',
           debit: l.debit || 0, credit: l.credit || 0,
           voucher_ref: j.source_ref || j.ref || '—',
@@ -233,6 +243,7 @@ export default function ChartOfAccounts() {
     const rows = ledger.map(e => `
       <tr>
         <td>${e.posting_date}</td>
+        <td>${entryTime(e.created_at)}</td>
         <td>${e.voucher_ref}</td>
         <td>${VOUCHER_TYPE_LABEL[e.voucher_type] || e.voucher_type}</td>
         <td>${e.description}</td>
@@ -302,10 +313,10 @@ export default function ChartOfAccounts() {
       </div>
       <div class="period-badge">${fromDate} → ${toDate}</div>
       <table>
-        <thead><tr><th>Date</th><th>Ref</th><th>Type</th><th>Description</th><th class="num">Debit (TZS)</th><th class="num">Credit (TZS)</th><th class="num">Balance (TZS)</th></tr></thead>
+        <thead><tr><th>Date</th><th>Time</th><th>Ref</th><th>Type</th><th>Description</th><th class="num">Debit (TZS)</th><th class="num">Credit (TZS)</th><th class="num">Balance (TZS)</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot class="totals"><tr>
-          <td colspan="4">PERIOD TOTALS — ${ledger.length} entries</td>
+          <td colspan="5">PERIOD TOTALS — ${ledger.length} entries</td>
           <td class="num">${totalDebit.toLocaleString()}</td>
           <td class="num">(${totalCredit.toLocaleString()})</td>
           <td class="num">${acct.balance.toLocaleString()}</td>
@@ -322,14 +333,14 @@ export default function ChartOfAccounts() {
   // Export to CSV (Excel-compatible)
   const exportCSV = () => {
     if (!selectedAccount) return
-    const headers = ['Date', 'Ref', 'Type', 'Description', 'Debit (TZS)', 'Credit (TZS)', 'Running Balance (TZS)']
+    const headers = ['Date', 'Time', 'Ref', 'Type', 'Description', 'Debit (TZS)', 'Credit (TZS)', 'Running Balance (TZS)']
     const rows = ledger.map(e => [
-      e.posting_date, e.voucher_ref,
+      e.posting_date, entryTime(e.created_at), e.voucher_ref,
       VOUCHER_TYPE_LABEL[e.voucher_type] || e.voucher_type,
       `"${e.description.replace(/"/g, '""')}"`,
       e.debit || '', e.credit || '', e.running_balance,
     ])
-    const totals = ['TOTALS', '', '', '', totalDebit, totalCredit, selectedAccount.balance]
+    const totals = ['TOTALS', '', '', '', '', totalDebit, totalCredit, selectedAccount.balance]
     const csv = [headers, ...rows, totals].map(r => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -480,6 +491,7 @@ export default function ChartOfAccounts() {
                 <thead>
                   <tr>
                     <th style={{ width: 100 }}>Date</th>
+                    <th style={{ width: 66 }}>Time</th>
                     <th style={{ width: 110 }}>Voucher Ref</th>
                     <th style={{ width: 120 }}>Type</th>
                     <th>Description</th>
@@ -492,6 +504,11 @@ export default function ChartOfAccounts() {
                   {ledger.map((e, i) => (
                     <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.012)' }}>
                       <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{e.posting_date}</td>
+                      <td
+                        className="td-mono"
+                        title={e.created_at ? `Entered ${entryTimeSeconds(e.created_at)}` : 'No entry timestamp'}
+                        style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}
+                      >{entryTime(e.created_at)}</td>
                       <td className="td-mono td-amber" style={{ fontSize: 11 }}>{e.voucher_ref}</td>
                       <td>
                         <span className="pill pill-gray" style={{ fontSize: 9 }}>
@@ -513,7 +530,7 @@ export default function ChartOfAccounts() {
                 </tbody>
                 <tfoot>
                   <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                    <td colSpan={4} style={{ padding: '12px 14px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase' }}>
+                    <td colSpan={5} style={{ padding: '12px 14px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase' }}>
                       Period Totals — {ledger.length} entries
                     </td>
                     <td className="td-right td-mono" style={{ color: 'var(--green)', fontSize: 13, padding: '12px 14px' }}>{totalDebit.toLocaleString()}</td>

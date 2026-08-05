@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { accountBrand, defaultColorForNature, iconForNature, hexToTint } from '../components/accountBrand'
 import { tzs, localIso, today } from '../lib/utils'
 import { clampFrom } from '../lib/ledgerCutover'
+import { entryTime, entryTimeSeconds, chronoKey } from '../lib/entryTime'
 import { usePermission } from '../lib/useAuth'
 import type { Page } from '../lib/types'
 
@@ -185,7 +186,10 @@ export default function Banks({ onNav }: Props) {
   // so an unstable identity would re-sort on every render for nothing.
   const ledgerSortAccessor = useCallback((r: LedgerEntry, key: string): unknown => {
     switch (key) {
-      case 'date': return `${r.posting_date}|${r.created_at}`
+      case 'date': return chronoKey(r.posting_date, r.created_at)
+      // Time sorts within the accounting day, not across days: an 08:00 entry
+      // on the 3rd should still sit after everything on the 2nd.
+      case 'time': return chronoKey(r.posting_date, r.created_at)
       case 'ref': return r.voucher_ref
       case 'type': return VOUCHER_TYPE_LABEL[r.voucher_type] || r.voucher_type
       case 'description': return r.description
@@ -470,7 +474,7 @@ export default function Banks({ onNav }: Props) {
     // the wholesale port, now fixed at the source.
     const { data: lines } = await supabase
       .from('journal_lines')
-      .select('id, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
+      .select('id, created_at, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
       .eq('account_id', acct.id)
       .gte('journals.posting_date', f)
       .lte('journals.posting_date', t)
@@ -485,8 +489,13 @@ export default function Banks({ onNav }: Props) {
     // END of the run instead of on its accounting date, skewing every
     // running figure between the two dates. Sort the composite key first,
     // then accumulate.
+    //
+    // created_at MUST be in the select above for this to do anything. It was
+    // not, so every same-day row produced the identical key, the sort became
+    // a no-op, and the day's entries stayed in arrival order — oldest at the
+    // top of the day, newest buried at the bottom.
     const chrono = [...lines].sort((a: any, b: any) =>
-      `${a.journals.posting_date}|${a.created_at || ''}`.localeCompare(`${b.journals.posting_date}|${b.created_at || ''}`))
+      chronoKey(a.journals.posting_date, a.created_at).localeCompare(chronoKey(b.journals.posting_date, b.created_at)))
 
     let running = 0
     const entries = chrono
@@ -511,7 +520,7 @@ export default function Banks({ onNav }: Props) {
       // of the day's block) — which is exactly how a 21:09 receipt "went
       // missing" below the scroll fold under 20 earlier entries.
       .sort((a: any, b: any) =>
-        `${b.posting_date}|${b.created_at}`.localeCompare(`${a.posting_date}|${a.created_at}`))
+        chronoKey(b.posting_date, b.created_at).localeCompare(chronoKey(a.posting_date, a.created_at)))
 
     setLedger(entries)
     setLoadingLedger(false)
@@ -558,9 +567,10 @@ export default function Banks({ onNav }: Props) {
 
   const exportStatement = (kind: 'csv' | 'excel' | 'pdf') => {
     if (!selected || ledger.length === 0) return
-    const chrono = [...ledger].sort((a, b) => `${a.posting_date}|${a.created_at}`.localeCompare(`${b.posting_date}|${b.created_at}`))
+    const chrono = [...ledger].sort((a, b) => chronoKey(a.posting_date, a.created_at).localeCompare(chronoKey(b.posting_date, b.created_at)))
     const rows: StatementExportRow[] = chrono.map(l => ({
       date: l.posting_date,
+      time: entryTime(l.created_at),
       ref: l.voucher_ref,
       type: VOUCHER_TYPE_LABEL[l.voucher_type] || l.voucher_type || '—',
       description: l.description,
@@ -1051,6 +1061,7 @@ export default function Banks({ onNav }: Props) {
                           <thead>
                             <tr>
                               <SortableTh label="Date" sortKey="date" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
+                              <SortableTh label="Time" sortKey="time" width={70} onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
                               <SortableTh label="Ref" sortKey="ref" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
                               <SortableTh label="Type" sortKey="type" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
                               <SortableTh label="Description" sortKey="description" onHeaderClick={onLedgerHeaderClick} getSortIndex={getLedgerSortIndex} getSortDir={getLedgerSortDir} />
@@ -1063,6 +1074,11 @@ export default function Banks({ onNav }: Props) {
                             {sortedLedger.map((entry, i) => (
                               <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.01)' }}>
                                 <td className="td-mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{entry.posting_date}</td>
+                                <td
+                                  className="td-mono"
+                                  title={entry.created_at ? `Entered ${entryTimeSeconds(entry.created_at)}` : 'No entry timestamp'}
+                                  style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}
+                                >{entryTime(entry.created_at)}</td>
                                 <td className="td-mono td-amber" style={{ fontSize: 11 }}>{entry.voucher_ref}</td>
                                 <td>
                                   <span className="pill pill-gray" style={{ fontSize: 9 }}>
@@ -1092,7 +1108,7 @@ export default function Banks({ onNav }: Props) {
                           </tbody>
                           <tfoot>
                             <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                              <td colSpan={4} style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase' }}>Period Totals</td>
+                              <td colSpan={5} style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase' }}>Period Totals</td>
                               <td className="td-right td-mono" style={{ color: 'var(--green)', fontSize: 13, padding: '10px 14px' }}>{tzs(totalIn)}</td>
                               <td className="td-right td-mono" style={{ color: 'var(--red)', fontSize: 13, padding: '10px 14px' }}>({tzs(totalOut)})</td>
                               <td className="td-right td-mono" style={{ color: netFlow >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 14, fontWeight: 800, padding: '10px 14px' }}>{tzs(selected.balance)}</td>

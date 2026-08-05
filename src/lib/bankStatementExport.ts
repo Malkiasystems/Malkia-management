@@ -12,6 +12,10 @@
 // export here, fed by the same per-row running_balance the screen shows,
 // retires that bug in all three formats at once.
 //
+// The Time column comes from journal_lines.created_at. posting_date is a DATE
+// with no time component, so without it two entries on the same day are
+// indistinguishable on paper and unorderable on screen.
+//
 // Exports are ALWAYS chronological regardless of any on-screen column sort.
 // A statement is an accounting document; date order is the only correct
 // order for one.
@@ -22,6 +26,10 @@ import { printHtmlDocument } from './printDocument'
 
 export interface StatementExportRow {
   date: string
+  /** Clock time the entry was recorded, pre-formatted by the caller (e.g. "13:52").
+   *  posting_date is a DATE and carries no time, so this comes from
+   *  journal_lines.created_at via entryTime(). */
+  time?: string
   ref: string
   type: string
   description: string
@@ -42,7 +50,7 @@ export interface StatementExportMeta {
   count: number
 }
 
-const HEAD = ['Date', 'Reference', 'Type', 'Description', 'Money In (TZS)', 'Money Out (TZS)', 'Balance (TZS)']
+const HEAD = ['Date', 'Time', 'Reference', 'Type', 'Description', 'Money In (TZS)', 'Money Out (TZS)', 'Balance (TZS)']
 const money = (n: number) => Math.round(n).toLocaleString()
 
 const fileStamp = (m: StatementExportMeta) =>
@@ -55,7 +63,7 @@ export function exportStatementCSV(rows: StatementExportRow[], meta: StatementEx
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const lines = rows.map(r =>
-    [r.date, r.ref, r.type, r.description, r.moneyIn || '', r.moneyOut || '', r.balance]
+    [r.date, r.time || '', r.ref, r.type, r.description, r.moneyIn || '', r.moneyOut || '', r.balance]
       .map(escape).join(',')
   )
   const csv = [HEAD.map(escape).join(','), ...lines].join('\n')
@@ -77,17 +85,17 @@ export function exportStatementExcel(rows: StatementExportRow[], meta: Statement
     [`Generated: ${new Date().toLocaleString()}`],
     [],
     HEAD,
-    ...rows.map(r => [r.date, r.ref, r.type, r.description, r.moneyIn || '', r.moneyOut || '', r.balance]),
+    ...rows.map(r => [r.date, r.time || '', r.ref, r.type, r.description, r.moneyIn || '', r.moneyOut || '', r.balance]),
     [],
-    ['', '', '', '', 'Money In', meta.totalIn],
-    ['', '', '', '', 'Money Out', meta.totalOut],
-    ['', '', '', '', 'Net Flow', meta.netFlow],
-    ['', '', '', '', 'Entries', meta.count],
+    ['', '', '', '', '', 'Money In', meta.totalIn],
+    ['', '', '', '', '', 'Money Out', meta.totalOut],
+    ['', '', '', '', '', 'Net Flow', meta.netFlow],
+    ['', '', '', '', '', 'Entries', meta.count],
   ]
 
   const ws = XLSX.utils.aoa_to_sheet(aoa)
   ws['!cols'] = [
-    { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 44 },
+    { wch: 12 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 44 },
     { wch: 15 }, { wch: 15 }, { wch: 16 },
   ]
   const wb = XLSX.utils.book_new()
@@ -102,6 +110,7 @@ export function exportStatementPDF(rows: StatementExportRow[], meta: StatementEx
   const bodyRows = rows.map(r => `
     <tr>
       <td class="mono">${esc(r.date)}</td>
+      <td class="mono">${esc(r.time || '—')}</td>
       <td class="mono">${esc(r.ref)}</td>
       <td>${esc(r.type)}</td>
       <td>${esc(r.description)}</td>
@@ -144,7 +153,7 @@ export function exportStatementPDF(rows: StatementExportRow[], meta: StatementEx
     </div>
     <table>
       <thead><tr>
-        <th>Date</th><th>Reference</th><th>Type</th><th>Description</th>
+        <th>Date</th><th>Time</th><th>Reference</th><th>Type</th><th>Description</th>
         <th class="num">Money In</th><th class="num">Money Out</th><th class="num">Balance</th>
       </tr></thead>
       <tbody>${bodyRows}</tbody>
