@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
+import { useLiveToday } from '../../lib/useLiveToday'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import {
@@ -23,12 +24,33 @@ export default function BankTransfer({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
+  // Synchronous double-submit latch. React state (`posting`) updates on the
+  // NEXT render, so two clicks in the same tick both read posting=false and
+  // both run. A ref flips instantly. This is the guard that would have
+  // stopped BNK-10-0009 from posting three times (0009/0010/0011, 17:08,
+  // 384,000 each): the button was never disabled, the first request was slow
+  // on shop internet, and each extra click ran the entire posting chain
+  // concurrently.
+  const postingRef = useRef(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [form, setForm] = useState({
     date: today(), ref: '', fromAccount: '', toAccount: '',
     amount: '', fxRate: '', narration: ''
   })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  // Keep the default posting date on TODAY while the user has not touched the
+  // field. `date: today()` above runs once, at mount — a tab left open on this
+  // screen overnight (or restored from memory on the shop phones the next
+  // morning) still shows yesterday, and the transfer posts backdated without
+  // anyone noticing. The live date tracks tab focus/visibility and midnight
+  // rollover; the touched flag makes sure a DELIBERATE manual date is never
+  // overwritten.
+  const liveToday = useLiveToday()
+  const dateTouched = useRef(false)
+  useEffect(() => {
+    if (!dateTouched.current) setForm(f => (f.date === liveToday ? f : { ...f, date: liveToday }))
+  }, [liveToday])
 
   useEffect(() => { loadAccounts(); loadNextRef() }, [])
 
@@ -49,6 +71,15 @@ export default function BankTransfer({ onNav }: Props) {
   useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
 
   const post = async () => {
+    // Latch FIRST, before any await. The old code only set `posting` after
+    // the async date/approval checks, leaving a multi-second window on shop
+    // internet where the button was live and every extra click started a
+    // full parallel posting run.
+    if (postingRef.current) return
+    postingRef.current = true
+    setPosting(true)
+
+    try {
     if (!form.fromAccount || !form.toAccount) { showToast('Please select both accounts', 'error'); return }
     if (form.fromAccount === form.toAccount) { showToast('From and To accounts cannot be the same', 'error'); return }
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
@@ -75,9 +106,7 @@ export default function BankTransfer({ onNav }: Props) {
       if (verdict === 'blocked' && shortfall) { showToast(cashShortfallMessage(shortfall, cashPolicy, canOverride), 'error'); return }
       if (verdict === 'needs_override' && shortfall) { if (!window.confirm(cashOverridePrompt(shortfall))) return }
     }
-    setPosting(true)
 
-    try {
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Bank Transfer — ${accounts.find(a => a.id === form.fromAccount)?.code} to ${accounts.find(a => a.id === form.toAccount)?.code} — ${form.ref}`,
@@ -98,17 +127,30 @@ export default function BankTransfer({ onNav }: Props) {
         supabase.rpc('update_account_balance', { p_account_id: form.fromAccount, p_debit: 0, p_credit: amount }),
       ])
 
-      await supabase.from('vouchers').insert({
+      // This insert failing was SILENT before — no error check. That is how
+      // the duplicate clicks left orphan journals with no voucher and a
+      // green success toast: the retry-bumped journal went in, then the
+      // voucher insert hit UNIQUE(ref) with the stale form ref and vanished
+      // without a trace. A ref collision here means this submission already
+      // posted once; say so loudly.
+      const { error: vErr } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'bank_transfer', posting_date: form.date,
         description: `Bank Transfer — ${form.ref}`, total_amount: amount,
         status: 'posted', journal_id: journal.id, posted_by: user.full_name, notes: form.narration,
       })
+      if (vErr) {
+        const dup = vErr.code === '23505' || /duplicate|unique/i.test(vErr.message)
+        throw new Error(dup
+          ? `${form.ref} was already posted — this looks like a duplicate submission. Journal ${'JV-' + form.ref} may need review; check the register before retrying.`
+          : 'Voucher record: ' + vErr.message + ` (journal ${journal.ref ?? ''} was created — report this to an administrator)`)
+      }
 
       showToast(`${form.ref} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
       onNav('vouchers')
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
+      postingRef.current = false
       setPosting(false)
     }
   }
@@ -168,13 +210,14 @@ export default function BankTransfer({ onNav }: Props) {
   return (
     <VoucherPage title="Bank Transfer" icon="" subtitle="Move funds between your own bank accounts" color="rgba(61,139,255,.12)"
       onPost={post} postLabel={posting ? 'Posting…' : 'Post Transfer'}
+      postDisabled={posting} postDisabledReason="Posting in progress — please wait"
       journalNote="Dr Target Account · Cr Source Account · FX difference to 7010/7011 if cross-currency">
       <div className="grid g2" style={{ gap: 20 }}>
         <div className="card">
           <div className="card-title" style={{ marginBottom: 16 }}>Transfer Details</div>
           <div className="form-row">
             <FG label="Ref"><input className="form-input" value={form.ref} readOnly style={{ fontFamily: 'var(--mono)', fontWeight: 700, background: 'var(--surface2)', cursor: 'default', color: 'var(--accent)' }} /></FG>
-            <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} /></FG>
+            <FG label="Date" req><input type="date" className="form-input" value={form.date} onChange={e => { dateTouched.current = true; set('date', e.target.value) }} /></FG>
           </div>
           <FG label="From Account" req>
             <select className="form-input" value={form.fromAccount} onChange={e => set('fromAccount', e.target.value)}>
