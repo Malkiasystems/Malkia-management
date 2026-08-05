@@ -1,17 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
 import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
-import { useCanViewCost } from '../lib/useCostVisibility'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 import type { Page } from '../lib/types'
 import { exportCSV as doExportCSV, exportPDF as doExportPDF, exportDetailPDF as doExportDetailPDF } from '../lib/salesDayBookExport'
-import { loadReportTplSettings } from '../lib/reportTplSettings'
-import { useReportScope, scopeLabel, voucherInScope } from '../lib/reportScope'
-import ReportScopeFilter from '../components/ReportScopeFilter'
-import { GuideTip, GuideToggle } from '../components/GuideMode'
 import type { SDBSale, SDBExpense, SDBCreditNote, SDBTemplateSettings } from '../lib/salesDayBookExport'
-import { RETAIL, WHOLESALE } from '../lib/salesTerms'
 
 interface Props {
   onNav?: (p: Page) => void
@@ -20,10 +15,7 @@ interface Props {
 
 
 export default function SalesDayBook({ onEdit }: Props) {
-  // Cost, COGS and margin are gated on inventory.view_cost (visibility only,
-  // see useCostVisibility.ts). Omitted from the printed document rather than
-  // blanked, so an exported day book does not look broken.
-  const canViewCost = useCanViewCost()
+  const vis = useCostVisibility()
   const [sales, setSales] = useState<SDBSale[]>([])
   // Day Close status: if today has been closed (daily_closes), say so and show
   // the variance — this page is where the cashier lands after closing.
@@ -45,7 +37,7 @@ export default function SalesDayBook({ onEdit }: Props) {
 
   // PDF template settings
   const [tplSettings, setTplSettings] = useState<SDBTemplateSettings>({
-    logo_url: null, logo_position: 'left', logo_width: 120, company_name: 'Your Company', company_tagline: 'Your tagline', primary_color: '#85c2be'
+    logo_url: null, logo_position: 'left', logo_width: 120, company_name: 'Malkia Wellness Group Ltd', company_tagline: 'Reimagining Motherhood', primary_color: '#85c2be'
   })
 
   // Filters
@@ -64,18 +56,13 @@ export default function SalesDayBook({ onEdit }: Props) {
   const catPredicate = makeCategoryPredicate(filterCat, _cats)
   const [showFilters, setShowFilters] = useState(false)
 
-  // Branch scope — vouchers carry the branch NAME of their selling location,
-  // so this book can be run for the whole company or one branch. Hidden for
-  // single-branch tenants; a branch-locked user only ever sees their branch.
-  const { scope, setScope, branches: scopeBranches, locations: scopeLocations, show: showScope } = useReportScope()
-
   useEffect(() => { loadSales(); loadTplSettings(); loadTrend() }, [])
 
   const loadTrend = async () => {
     const end = new Date()
     const start = new Date(Date.now() - 29 * 86400000)
-    const startStr = start.toISOString().split('T')[0]
-    const endStr = end.toISOString().split('T')[0]
+    const startStr = localIso(start)
+    const endStr = localIso(end)
     const { data } = await supabase
       .from('vouchers')
       .select('posting_date, total_amount, type')
@@ -101,7 +88,7 @@ export default function SalesDayBook({ onEdit }: Props) {
       .from('vouchers')
       .select(`
         id, ref, type, posting_date, description, total_amount, subtotal,
-        payment_method, payment_split, status, payment_status, notes, posted_by, branch,
+        payment_method, payment_split, status, notes, posted_by,
         customers (name, whatsapp, pregnancy_stage, crown_points),
         voucher_lines (
           id, qty, unit_price, unit_cost, total,
@@ -115,11 +102,7 @@ export default function SalesDayBook({ onEdit }: Props) {
       .order('created_at', { ascending: false })
 
     if (voucherType !== 'all') query = query.eq('type', voucherType)
-    // Was .eq('status', statusFilter) with 'draft' standing in for unpaid.
-    // Since 119 every cash sale is posted and settlement is its own column,
-    // so this filter asks the question the user is actually asking.
-    if (statusFilter === 'unpaid') query = query.in('payment_status', ['unpaid', 'part_paid'])
-    else if (statusFilter === 'paid') query = query.eq('payment_status', 'paid')
+    if (statusFilter !== 'all') query = query.eq('status', statusFilter)
 
     const { data, error } = await query
     if (!error && data) setSales(data as any)
@@ -147,15 +130,12 @@ export default function SalesDayBook({ onEdit }: Props) {
   }
 
   const loadTplSettings = async () => {
-    // Layered: defaults ← the tenant's company profile ← saved Report
-    // Templates. A fresh tenant prints THEIR name, never "Your Company".
-    const merged = await loadReportTplSettings(tplSettings)
-    setTplSettings({ ...merged, company_address: merged.identity.address })
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'report_templates').single()
+    if (data?.value) { try { const p = JSON.parse(data.value); setTplSettings(s => ({ ...s, ...p })) } catch {} }
   }
 
   // Client-side filtering
   const filtered = sales.filter(s => {
-    if (!voucherInScope((s as any).branch, scope)) return false
     const custName = (s.customers as any)?.name?.toLowerCase() || ''
     const custWa = (s.customers as any)?.whatsapp || ''
     const products = (s.voucher_lines || []).map((l: any) => l.products?.name?.toLowerCase() || '').join(' ')
@@ -176,13 +156,10 @@ export default function SalesDayBook({ onEdit }: Props) {
   const totalCost = filtered.reduce((s: number, sale: any) => s + (sale.voucher_lines || []).reduce((acc: number, l: any) => acc + ((l.unit_cost || 0) * (l.qty || 0)), 0), 0)
   const totalMargin = totalRevenue - totalCost
   const marginPct = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0
-  const isUnpaid = (s: any) => s.payment_status === 'unpaid' || s.payment_status === 'part_paid'
-  const podCount = filtered.filter(isUnpaid).length
-  const postedCount = filtered.filter((s: any) => s.payment_status === 'paid').length
-  // The number that matters is the money, not the count of documents.
-  const owedTotal = filtered.filter(isUnpaid).reduce((t: number, s: any) => t + Number(s.total_amount || 0), 0)
+  const podCount = filtered.filter(s => s.status === 'draft').length
+  const postedCount = filtered.filter(s => s.status === 'posted').length
 
-  // Retail vs Wholesale split (cash_sale = retail, sales_invoice = wholesale)
+  // Cash vs Credit split (cash_sale = cash, sales_invoice = credit)
   const cashSales = filtered.filter(s => s.type === 'cash_sale')
   const creditSales = filtered.filter(s => s.type === 'sales_invoice')
   const cashTotal = cashSales.reduce((s, v) => s + (v.total_amount || 0), 0)
@@ -258,12 +235,12 @@ export default function SalesDayBook({ onEdit }: Props) {
     (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
 
   // ── EXPORT: CSV ──────────────────────────────────────────────────────
-  const exportCSV = () => doExportCSV({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, canViewCost, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings, dayClosed , scopeLabel: showScope ? scopeLabel(scope) : undefined })
+  const exportCSV = () => doExportCSV({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings, dayClosed })
 
   // ── EXPORT: PDF (Print) ──────────────────────────────────────────────
   // View-aware: Summary view → summary PDF; Detail view → per-voucher detail PDF.
   const exportPDF = () => {
-    const payload = { filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, canViewCost, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings, dayClosed, scopeLabel: showScope ? scopeLabel(scope) : undefined }
+    const payload = { filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings }
     if (view === 'detail') doExportDetailPDF(payload)
     else doExportPDF(payload)
   }
@@ -285,10 +262,8 @@ export default function SalesDayBook({ onEdit }: Props) {
           <div className="page-sub">
             Today's transactions · {filtered.length} vouchers · <span className="sync-dot"></span> Live
           </div>
-          <GuideTip>Every sale in the chosen period, cash and credit, with expenses and banking alongside. Print or export it as the day's record.</GuideTip>
         </div>
         <div className="page-actions">
-          <GuideToggle />
           <button className="btn btn-ghost btn-sm" onClick={() => loadSales()} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
           <button className="btn btn-ghost btn-sm" onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> {view === 'detail' ? 'Print / Detail PDF' : 'Print / PDF'}</button>
           <button className="btn btn-ghost btn-sm" onClick={exportCSV} style={{ display:"flex",alignItems:"center",gap:6  }}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.09"/></svg> Export CSV</button>
@@ -315,19 +290,11 @@ export default function SalesDayBook({ onEdit }: Props) {
         ))}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {showScope && (
-            <div>
-              <ReportScopeFilter mode="branch" scope={scope} onChange={setScope}
-                branches={scopeBranches} locations={scopeLocations}
-                style={{ height: '100%' }} />
-              <GuideTip>Run the book for the whole company or a single branch. Prints carry the chosen scope.</GuideTip>
-            </div>
-          )}
-          {/* Retail/Wholesale quick toggle */}
+          {/* Cash/Credit quick toggle */}
           <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
             <button onClick={() => setVoucherType('all')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'all' ? 'var(--accent)' : 'transparent', color: voucherType === 'all' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}>All</button>
-            <button onClick={() => setVoucherType('cash_sale')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'cash_sale' ? 'var(--green)' : 'transparent', color: voucherType === 'cash_sale' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>{RETAIL.short}</button>
-            <button onClick={() => setVoucherType('sales_invoice')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'sales_invoice' ? 'var(--blue)' : 'transparent', color: voucherType === 'sales_invoice' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>{WHOLESALE.short}</button>
+            <button onClick={() => setVoucherType('cash_sale')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'cash_sale' ? 'var(--green)' : 'transparent', color: voucherType === 'cash_sale' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Cash</button>
+            <button onClick={() => setVoucherType('sales_invoice')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'sales_invoice' ? 'var(--blue)' : 'transparent', color: voucherType === 'sales_invoice' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Credit</button>
           </div>
           <button onClick={() => setShowFilters(!showFilters)} className="btn btn-ghost btn-sm" style={{ position: 'relative' }}>
             Filters
@@ -370,7 +337,7 @@ export default function SalesDayBook({ onEdit }: Props) {
             </div>
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Salesperson</div>
-              <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. Joe, Lilian" value={searchSalesperson} onChange={e => setSearchSalesperson(e.target.value)} />
+              <input className="form-input" style={{ fontSize: 12 }} placeholder="Search by salesperson" value={searchSalesperson} onChange={e => setSearchSalesperson(e.target.value)} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Voucher Type</div>
@@ -383,9 +350,9 @@ export default function SalesDayBook({ onEdit }: Props) {
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
               <select className="form-input" style={{ fontSize: 12 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                <option value="all">All Sales</option>
-                <option value="paid">Paid</option>
-                <option value="unpaid">Unpaid (owing)</option>
+                <option value="all">All Statuses</option>
+                <option value="posted">Posted</option>
+                <option value="draft">POD Pending</option>
               </select>
             </div>
           </div>
@@ -434,10 +401,10 @@ export default function SalesDayBook({ onEdit }: Props) {
       {/* STAT CARDS */}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
         <div className="stat-card green"><div className="stat-label">Total Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
-        <div className="stat-card green"><div className="stat-label">{RETAIL.sales}</div><div className="stat-value">{cashTotal >= 1000000 ? (cashTotal/1000000).toFixed(2)+'M' : (cashTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
-        <div className="stat-card blue"><div className="stat-label">{WHOLESALE.sales}</div><div className="stat-value">{creditTotal >= 1000000 ? (creditTotal/1000000).toFixed(2)+'M' : (creditTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
+        <div className="stat-card green"><div className="stat-label">Cash Sales</div><div className="stat-value">{cashTotal >= 1000000 ? (cashTotal/1000000).toFixed(2)+'M' : (cashTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
+        <div className="stat-card blue"><div className="stat-label">Credit Sales</div><div className="stat-value">{creditTotal >= 1000000 ? (creditTotal/1000000).toFixed(2)+'M' : (creditTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
         <div className="stat-card amber"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
-        {canViewCost && <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{marginPct}%</div><div className="stat-change up">{tzs(totalMargin)}</div></div>}
+        <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{vis.margin(marginPct)}</div><div className="stat-change up">{vis.canViewMargin ? tzs(totalMargin) : HIDDEN}</div></div>
       </div>
 
       {/* PAYMENT SPLIT (Retail + Wholesale) + STATUS */}
@@ -445,10 +412,10 @@ export default function SalesDayBook({ onEdit }: Props) {
         <div className="card card-sm">
           <div className="card-title" style={{ marginBottom: 12 }}>Payment Split</div>
 
-          {/* Retail (cash_sale vouchers) */}
+          {/* Retail (cash sales) */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: 700 }}>
-              {RETAIL.sales} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(cashTotal)})</span>
+              Retail — Cash Sales <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(cashTotal)})</span>
             </div>
             {Object.keys(retailSplit).length === 0 ? (
               <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No retail sales in this period</div>
@@ -472,7 +439,7 @@ export default function SalesDayBook({ onEdit }: Props) {
               entries don't get mixed into the cash breakdown. */}
           <div>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-              {WHOLESALE.sales} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(creditTotal)})</span>
+              Wholesale — Sales Invoices <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(creditTotal)})</span>
             </div>
             {Object.keys(wholesaleSplit).length === 0 ? (
               <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No wholesale invoices in this period</div>
@@ -498,13 +465,11 @@ export default function SalesDayBook({ onEdit }: Props) {
           <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
             <div style={{ flex: 1, background: 'var(--green-dim)', border: '1px solid rgba(0,229,160,.2)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--green)', fontFamily: 'var(--display)' }}>{postedCount}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Paid ✓</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Posted ✓</div>
             </div>
             <div style={{ flex: 1, background: 'var(--yellow-dim)', border: '1px solid rgba(255,211,42,.2)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--yellow)', fontFamily: 'var(--display)' }}>{podCount}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>
-                Unpaid{owedTotal > 0 ? ` · TZS ${owedTotal.toLocaleString()} owing` : ''}
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>POD Pending </div>
             </div>
             <div style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12, textAlign: 'center' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--display)' }}>{filtered.length}</div>
@@ -514,7 +479,7 @@ export default function SalesDayBook({ onEdit }: Props) {
           {filtered.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>
               Avg sale: <span style={{ color: 'var(--text)', fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(Math.round(totalRevenue / filtered.length))}</span> ·
-              {canViewCost && <>Avg margin: <span style={{ color: 'var(--green)', fontFamily: 'var(--mono)', fontWeight: 600 }}> {marginPct}%</span></>}
+              Avg margin: <span style={{ color: 'var(--green)', fontFamily: 'var(--mono)', fontWeight: 600 }}> {vis.margin(marginPct)}</span>
             </div>
           )}
         </div>
@@ -562,7 +527,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                         </span>
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.posted_by || '—'}</td>
-                      <td><span className={`pill ${isUnpaid(s) ? 'pill-yellow' : 'pill-green'}`} style={{ fontSize: 10 }}>{isUnpaid(s) ? 'Unpaid' : 'Paid ✓'}</span></td>
+                      <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted ✓'}</span></td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
                       <td style={{ width: 30 }}>
                         <svg width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -581,7 +546,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                       <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
                         <td colSpan={7} style={{ padding: '8px 14px 8px 30px', color: 'var(--text3)' }}>
                           <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--green)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
-                          {RETAIL.sales} ({cashSales.length} txns · {cashPct}%)
+                          Cash Sales ({cashSales.length} txns · {cashPct}%)
                         </td>
                         <td className="td-right td-mono" style={{ color: 'var(--green)', fontWeight: 700, padding: '8px 14px' }}>{cashTotal.toLocaleString()}</td>
                         <td></td>
@@ -589,7 +554,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                       <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
                         <td colSpan={7} style={{ padding: '8px 14px 8px 30px', color: 'var(--text3)' }}>
                           <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--blue)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
-                          {WHOLESALE.sales} ({creditSales.length} txns · {creditPct}%)
+                          Credit Sales ({creditSales.length} txns · {creditPct}%)
                         </td>
                         <td className="td-right td-mono" style={{ color: 'var(--blue)', fontWeight: 700, padding: '8px 14px' }}>{creditTotal.toLocaleString()}</td>
                         <td></td>
@@ -615,7 +580,7 @@ export default function SalesDayBook({ onEdit }: Props) {
               const custMargin = (s.voucher_lines || []).reduce((acc: number, l: any) => acc + ((l.unit_price - l.unit_cost) * l.qty), 0)
               const custMarginPct = (s.total_amount || 0) > 0 ? Math.round((custMargin / (s.total_amount || 1)) * 100) : 0
               return (
-                <div key={i} className="card" style={{ borderLeft: `3px solid ${isUnpaid(s) ? 'var(--yellow)' : 'var(--green)'}` }}>
+                <div key={i} className="card" style={{ borderLeft: `3px solid ${s.status === 'draft' ? 'var(--yellow)' : 'var(--green)'}` }}>
                   {/* Voucher Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
                     <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
@@ -623,15 +588,15 @@ export default function SalesDayBook({ onEdit }: Props) {
                         <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 800, color: 'var(--accent)' }}>{s.ref}</div>
                         <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>{s.posting_date} · {s.posted_by}</div>
                       </div>
-                      <span className={`pill ${isUnpaid(s) ? 'pill-yellow' : 'pill-green'}`}>{isUnpaid(s) ? `Owing TZS ${Number(s.total_amount || 0).toLocaleString()}` : 'Paid ✓'}</span>
+                      <span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`}>{s.status === 'draft' ? 'POD Pending' : 'Posted ✓'}</span>
                       <span className={`pill ${s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('M-Pesa') ? 'pill-blue' : s.payment_method?.includes('Mixx') ? 'pill-yellow' : s.payment_method?.includes('NMB') ? 'pill-blue' : s.payment_method?.includes('CRDB') ? 'pill-green' : s.payment_method?.includes('POS') ? 'pill-gray' : 'pill-amber'}`}>
                         {s.payment_method?.includes('Cash') ? '' : s.payment_method?.includes('M-Pesa') ? '' : s.payment_method?.includes('Mixx') ? '' : s.payment_method?.includes('NMB') ? '' : s.payment_method?.includes('CRDB') ? '' : s.payment_method?.includes('POS') ? '' : ''} {s.payment_method}
                       </span>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>{tzs(s.total_amount || 0)}</div>
-                      <div style={{ fontSize: 11, color: isUnpaid(s) ? 'var(--yellow)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {isUnpaid(s) ? 'Customer owes this' : '✓ Receipted'}
+                      <div style={{ fontSize: 11, color: s.status === 'draft' ? 'var(--yellow)' : 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                        {s.status === 'draft' ? 'Receipt pending' : '✓ Receipted'}
                       </div>
                     </div>
                   </div>
@@ -654,8 +619,8 @@ export default function SalesDayBook({ onEdit }: Props) {
                         <span style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{tzs(s.total_amount || 0)}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
-                        <span style={{ color: 'var(--text3)' }}>{canViewCost ? 'Margin' : ''}</span>
-                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 700 }}>{canViewCost ? `${custMarginPct}% · ${tzs(custMargin)}` : ''}</span>
+                        <span style={{ color: 'var(--text3)' }}>Margin</span>
+                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 700 }}>{custMarginPct}% · {tzs(custMargin)}</span>
                       </div>
                       {s.notes && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 6, fontStyle: 'italic' }}> {s.notes}</div>}
                     </div>
@@ -667,7 +632,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                         +{Math.round((s.total_amount || 0) / 1000)} Crown pts earned
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text3)' }}>Total pts: {((s.customers as any)?.crown_points || 0).toLocaleString()}</div>
-                      <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 4 }}>WhatsApp receipt {isUnpaid(s) ? 'pending' : 'sent'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 4 }}>WhatsApp receipt {s.status === 'draft' ? 'pending' : 'sent'}</div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--mono)' }}>Posted by: {s.posted_by}</div>
                     </div>
                   </div>
@@ -680,7 +645,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                           <tr style={{ background: 'var(--surface3)' }}>
                             <th>SKU</th><th>Product</th><th>Category</th>
                             <th className="td-right" style={{ width: 60 }}>Qty</th>
-                            {canViewCost && <th className="td-right" style={{ width: 120 }}>Unit Cost</th>}
+                            <th className="td-right" style={{ width: 120 }}>Unit Cost</th>
                             <th className="td-right" style={{ width: 120 }}>Unit Price</th>
                             <th className="td-right" style={{ width: 80 }}>Margin</th>
                             <th className="td-right" style={{ width: 130 }}>Line Total</th>
@@ -695,7 +660,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                                 <td className="td-bold" style={{ fontSize: 12 }}>{l.products?.name || '—'}</td>
                                 <td style={{ fontSize: 11, color: 'var(--text3)' }}>{l.products?.category || '—'}</td>
                                 <td className="td-right td-mono" style={{ fontSize: 12 }}>{l.qty}</td>
-                                {canViewCost && <td className="td-right td-mono" style={{ fontSize: 12, color: 'var(--text3)' }}>{(l.unit_cost || 0).toLocaleString()}</td>}
+                                <td className="td-right td-mono" style={{ fontSize: 12, color: 'var(--text3)' }}>{(l.unit_cost || 0).toLocaleString()}</td>
                                 <td className="td-right td-mono" style={{ fontSize: 12 }}>{(l.unit_price || 0).toLocaleString()}</td>
                                 <td className="td-right" style={{ fontSize: 11, color: 'var(--green)', fontFamily: 'var(--mono)' }}>{linePct}%</td>
                                 <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{(l.total || 0).toLocaleString()}</td>
@@ -720,12 +685,10 @@ export default function SalesDayBook({ onEdit }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 14 }}>
                 {[
                   { label: 'Revenue', value: tzs(totalRevenue), color: 'var(--green)' },
-                  { label: RETAIL.sales, value: `${tzs(cashTotal)} (${cashPct}%)`, color: 'var(--green)' },
-                  { label: WHOLESALE.sales, value: `${tzs(creditTotal)} (${creditPct}%)`, color: 'var(--blue)' },
-                  ...(canViewCost ? [
-                    { label: 'Cost of Goods', value: tzs(totalCost), color: 'var(--red)' },
-                    { label: 'Gross Margin', value: `${tzs(totalMargin)} (${marginPct}%)`, color: 'var(--green)' },
-                  ] : []),
+                  { label: 'Cash Sales', value: `${tzs(cashTotal)} (${cashPct}%)`, color: 'var(--green)' },
+                  { label: 'Credit Sales', value: `${tzs(creditTotal)} (${creditPct}%)`, color: 'var(--blue)' },
+                  { label: 'Cost of Goods', value: tzs(totalCost), color: 'var(--red)' },
+                  { label: 'Gross Margin', value: `${tzs(totalMargin)} (${marginPct}%)`, color: 'var(--green)' },
                   { label: 'Avg per Sale', value: filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—', color: 'var(--text)' },
                 ].map((item, i) => (
                   <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 12 }}>

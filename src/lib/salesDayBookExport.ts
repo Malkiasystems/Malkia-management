@@ -8,14 +8,13 @@
  *   exportDetailPDF — per-voucher detail PDF (one card per voucher with line items)
  */
 
-import { RETAIL, WHOLESALE } from './salesTerms'
+import { printHtmlDocument } from './printDocument'
 
 export interface SDBSale {
   id: string; ref: string; type?: string; posting_date: string; description: string
   total_amount: number; subtotal: number; payment_method: string
   payment_split?: Record<string, number> | null
-  status: string; payment_status?: string | null; notes: string; posted_by: string
-  branch?: string | null
+  status: string; notes: string; posted_by: string
   customers: { name: string; whatsapp: string; pregnancy_stage: string; crown_points: number } | null
   voucher_lines: { id: string; qty: number; unit_price: number; unit_cost: number; total: number; products: { name: string; sku: string; category: string } | null }[]
 }
@@ -31,9 +30,6 @@ export interface SDBCreditNote {
 export interface SDBTemplateSettings {
   logo_url: string | null; logo_position: string; logo_width: number
   company_name: string; company_tagline: string; primary_color: string
-  // Tenant address for print footers — layered from the companies profile,
-  // replaces the old hardcoded 'Dar es Salaam, Tanzania'.
-  company_address?: string
 }
 
 // When the day has been closed (daily_closes), the printed document carries a
@@ -53,9 +49,6 @@ export interface ExportData {
   netSales: number
   totalCost: number
   totalMargin: number
-  /** inventory.view_cost. When false, cost and margin are omitted from the
-   *  document rather than printed blank, which would look broken. */
-  canViewCost?: boolean
   marginPct: number
   cashTotal: number
   creditTotal: number
@@ -66,9 +59,6 @@ export interface ExportData {
   fromDate: string
   toDate: string
   tplSettings: SDBTemplateSettings
-  // Branch/location scope the report was run under, e.g. 'All branches' or
-  // 'Branch: Kariakoo'. Printed in the doc-meta so a filtered PDF says so.
-  scopeLabel?: string
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────
@@ -134,19 +124,18 @@ export function exportCSV(data: ExportData) {
   const rows: string[][] = filtered.map(s => [
     s.posting_date,
     s.ref,
-    s.type === 'sales_invoice' ? WHOLESALE.short : RETAIL.short,
+    s.type === 'sales_invoice' ? 'Credit' : 'Cash',
     `"${(s.customers as any)?.name || s.description || ''}"`,
     (s.customers as any)?.whatsapp || '',
     s.payment_method || '',
     s.posted_by || '',
-    s.payment_status === 'paid' ? 'Paid' : 'Unpaid',
+    s.status || '',
     String(s.total_amount || 0),
   ])
   rows.push(['','','','','','','','',''])
   rows.push(['TOTALS',`${filtered.length} txns`,'','','','','','',String(totalRevenue)])
-  rows.push([`  ${RETAIL.sales}`,`${cashCount} txns`,`${cashPct}%`,'','','','','',String(cashTotal)])
-  rows.push([`  ${WHOLESALE.sales}`,`${creditCount} txns`,`${creditPct}%`,'','','','','',String(creditTotal)])
-  if (data.scopeLabel) rows.push([`\"Scope: ${data.scopeLabel}\"`,'','','','','','','',''])
+  rows.push(['  Cash Sales',`${cashCount} txns`,`${cashPct}%`,'','','','','',String(cashTotal)])
+  rows.push(['  Credit Sales',`${creditCount} txns`,`${creditPct}%`,'','','','','',String(creditTotal)])
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
   const blob = new Blob([csv], { type: 'text/csv' })
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -215,19 +204,17 @@ export function exportPDF(data: ExportData) {
     return `<tr>
       <td>${s.posting_date}</td>
       <td class="ref">${s.ref}</td>
-      <td><span class="pill ${isCredit ? 'pill-b' : 'pill-g'}">${isCredit ? WHOLESALE.short : RETAIL.short}</span></td>
+      <td><span class="pill ${isCredit ? 'pill-b' : 'pill-g'}">${isCredit ? 'Credit' : 'Cash'}</span></td>
       <td>${(s.customers as any)?.name || '—'}</td>
       <td class="mono">${(s.customers as any)?.whatsapp || '—'}</td>
       <td><span class="pill ${s.payment_method?.includes('Cash') ? 'pill-g' : s.payment_method?.includes('M-Pesa') ? 'pill-b' : 'pill-a'}">${s.payment_method || '—'}</span></td>
       <td>${s.posted_by || '—'}</td>
-      <td><span class="pill ${s.payment_status === 'paid' ? 'pill-g' : 'pill-y'}">${s.payment_status === 'paid' ? 'Paid' : 'Unpaid'}</span></td>
+      <td><span class="pill ${s.status === 'posted' ? 'pill-g' : 'pill-y'}">${s.status === 'draft' ? 'POD' : 'Posted'}</span></td>
       <td class="num">${(s.total_amount || 0).toLocaleString()}</td>
     </tr>`
   }).join('')
 
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
+  const printRes1 = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
@@ -281,7 +268,7 @@ export function exportPDF(data: ExportData) {
         </div>
         <div>
           <div class="doc-title">Sales Day Book</div>
-          <div class="doc-meta">Period: ${fromDate} to ${toDate}${data.scopeLabel ? `<br>${data.scopeLabel}` : ''}<br>Generated: ${now}<br>${filtered.length} transactions</div>
+          <div class="doc-meta">Period: ${fromDate} to ${toDate}<br>Generated: ${now}<br>${filtered.length} transactions</div>
         </div>
       </div>
 
@@ -297,24 +284,24 @@ export function exportPDF(data: ExportData) {
       <div class="section-title">Sales Composition</div>
       <div class="stats" style="margin-bottom:24px">
         <div class="stat" style="background:#f0faf7;border-color:#1a7a4a20">
-          <div class="stat-label">${RETAIL.sales}</div>
+          <div class="stat-label">Cash Sales</div>
           <div class="stat-val green">TZS ${cashTotal.toLocaleString()}</div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">${cashCount} txns · ${cashPct}% of gross</div>
           <div style="height:4px;background:#eee;border-radius:2px;margin-top:8px"><div style="height:100%;width:${cashPct}%;background:#1a7a4a;border-radius:2px"></div></div>
         </div>
         <div class="stat" style="background:#eff6ff;border-color:#2563eb20">
-          <div class="stat-label">${WHOLESALE.sales}</div>
+          <div class="stat-label">Credit Sales</div>
           <div class="stat-val blue">TZS ${creditTotal.toLocaleString()}</div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">${creditCount} txns · ${creditPct}% of gross</div>
           <div style="height:4px;background:#eee;border-radius:2px;margin-top:8px"><div style="height:100%;width:${creditPct}%;background:#2563eb;border-radius:2px"></div></div>
         </div>
         <div class="stat">
-          <div class="stat-label">Avg Retail Sale</div>
+          <div class="stat-label">Avg Cash Sale</div>
           <div class="stat-val">TZS ${cashCount > 0 ? Math.round(cashTotal / cashCount).toLocaleString() : '0'}</div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Immediate receipt</div>
         </div>
         <div class="stat">
-          <div class="stat-label">Avg Wholesale Sale</div>
+          <div class="stat-label">Avg Credit Sale</div>
           <div class="stat-val">TZS ${creditCount > 0 ? Math.round(creditTotal / creditCount).toLocaleString() : '0'}</div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Payment pending</div>
         </div>
@@ -356,8 +343,8 @@ export function exportPDF(data: ExportData) {
         <tbody>${tableRows}</tbody>
         <tfoot>
           <tr class="total-row"><td colspan="8">Sales Subtotal — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr>
-          <tr style="background:#f0faf7;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#1a7a4a;border-radius:2px;margin-right:6px;vertical-align:middle"></span>${RETAIL.sales} (${cashCount} txns · ${cashPct}%)</td><td class="num" style="color:#1a7a4a;font-weight:700">${cashTotal.toLocaleString()}</td></tr>
-          <tr style="background:#eff6ff;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#2563eb;border-radius:2px;margin-right:6px;vertical-align:middle"></span>${WHOLESALE.sales} (${creditCount} txns · ${creditPct}%)</td><td class="num" style="color:#2563eb;font-weight:700">${creditTotal.toLocaleString()}</td></tr>
+          <tr style="background:#f0faf7;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#1a7a4a;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Cash Sales (${cashCount} txns · ${cashPct}%)</td><td class="num" style="color:#1a7a4a;font-weight:700">${cashTotal.toLocaleString()}</td></tr>
+          <tr style="background:#eff6ff;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#2563eb;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Credit Sales (${creditCount} txns · ${creditPct}%)</td><td class="num" style="color:#2563eb;font-weight:700">${creditTotal.toLocaleString()}</td></tr>
           ${creditNotes.length > 0 ? `
             ${creditNotes.map(c => `<tr style="color:#c0392b"><td>${c.posting_date}</td><td class="ref" style="color:#c0392b">${c.ref}</td><td colspan="6">${c.description || 'Credit Note'}</td><td class="num">(${(c.total_amount || 0).toLocaleString()})</td></tr>`).join('')}
             <tr style="background:#fef2f2;font-weight:700"><td colspan="8">Total Credit Notes</td><td class="num" style="color:#c0392b">(${totalCreditNotes.toLocaleString()})</td></tr>
@@ -367,21 +354,20 @@ export function exportPDF(data: ExportData) {
       </table>
 
       <div class="footer">
-        <div>${t.company_name}${t.company_address ? ' · ' + t.company_address : ''}</div>
-        <div>Generated ${now} · Tarakimu</div>
+        <div>${t.company_name} · Dar es Salaam, Tanzania</div>
+        <div>Generated ${now} · MalkiaOS</div>
       </div>
       </div>
     </div>
   ${stampHtml(data.dayClosed)}</body></html>`)
-  win.document.close()
-  setTimeout(() => win.print(), 600)
+  if (!printRes1.ok && printRes1.error) alert(printRes1.error)
 }
 
 // ── DETAIL PDF EXPORT (per-voucher breakdown) ──────────────────────────
 
 export function exportDetailPDF(data: ExportData) {
   const {
-    filtered, totalRevenue, totalCost, totalMargin, marginPct, canViewCost = true,
+    filtered, totalRevenue, totalCost, totalMargin, marginPct,
     cashTotal, creditTotal, cashCount, creditCount, cashPct, creditPct,
     fromDate, toDate, tplSettings,
   } = data
@@ -415,20 +401,20 @@ export function exportDetailPDF(data: ExportData) {
       : `<tr><td colspan="5" style="text-align:center;color:#bbb;padding:12px 0">No line items</td></tr>`
 
     return `
-      <div class="voucher" style="border-left:3px solid ${s.payment_status === 'paid' ? '#1a7a4a' : '#d48744'}">
+      <div class="voucher" style="border-left:3px solid ${s.status === 'draft' ? '#d48744' : '#1a7a4a'}">
         <div class="vh">
           <div>
             <div class="vh-ref">${s.ref}</div>
             <div class="vh-meta">${s.posting_date} · ${s.posted_by || '—'}</div>
           </div>
           <div class="vh-pills">
-            <span class="pill ${s.payment_status === 'paid' ? 'pill-g' : 'pill-y'}">${s.payment_status === 'paid' ? 'Paid ✓' : `Owing TZS ${Number(s.total_amount || 0).toLocaleString()}`}</span>
+            <span class="pill ${s.status === 'posted' ? 'pill-g' : 'pill-y'}">${s.status === 'draft' ? 'POD Pending' : 'Posted ✓'}</span>
             <span class="pill ${isCredit ? 'pill-b' : 'pill-g'}">${isCredit ? 'Credit Sale' : 'Cash Sale'}</span>
             <span class="pill pill-a">${s.payment_method || '—'}</span>
           </div>
           <div class="vh-amt">
             <div class="vh-total">TZS ${(s.total_amount || 0).toLocaleString()}</div>
-            <div class="vh-status">${s.payment_status === 'paid' ? '✓ Receipted' : 'Customer owes this'}</div>
+            <div class="vh-status">${s.status === 'draft' ? 'Receipt pending' : '✓ Receipted'}</div>
           </div>
         </div>
 
@@ -444,7 +430,7 @@ export function exportDetailPDF(data: ExportData) {
             <div class="vbox-label">Financial</div>
             <div class="frow"><span>Subtotal</span><span class="mono">${(s.subtotal || 0).toLocaleString()}</span></div>
             <div class="frow"><span>Total</span><span class="mono">${(s.total_amount || 0).toLocaleString()}</span></div>
-            ${canViewCost ? `<div class="frow"><span>Margin</span><span class="mono" style="color:${custMargin >= 0 ? '#1a7a4a' : '#c0392b'}">${custMargin.toLocaleString()} (${custMarginPct}%)</span></div>` : ''}
+            <div class="frow"><span>Margin</span><span class="mono" style="color:${custMargin >= 0 ? '#1a7a4a' : '#c0392b'}">${custMargin.toLocaleString()} (${custMarginPct}%)</span></div>
           </div>
           <div class="vbox">
             <div class="vbox-label">Items</div>
@@ -462,9 +448,7 @@ export function exportDetailPDF(data: ExportData) {
     `
   }).join('')
 
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
+  const printRes2 = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${reportTitle}</title>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
@@ -520,7 +504,7 @@ export function exportDetailPDF(data: ExportData) {
         </div>
         <div>
           <div class="doc-title">Detailed Sales Day Book</div>
-          <div class="doc-meta">Period: ${fromDate} to ${toDate}${data.scopeLabel ? `<br>${data.scopeLabel}` : ''}<br>Generated: ${now}<br>${filtered.length} vouchers</div>
+          <div class="doc-meta">Period: ${fromDate} to ${toDate}<br>Generated: ${now}<br>${filtered.length} vouchers</div>
         </div>
       </div>
 
@@ -529,18 +513,17 @@ export function exportDetailPDF(data: ExportData) {
         <div class="sb"><div class="sb-label">Gross Sales</div><div class="sb-val">TZS ${totalRevenue.toLocaleString()}</div></div>
         <div class="sb"><div class="sb-label">Cash · ${cashPct}%</div><div class="sb-val" style="color:#1a7a4a">TZS ${cashTotal.toLocaleString()}</div><div style="font-size:9px;color:#999;margin-top:2px">${cashCount} txns</div></div>
         <div class="sb"><div class="sb-label">Credit · ${creditPct}%</div><div class="sb-val" style="color:#2563eb">TZS ${creditTotal.toLocaleString()}</div><div style="font-size:9px;color:#999;margin-top:2px">${creditCount} txns</div></div>
-        ${canViewCost ? `<div class="sb"><div class="sb-label">Margin</div><div class="sb-val" style="color:${totalMargin >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${totalMargin.toLocaleString()}</div><div style="font-size:9px;color:#999;margin-top:2px">${marginPct}% on cost ${totalCost.toLocaleString()}</div></div>` : ''}
+        <div class="sb"><div class="sb-label">Margin</div><div class="sb-val" style="color:${totalMargin >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${totalMargin.toLocaleString()}</div><div style="font-size:9px;color:#999;margin-top:2px">${marginPct}% on cost ${totalCost.toLocaleString()}</div></div>
       </div>
 
       ${voucherCards}
 
       <div class="footer">
-        <div>${t.company_name}${t.company_address ? ' · ' + t.company_address : ''}</div>
-        <div>Generated ${now} · Tarakimu</div>
+        <div>${t.company_name} · Dar es Salaam, Tanzania</div>
+        <div>Generated ${now} · MalkiaOS</div>
       </div>
       </div>
     </div>
   ${stampHtml(data.dayClosed)}</body></html>`)
-  win.document.close()
-  setTimeout(() => win.print(), 600)
+  if (!printRes2.ok && printRes2.error) alert(printRes2.error)
 }

@@ -86,48 +86,14 @@ export function CustomerPaymentFlow({
   useEffect(() => {
     let cancelled = false
     const loadAll = async () => {
-      // Who can receive a receipt is decided by WHO OWES MONEY, not by the
-      // label a customer was given when they were created.
-      //
-      // This used to be customer_type IN ('wholesale','debtor') alone. A Pay
-      // on Delivery walk-in is written by cashSalePost as customer_type
-      // 'cash', so the person holding the debt never appeared in this list
-      // and their POD could not be receipted through the UI at all. The debt
-      // was visible in AR Aging (which reads the ledger directly and has no
-      // type filter) but there was no way to act on it.
-      //
-      // Deliberately a UNION and not a replacement: a wholesale customer with
-      // no open invoice must still be selectable so they can pay on account.
-      // Widening the filter to "has open entries" alone would have removed
-      // them.
-      const [byType, byDebt] = await Promise.all([
-        supabase
-          .from('customers')
-          .select('id, name, company, contact_person, customer_number, balance, whatsapp')
-          .in('customer_type', ['wholesale', 'debtor'])
-          .eq('is_active', true)
-          .eq('is_hidden', false),
-        supabase
-          .from('customer_ledger_entries')
-          .select('customers!inner(id, name, company, contact_person, customer_number, balance, whatsapp, is_active, is_hidden)')
-          .eq('is_open', true)
-          .gt('remaining_amount', 0)
-          .eq('document_type', 'invoice'),
-      ])
-
-      const merged = new Map<string, Debtor>()
-      for (const c of (byType.data || [])) merged.set(c.id, c as Debtor)
-      for (const row of (byDebt.data || [])) {
-        const c: any = (row as any).customers
-        // An inactive or hidden customer who still owes money stays out of the
-        // picker, same as before. Hiding someone should not become a way to
-        // make their debt unreachable, but that is a question for the POD
-        // debtors page, not a reason to change this list's rules today.
-        if (!c || c.is_active === false || c.is_hidden === true) continue
-        if (!merged.has(c.id)) merged.set(c.id, c as Debtor)
-      }
-      const data = [...merged.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-      if (!cancelled && data.length) setAllDebtors(data)
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name, company, contact_person, customer_number, balance, whatsapp')
+        .in('customer_type', ['wholesale', 'debtor'])
+        .eq('is_active', true)
+        .eq('is_hidden', false)
+        .order('name')
+      if (!cancelled && data) setAllDebtors(data)
     }
     loadAll()
     return () => { cancelled = true }
