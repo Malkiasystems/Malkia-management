@@ -92,6 +92,16 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
       .eq('id', voucherId)
       .single()
 
+    // Resolve salesperson_id to a display name for the printout. The vouchers
+    // row stores the id; the template wants voucher.salesperson as text. Done
+    // as a second small lookup rather than a join so a missing/legacy id
+    // degrades to the posted_by fallback instead of failing the whole preview.
+    if (voucher?.salesperson_id) {
+      const { data: sp } = await supabase.from('users')
+        .select('full_name').eq('id', voucher.salesperson_id).single()
+      if (sp?.full_name) (voucher as any).salesperson = sp.full_name
+    }
+
     if (error || !voucher) {
       console.error('[invoices] preview load failed:', error?.message, error?.details)
       setToast(`Failed to load invoice${error?.message ? ': ' + error.message : ''}`); setToastType('error')

@@ -763,8 +763,14 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         ref: form.ref, posting_date: form.date, due_date: form.dueDate,
         payment_terms: form.paymentTerms, notes: form.notes,
         total_amount: subtotal, vat_amount: vat, subtotal: netRevenue,
-        // Printed invoice shows the salesperson (may differ from logger)
-        posted_by: (salespeople.find(s => s.id === salespersonId)?.full_name) || form.salesperson || '',
+        // Two separate fields, matching the DB row (posted_by vs
+        // salesperson_id). This used to overwrite posted_by with the
+        // salesperson's name for the print, which made the template's
+        // "Invoiced by" line show the seller — and made a fresh print and a
+        // reprint of the same invoice show different names, since the reprint
+        // path reads the real posted_by from the vouchers table.
+        posted_by: getPostedBy(),
+        salesperson: (salespeople.find(s => s.id === salespersonId)?.full_name) || form.salesperson || '',
         customers: {
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',

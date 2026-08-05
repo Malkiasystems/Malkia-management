@@ -17,7 +17,7 @@ export interface InvoiceSettings {
   // Labels (editable)
   label_bill_to: string; label_invoice: string; label_payment_details: string
   label_this_invoice: string; label_account_statement: string
-  label_notes: string; label_salesperson: string
+  label_notes: string; label_salesperson: string; label_invoiced_by: string
   // Toggles
   show_bank_details: boolean; show_salesperson: boolean
   show_outstanding_balance: boolean
@@ -37,7 +37,12 @@ const DEFAULT: InvoiceSettings = {
   label_bill_to: 'Bill To', label_invoice: 'Tax Invoice',
   label_payment_details: 'Payment Details', label_this_invoice: 'This Invoice',
   label_account_statement: 'Account Statement', label_notes: 'Notes',
-  label_salesperson: 'Invoiced by',
+  // Two different people, two different labels. label_salesperson is the
+  // seller who owns the customer relationship; label_invoiced_by is whoever
+  // recorded the voucher. They were previously one field, which is why picking
+  // a salesperson made the printout read "Invoiced by <salesperson>".
+  label_salesperson: 'Salesperson',
+  label_invoiced_by: 'Invoiced by',
   show_bank_details: true, show_salesperson: true,
   show_outstanding_balance: true, show_payment_terms: true, show_notes: true, show_logo: true,
 }
@@ -47,7 +52,7 @@ interface Voucher {
   ref: string; posting_date: string; due_date?: string
   payment_terms?: string; notes?: string
   total_amount: number; subtotal: number
-  posted_by?: string
+  posted_by?: string; salesperson?: string
   customers: {
     name: string; company?: string; contact_person?: string
     whatsapp: string; address: string; balance: number
@@ -150,8 +155,18 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
               {s.show_payment_terms && voucher.payment_terms && (
                 <div>Terms: <span style={{ color: headerText }}>{voucher.payment_terms}</span></div>
               )}
-              {s.show_salesperson && voucher.posted_by && (
-                <div>{s.label_salesperson}: <span style={{ color: headerText }}>{voucher.posted_by}</span></div>
+              {/* voucher.salesperson is the seller (from salesperson_id);
+                  voucher.posted_by is who recorded the entry. Old voucher
+                  objects predate the split and only carry posted_by, so the
+                  salesperson line falls back to it rather than printing blank
+                  on reprints of historical invoices. When both exist and
+                  differ, both lines print — that difference is real
+                  information (sold by A, logged by B), not duplication. */}
+              {s.show_salesperson && (voucher.salesperson || voucher.posted_by) && (
+                <div>{s.label_salesperson}: <span style={{ color: headerText }}>{voucher.salesperson || voucher.posted_by}</span></div>
+              )}
+              {s.show_salesperson && voucher.salesperson && voucher.posted_by && voucher.posted_by !== voucher.salesperson && (
+                <div>{s.label_invoiced_by}: <span style={{ color: headerText }}>{voucher.posted_by}</span></div>
               )}
             </div>
           </div>
@@ -481,7 +496,8 @@ export function InvoiceTemplateSettings({ settings, onChange }: { settings: Invo
           <Fld label='"This Invoice" section header' k="label_this_invoice" settings={settings} onChange={set} placeholder="This Invoice" />
           <Fld label='"Payment Details" section header' k="label_payment_details" settings={settings} onChange={set} placeholder="Payment Details" />
           <Fld label='"Notes" section header' k="label_notes" settings={settings} onChange={set} placeholder="Notes" />
-          <Fld label='"Invoiced by" prefix' k="label_salesperson" settings={settings} onChange={set} placeholder="Invoiced by" />
+          <Fld label='"Salesperson" prefix' k="label_salesperson" settings={settings} onChange={set} placeholder="Salesperson" />
+          <Fld label='"Invoiced by" prefix' k="label_invoiced_by" settings={settings} onChange={set} placeholder="Invoiced by" />
         </div>
       )}
 
@@ -629,7 +645,7 @@ export default function InvoiceTemplatePage() {
   const SAMPLE: Voucher = {
     ref: 'SI-10-0001', posting_date: '2026-03-27', due_date: '2026-04-26',
     payment_terms: 'NET30', notes: 'Please transfer to the account above and quote invoice number.',
-    total_amount: 520000, subtotal: 520000, posted_by: 'Joe Gembe',
+    total_amount: 520000, subtotal: 520000, posted_by: 'Joe Gembe', salesperson: 'Brenda Jerome',
     customers: { name: 'Dr. Sarah Kimani', company: 'Aga Khan Health Services Tanzania', contact_person: 'Dr. Sarah Kimani', whatsapp: '+255 22 211 5151', address: 'Ocean Road, Dar es Salaam', balance: 185000 },
     voucher_lines: [
       { qty: 10, unit_price: 32000, total: 320000, discount_pct: 0, description: 'Nipple Cream', products: { name: 'Nipple Cream — 60ml', sku: 'MK-003' } },
