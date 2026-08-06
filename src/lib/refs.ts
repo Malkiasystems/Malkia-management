@@ -89,17 +89,23 @@ export const nextRef = async (type: string, branchCode: string = DEFAULT_BRANCH)
  * a unique constraint violation on ref, bumps the sequence and retries.
  * Use this instead of a raw .insert() on journals.
  */
+// Returns the journal id AND THE FINAL REFS. On a collision the retry bumps
+// the ref, so the ref the caller started with may not be the ref that landed.
+// Every downstream write (the voucher above all) must use data.source_ref,
+// never the form's preview ref — using the stale form ref is exactly how
+// PAY-10-0081/0082/0083 ended up with a voucherless 900k journal and a
+// voucher pointing at the wrong journal number on 06/08/2026.
 export const insertJournalWithRetry = async (
   journalData: Record<string, unknown>,
   maxRetries: number = 3
-): Promise<{ data: { id: string } | null; error: Error | null }> => {
+): Promise<{ data: { id: string; ref: string; source_ref: string } | null; error: Error | null }> => {
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const { data, error } = await supabase
       .from('journals')
       .insert(journalData)
-      .select('id')
+      .select('id, ref, source_ref')
       .single()
 
     if (!error) {

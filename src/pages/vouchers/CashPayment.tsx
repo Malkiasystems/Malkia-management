@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
@@ -32,6 +32,10 @@ export default function CashPayment({ onNav }: Props) {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
+  // Synchronous double-submit latch — React state alone lets two clicks in
+  // the same tick both pass. Same guard BankTransfer got after the triple
+  // 384,000 post; shared by BOTH posting paths (direct + approval).
+  const postingRef = useRef(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
   const [approvalCheck, setApprovalCheck] = useState<ApprovalCheckResult | null>(null)
@@ -180,11 +184,14 @@ export default function CashPayment({ onNav }: Props) {
   // Create a pending voucher + approval request. On approval, executeCashPayment
   // re-posts it from this exact payload shape (form + expense lines + cashAccountId).
   const submitCashPaymentForApproval = async (amount: number, reason: string) => {
+    // Same stale-ref exposure as the direct path: allocate fresh at submit.
+    const draftRef = await nextRef('cash_payment')
+    setForm(f => ({ ...f, ref: draftRef }))
     if (!user) { showToast('You must be signed in', 'error'); return }
     setPosting(true)
     try {
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
-        ref: form.ref, type: 'cash_payment', posting_date: form.date,
+        ref: draftRef, type: 'cash_payment', posting_date: form.date,
         description: `Cash Payment — ${form.payTo}`, total_amount: amount,
         status: 'pending_approval', posted_by: user.full_name, notes: form.narration,
         branch: form.branch, supplier_id: form.supplierId || null, payment_method: 'cash',
@@ -192,28 +199,46 @@ export default function CashPayment({ onNav }: Props) {
       if (vErr || !voucher) throw new Error('Pending voucher: ' + (vErr?.message || 'unknown'))
 
       const payload = {
-        form: { date: form.date, ref: form.ref, paidTo: form.payTo, notes: form.narration },
+        form: { date: form.date, ref: draftRef, paidTo: form.payTo, notes: form.narration },
         lines: [{ desc: form.narration || form.payTo, amount, accountId: form.expAccount }],
         cashAccountId: form.cashAccount,
         total: amount,
       }
       const res = await submitForApproval({
         typeCode: 'cash_payment', referenceType: 'voucher', referenceId: voucher.id,
-        referenceNumber: form.ref, summary: `Cash payment to ${form.payTo}${reason ? ' · ' + reason : ''}`,
+        referenceNumber: draftRef, summary: `Cash payment to ${form.payTo}${reason ? ' · ' + reason : ''}`,
         requestedValue: amount, payload, requestedBy: user.id,
       })
       if (!res.success) {
         await supabase.from('vouchers').delete().eq('id', voucher.id)
         throw new Error(res.error || 'Submission failed')
       }
-      showToast(`${form.ref} submitted for approval · TZS ${amount.toLocaleString()}`)
+      showToast(`${draftRef} submitted for approval · TZS ${amount.toLocaleString()}`)
       setTimeout(() => onNav('vouchers'), 1500)
     } catch (err: any) {
       showToast(err.message || 'Submission failed', 'error')
     } finally { setPosting(false) }
   }
 
+  // Guarded entry point. The latch flips synchronously BEFORE any await, so
+  // a second click during the multi-second validation round-trips (posting
+  // date check, approval check) finds it set and returns. Wrapping the whole
+  // body means every early-return validation releases the latch through one
+  // finally instead of twenty hand-written resets. The approval branch runs
+  // inside doPost, so it is covered by the same latch.
   const post = async () => {
+    if (postingRef.current) return
+    postingRef.current = true
+    setPosting(true)
+    try {
+      await doPost()
+    } finally {
+      postingRef.current = false
+      setPosting(false)
+    }
+  }
+
+  const doPost = async () => {
     if (!form.payTo.trim()) { showToast('Please enter payee name', 'error'); return }
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
     if (!form.cashAccount) { showToast('Please select cash/bank account', 'error'); return }
@@ -267,28 +292,37 @@ export default function CashPayment({ onNav }: Props) {
       }
     }
 
-    setPosting(true)
-
     try {
       // Get account IDs
       const cashAcct = accounts.find(a => a.id === form.cashAccount)
       const expAcct = accounts.find(a => a.id === form.expAccount)
       if (!cashAcct || !expAcct) throw new Error('Accounts not found')
 
+      // Fresh ref at POST time. The ref shown in the form was computed at
+      // mount and is stale the moment anyone else posts a payment — that is
+      // how a tab opened before Epifania's PAY-10-0081 tried to reuse her
+      // number. The preview is cosmetic; this is the real allocation, and
+      // insertJournalWithRetry remains the backstop for a same-second race.
+      const postRef = await nextRef('cash_payment')
+
       // Create journal
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
-        ref: 'JV-' + form.ref,
+        ref: 'JV-' + postRef,
         posting_date: form.date,
-        description: `Cash Payment — ${form.payTo} — ${form.ref}`,
+        description: `Cash Payment — ${form.payTo} — ${postRef}`,
         journal_type: 'cash_payment',
         source_type: 'cash_payment',
-        source_ref: form.ref,
+        source_ref: postRef,
         posted_by: user.full_name,   // was hardcoded 'Joe Gembe'
         status: 'posted',
         branch: form.branch,
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
+      // The ref that actually landed. If the retry bumped past a collision,
+      // this differs from postRef — and every write below must follow it,
+      // or we recreate the voucher-points-at-wrong-journal skew.
+      const finalRef = journal.source_ref
 
       // Journal lines: Dr Expense / Cr Cash
       const { error: jlErr } = await supabase.from('journal_lines').insert([
@@ -305,7 +339,7 @@ export default function CashPayment({ onNav }: Props) {
 
       // Create voucher
       const { error: vErr } = await supabase.from('vouchers').insert({
-        ref: form.ref,
+        ref: finalRef,
         type: 'cash_payment',
         posting_date: form.date,
         description: `Cash Payment — ${form.payTo}`,
@@ -338,7 +372,7 @@ export default function CashPayment({ onNav }: Props) {
           supplier_id: form.supplierId,
           posting_date: form.date,
           document_type: 'payment',
-          document_ref: form.ref,
+          document_ref: finalRef,
           description: `Cash Payment — ${form.payTo}${form.narration ? ' — ' + form.narration : ''}`,
           amount_tzs: -amount,
           remaining_amount: 0,
@@ -347,14 +381,12 @@ export default function CashPayment({ onNav }: Props) {
         })
       }
 
-      showToast(`${form.ref} posted · Dr ${expAcct.code} / Cr ${cashAcct.code} · Journal created`)
+      showToast(`${finalRef} posted · Dr ${expAcct.code} / Cr ${cashAcct.code} · Journal created`)
       onNav('vouchers')
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Something went wrong'
       showToast(msg, 'error')
-    } finally {
-      setPosting(false)
     }
   }
 
@@ -365,8 +397,8 @@ export default function CashPayment({ onNav }: Props) {
       subtitle="Pay any expense or supplier from cash, bank, or M-Pesa"
       color="rgba(255,71,87,.12)"
       onPost={post}
-      postDisabled={vendorMissing}
-      postDisabledReason={vendorMissing ? 'A vendor is required — select a supplier' : undefined}
+      postDisabled={vendorMissing || posting}
+      postDisabledReason={vendorMissing ? 'A vendor is required — select a supplier' : posting ? 'Posting in progress — please wait' : undefined}
       postLabel={posting ? (needsApproval ? 'Submitting…' : 'Posting…') : needsApproval ? 'Submit for Approval' : 'Post Payment'}
       journalNote={`Dr Expense/Supplier Account · Cr Cash/Bank Account · Balance updated`}>
 

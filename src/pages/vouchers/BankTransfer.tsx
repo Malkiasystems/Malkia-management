@@ -107,18 +107,28 @@ export default function BankTransfer({ onNav }: Props) {
       if (verdict === 'needs_override' && shortfall) { if (!window.confirm(cashOverridePrompt(shortfall))) return }
     }
 
+      // Fresh ref at POST time — the mount-time preview is cosmetic and goes
+      // stale the moment a colleague posts. Same fix as CashPayment after the
+      // PAY-10-0081 collision chain on 06/08/2026.
+      const postRef = await nextRef('bank_transfer')
+
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
-        ref: 'JV-' + form.ref, posting_date: form.date,
-        description: `Bank Transfer — ${accounts.find(a => a.id === form.fromAccount)?.code} to ${accounts.find(a => a.id === form.toAccount)?.code} — ${form.ref}`,
+        ref: 'JV-' + postRef, posting_date: form.date,
+        description: `Bank Transfer — ${accounts.find(a => a.id === form.fromAccount)?.code} to ${accounts.find(a => a.id === form.toAccount)?.code} — ${postRef}`,
         journal_type: 'bank_transfer', source_type: 'bank_transfer',
-        source_ref: form.ref, posted_by: user.full_name, status: 'posted',
+        source_ref: postRef, posted_by: user.full_name, status: 'posted',
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
+      // The ref that actually landed (the retry may have bumped past a
+      // collision). Every write below follows the journal, not the form —
+      // using the stale form ref here is what created the voucherless 900k
+      // journal and the voucher pointing at the wrong journal number.
+      const finalRef = journal.source_ref
 
       const { error: jlErr } = await supabase.from('journal_lines').insert([
-        { journal_id: journal.id, line_number: 1, account_id: form.toAccount, description: `Transfer in — ${form.narration || form.ref}`, debit: amount, credit: 0 },
-        { journal_id: journal.id, line_number: 2, account_id: form.fromAccount, description: `Transfer out — ${form.narration || form.ref}`, debit: 0, credit: amount },
+        { journal_id: journal.id, line_number: 1, account_id: form.toAccount, description: `Transfer in — ${form.narration || finalRef}`, debit: amount, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: form.fromAccount, description: `Transfer out — ${form.narration || finalRef}`, debit: 0, credit: amount },
       ])
       if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
 
@@ -134,18 +144,18 @@ export default function BankTransfer({ onNav }: Props) {
       // without a trace. A ref collision here means this submission already
       // posted once; say so loudly.
       const { error: vErr } = await supabase.from('vouchers').insert({
-        ref: form.ref, type: 'bank_transfer', posting_date: form.date,
-        description: `Bank Transfer — ${form.ref}`, total_amount: amount,
+        ref: finalRef, type: 'bank_transfer', posting_date: form.date,
+        description: `Bank Transfer — ${finalRef}`, total_amount: amount,
         status: 'posted', journal_id: journal.id, posted_by: user.full_name, notes: form.narration,
       })
       if (vErr) {
         const dup = vErr.code === '23505' || /duplicate|unique/i.test(vErr.message)
         throw new Error(dup
-          ? `${form.ref} was already posted — this looks like a duplicate submission. Journal ${'JV-' + form.ref} may need review; check the register before retrying.`
-          : 'Voucher record: ' + vErr.message + ` (a journal for ${form.ref} was created without its voucher — report this to an administrator)`)
+          ? `${finalRef} was already posted — this looks like a duplicate submission. Check the register before retrying.`
+          : 'Voucher record: ' + vErr.message + ` (a journal for ${finalRef} was created without its voucher — report this to an administrator)`)
       }
 
-      showToast(`${form.ref} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
+      showToast(`${finalRef} posted · Dr ${accounts.find(a => a.id === form.toAccount)?.code} / Cr ${accounts.find(a => a.id === form.fromAccount)?.code}`)
       onNav('vouchers')
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
