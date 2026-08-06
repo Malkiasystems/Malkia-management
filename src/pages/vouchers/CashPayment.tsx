@@ -74,13 +74,19 @@ export default function CashPayment({ onNav }: Props) {
   // statement update), 'vendor' = operational vendors (rent, internet,
   // services), 'other' = one-off payee typed by hand. One table, role flags;
   // NULL counts as allowed so pre-split rows appear in both lists.
-  const [payeeType, setPayeeType] = useState<'supplier' | 'vendor' | 'other'>('supplier')
+  // 'delivery' = paying out riders/shipping companies THEIR money. Delivery
+  // fees collected on cash sales are credited to 2085 Delivery & Shipping
+  // Float (a liability — it was never our income), so the payout must DEBIT
+  // 2085 to drain the float, not hit an expense account. Routing rider
+  // payouts through 6410/6411 double-counts: the cost stays on the P&L
+  // forever while the float never comes down.
+  const [payeeType, setPayeeType] = useState<'supplier' | 'vendor' | 'other' | 'delivery'>('supplier')
   const [quickAdd, setQuickAdd] = useState<PayeeRole | null>(null)
   const supplierList = suppliers.filter(sp => sp.is_supplier !== false)
   const vendorList = suppliers.filter(sp => sp.is_vendor !== false)
-  const vendorMissing = requireVendor && payeeType !== 'other' && !form.supplierId
+  const vendorMissing = requireVendor && (payeeType === 'supplier' || payeeType === 'vendor') && !form.supplierId
 
-  const switchPayeeType = (t: 'supplier' | 'vendor' | 'other') => {
+  const switchPayeeType = (t: 'supplier' | 'vendor' | 'other' | 'delivery') => {
     if (t === payeeType) return
     setPayeeType(t)
     // A selection cannot survive the switch, and neither can the debit
@@ -98,9 +104,15 @@ export default function CashPayment({ onNav }: Props) {
   // is Supplier. Vendor and Other keep the category picker, because those
   // genuinely are expenses.
   const apAccount = accounts.find(a => a.code === '2010')
+  // Delivery & Shipping payouts lock to 2085 the same way: the debit is the
+  // float liability, never a category pick.
+  const floatAccount = accounts.find(a => a.code === '2085')
   useEffect(() => {
     if (payeeType === 'supplier' && apAccount && form.expAccount !== apAccount.id) {
       setForm(f => ({ ...f, expAccount: apAccount.id }))
+    }
+    if (payeeType === 'delivery' && floatAccount && form.expAccount !== floatAccount.id) {
+      setForm(f => ({ ...f, expAccount: floatAccount.id }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payeeType, accounts])
@@ -249,6 +261,9 @@ export default function CashPayment({ onNav }: Props) {
     // than let GL and subledger diverge again.
     if (payeeType === 'supplier' && (!apAccount || form.expAccount !== apAccount.id)) {
       showToast('Supplier payments settle Accounts Payable (2010). Account 2010 was not found or not selected.', 'error'); return
+    }
+    if (payeeType === 'delivery' && (!floatAccount || form.expAccount !== floatAccount.id)) {
+      showToast('Delivery & Shipping payouts settle the float (2085). Account 2085 was not found — check the Chart of Accounts.', 'error'); return
     }
     // Reference is OPTIONAL on money out, by decision: payments are often
     // posted before the money physically moves (approval-first control), so
@@ -428,8 +443,10 @@ export default function CashPayment({ onNav }: Props) {
                 onClick={() => switchPayeeType('vendor')}>Vendor</button>
               <button type="button" className={`btn btn-sm ${payeeType === 'other' ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => switchPayeeType('other')}>Other</button>
+              <button type="button" className={`btn btn-sm ${payeeType === 'delivery' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => switchPayeeType('delivery')}>Delivery & Shipping</button>
             </div>
-            <GuideTip>Who is this money going to? <strong>Supplier</strong> = someone who supplies you stock — their balance and statement update, and the payment settles what you owe them. <strong>Vendor</strong> = operational providers like rent, internet, transport or services. <strong>Other</strong> = a one-off payee typed by hand; nothing is tracked against a saved account.</GuideTip>
+            <GuideTip>Who is this money going to? <strong>Supplier</strong> = someone who supplies you stock — their balance and statement update, and the payment settles what you owe them. <strong>Vendor</strong> = operational providers like rent, internet, transport or services. <strong>Other</strong> = a one-off payee typed by hand; nothing is tracked against a saved account. <strong>Delivery &amp; Shipping</strong> = paying riders or shipping companies the delivery money collected on sales — it settles the 2085 float (their money, not an expense).</GuideTip>
           </FG>
           {payeeType === 'supplier' && (
             <FG label="Supplier" req>
@@ -454,7 +471,10 @@ export default function CashPayment({ onNav }: Props) {
             </FG>
           )}
           <FG label="Pay To (Payee)" req>
-            <input className="form-input" placeholder="e.g. Meditech Tanzania, John Msomi" value={form.payTo} onChange={e => set('payTo', e.target.value)} />
+            <input className="form-input" placeholder={payeeType === 'delivery' ? 'e.g. Juma (Boda), DHL, Upcountry bus office' : 'e.g. Meditech Tanzania, John Msomi'} value={form.payTo} onChange={e => set('payTo', e.target.value)} />
+            {payeeType === 'delivery' && (
+              <GuideTip>The rider or shipping company being paid. This payment reduces the Delivery &amp; Shipping Float — money customers already paid for delivery that belongs to them, not to Malkia. If part of the fee is yours (you charged more than the rider costs), post the margin separately.</GuideTip>
+            )}
           </FG>
           <FG label="Amount (TZS)" req>
             <MoneyInput className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="0" value={form.amount} onChange={n => set('amount', n ? String(n) : '')} />
@@ -491,6 +511,9 @@ export default function CashPayment({ onNav }: Props) {
           <FG label="Expense / Debit Account" req>
             {payeeType === 'supplier' ? (
               <input className="form-input" value="2010 — Accounts Payable (locked for supplier payments)" readOnly
+                style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }} />
+            ) : payeeType === 'delivery' ? (
+              <input className="form-input" value="2085 — Delivery & Shipping Float (locked for rider payouts)" readOnly
                 style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }} />
             ) : (
               <CategorySelect accounts={expenseAccounts} value={form.expAccount} onChange={v => set('expAccount', v)} placeholder="— Select category —" />

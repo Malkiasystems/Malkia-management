@@ -44,7 +44,13 @@ export default function PettyCash({ onNav }: Props) {
 
   const loadData = async () => {
     const [{ data: accts }, { data: petty }, newRef] = await Promise.all([
-      supabase.from('accounts').select('id, code, name, category, parent_id, allow_direct_posting, sort_order').eq('type', 'expense').eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code'),
+      // Liabilities included alongside expenses so petty cash can PAY DOWN a
+      // liability — above all 2085 Delivery & Shipping Float for rider
+      // payouts. Delivery money collected on sales sits in 2085 as a
+      // liability (it is the riders' money, not income); paying it out as an
+      // expense would leave the float permanently inflated and overstate
+      // costs. CategorySelect groups them under their liability mains.
+      supabase.from('accounts').select('id, code, name, category, parent_id, allow_direct_posting, sort_order').in('type', ['expense', 'liability']).eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code'),
       supabase.from('accounts').select('id, balance').eq('code', '1040').single(),
       nextRef('petty_cash'),
     ])
@@ -314,7 +320,7 @@ export default function PettyCash({ onNav }: Props) {
         {lines.map((line, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 140px auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
             <input className="form-input" style={{ fontSize: 12 }} placeholder="Description" value={line.desc} onChange={e => updateLine(i, 'desc', e.target.value)} />
-            <CategorySelect accounts={expAccounts} value={line.accountId} onChange={v => updateLine(i, 'accountId', v)} placeholder="— Expense category —" className="form-input" style={{ fontSize: 12 }} />
+            <CategorySelect accounts={expAccounts} value={line.accountId} onChange={v => updateLine(i, 'accountId', v)} placeholder="— Expense / liability —" className="form-input" style={{ fontSize: 12 }} />
             <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', textAlign: 'right' }} placeholder="Amount" value={line.amount || ''} onChange={e => updateLine(i, 'amount', parseFloat(e.target.value) || 0)} />
             {lines.length > 1 && <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button>}
           </div>
