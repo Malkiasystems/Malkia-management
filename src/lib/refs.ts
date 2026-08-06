@@ -1,4 +1,4 @@
-// ── MALKIA VOUCHER NUMBER SERIES ─────────────────────────────────────────
+// ── ATLASOS VOUCHER NUMBER SERIES ─────────────────────────────────────────
 // Format: PREFIX-BRANCH-SEQUENCE
 // Example: CS-10-0001 (Cash Sale, Branch 10, sequence 1)
 // 2-letter prefix = sales side, 3-letter prefix = operational/other
@@ -36,6 +36,17 @@ export const VOUCHER_PREFIXES: Record<string, string> = {
 }
 
 const DEFAULT_BRANCH = '10'
+
+// Some document types keep their numbered rows OUTSIDE vouchers/journals.
+// A two-phase stock transfer lives in stock_transfer_requests, and its
+// completion can write stock movements without ever creating a voucher —
+// so scanning vouchers+journals alone saw zero STP refs and handed every
+// tenant STP-10-0001 forever. Sheky's second transfer died on the unique
+// constraint exactly this way (2026-08-06). The constraint was right; the
+// generator was blind. Any future side-table series gets an entry here.
+const EXTRA_REF_SOURCES: Record<string, { table: string; column: string }> = {
+  stock_transfer: { table: 'stock_transfer_requests', column: 'ref' },
+}
 
 /**
  * Generate next ref by checking BOTH vouchers and journals tables
@@ -76,6 +87,20 @@ export const nextRef = async (type: string, branchCode: string = DEFAULT_BRANCH)
       if (seq > maxSeq) maxSeq = seq
     }
 
+    const extra = EXTRA_REF_SOURCES[type]
+    if (extra) {
+      const { data: eData } = await supabase
+        .from(extra.table)
+        .select(extra.column)
+        .like(extra.column, `${pattern}%`)
+        .order(extra.column, { ascending: false })
+        .limit(1)
+      if (eData && eData.length > 0) {
+        const seq = parseInt(String((eData[0] as unknown as Record<string, string>)[extra.column] || '').replace(pattern, '')) || 0
+        if (seq > maxSeq) maxSeq = seq
+      }
+    }
+
     return `${pattern}${String(maxSeq + 1).padStart(4, '0')}`
   } catch {
     // Fallback using timestamp if Supabase call fails
@@ -89,23 +114,17 @@ export const nextRef = async (type: string, branchCode: string = DEFAULT_BRANCH)
  * a unique constraint violation on ref, bumps the sequence and retries.
  * Use this instead of a raw .insert() on journals.
  */
-// Returns the journal id AND THE FINAL REFS. On a collision the retry bumps
-// the ref, so the ref the caller started with may not be the ref that landed.
-// Every downstream write (the voucher above all) must use data.source_ref,
-// never the form's preview ref — using the stale form ref is exactly how
-// PAY-10-0081/0082/0083 ended up with a voucherless 900k journal and a
-// voucher pointing at the wrong journal number on 06/08/2026.
 export const insertJournalWithRetry = async (
   journalData: Record<string, unknown>,
   maxRetries: number = 3
-): Promise<{ data: { id: string; ref: string; source_ref: string } | null; error: Error | null }> => {
+): Promise<{ data: { id: string } | null; error: Error | null }> => {
   let lastError: Error | null = null
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const { data, error } = await supabase
       .from('journals')
       .insert(journalData)
-      .select('id, ref, source_ref')
+      .select('id')
       .single()
 
     if (!error) {

@@ -1,0 +1,3 @@
+THIS ZIP RESTORES TARAKIMU / ATLAS-OS.
+Upload to: github.com -> atlas-os repo (the one deployed at portal.tarakimu.app).
+DO NOT upload to Malkia-management.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
@@ -7,37 +7,49 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
-import MoneyInput from '../../components/MoneyInput'
 import {
   loadNegativeCashPolicy, computeCashShortfall, evaluateCashPolicy,
   cashShortfallMessage, cashOverridePrompt, NEGATIVE_CASH_PERMISSION,
   type NegativeCashPolicy,
 } from '../../lib/cashPolicy'
-import { deriveMethod, refLabel, refPlaceholder } from '../../lib/paymentMethods'
+import { deriveMethod, methodLabel, isRefRequired, refLabel, refPlaceholder } from '../../lib/paymentMethods'
 import { checkApprovalRequired, submitForApproval, formatApprovalNotice, type ApprovalCheckResult } from '../../lib/useApproval'
 import { consumeExpensePrefill } from '../../lib/expensePrefill'
 import CategorySelect from '../../components/CategorySelect'
-import QuickAddPayee, { type PayeeRole } from '../../components/QuickAddPayee'
-import { GuideTip } from '../../components/GuideMode'
 import { getExpenseVendorRules } from '../../lib/expenseSettings'
+import { GuideTip } from '../../components/GuideMode'
+import BankTilePicker from '../../components/BankTilePicker'
+import { BranchSelect, useBranchChoice } from '../../components/BranchSelect'
+import { useVoucherDraft } from '../../lib/useVoucherDraft'
+import DraftBanner from '../../components/DraftBanner'
+import QuickAddPayee, { type PayeeRole } from '../../components/QuickAddPayee'
 import type { Page } from '../../lib/types'
+import { setTransferPrefill, suggestFundingAmount } from '../../lib/transferPrefill'
 
 interface Props { onNav: (p: Page) => void }
 
 interface DBAccount { id: string; code: string; name: string; type: string; category: string; balance?: number | null; parent_id?: string | null; allow_direct_posting?: boolean | null; sort_order?: number | null }
 interface DBSupplier { id: string; name: string; balance_tzs: number; is_supplier?: boolean | null; is_vendor?: boolean | null }
 
+// onNav intentionally unused since fix-13: posting keeps the cashier on the
+// page. The prop stays in the signature for App.tsx call-site compatibility.
 export default function CashPayment({ onNav }: Props) {
-  const { user, can, isSuperAdmin } = useAuth()
+  const { user, isSuperAdmin, can } = useAuth()
+  // Branch stamp for the P&L by Branch report. Replaces the hardcoded
+  // 'DSM HQ' / 'Arusha Branch' options that leaked from MalkiaOS — every
+  // tenant now sees ITS OWN branches, scoped by the 060 ladder.
+  const branchChoice = useBranchChoice()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
-  // Synchronous double-submit latch — React state alone lets two clicks in
-  // the same tick both pass. Same guard BankTransfer got after the triple
-  // 384,000 post; shared by BOTH posting paths (direct + approval).
-  const postingRef = useRef(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
+  // Who is being paid. 'supplier' = stock suppliers (Purchases side),
+  // 'vendor' = operational vendors (rent, internet, services), 'other' =
+  // one-off payee typed by hand. Suppliers and vendors share one table with
+  // is_supplier / is_vendor role flags; a NULL flag counts as allowed, so
+  // rows from before the role split appear in both lists and nothing is lost.
+  const [payeeType, setPayeeType] = useState<'supplier' | 'vendor' | 'other'>('supplier')
   const [approvalCheck, setApprovalCheck] = useState<ApprovalCheckResult | null>(null)
   const [requireVendor, setRequireVendor] = useState(false)
   const [creditMode, setCreditMode] = useState<'bank' | 'asset'>('bank')
@@ -53,10 +65,47 @@ export default function CashPayment({ onNav }: Props) {
     amount: '',
     narration: '',
     chequeNo: '',
-    branch: 'DSM HQ',
   })
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  // ─── Draft persistence (fix-12) ────────────────────────────────────────
+  // Same treatment CashSale and Purchase already have. Navigating away and
+  // coming back no longer loses a half-filled payment. The ref is NOT part
+  // of the draft — a fresh one is generated on every mount so a resumed
+  // draft can never collide with a payment posted in between.
+  interface CashPaymentDraft {
+    form: Omit<typeof form, 'ref'>
+    payeeType: 'supplier' | 'vendor' | 'other'
+    creditMode: 'bank' | 'asset'
+  }
+  const {
+    availableDraft, draftAgeMs,
+    saveDraft, clearDraft, acknowledgeResume, discardDraft,
+  } = useVoucherDraft<CashPaymentDraft>('cash-payment')
+
+  useEffect(() => {
+    // Nothing worth saving until the user has actually entered something.
+    if (!form.payTo && !form.amount && !form.narration && !form.supplierId) return
+    const { ref: _ref, ...rest } = form
+    saveDraft({ form: rest, payeeType, creditMode })
+  }, [form, payeeType, creditMode, saveDraft])
+
+  const resumeDraft = () => {
+    if (!availableDraft) return
+    setForm(f => ({ ...f, ...availableDraft.form }))   // keep the fresh ref
+    setPayeeType(availableDraft.payeeType)
+    setCreditMode(availableDraft.creditMode)
+    acknowledgeResume()
+  }
+
+  // ─── Quick-add payee (fix-12, handoff 5a) ──────────────────────────────
+  const [quickAdd, setQuickAdd] = useState<PayeeRole | null>(null)
+  const handleQuickAddCreated = async (id: string, name: string) => {
+    setQuickAdd(null)
+    await loadSuppliers()
+    setForm(f => ({ ...f, supplierId: id, payTo: name }))
+  }
 
   // Live approval pre-check: a cash payment over the configured threshold
   // (TZS 500,000) needs sign-off before it can post. Recompute as amount changes.
@@ -70,58 +119,46 @@ export default function CashPayment({ onNav }: Props) {
   const canBypassApproval = (approvalCheck?.superAdminBypass ?? false) && isSuperAdmin()
   const needsApproval = !!approvalCheck?.requiresApproval && !!approvalCheck?.blockPosting && !canBypassApproval
   const approvalNotice = approvalCheck ? formatApprovalNotice(approvalCheck) : ''
-  // Who is being paid. 'supplier' = stock suppliers (their AP balance and
-  // statement update), 'vendor' = operational vendors (rent, internet,
-  // services), 'other' = one-off payee typed by hand. One table, role flags;
-  // NULL counts as allowed so pre-split rows appear in both lists.
-  // 'delivery' = paying out riders/shipping companies THEIR money. Delivery
-  // fees collected on cash sales are credited to 2085 Delivery & Shipping
-  // Float (a liability — it was never our income), so the payout must DEBIT
-  // 2085 to drain the float, not hit an expense account. Routing rider
-  // payouts through 6410/6411 double-counts: the cost stays on the P&L
-  // forever while the float never comes down.
-  const [payeeType, setPayeeType] = useState<'supplier' | 'vendor' | 'other' | 'delivery'>('supplier')
-  const [quickAdd, setQuickAdd] = useState<PayeeRole | null>(null)
-  const supplierList = suppliers.filter(sp => sp.is_supplier !== false)
-  const vendorList = suppliers.filter(sp => sp.is_vendor !== false)
-  const vendorMissing = requireVendor && (payeeType === 'supplier' || payeeType === 'vendor') && !form.supplierId
+  const supplierList = suppliers.filter(s => s.is_supplier !== false)
+  const vendorList = suppliers.filter(s => s.is_vendor !== false)
+  const vendorMissing = requireVendor && !form.supplierId
 
-  const switchPayeeType = (t: 'supplier' | 'vendor' | 'other' | 'delivery') => {
+  // Recurring-expense prefill lands before the suppliers list resolves, so
+  // classify the prefilled payee once rows arrive: vendor-only rows flip the
+  // segment to Vendor so the selection is actually visible in its dropdown.
+  useEffect(() => {
+    if (!form.supplierId || suppliers.length === 0) return
+    const row = suppliers.find(s => s.id === form.supplierId)
+    if (row && row.is_supplier === false && row.is_vendor !== false) setPayeeType('vendor')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suppliers])
+
+  const switchPayeeType = (t: 'supplier' | 'vendor' | 'other') => {
     if (t === payeeType) return
     setPayeeType(t)
-    // A selection cannot survive the switch, and neither can the debit
-    // account: Supplier locks it to 2010, and moving off Supplier must force
-    // a fresh, conscious category pick rather than silently leaving AP
-    // selected on a rent payment.
+    // The lists differ, so a selection cannot survive a switch. Typed payee
+    // text is kept — the user may have written it deliberately.
+    // The debit account also cannot survive the switch: Supplier locks it to
+    // 2010 Accounts Payable (paying a supplier settles a liability), and
+    // moving off Supplier must force a fresh, conscious category pick rather
+    // than silently leaving AP selected on a rent payment.
     setForm(f => ({ ...f, supplierId: '', expAccount: '' }))
   }
 
-  // ─── Supplier payments settle AP ───────────────────────────────────────
-  // Before this, the journal debited whatever category was picked while
-  // suppliers.balance_tzs and the vendor ledger still dropped, so the AP
-  // subledger moved and GL 2010 never did: they quietly diverged on every
-  // supplier payment. The debit side is locked to 2010 whenever payee type
-  // is Supplier. Vendor and Other keep the category picker, because those
-  // genuinely are expenses.
+  // ─── Supplier payments settle AP (fix-12) ──────────────────────────────
+  // Before this, the journal debited whatever category the user picked while
+  // suppliers.balance_tzs and the vendor ledger still dropped — so the AP
+  // sub-ledger moved and GL 2010 never did, and the two quietly diverged on
+  // every supplier payment. The debit side is now locked to 2010 whenever
+  // payee type is Supplier. Vendor and Other keep the category picker,
+  // because those genuinely are expenses.
   const apAccount = accounts.find(a => a.code === '2010')
-  // Delivery & Shipping payouts lock to 2085 the same way: the debit is the
-  // float liability, never a category pick.
-  const floatAccount = accounts.find(a => a.code === '2085')
   useEffect(() => {
     if (payeeType === 'supplier' && apAccount && form.expAccount !== apAccount.id) {
       setForm(f => ({ ...f, expAccount: apAccount.id }))
     }
-    if (payeeType === 'delivery' && floatAccount && form.expAccount !== floatAccount.id) {
-      setForm(f => ({ ...f, expAccount: floatAccount.id }))
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payeeType, accounts])
-
-  const handleQuickAddCreated = async (id: string, name: string) => {
-    setQuickAdd(null)
-    await loadSuppliers()
-    setForm(f => ({ ...f, supplierId: id, payTo: name }))
-  }
 
   useEffect(() => {
     loadAccounts()
@@ -130,7 +167,7 @@ export default function CashPayment({ onNav }: Props) {
   }, [])
 
   const loadAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('id, code, name, type, category, balance, parent_id, allow_direct_posting, sort_order').eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code')
+    const { data } = await supabase.from('accounts').select('id, code, name, type, category, balance, parent_id, allow_direct_posting, sort_order, nature, display_color, account_number').eq('is_active', true).order('sort_order', { nullsFirst: false }).order('code')
     if (data) setAccounts(data)
   }
 
@@ -168,11 +205,6 @@ export default function CashPayment({ onNav }: Props) {
     }
   }
 
-  // Negative cash policy. Loaded once; the library declines to enforce if the
-  // column is missing, so this is inert until migration 038 has run.
-  const [cashPolicy, setCashPolicy] = useState<NegativeCashPolicy>('allow')
-  useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
-
   const cashAccounts = accounts.filter(a => a.category === 'Cash & Bank')
   // Asset "pots" you can pay OUT of (e.g. a rent float / prepaid / deposit).
   // Whitelisted by name so no one credits Inventory, AR, or a header by mistake.
@@ -187,6 +219,8 @@ export default function CashPayment({ onNav }: Props) {
   const payMethod = creditMode === 'asset' || !payAcct
     ? 'cash'
     : deriveMethod(payAcct.code, payAcct.name)
+  const refRequired = isRefRequired(payMethod)
+  const refMissing = refRequired && !form.chequeNo.trim() && !!form.cashAccount && amountNum > 0
   const expenseAccounts = accounts.filter(a => ['liability', 'expense', 'cogs'].includes(a.type))
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -196,81 +230,108 @@ export default function CashPayment({ onNav }: Props) {
   // Create a pending voucher + approval request. On approval, executeCashPayment
   // re-posts it from this exact payload shape (form + expense lines + cashAccountId).
   const submitCashPaymentForApproval = async (amount: number, reason: string) => {
-    // Same stale-ref exposure as the direct path: allocate fresh at submit.
-    const draftRef = await nextRef('cash_payment')
-    setForm(f => ({ ...f, ref: draftRef }))
     if (!user) { showToast('You must be signed in', 'error'); return }
+
+    // ─── Negative cash gate ────────────────────────────────────────────
+    // A payment cannot take the till or the bank below zero unless the
+    // company has explicitly said it may. The refusal names the setting.
+    setCashBlock(null)
+    {
+      const payingFrom = accounts.find(a => a.id === form.cashAccount)
+      const shortfall = computeCashShortfall(payingFrom, amountNum)
+      const canOverrideCash = can(NEGATIVE_CASH_PERMISSION) || isSuperAdmin()
+      const verdict = evaluateCashPolicy(shortfall, cashPolicy, canOverrideCash, false)
+      if (verdict === 'blocked' && shortfall) {
+        setCashFund({
+          accountId: shortfall.accountId,
+          amount: suggestFundingAmount(shortfall.available, shortfall.needed),
+        })
+        setCashBlock(cashShortfallMessage(shortfall, cashPolicy, canOverrideCash))
+        showToast('Not enough in that account to post this payment', 'error')
+        return
+      }
+      if (verdict === 'needs_override' && shortfall) {
+        if (!window.confirm(cashOverridePrompt(shortfall))) return
+      }
+    }
     setPosting(true)
     try {
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
-        ref: draftRef, type: 'cash_payment', posting_date: form.date,
+        ref: form.ref, type: 'cash_payment', posting_date: form.date,
         description: `Cash Payment — ${form.payTo}`, total_amount: amount,
         status: 'pending_approval', posted_by: user.full_name, notes: form.narration,
-        branch: form.branch, supplier_id: form.supplierId || null, payment_method: 'cash',
+        branch: branchChoice.branchName || null, supplier_id: form.supplierId || null, payment_method: 'cash',
       }).select('id').single()
       if (vErr || !voucher) throw new Error('Pending voucher: ' + (vErr?.message || 'unknown'))
 
       const payload = {
-        form: { date: form.date, ref: draftRef, paidTo: form.payTo, notes: form.narration },
+        form: { date: form.date, ref: form.ref, paidTo: form.payTo, notes: form.narration, branch: branchChoice.branchName || null },
         lines: [{ desc: form.narration || form.payTo, amount, accountId: form.expAccount }],
         cashAccountId: form.cashAccount,
         total: amount,
       }
       const res = await submitForApproval({
         typeCode: 'cash_payment', referenceType: 'voucher', referenceId: voucher.id,
-        referenceNumber: draftRef, summary: `Cash payment to ${form.payTo}${reason ? ' · ' + reason : ''}`,
+        referenceNumber: form.ref, summary: `Cash payment to ${form.payTo}${reason ? ' · ' + reason : ''}`,
         requestedValue: amount, payload, requestedBy: user.id,
       })
       if (!res.success) {
         await supabase.from('vouchers').delete().eq('id', voucher.id)
         throw new Error(res.error || 'Submission failed')
       }
-      showToast(`${draftRef} submitted for approval · TZS ${amount.toLocaleString()}`)
-      setTimeout(() => onNav('vouchers'), 1500)
+      clearDraft()  // submitted — nothing left to recover
+      showToast(`${form.ref} submitted for approval · TZS ${amount.toLocaleString()}`)
+      setTimeout(() => resetForm(), 1200)
     } catch (err: any) {
       showToast(err.message || 'Submission failed', 'error')
     } finally { setPosting(false) }
   }
 
-  // Guarded entry point. The latch flips synchronously BEFORE any await, so
-  // a second click during the multi-second validation round-trips (posting
-  // date check, approval check) finds it set and returns. Wrapping the whole
-  // body means every early-return validation releases the latch through one
-  // finally instead of twenty hand-written resets. The approval branch runs
-  // inside doPost, so it is covered by the same latch.
-  const post = async () => {
-    if (postingRef.current) return
-    postingRef.current = true
-    setPosting(true)
-    try {
-      await doPost()
-    } finally {
-      postingRef.current = false
-      setPosting(false)
-    }
+  // ─── Stay on the page after posting (fix-13) ───────────────────────────
+  // A cashier paying five invoices in a row should not be bounced to the
+  // voucher register after each one. Posting now resets the form in place
+  // with a fresh ref; the till, payee type and credit mode are kept because
+  // the next payment almost always leaves from the same place.
+  const resetForm = async () => {
+    const newRef = await nextRef('cash_payment')
+    setForm(f => ({
+      ...f,
+      ref: newRef,
+      date: today(),
+      payTo: '',
+      supplierId: '',
+      amount: '',
+      narration: '',
+      chequeNo: '',
+      // Supplier mode re-locks to 2010 via the AP effect; other modes start
+      // with a conscious category pick.
+      expAccount: payeeType === 'supplier' && apAccount ? apAccount.id : '',
+    }))
+    setApprovalCheck(null)
   }
 
-  const doPost = async () => {
+  const [cashPolicy, setCashPolicy] = useState<NegativeCashPolicy>('block')
+  const [cashBlock, setCashBlock] = useState<string | null>(null)
+  // Which account was short, and how much clears it. Drives the funding button.
+  const [cashFund, setCashFund] = useState<{ accountId: string; amount: number } | null>(null)
+
+  useEffect(() => { loadNegativeCashPolicy().then(setCashPolicy) }, [])
+
+  const post = async () => {
     if (!form.payTo.trim()) { showToast('Please enter payee name', 'error'); return }
     if (!form.amount) { showToast('Please enter amount', 'error'); return }
     if (!form.cashAccount) { showToast('Please select cash/bank account', 'error'); return }
     if (!form.expAccount) { showToast('Please select expense/debit account', 'error'); return }
-    if (requireVendor && payeeType !== 'other' && !form.supplierId) { showToast('Select the supplier or vendor being paid.', 'error'); return }
-    // Supplier payments settle a liability, not an expense. If the lock has
-    // been defeated by a stale draft or a missing account, refuse rather
-    // than let GL and subledger diverge again.
     if (payeeType === 'supplier' && (!apAccount || form.expAccount !== apAccount.id)) {
-      showToast('Supplier payments settle Accounts Payable (2010). Account 2010 was not found or not selected.', 'error'); return
+      showToast('Supplier payments settle Accounts Payable (2010). Account 2010 was not found — check the chart of accounts.', 'error'); return
     }
-    if (payeeType === 'delivery' && (!floatAccount || form.expAccount !== floatAccount.id)) {
-      showToast('Delivery & Shipping payouts settle the float (2085). Account 2085 was not found — check the Chart of Accounts.', 'error'); return
+    if (requireVendor && !form.supplierId) { showToast('This company requires a saved payee. Choose Supplier or Vendor and select one.', 'error'); return }
+    // Money going out needs a reference for every non-cash method, exactly as
+    // money coming in does. Mirrors CashReceipt.
+    if (refRequired && !form.chequeNo.trim()) {
+      showToast(`${refLabel(payMethod)} is required for ${methodLabel(payMethod)} payments`, 'error'); return
     }
-    // Reference is OPTIONAL on money out, by decision: payments are often
-    // posted before the money physically moves (approval-first control), so
-    // demanding an ID here only taught people to invent one. The narration
-    // carries the description; the ref is captured when it exists and the
-    // register can list unreferenced payments for backfill. Money IN keeps
-    // its strict ref in CashReceipt: a customer who has paid has the ID.
+    if (!branchChoice.ready) { showToast('Select a branch for this payment', 'error'); return }
     if (!user) { showToast('You must be signed in', 'error'); return }
 
     // Date lock enforcement
@@ -289,23 +350,7 @@ export default function CashPayment({ onNav }: Props) {
       return
     }
 
-    // ─── Overdraw gate ─────────────────────────────────────────────────
-    // A till cannot hold a negative balance. Checked here rather than in the
-    // ledger so the user is told before anything is written, and told which
-    // account and by how much.
-    {
-      const payingFrom = accounts.find(a => a.id === form.cashAccount)
-      const shortfall = computeCashShortfall(payingFrom, amount)
-      const canOverrideCash = can(NEGATIVE_CASH_PERMISSION) || isSuperAdmin()
-      const verdict = evaluateCashPolicy(shortfall, cashPolicy, canOverrideCash, false)
-      if (verdict === 'blocked' && shortfall) {
-        showToast(cashShortfallMessage(shortfall, cashPolicy, canOverrideCash), 'error')
-        return
-      }
-      if (verdict === 'needs_override' && shortfall) {
-        if (!window.confirm(cashOverridePrompt(shortfall))) return
-      }
-    }
+    setPosting(true)
 
     try {
       // Get account IDs
@@ -313,31 +358,20 @@ export default function CashPayment({ onNav }: Props) {
       const expAcct = accounts.find(a => a.id === form.expAccount)
       if (!cashAcct || !expAcct) throw new Error('Accounts not found')
 
-      // Fresh ref at POST time. The ref shown in the form was computed at
-      // mount and is stale the moment anyone else posts a payment — that is
-      // how a tab opened before Epifania's PAY-10-0081 tried to reuse her
-      // number. The preview is cosmetic; this is the real allocation, and
-      // insertJournalWithRetry remains the backstop for a same-second race.
-      const postRef = await nextRef('cash_payment')
-
       // Create journal
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
-        ref: 'JV-' + postRef,
+        ref: 'JV-' + form.ref,
         posting_date: form.date,
-        description: `Cash Payment — ${form.payTo} — ${postRef}`,
+        description: `Cash Payment — ${form.payTo} — ${form.ref}`,
         journal_type: 'cash_payment',
         source_type: 'cash_payment',
-        source_ref: postRef,
+        source_ref: form.ref,
         posted_by: user.full_name,   // was hardcoded 'Joe Gembe'
         status: 'posted',
-        branch: form.branch,
+        branch: branchChoice.branchName || null,
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
-      // The ref that actually landed. If the retry bumped past a collision,
-      // this differs from postRef — and every write below must follow it,
-      // or we recreate the voucher-points-at-wrong-journal skew.
-      const finalRef = journal.source_ref
 
       // Journal lines: Dr Expense / Cr Cash
       const { error: jlErr } = await supabase.from('journal_lines').insert([
@@ -354,13 +388,13 @@ export default function CashPayment({ onNav }: Props) {
 
       // Create voucher
       const { error: vErr } = await supabase.from('vouchers').insert({
-        ref: finalRef,
+        ref: form.ref,
         type: 'cash_payment',
         posting_date: form.date,
         description: `Cash Payment — ${form.payTo}`,
         total_amount: amount,
         status: 'posted',
-        branch: form.branch,
+        branch: branchChoice.branchName || null,
         supplier_id: form.supplierId || null,
         journal_id: journal.id,
         // Was hardcoded 'cash', so a supplier paid from CRDB was recorded as a
@@ -383,25 +417,29 @@ export default function CashPayment({ onNav }: Props) {
         }
 
         // Create vendor ledger entry for supplier payment
-        await supabase.from('vendor_ledger_entries').insert({
+        const { error: ck9 } = await supabase.from('vendor_ledger_entries').insert({
           supplier_id: form.supplierId,
           posting_date: form.date,
           document_type: 'payment',
-          document_ref: finalRef,
+          document_ref: form.ref,
           description: `Cash Payment — ${form.payTo}${form.narration ? ' — ' + form.narration : ''}`,
           amount_tzs: -amount,
           remaining_amount: 0,
           is_open: false,
           journal_id: journal.id,
         })
+        if (ck9) throw new Error('vendor_ledger_entries write failed: ' + ck9.message)
       }
 
-      showToast(`${finalRef} posted · Dr ${expAcct.code} / Cr ${cashAcct.code} · Journal created`)
-      onNav('vouchers')
+      clearDraft()  // posted successfully — nothing left to recover
+      showToast(`${form.ref} posted · Dr ${expAcct.code} / Cr ${cashAcct.code} · Journal created`)
+      resetForm()
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Something went wrong'
       showToast(msg, 'error')
+    } finally {
+      setPosting(false)
     }
   }
 
@@ -412,19 +450,26 @@ export default function CashPayment({ onNav }: Props) {
       subtitle="Pay any expense or supplier from cash, bank, or M-Pesa"
       color="rgba(255,71,87,.12)"
       onPost={post}
-      postDisabled={vendorMissing || posting}
-      postDisabledReason={vendorMissing ? 'A vendor is required — select a supplier' : posting ? 'Posting in progress — please wait' : undefined}
+      postDisabled={vendorMissing}
+      postDisabledReason={vendorMissing ? 'A vendor is required — select a supplier' : undefined}
       postLabel={posting ? (needsApproval ? 'Submitting…' : 'Posting…') : needsApproval ? 'Submit for Approval' : 'Post Payment'}
       journalNote={`Dr Expense/Supplier Account · Cr Cash/Bank Account · Balance updated`}>
 
+      {availableDraft && draftAgeMs !== null && (
+        <DraftBanner draftAgeMs={draftAgeMs} onResume={resumeDraft} onDiscard={discardDraft} />
+      )}
+      {quickAdd && (
+        <QuickAddPayee role={quickAdd} onClose={() => setQuickAdd(null)} onCreated={handleQuickAddCreated} />
+      )}
+
       {needsApproval && approvalNotice && (
-        <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(212,135,74,.10)', border: '1px solid rgba(212,135,74,.4)', color: 'var(--text2)' }}>
+        <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(var(--accent-rgb),.10)', border: '1px solid rgba(var(--accent-rgb),.4)', color: 'var(--text2)' }}>
           {approvalNotice}
         </div>
       )}
       {vendorMissing && (
         <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 10, fontSize: 12, background: 'rgba(255,71,87,.10)', border: '1px solid rgba(255,71,87,.4)', color: 'var(--red, #dc2626)' }}>
-          A vendor is required for cash payments. Select a supplier below.
+          This company requires a saved payee on cash payments. Choose Supplier or Vendor above and select one.
         </div>
       )}
 
@@ -443,49 +488,53 @@ export default function CashPayment({ onNav }: Props) {
                 onClick={() => switchPayeeType('vendor')}>Vendor</button>
               <button type="button" className={`btn btn-sm ${payeeType === 'other' ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => switchPayeeType('other')}>Other</button>
-              <button type="button" className={`btn btn-sm ${payeeType === 'delivery' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => switchPayeeType('delivery')}>Delivery & Shipping</button>
             </div>
-            <GuideTip>Who is this money going to? <strong>Supplier</strong> = someone who supplies you stock — their balance and statement update, and the payment settles what you owe them. <strong>Vendor</strong> = operational providers like rent, internet, transport or services. <strong>Other</strong> = a one-off payee typed by hand; nothing is tracked against a saved account. <strong>Delivery &amp; Shipping</strong> = paying riders or shipping companies the delivery money collected on sales — it settles the 2085 float (their money, not an expense).</GuideTip>
+            <GuideTip>Who is this money going to? <strong>Supplier</strong> = someone who supplies you stock (their balance and statement update automatically). <strong>Vendor</strong> = operational providers like rent, internet, transport, or services. <strong>Other</strong> = a one-off payee you type by hand — nothing is tracked against a saved account.</GuideTip>
           </FG>
           {payeeType === 'supplier' && (
-            <FG label="Supplier" req>
+            <FG label="Supplier" req={requireVendor}>
               <select className="form-input" value={form.supplierId}
                 onChange={e => e.target.value === '__add__' ? setQuickAdd('supplier') : handleSupplierChange(e.target.value)}>
                 <option value="">— Select supplier —</option>
-                {supplierList.map(sp => <option key={sp.id} value={sp.id}>{sp.name} · Balance: TZS {sp.balance_tzs?.toLocaleString()}</option>)}
+                {supplierList.map(s => <option key={s.id} value={s.id}>{s.name} · Balance: TZS {s.balance_tzs?.toLocaleString()}</option>)}
                 <option value="__add__">＋ Add new supplier…</option>
               </select>
-              <GuideTip>Paying one reduces what you owe them: the debit locks to 2010 Accounts Payable, and the payment lands on their statement.</GuideTip>
+              <GuideTip>Stock suppliers from your Purchases side. Paying one here reduces what you owe them — the payment lands on their statement and their balance drops. If they are missing, add them under Purchases → Suppliers first.</GuideTip>
             </FG>
           )}
           {payeeType === 'vendor' && (
-            <FG label="Vendor" req>
+            <FG label="Vendor" req={requireVendor}>
               <select className="form-input" value={form.supplierId}
                 onChange={e => e.target.value === '__add__' ? setQuickAdd('vendor') : handleSupplierChange(e.target.value)}>
                 <option value="">— Select vendor —</option>
-                {vendorList.map(sp => <option key={sp.id} value={sp.id}>{sp.name} · Balance: TZS {sp.balance_tzs?.toLocaleString()}</option>)}
+                {vendorList.map(s => <option key={s.id} value={s.id}>{s.name} · Balance: TZS {s.balance_tzs?.toLocaleString()}</option>)}
                 <option value="__add__">＋ Add new vendor…</option>
               </select>
-              <GuideTip>Saved operational vendors — landlord, internet, security. Choosing one keeps every payment to them on one statement.</GuideTip>
+              <GuideTip>Saved operational vendors — landlord, internet, security, services. Choosing one keeps all payments to them on one statement, so you can answer "how much have we paid them this year?" in one click.</GuideTip>
             </FG>
           )}
           <FG label="Pay To (Payee)" req>
-            <input className="form-input" placeholder={payeeType === 'delivery' ? 'e.g. Juma (Boda), DHL, Upcountry bus office' : 'e.g. Meditech Tanzania, John Msomi'} value={form.payTo} onChange={e => set('payTo', e.target.value)} />
-            {payeeType === 'delivery' && (
-              <GuideTip>The rider or shipping company being paid. This payment reduces the Delivery &amp; Shipping Float — money customers already paid for delivery that belongs to them, not to Malkia. If part of the fee is yours (you charged more than the rider costs), post the margin separately.</GuideTip>
-            )}
+            <input className="form-input" placeholder="e.g. Meditech Tanzania, John Msomi" value={form.payTo} onChange={e => set('payTo', e.target.value)} />
+            <GuideTip>The name printed on the voucher. Picking a supplier or vendor fills it automatically; for Other, type the payee exactly as you want it to appear.</GuideTip>
           </FG>
           <FG label="Amount (TZS)" req>
-            <MoneyInput className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="0" value={form.amount} onChange={n => set('amount', n ? String(n) : '')} />
+            <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="0" value={form.amount} onChange={e => set('amount', e.target.value)} />
+            <GuideTip>Amounts above the company's approval threshold will be submitted for sign-off instead of posting instantly — the button below will tell you before you press it.</GuideTip>
           </FG>
           <FG label="Narration">
             <textarea className="form-input" rows={3} placeholder="What was this payment for?" value={form.narration} onChange={e => set('narration', e.target.value)} style={{ resize: 'none' }} />
+            <GuideTip>One clear sentence on what the money was for. This is what you will read in the ledger and reports months from now — "June rent, Kariakoo office" beats "payment".</GuideTip>
           </FG>
-          <FG label={`${refLabel(payMethod)} (optional)`}>
+          <FG label={refLabel(payMethod)} req={refRequired}>
             <input className="form-input"
+              style={refMissing ? { borderColor: 'var(--red)' } : undefined}
               placeholder={refPlaceholder(payMethod)}
               value={form.chequeNo} onChange={e => set('chequeNo', e.target.value)} />
+            {refMissing && (
+              <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>
+                Required for {methodLabel(payMethod)}. This is what Finance matches against the statement.
+              </div>
+            )}
           </FG>
         </div>
 
@@ -498,27 +547,93 @@ export default function CashPayment({ onNav }: Props) {
               <button type="button" className={`btn btn-sm ${creditMode === 'asset' ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => { setCreditMode('asset'); set('cashAccount', '') }}>Asset account</button>
             </div>
-            <select className="form-input" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
-              <option value="">— Select account —</option>
-              {creditAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name} · TZS {(a.balance || 0).toLocaleString()}</option>)}
-            </select>
+            {creditMode === 'bank' ? (
+              <BankTilePicker
+                accounts={cashAccounts}
+                value={form.cashAccount}
+                onChange={id => set('cashAccount', id)}
+                showBalance
+                ariaLabel="Pay from account"
+              />
+            ) : (
+              <select className="form-input" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
+                <option value="">— Select account —</option>
+                {creditAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name} · TZS {(a.balance || 0).toLocaleString()}</option>)}
+              </select>
+            )}
             {creditMode === 'asset' && (
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
                 Pays out of an asset pot (no bank movement). The pot must already be funded, or its balance goes negative.
               </div>
             )}
+            <GuideTip>Where the money physically leaves from — a till, bank, or mobile money account. The journal preview below shows exactly what will be recorded.</GuideTip>
           </FG>
-          <FG label="Expense / Debit Account" req>
+          <FG label={payeeType === 'supplier' ? 'Debit Account — locked' : 'Expense / Debit Account'} req>
             {payeeType === 'supplier' ? (
-              <input className="form-input" value="2010 — Accounts Payable (locked for supplier payments)" readOnly
-                style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }} />
-            ) : payeeType === 'delivery' ? (
-              <input className="form-input" value="2085 — Delivery & Shipping Float (locked for rider payouts)" readOnly
-                style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }} />
+              <>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', borderRadius: 'var(--r)',
+                  background: 'var(--surface2)', border: '1px solid var(--border)',
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>
+                    {apAccount ? `${apAccount.code} — ${apAccount.name}` : '2010 — Accounts Payable (missing!)'}
+                  </span>
+                  <svg width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-label="locked">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </div>
+                <GuideTip>Paying a supplier settles what you owe them, so the debit side is always Accounts Payable — it is not a choice, because picking an expense here would inflate costs while the amount owed never dropped. If this payment is actually for rent or services, switch the payee type to Vendor or Other above.</GuideTip>
+              </>
             ) : (
-              <CategorySelect accounts={expenseAccounts} value={form.expAccount} onChange={v => set('expAccount', v)} placeholder="— Select category —" />
+              <>
+                <CategorySelect
+                  accounts={expenseAccounts}
+                  value={form.expAccount}
+                  onChange={v => set('expAccount', v)}
+                  placeholder="— Select category —"
+                  allowCreate={{ onCreated: async id => { await loadAccounts(); set('expAccount', id) } }}
+                />
+                <GuideTip>What the money was spent ON. If the right category isn't in the list, pick "Add new category" at the bottom — it creates a proper expense ledger on the spot.</GuideTip>
+              </>
             )}
           </FG>
+
+          {cashBlock && (
+            <div style={{ marginBottom: 14, padding: '12px 14px', background: '#fee2e2', border: '1px solid #dc2626', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#991b1b', marginBottom: 4 }}>Cannot post</div>
+              <div style={{ fontSize: 12, color: '#991b1b', lineHeight: 1.6, marginBottom: 10 }}>{cashBlock}</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: '#991b1b', color: '#fff', border: 'none' }}
+                onClick={() => {
+                  // Hand the transfer the short account, the amount that clears
+                  // it, and why. See transferPrefill.ts.
+                  if (cashFund) {
+                    setTransferPrefill({
+                      toAccountId: cashFund.accountId,
+                      amount: cashFund.amount,
+                      narration: `Fund ${accounts.find(a => a.id === cashFund.accountId)?.name || 'cash account'} — ${form.ref || 'cash payment'}`,
+                    })
+                  }
+                  onNav('bank-transfer')
+                }}
+              >
+                Fund This Account{cashFund ? ` (${Math.round(cashFund.amount).toLocaleString()})` : ''}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: 'transparent', color: '#991b1b', border: '1px solid #991b1b' }}
+                onClick={() => onNav('accounting-settings')}
+              >
+                Open Posting Rules
+              </button>
+            </div>
+            </div>
+          )}
 
           {form.amount && form.cashAccount && form.expAccount && (
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 14, marginTop: 8 }}>
@@ -534,11 +649,7 @@ export default function CashPayment({ onNav }: Props) {
             </div>
           )}
 
-          <FG label="Branch" req>
-            <select className="form-input" value={form.branch} onChange={e => set('branch', e.target.value)}>
-              <option>DSM HQ</option>
-            </select>
-          </FG>
+          <BranchSelect choice={branchChoice} />
 
           <button className="btn btn-primary" onClick={post} disabled={posting} style={{ width: '100%', justifyContent: 'center', marginTop: 14, padding: '12px', opacity: posting ? 0.6 : 1 }}>
             {posting ? 'Posting…' : 'Post Payment'}
@@ -546,9 +657,6 @@ export default function CashPayment({ onNav }: Props) {
         </div>
       </div>
 
-      {quickAdd && (
-        <QuickAddPayee role={quickAdd} onCreated={handleQuickAddCreated} onClose={() => setQuickAdd(null)} />
-      )}
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </VoucherPage>
   )
