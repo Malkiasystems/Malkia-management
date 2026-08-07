@@ -9,6 +9,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { salespersonCodeFor } from '../lib/salespersonCode'
+import { invoiceFileName } from '../lib/invoiceFileName'
 import { today, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 import { MalkiaInvoice } from './InvoiceTemplate'
@@ -193,7 +194,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     const el = document.getElementById('invoice-preview')
     if (!el) return
     const brandColor = invoiceSettings?.primary_color || '#85c2be'
-    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${previewVoucher.ref}</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceFileName(previewVoucher.customers?.company || previewVoucher.customers?.name, previewVoucher.ref)}</title>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
       <style>
         *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}

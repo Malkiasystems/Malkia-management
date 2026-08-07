@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSalespeople } from '../../lib/useSalespeople'
 import { salespersonCodeFor } from '../../lib/salespersonCode'
+import { invoiceFileName } from '../../lib/invoiceFileName'
 import { cartonsToPieces, fmtCartonHint } from '../../lib/uom'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
@@ -224,11 +225,8 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const invoiceLocLocked = !!(invoiceLocCode && locations.some(l => l.code === invoiceLocCode))
 
   // File base for downloads/prints: customer name first, then invoice ref.
-  const invoiceFileBase = () => {
-    const cn = lastInvoice?.customers?.company || lastInvoice?.customers?.name || 'Customer'
-    const safe = String(cn).replace(/[^\w\s.-]/g, '').trim().replace(/\s+/g, '_').slice(0, 40) || 'Customer'
-    return `${safe}-${lastInvoice?.ref || ''}`
-  }
+  const invoiceFileBase = () =>
+    invoiceFileName(lastInvoice?.customers?.company || lastInvoice?.customers?.name, lastInvoice?.ref)
 
   // Default the salesperson to the logged-in user (not a hardcoded name).
   // Only fills when empty, so editing/reprint and manual choices are kept.

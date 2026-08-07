@@ -12,6 +12,7 @@
 
 import { MalkiaInvoice } from '../pages/InvoiceTemplate'
 import { printHtmlDocument } from '../lib/printDocument'
+import { invoiceFileName } from '../lib/invoiceFileName'
 
 interface Props {
   voucher: any | null
@@ -44,7 +45,7 @@ export default function InvoicePreviewModal({ voucher, settings, onClose, domId 
     const el = document.getElementById(domId)
     if (!el) return
     const brandColor = settings?.primary_color || '#85c2be'
-    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${voucher.ref}</title>
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceFileName(voucher.customers?.company || voucher.customers?.name, voucher.ref)}</title>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
       <style>
         *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
