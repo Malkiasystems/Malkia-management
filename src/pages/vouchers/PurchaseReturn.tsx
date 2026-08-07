@@ -1,11 +1,10 @@
 import { insertJournalWithRetry } from '../../lib/refs'
-import { useAuth } from '../../lib/useAuth'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useUserLocation } from '../../lib/useUserLocation'
 import type { Page } from '../../lib/types'
@@ -15,7 +14,6 @@ interface ReturnLine { productId: string; qty: number; costPrice: number; amount
 interface StockLoc { id: string; code: string; name: string }
 
 export default function PurchaseReturn({ onNav }: Props) {
-  const { user } = useAuth()
   const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
@@ -69,7 +67,6 @@ export default function PurchaseReturn({ onNav }: Props) {
       showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot return stock from ${form.locationCode}.`, 'error')
       return
     }
-    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['2010', '1110'])
@@ -82,7 +79,7 @@ export default function PurchaseReturn({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Purchase Return — ${supplier?.name} — ${form.ref}`,
         journal_type: 'purchase_return', source_type: 'purchase_return', source_ref: form.ref,
-        posted_by: (user?.full_name || 'User'), status: 'posted',
+        posted_by: getPostedBy(), status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -99,14 +96,13 @@ export default function PurchaseReturn({ onNav }: Props) {
         supabase.rpc('update_account_balance', { p_account_id: inventoryId, p_debit: 0, p_credit: total }),
       ])
 
-      const { error: ck28 } = await supabase.from('vouchers').insert({
+      await supabase.from('vouchers').insert({
         ref: form.ref, type: 'purchase_return', posting_date: form.date,
         description: `Purchase Return — ${supplier?.name}`,
         total_amount: total, status: 'posted', journal_id: j.id,
         supplier_id: form.supplierId, notes: form.reason + (form.originalGrn ? ' · GRN: ' + form.originalGrn : ''),
-        posted_by: (user?.full_name || 'User'),
+        posted_by: getPostedBy(),
       })
-      if (ck28) throw new Error('vouchers write failed: ' + ck28.message)
 
       // Reduce stock
       const selectedLoc = locations.find(l => l.code === form.locationCode)
@@ -115,28 +111,26 @@ export default function PurchaseReturn({ onNav }: Props) {
         const prod = products.find(p => p.id === line.productId)
         if (!prod) continue
         await supabase.from('products').update({ qty_on_hand: Math.max(0, prod.qty_on_hand - line.qty) }).eq('id', line.productId)
-        const lr13 = await postLedgerEntry({
+        await postLedgerEntry({
           product_id: line.productId, entry_type: 'purchase_return',
           document_type: 'purchase_return', document_ref: form.ref,
           posting_date: form.date, qty: -line.qty, cost_amount: line.costPrice * line.qty,
           location: selectedLoc || null,
         })
-        if (!lr13.success) throw new Error('Stock ledger write failed: ' + (lr13.error || 'unknown'))
         // Mirror the outbound return into product_locations
         if (selectedLoc) {
           const { data: pl } = await supabase.from('product_locations')
             .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
           const newLocQty = Math.max(0, (pl?.qty_on_hand ?? 0) - line.qty)
-          const { error: ck119 } = await supabase.from('product_locations').upsert(
+          await supabase.from('product_locations').upsert(
             { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
             { onConflict: 'product_id,location_id' }
           )
-          if (ck119) throw new Error('product_locations write failed: ' + ck119.message)
         }
       }
 
       showToast(`${form.ref} posted · Dr AP (2010) / Cr Inventory (1110) · ${tzs(total)}`)
-      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
+      setTimeout(() => onNav('vouchers'), 1500)
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }

@@ -31,7 +31,7 @@ export default function StockAdjustment({ onNav }: Props) {
   useEffect(() => { loadProducts(); loadLocations(); loadNextRef() }, [])
 
   const loadProducts = async () => {
-    const { data } = await supabase.from('products').select('id, sku, name, qty_on_hand, cost_price').eq('is_active', true).eq('is_service', false).order('name')
+    const { data } = await supabase.from('products').select('id, sku, name, qty_on_hand, cost_price').eq('is_active', true).order('name')
     if (data) setProducts(data)
   }
 
@@ -87,7 +87,6 @@ export default function StockAdjustment({ onNav }: Props) {
       return
     }
 
-    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
 
     try {
@@ -132,14 +131,13 @@ export default function StockAdjustment({ onNav }: Props) {
 
         await supabase.from('products').update({ qty_on_hand: newQty }).eq('id', line.productId)
 
-        const lr15 = await postLedgerEntry({
+        await postLedgerEntry({
           product_id: line.productId,
           entry_type: form.type === 'writeoff' ? 'write_off' : form.type === 'increase' ? 'positive_adjustment' : 'negative_adjustment',
           document_type: 'stock_adjustment', document_ref: form.ref,
           posting_date: form.date, qty: qtyChange, cost_amount: costAmount,
           location: selectedLoc || null,
         })
-        if (!lr15.success) throw new Error('Stock ledger write failed: ' + (lr15.error || 'unknown'))
 
         // Mirror the adjustment into product_locations so location balances stay accurate
         if (selectedLoc) {
@@ -147,11 +145,10 @@ export default function StockAdjustment({ onNav }: Props) {
             .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
           const currentLocQty = pl?.qty_on_hand ?? 0
           const newLocQty = Math.max(0, currentLocQty + qtyChange)
-          const { error: ck122 } = await supabase.from('product_locations').upsert(
+          await supabase.from('product_locations').upsert(
             { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
             { onConflict: 'product_id,location_id' }
           )
-          if (ck122) throw new Error('product_locations write failed: ' + ck122.message)
         }
 
         // Journal for EVERY adjustment type, not just write-offs.
@@ -204,7 +201,7 @@ export default function StockAdjustment({ onNav }: Props) {
       }
 
       showToast(`${form.ref} posted · Stock and accounts both updated`)
-      onNav('__refresh' as Page)  // stay here, fresh form — a clerk posts several in a row
+      onNav('vouchers')
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
@@ -215,7 +212,6 @@ export default function StockAdjustment({ onNav }: Props) {
   // ─── Approval submission ───────────────────────────────────────────────
   const submitStockAdjustmentForApproval = async (totalCost: number, reason: string) => {
     if (!user) return
-    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       // Create the pending voucher row
@@ -265,7 +261,7 @@ export default function StockAdjustment({ onNav }: Props) {
       // vouchers hub instead so the submitter can keep working.
       const approverPhrase = res.assignedToName ? ` · Sent to ${res.assignedToName}` : ''
       showToast(`Submitted for approval · ${reason}${approverPhrase}`, 'success')
-      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
+      setTimeout(() => onNav('vouchers'), 1500)
     } catch (e: any) {
       showToast(e.message || 'Submission failed', 'error')
     } finally {

@@ -775,10 +775,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         customers: {
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',
-          // address was hardcoded '' here, which is why fresh prints showed
-          // TIN but no address while reprints showed the opposite. The
-          // customer record has both; the print shows both.
-          whatsapp: selectedCust.whatsapp || '', address: selectedCust.address || '',
+          whatsapp: selectedCust.whatsapp || '', address: '',
           tin_number: selectedCust.tin_number || '',
           balance: newCustomerBalance,
         },

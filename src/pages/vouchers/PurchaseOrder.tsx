@@ -1,37 +1,29 @@
 import { useState, useEffect } from 'react'
-import { useAuth } from '../../lib/useAuth'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
-import QuickAddSupplier from '../../components/QuickAddSupplier'
 import LineItemsTable from '../../components/LineItemsTable'
 import Toast from '../../components/Toast'
-import { today, tzs } from '../../lib/utils'
+import { today, tzs, getPostedBy } from '../../lib/utils'
 import type { Page, LineItem } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 interface DBSupplier { id: string; name: string; currency: string }
 
 export default function PurchaseOrder({ onNav }: Props) {
-  const { user } = useAuth()
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
-  const [showNewSupplier, setShowNewSupplier] = useState(false)
   const [toast, setToast] = useState('')
   const [lines, setLines] = useState<LineItem[]>([{ productId: '', desc: '', qty: 1, price: 0, amount: 0 }])
   const [form, setForm] = useState({ date: today(), deliveryDate: '', ref: '', supplier: '', currency: 'USD', fxRate: '2540', notes: '' })
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
-    const [{ data: sups }, { data: count }] = await Promise.all([
+    const [{ data: sups }, { count }] = await Promise.all([
       supabase.from('suppliers').select('id, name, currency').eq('is_active', true).order('name'),
-      // MAX-based, never COUNT-based. Count+1 collides after any deletion
-      // (5 rows but PO-0006 exists) and when two people open the page at
-      // once — both failure modes of the STP-10-0001 incident (2026-08-06).
-      supabase.from('vouchers').select('ref').eq('type', 'purchase_order').like('ref', 'PO-%').order('ref', { ascending: false }).limit(1),
+      supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'purchase_order'),
     ])
     if (sups) setSuppliers(sups as DBSupplier[])
-    const maxSeq = (count && count.length > 0) ? (parseInt(String(count[0].ref).replace('PO-', '')) || 0) : 0
-    setForm(f => ({ ...f, ref: 'PO-' + String(maxSeq + 1).padStart(4, '0') }))
+    setForm(f => ({ ...f, ref: 'PO-' + String((count || 0) + 1).padStart(4, '0') }))
   }
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -43,18 +35,17 @@ export default function PurchaseOrder({ onNav }: Props) {
     if (lines.every(l => !l.desc || !l.amount)) { setToast('Add at least one order line'); setToast2Type('error'); return }
     try {
       const supplier = suppliers.find(s => s.id === form.supplier)
-      const { error: ck26 } = await supabase.from('vouchers').insert({
+      await supabase.from('vouchers').insert({
         ref: form.ref, type: 'purchase_order', posting_date: form.date,
         description: `Purchase Order — ${supplier?.name}`,
         total_amount: subtotalTZS, status: 'posted',
         supplier_id: form.supplier,
         notes: `${form.currency} @ ${form.fxRate}${form.deliveryDate ? ' · Expected: ' + form.deliveryDate : ''} ${form.notes}`.trim(),
-        posted_by: (user?.full_name || 'User'),
+        posted_by: getPostedBy(),
       })
-      if (ck26) throw new Error('vouchers write failed: ' + ck26.message)
       setToast(`${form.ref} created · PO saved · No journal posted`)
       setToast2Type('success')
-      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
+      setTimeout(() => onNav('vouchers'), 1500)
     } catch (err: any) {
       console.error(err); setToast(err.message || 'Something went wrong'); setToast2Type('error')
     }
@@ -81,18 +72,10 @@ export default function PurchaseOrder({ onNav }: Props) {
           <div>
             <div className="card-title" style={{ marginBottom: 14 }}>Supplier</div>
             <FG label="Supplier" req>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <select className="form-input" style={{ flex: 1 }} value={form.supplier} onChange={e => set('supplier', e.target.value)}>
-                  <option value="">— Select supplier —</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.currency})</option>)}
-                </select>
-                <button type="button" className="btn btn-ghost btn-sm" style={{ whiteSpace: 'nowrap' }} onClick={() => setShowNewSupplier(true)}>+ New</button>
-              </div>
-              <QuickAddSupplier open={showNewSupplier} onClose={() => setShowNewSupplier(false)}
-                onCreated={sNew => {
-                  setSuppliers(prev => [...prev, sNew as any].sort((a, b) => a.name.localeCompare(b.name)))
-                  set('supplier', sNew.id)
-                }} />
+              <select className="form-input" value={form.supplier} onChange={e => set('supplier', e.target.value)}>
+                <option value="">— Select supplier —</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.currency})</option>)}
+              </select>
             </FG>
             <FG label="Payment Terms"><select className="form-input"><option>NET30</option><option>NET60</option><option>50% Advance</option><option>100% Advance</option></select></FG>
           </div>
