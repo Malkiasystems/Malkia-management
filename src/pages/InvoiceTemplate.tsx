@@ -53,6 +53,9 @@ interface Voucher {
   payment_terms?: string; notes?: string
   total_amount: number; subtotal: number
   posted_by?: string; salesperson?: string
+  // Short house code (JG, MU.K) computed by salespersonCode.ts at the call
+  // site — the template stays roster-blind.
+  salesperson_code?: string
   customers: {
     name: string; company?: string; contact_person?: string
     whatsapp: string; address: string; balance: number
@@ -162,8 +165,11 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
                   on reprints of historical invoices. When both exist and
                   differ, both lines print — that difference is real
                   information (sold by A, logged by B), not duplication. */}
-              {s.show_salesperson && (voucher.salesperson || voucher.posted_by) && (
-                <div>{s.label_salesperson}: <span style={{ color: headerText }}>{voucher.salesperson || voucher.posted_by}</span></div>
+              {s.show_salesperson && (voucher.salesperson_code || voucher.salesperson || voucher.posted_by) && (
+                // The CODE prints, not the name — sales staff identity stays
+                // internal on paper that leaves the building. Falls back to
+                // the name for old invoices saved before codes existed.
+                <div>{s.label_salesperson}: <span style={{ color: headerText }}>{voucher.salesperson_code || voucher.salesperson || voucher.posted_by}</span></div>
               )}
               {s.show_salesperson && voucher.salesperson && voucher.posted_by && voucher.posted_by !== voucher.salesperson && (
                 <div>{s.label_invoiced_by}: <span style={{ color: headerText }}>{voucher.posted_by}</span></div>

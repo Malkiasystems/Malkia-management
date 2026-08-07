@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSalespeople } from '../../lib/useSalespeople'
+import { salespersonCodeFor } from '../../lib/salespersonCode'
 import { cartonsToPieces, fmtCartonHint } from '../../lib/uom'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
@@ -771,6 +772,8 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         // path reads the real posted_by from the vouchers table.
         posted_by: getPostedBy(),
         salesperson: (salespeople.find(s => s.id === salespersonId)?.full_name) || form.salesperson || '',
+        salesperson_code: salespersonCodeFor(salespeople,
+          (salespeople.find(s => s.id === salespersonId)?.full_name) || form.salesperson || ''),
         customers: {
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',

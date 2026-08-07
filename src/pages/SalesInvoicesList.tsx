@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { salespersonCodeFor } from '../lib/salespersonCode'
 import { today, localIso } from '../lib/utils'
 import type { Page } from '../lib/types'
 import { MalkiaInvoice } from './InvoiceTemplate'
@@ -96,10 +97,17 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     // row stores the id; the template wants voucher.salesperson as text. Done
     // as a second small lookup rather than a join so a missing/legacy id
     // degrades to the posted_by fallback instead of failing the whole preview.
+    // Reprints must show the same code as the original print, so the code is
+    // recomputed from the FULL roster (collisions depend on everyone, not
+    // just this seller).
     if (voucher?.salesperson_id) {
       const { data: sp } = await supabase.from('users')
         .select('full_name').eq('id', voucher.salesperson_id).single()
-      if (sp?.full_name) (voucher as any).salesperson = sp.full_name
+      if (sp?.full_name) {
+        (voucher as any).salesperson = sp.full_name
+        const { data: roster } = await supabase.from('hrm_employees').select('id, emp_code, full_name')
+        ;(voucher as any).salesperson_code = salespersonCodeFor(roster || [], sp.full_name)
+      }
     }
 
     if (error || !voucher) {
