@@ -257,6 +257,7 @@ export default function CreditNote({ onNav }: Props) {
   // ─── Approval submission ───────────────────────────────────────────────
   const submitCreditNoteForApproval = async (amount: number, reason: string) => {
     if (!user) return
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
@@ -309,7 +310,7 @@ export default function CreditNote({ onNav }: Props) {
       // vouchers hub instead so the submitter can keep working.
       const approverPhrase = res.assignedToName ? ` · Sent to ${res.assignedToName}` : ''
       showToast(`Submitted for approval · ${reason}${approverPhrase}`, 'success')
-      setTimeout(() => onNav('vouchers'), 1500)
+      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
     } catch (e: any) {
       showToast(e.message || 'Submission failed', 'error')
     } finally {
@@ -346,6 +347,7 @@ export default function CreditNote({ onNav }: Props) {
       return
     }
 
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     const amount = creditSubtotal
     const userName = user?.full_name || 'System'
@@ -482,7 +484,8 @@ export default function CreditNote({ onNav }: Props) {
           description: l.name, qty: l.creditQty, unit_cost: l.unitCost,
           unit_price: l.unitPrice, subtotal: l.amount, total: l.amount,
         }))
-        await supabase.from('voucher_lines').insert(vlInserts)
+        const { error: ck118 } = await supabase.from('voucher_lines').insert(vlInserts)
+        if (ck118) throw new Error('voucher_lines write failed: ' + ck118.message)
       }
 
       // ── CUSTOMER LEDGER ENTRY ────────────
@@ -495,19 +498,21 @@ export default function CreditNote({ onNav }: Props) {
       // it doesn't affect balance calculations.
       if (customerId) {
         if (creditLegPosted) {
-          await supabase.from('customer_ledger_entries').insert({
+          const { error: ck6 } = await supabase.from('customer_ledger_entries').insert({
             customer_id: customerId, posting_date: form.date,
             document_type: 'credit_note', document_ref: form.ref,
             description: `Credit Note (cash refund) — ${form.reason} — ${tzs(amount)} refunded to bank/cash`,
             amount: 0, remaining_amount: 0, is_open: false, journal_id: j.id,
           })
+          if (ck6) throw new Error('customer_ledger_entries write failed: ' + ck6.message)
         } else {
-          await supabase.from('customer_ledger_entries').insert({
+          const { error: ck5 } = await supabase.from('customer_ledger_entries').insert({
             customer_id: customerId, posting_date: form.date,
             document_type: 'credit_note', document_ref: form.ref,
             description: `Credit Note — ${form.reason}`,
             amount: -amount, remaining_amount: -amount, is_open: true, journal_id: j.id,
           })
+          if (ck5) throw new Error('customer_ledger_entries write failed: ' + ck5.message)
         }
       }
 
@@ -516,25 +521,29 @@ export default function CreditNote({ onNav }: Props) {
         const selectedLoc = locations.find(l => l.code === locationCode)
         for (const line of selectedLines) {
           if (!line.productId || line.creditQty <= 0) continue
-          // Get current stock
-          const { data: prod } = await supabase.from('products').select('qty_on_hand').eq('id', line.productId).single()
-          if (prod) {
+          // Get current stock. is_service rides along for the phantom-stock
+          // guard (064): a credited service is money back, not goods back —
+          // no qty restore, no ledger row, no location write.
+          const { data: prod } = await supabase.from('products').select('qty_on_hand, is_service').eq('id', line.productId).single()
+          if (prod && !prod.is_service) {
             await supabase.from('products').update({ qty_on_hand: (prod.qty_on_hand || 0) + line.creditQty }).eq('id', line.productId)
-            await postLedgerEntry({
+            const lr12 = await postLedgerEntry({
               product_id: line.productId, entry_type: 'return',
               document_type: 'credit_note', document_ref: form.ref,
               posting_date: form.date, qty: line.creditQty, cost_amount: line.unitCost * line.creditQty,
               location: selectedLoc || null,
             })
+            if (!lr12.success) throw new Error('Stock ledger write failed: ' + (lr12.error || 'unknown'))
             // Mirror back into product_locations so the return lands in the right warehouse
             if (selectedLoc) {
               const { data: pl } = await supabase.from('product_locations')
                 .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
               const newLocQty = (pl?.qty_on_hand ?? 0) + line.creditQty
-              await supabase.from('product_locations').upsert(
+              const { error: ck117 } = await supabase.from('product_locations').upsert(
                 { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
                 { onConflict: 'product_id,location_id' }
               )
+              if (ck117) throw new Error('product_locations write failed: ' + ck117.message)
             }
           }
         }
@@ -550,7 +559,7 @@ export default function CreditNote({ onNav }: Props) {
         ? `${form.ref} posted · Cash refund of ${tzs(amount)} reversed from bank · ${journalDesc}`
         : `${form.ref} posted · ${journalDesc} · ${customerName} credited ${tzs(amount)}`
       showToast(toastMsg)
-      setTimeout(() => onNav('vouchers'), 1500)
+      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }

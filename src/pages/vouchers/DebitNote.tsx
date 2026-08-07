@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react'
+import { useAuth } from '../../lib/useAuth'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { today, tzs, getPostedBy } from '../../lib/utils'
+import { today, tzs } from '../../lib/utils'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
 
 export default function DebitNote({ onNav }: Props) {
+  const { user } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -39,6 +41,7 @@ export default function DebitNote({ onNav }: Props) {
     if (!form.customer.trim()) { showToast('Customer name required', 'error'); return }
     if (!form.amount || parseFloat(form.amount) <= 0) { showToast('Amount required', 'error'); return }
     if (!form.reason) { showToast('Select a reason', 'error'); return }
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     const amount = parseFloat(form.amount)
     try {
@@ -51,7 +54,7 @@ export default function DebitNote({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Debit Note — ${form.customer} — ${form.ref}`,
         journal_type: 'debit_note', source_type: 'debit_note', source_ref: form.ref,
-        posted_by: getPostedBy(), status: 'posted',
+        posted_by: (user?.full_name || 'User'), status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -68,26 +71,28 @@ export default function DebitNote({ onNav }: Props) {
         supabase.rpc('update_account_balance', { p_account_id: revenueId, p_debit: 0, p_credit: amount }),
       ])
 
-      await supabase.from('vouchers').insert({
+      const { error: ck8 } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'debit_note', posting_date: form.date,
         description: `Debit Note — ${form.customer}`,
         total_amount: amount, status: 'posted', journal_id: j.id,
         customer_id: selectedCust?.id || null,
         notes: `${form.reason}${form.originalInv ? ' · Orig: ' + form.originalInv : ''} ${form.notes}`.trim(),
-        posted_by: getPostedBy(),
+        posted_by: (user?.full_name || 'User'),
       })
+      if (ck8) throw new Error('vouchers write failed: ' + ck8.message)
 
       if (selectedCust?.id) {
-        await supabase.from('customer_ledger_entries').insert({
+        const { error: ck7 } = await supabase.from('customer_ledger_entries').insert({
           customer_id: selectedCust.id, posting_date: form.date,
           document_type: 'debit_note', document_ref: form.ref,
           description: `Debit Note — ${form.reason}`,
           amount, remaining_amount: amount, is_open: true, journal_id: j.id,
         })
+        if (ck7) throw new Error('customer_ledger_entries write failed: ' + ck7.message)
       }
 
       showToast(`${form.ref} posted · Dr AR (1050) / Cr Revenue (4010) · ${form.customer} balance increased by ${tzs(amount)}`)
-      setTimeout(() => onNav('vouchers'), 1500)
+      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }

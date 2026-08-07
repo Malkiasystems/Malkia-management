@@ -1,19 +1,29 @@
+import React from 'react'
+import PracticeExpiryBanner from './components/PracticeExpiryBanner'
 import { useState, useEffect, lazy, Suspense, createContext, useContext, useCallback, ReactNode } from 'react'
 import { BREADCRUMBS } from './lib/data'
 import type { Page } from './lib/types'
 import { AuthProvider, useAuth, canAccessPage } from './lib/useAuth'
 import { SettingsProvider } from './lib/settingsLoader'
 import { useInactivityLogout } from './lib/useInactivityLogout'
-import { supabase } from './lib/supabase'
+import { supabase, getActiveCompanyId } from './lib/supabase'
+import { getCacheUser } from './lib/cache'
 import type { HRMViewMode } from './pages/hrm/hrmTypes'
 
 import Topbar from './components/Topbar'
+import TenantStatusBanner from './components/TenantStatusBanner'
+import { useTenantContext } from './lib/tenant'
+import { gateForPage } from './lib/featureGates'
+import { UpgradeGate, PaymentLockGate } from './components/UpgradeGate'
+import PlatformConsole from './pages/PlatformConsole'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
 import OtpGate from './components/OtpGate'
 import { isMfaVerifiedThisSession, markMfaVerified, clearMfaVerified } from './lib/useLoginOtp'
 import { useIsMobile } from './lib/useIsMobile'
 import Login from './pages/Login'
+import OnboardingPage from './pages/OnboardingPage'
+import SelectCompanyPage from './pages/SelectCompanyPage'
 
 // ============================================================================
 // PERFORMANCE: Eager load core pages (used immediately)
@@ -34,12 +44,11 @@ const Dispatch = lazy(() => import('./pages/Dispatch'))
 const StockMovements = lazy(() => import('./pages/StockMovements'))
 const StockAsOf = lazy(() => import('./pages/StockAsOf'))
 const InterimRecon = lazy(() => import('./pages/InterimRecon'))
-const PaymentApprovals = lazy(() => import('./pages/PaymentApprovals'))
 const StockMovementReport = lazy(() => import('./pages/StockMovementReport'))
 const Inventory = lazy(() => import('./pages/Inventory'))
+const Services = lazy(() => import('./pages/Services'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
 const Banks = lazy(() => import('./pages/Banks'))
-const BankReconciliation = lazy(() => import('./pages/BankReconciliation'))
 const Customers = lazy(() => import('./pages/Customers'))
 const CustomerStatement = lazy(() => import('./pages/CustomerStatement'))
 const Suppliers = lazy(() => import('./pages/Suppliers'))
@@ -54,6 +63,7 @@ const SalesInvoicesList = lazy(() => import('./pages/SalesInvoicesList'))
 const TrialBalance = lazy(() => import('./pages/TrialBalance'))
 const BalanceSheet = lazy(() => import('./pages/BalanceSheet'))
 const ARAgingReport = lazy(() => import('./pages/ARAgingReport'))
+const CashSaleDebtors = lazy(() => import('./pages/CashSaleDebtors'))
 const APAgingReport = lazy(() => import('./pages/APAgingReport'))
 const StockValuationReport = lazy(() => import('./pages/StockValuationReport'))
 const PurchaseRegister = lazy(() => import('./pages/PurchaseRegister'))
@@ -68,7 +78,6 @@ const InvoiceTemplatePage = lazy(() => import('./pages/InvoiceTemplate'))
 const ProformaTemplatePage = lazy(() => import('./pages/ProformaTemplate'))
 const WhatsAppSettings = lazy(() => import('./pages/WhatsAppSettings'))
 const LocationSettings = lazy(() => import('./pages/LocationSettings'))
-const InventorySettings = lazy(() => import('./pages/InventorySettings'))
 const AccountingSettings = lazy(() => import('./pages/AccountingSettings'))
 const DisplaySettings = lazy(() => import('./pages/DisplaySettings'))
 const ReportTemplates = lazy(() => import('./pages/ReportTemplates'))
@@ -119,13 +128,11 @@ const Purchase = lazy(() => import('./pages/vouchers/Purchase'))
 const PurchaseInvoice = lazy(() => import('./pages/vouchers/PurchaseInvoice'))
 const PurchaseReturn = lazy(() => import('./pages/vouchers/PurchaseReturn'))
 const OpeningStock = lazy(() => import('./pages/vouchers/OpeningStock'))
-const BankOpeningBalance = lazy(() => import('./pages/vouchers/BankOpeningBalance'))
+const OpeningBalance = lazy(() => import('./pages/vouchers/OpeningBalance'))
 const Loans = lazy(() => import('./pages/Loans'))
-const NewLoan = lazy(() => import('./pages/vouchers/NewLoan'))
 const OpeningLoans = lazy(() => import('./pages/vouchers/OpeningLoans'))
 const LoanRepayment = lazy(() => import('./pages/vouchers/LoanRepayment'))
-const AttendanceKiosk = lazy(() => import('./pages/hrm/AttendanceKiosk'))
-const AttendanceCheckIn = lazy(() => import('./pages/hrm/AttendanceCheckIn'))
+const NewLoan = lazy(() => import('./pages/vouchers/NewLoan'))
 const StockAdjustment = lazy(() => import('./pages/vouchers/StockAdjustment'))
 const StockTransfer = lazy(() => import('./pages/vouchers/StockTransfer'))
 const JournalEntry = lazy(() => import('./pages/vouchers/JournalEntry'))
@@ -204,29 +211,50 @@ export function useDataCache() {
   return ctx
 }
 
+// This provider stored data under the bare key the caller passed ('products',
+// 'customers'), with no tenant in it. Nothing consumes useDataCache() today,
+// which is the only reason it never leaked. Every key is now prefixed with
+// `${companyId}:${userId}` by scopeKey(), and an unscoped call is dropped
+// rather than stored globally. Same public API, so any future adoption is
+// safe by default. Prefer cache.ts directly for new work: it survives route
+// changes, coalesces concurrent readers, and persists where useful.
 function CacheProvider({ children }: { children: ReactNode }) {
   const [cache, setCacheState] = useState<CacheData>({})
   const [lastFetch, setLastFetch] = useState<Record<string, number>>({})
 
-  const setCache = useCallback((key: string, data: any[]) => {
-    setCacheState(prev => ({ ...prev, [key]: data }))
-    setLastFetch(prev => ({ ...prev, [key]: Date.now() }))
+  // Returns null when there is no tenant or no user yet, which means no cache.
+  const scopeKey = useCallback((key: string): string | null => {
+    const cid = getActiveCompanyId()
+    const uid = getCacheUser()
+    return cid && uid ? `${cid}:${uid}:${key}` : null
   }, [])
 
-  const getCache = useCallback((key: string) => cache[key], [cache])
+  const setCache = useCallback((key: string, data: any[]) => {
+    const k = scopeKey(key)
+    if (!k) return
+    setCacheState(prev => ({ ...prev, [k]: data }))
+    setLastFetch(prev => ({ ...prev, [k]: Date.now() }))
+  }, [scopeKey])
+
+  const getCache = useCallback((key: string) => {
+    const k = scopeKey(key)
+    return k ? cache[k] : undefined
+  }, [cache, scopeKey])
 
   const invalidate = useCallback((key: string) => {
+    const k = scopeKey(key)
+    if (!k) return
     setCacheState(prev => {
       const next = { ...prev }
-      delete next[key]
+      delete next[k]
       return next
     })
     setLastFetch(prev => {
       const next = { ...prev }
-      delete next[key]
+      delete next[k]
       return next
     })
-  }, [])
+  }, [scopeKey])
 
   const invalidateAll = useCallback(() => {
     setCacheState({})
@@ -234,10 +262,12 @@ function CacheProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const isStale = useCallback((key: string, maxAgeMs = 60000) => {
-    const last = lastFetch[key]
+    const k = scopeKey(key)
+    if (!k) return true
+    const last = lastFetch[k]
     if (!last) return true
     return Date.now() - last > maxAgeMs
-  }, [lastFetch])
+  }, [lastFetch, scopeKey])
 
   return (
     <CacheContext.Provider value={{ cache, setCache, getCache, invalidate, invalidateAll, lastFetch, isStale }}>
@@ -399,7 +429,6 @@ const STOCK_WORKSPACE_PAGES = new Set<Page>([
   'dispatch',
   'stock-movements',
   'stock-as-of',
-  'payment-approvals',
   'stock-movement-report',
   'internal-use-returns',
   'stock-transfer-register',
@@ -416,13 +445,17 @@ function AppContent() {
   // Nothing about component signatures changed — navigate() still takes
   // a Page string, it just also updates the hash now.
   const hashToPage = (): Page => {
-    // Split off any query string first: '#/attendance-checkin?c=123456'
-    // routes to attendance-checkin, and the page itself reads the query.
-    const raw = window.location.hash.replace(/^#\/?/, '').split('?')[0].trim()
-    // Empty hash → dashboard. Any non-empty value is trusted as a Page
-    // because canAccessPage() below will reject invalid/forbidden routes
-    // and fall through to a ComingSoon/access-denied render.
-    return (raw || 'dashboard') as Page
+    const raw = window.location.hash.replace(/^#\/?/, '').trim()
+    if (!raw) return 'dashboard'
+    // Previously ANY non-empty hash was cast straight to Page on the reasoning
+    // that canAccessPage() would catch it. It does not: canAccessPage returns
+    // TRUE for an unknown route (no entry in PAGE_PERMISSIONS means no
+    // restriction), so a junk hash sailed through to the switch, missed every
+    // case, and rendered the ComingSoon placeholder titled with the junk.
+    // A stale bookmark, a mistyped link or a mangled share URL should land on
+    // the dashboard, not on something that looks like a crash.
+    const known = /^[a-z0-9-]+$/.test(raw)
+    return (known ? raw : 'dashboard') as Page
   }
   const pageToHash = (p: Page) => {
     const target = `#/${p}`
@@ -440,7 +473,8 @@ function AppContent() {
   // receipt and pressing Back reopens that ledger rather than the bare list.
   const [openLedgerId, setOpenLedgerId] = useState<string | null>(null)
   const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string } | null>(null)
-  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, isSuperAdmin } = useAuth()
+  const { user, permissions, loading: authLoading, isAuthenticated, hasSession, companies, activeCompany, companiesLoading, switchCompany, refreshUser, can, isSuperAdmin } = useAuth()
+  const [showCreateCompany, setShowCreateCompany] = useState(false)
   useInactivityLogout()
 
   // Keep internal page state in sync with browser back/forward buttons
@@ -497,7 +531,16 @@ function AppContent() {
   // For self-only users, force self mode
   const effectiveHrmMode = hrmSelfOnly ? 'self' : hrmMode
 
+  // Bumping this remounts the CURRENT page from scratch — the exact code
+  // path a fresh visit takes, so its form resets and its next ref mints by
+  // the page's own load logic. Voucher pages use it after posting: the old
+  // behaviour threw the clerk to the vouchers list after every post, which
+  // fights the real workflow of entering five payments in a row.
+  const [pageEpoch, setPageEpoch] = useState(0)
+
   const navigate = (p: Page) => {
+    // '__refresh' is not a destination: it means "this same page, fresh".
+    if ((p as string) === '__refresh') { setPageEpoch(e => e + 1); return }
     if (p !== 'cash-receipt') setReceiptPrefill(null)   // clear stale prefill when leaving the receipt page
     setHistory(h => [...h.slice(-19), page])
     setPage(p)
@@ -540,6 +583,25 @@ function AppContent() {
   // the stock sidebar only controls what's visible.
   const isStockWorkspace = user?.workspace_role === 'stock'
   const isMobile = useIsMobile()
+
+  // ── Plan & payment gates ─────────────────────────────────────────────
+  // HOOK PLACEMENT IS LOAD-BEARING. This call sits with the other
+  // unconditional hooks, ABOVE every early return (loading, login, company
+  // picker, onboarding). The first version of this gate called it just
+  // before renderPage(), six conditional returns further down; the moment a
+  // session finished loading, a hook appeared that had not existed on the
+  // previous render, React threw "rendered more hooks than during the
+  // previous render", and every signed-in user got a black screen. Hooks at
+  // the top, verdicts at the point of use.
+  //
+  // Gate order at the point of use: role permission, then plan, then payment
+  // lock. Plan before payment on purpose: a 90 tenant in arrears opening HRM
+  // must see "comes with 360", not "locked pending payment", which would
+  // wrongly promise that paying unlocks it. While the context is loading
+  // everything renders — failing OPEN, because a slow fetch must never flash
+  // an upgrade screen at a paying tenant. The database still refuses what
+  // must be refused.
+  const { ctx: tenantCtx, hasFeature: tenantHasFeature } = useTenantContext()
   const [, forceMfaRerender] = useState(0)
   useEffect(() => {
     if (!isStockWorkspace) return
@@ -549,14 +611,62 @@ function AppContent() {
     }
   }, [isStockWorkspace, page])
 
-  // Show loading while checking auth
-  if (authLoading) {
+  // Show loading while checking auth + company memberships
+  if (authLoading || companiesLoading) {
     return <PageLoader />
   }
 
-  // Show login if not authenticated
-  if (!isAuthenticated) {
+  // No Supabase session at all → sign in / sign up
+  if (!hasSession) {
     return <Login onLogin={refreshUser} />
+  }
+
+  // Signed in, but no company yet (fresh signup) → onboarding wizard.
+  // Also reachable via "Create new company" from the picker below.
+  if (companies.length === 0 || showCreateCompany) {
+    return (
+      <OnboardingPage
+        onComplete={() => { setShowCreateCompany(false); refreshUser() }}
+        // Only users who ALREADY have a company get a cancel path; a fresh
+        // signup with zero companies has nowhere else to go.
+        onCancel={companies.length > 0 ? () => setShowCreateCompany(false) : undefined}
+      />
+    )
+  }
+
+  // More than one company and none chosen yet → picker
+  if (!activeCompany) {
+    return (
+      <SelectCompanyPage
+        companies={companies}
+        onSelect={switchCompany}
+        onCreateNew={() => setShowCreateCompany(true)}
+      />
+    )
+  }
+
+  // Session + active company, but no operational user row in this company.
+  // Happens when a membership exists but the admin hasn't provisioned the
+  // user record yet. Don't loop back to Login — explain and offer sign-out.
+  if (!isAuthenticated) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg, #0d1517)', padding: 24 }}>
+        <div style={{ maxWidth: 420, textAlign: 'center', color: 'var(--text, #e8eeee)' }}>
+          <h2 style={{ marginBottom: 8 }}>Almost there</h2>
+          <p style={{ opacity: 0.7, fontSize: 14, lineHeight: 1.6 }}>
+            Your account is a member of {activeCompany.name}, but your user profile
+            hasn't been set up in this company yet. Ask a company admin to add you
+            under Settings → Users, then reload this page.
+          </p>
+          <button
+            onClick={async () => { await supabase.auth.signOut(); window.location.reload() }}
+            style={{ marginTop: 16, padding: '10px 20px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: 'inherit', cursor: 'pointer' }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // SMS second factor on session restore. A page reload rehydrates the
@@ -574,12 +684,27 @@ function AppContent() {
   }
 
   // Check if current user can access the page
-  const hasAccess = canAccessPage(page, permissions)
+  const hasAccess = canAccessPage(page, permissions, isSuperAdmin())
+
+  const gate = tenantCtx
+    ? gateForPage(page, tenantHasFeature, tenantCtx.billing?.phase)
+    : { kind: 'open' as const }
 
   const renderPage = () => {
     // Show access denied if user doesn't have permission
     if (!hasAccess && !authLoading) {
       return <AccessDenied page={page} onNav={navigate} />
+    }
+
+    if (gate.kind === 'upgrade' && gate.feature) {
+      return <UpgradeGate feature={gate.feature}
+                          planName={tenantCtx?.plan?.name}
+                          onBack={() => navigate('dashboard')} />
+    }
+    if (gate.kind === 'payment_lock') {
+      return <PaymentLockGate readonlyAt={tenantCtx?.billing?.readonly_at}
+                              onBack={() => navigate('dashboard')}
+                              onSell={() => navigate('cash-sale')} />
     }
 
     switch (page) {
@@ -590,7 +715,9 @@ function AppContent() {
       // Lazy loaded pages
       case 'vouchers':          return <VouchersHub onNav={navigate} />
       case 'chart-of-accounts': return <ChartOfAccounts />
+      case 'platform-console':  return <PlatformConsole />
       case 'inventory':         return <Inventory onNav={navigate} />
+      case 'services':          return <Services />
       case 'reports':           return <ReportsHub onNav={navigate} />
       case 'pnl':               return <PnL />
       case 'sales-register':    return <SalesRegister onEdit={navigateToEdit} />
@@ -598,7 +725,8 @@ function AppContent() {
       case 'sales-invoices-list': return <SalesInvoicesList onNav={navigate} onEdit={navigateToEdit} />
       case 'trial-balance':     return <TrialBalance />
       case 'balance-sheet':     return <BalanceSheet />
-      case 'ar-aging':          return <ARAgingReport />
+      case 'ar-aging':          return <ARAgingReport onNav={p => navigate(p as Page)} />
+      case 'cash-sale-debtors':  return <CashSaleDebtors onReceipt={navigateToReceipt} />
       case 'ap-aging':          return <APAgingReport />
       case 'stock-valuation':   return <StockValuationReport />
       case 'purchase-register': return <PurchaseRegister />
@@ -610,10 +738,9 @@ function AppContent() {
       case 'proforma-template': return <ProformaTemplatePage />
       case 'whatsapp-settings': return <WhatsAppSettings />
       case 'location-settings': return <LocationSettings />
-      case 'inventory-settings': return <InventorySettings onNav={navigate} />
+      case 'inventory-settings': return <SalesInventorySettings onNav={navigate} mode="inventory" />
       case 'pricelist-template': return <PricingPage onNav={navigate} />
       case 'banks':             return <Banks onNav={navigate} />
-      case 'bank-recon':        return <BankReconciliation onNav={navigate} />
       case 'cash-center':       return <CashCenter />
       case 'cash-flow':         return <CashFlow />
       case 'ledger-health':     return <LedgerHealth />
@@ -622,7 +749,7 @@ function AppContent() {
       case 'day-close':         return <DayClose onNav={navigate} />
       case 'settings':          return <Settings onNav={navigate} />
       case 'cash-payment':      return <CashPayment onNav={navigate} />
-      case 'new-expense':       return <NewExpense onNav={navigate} />
+      case 'new-expense':       return <NewExpense onNav={navigate} onEdit={navigateToEdit} />
       case 'bank-payment':      return <CashPayment onNav={navigate} />  // legacy alias — single Payment Voucher handles both
       case 'cash-receipt':              return <CashReceipt onNav={navigate} prefill={receiptPrefill ?? undefined} />
       // Legacy routes: 'bank-receipt' was a redundant variant; the new
@@ -649,13 +776,11 @@ function AppContent() {
       case 'purchase':          return <Purchase onNav={navigate} />
       case 'purchase-return':   return <PurchaseReturn onNav={navigate} />
       case 'opening-stock':     return <OpeningStock onNav={navigate} />
-      case 'bank-opening-balance': return <BankOpeningBalance onNav={navigate} />
+      case 'opening-balance':   return <OpeningBalance onNav={navigate} />
       case 'loans':             return <Loans onNav={navigate} />
-      case 'new-loan':          return <NewLoan onNav={navigate} />
       case 'opening-loans':     return <OpeningLoans onNav={navigate} />
       case 'loan-repayment':    return <LoanRepayment onNav={navigate} />
-      case 'attendance-kiosk':  return <AttendanceKiosk />
-      case 'attendance-checkin': return <AttendanceCheckIn />
+      case 'new-loan':          return <NewLoan onNav={navigate} />
       case 'stock-adjustment':  return <StockAdjustment onNav={navigate} />
       case 'stock-transfer':    return <StockTransfer onNav={navigate} />
       case 'stock-transfer-approvals': return <IncomingTransfers onNav={navigate} />
@@ -672,7 +797,7 @@ function AppContent() {
       case 'internal-use-report': return <InternalUseReport onNav={navigate} />
       case 'internal-use-returns': return <InternalUseReturns onNav={navigate} />
       case 'data-import':       return <DataImport />
-      case 'bundles':           return <Bundles />
+      case 'bundles':           return <Bundles onNav={navigate} />
       
       // User Management & Approvals
       case 'users':             return <UserManagement onNav={navigate} />
@@ -684,14 +809,14 @@ function AppContent() {
       case 'stock-movements':   return <StockMovements onNav={navigate} />
       case 'stock-as-of':       return <StockAsOf onNav={navigate} />
       case 'interim-recon':     return <InterimRecon onNav={navigate} />
-      case 'payment-approvals': return <PaymentApprovals onNav={navigate} />
       case 'stock-movement-report': return <StockMovementReport onNav={navigate} />
       case 'accounting-settings': return <AccountingSettings />
       case 'display-settings':  return <DisplaySettings />
       case 'report-templates':  return <ReportTemplates />
       case 'company-finance-settings':  return <CompanyFinanceSettings onNav={navigate} />
       case 'users-access-settings':     return <UsersAccessSettings onNav={navigate} />
-      case 'sales-inventory-settings':  return <SalesInventorySettings onNav={navigate} />
+      case 'sales-inventory-settings':  return <SalesInventorySettings onNav={navigate} mode="all" />
+      case 'sales-settings':            return <SalesInventorySettings onNav={navigate} mode="sales" />
       case 'templates-hub':             return <TemplatesHub onNav={navigate} />
       case 'company-branding':          return <CompanyBranding onNav={navigate} />
       case 'integrations-settings':     return <IntegrationsSettings onNav={navigate} />
@@ -742,8 +867,9 @@ function AppContent() {
 
   return (
       <CacheProvider>
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-          <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+          <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} onCreateCompany={() => setShowCreateCompany(true)} />
+          <TenantStatusBanner />
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
             <div className="app-sidebar-desktop" style={{ display: 'flex' }}>
               <Sidebar current={page} onNav={navigate} stockMode={isStockWorkspace} />
@@ -784,8 +910,9 @@ function AppContent() {
                   Your account is not linked to an employee profile. Please ask an administrator to set your email address on your employee record.
                 </div>
               )}
+              <PracticeExpiryBanner />
               <Suspense fallback={<PageLoader />}>
-                {renderPage()}
+                <React.Fragment key={pageEpoch}>{renderPage()}</React.Fragment>
               </Suspense>
             </div>
           </div>
@@ -796,6 +923,33 @@ function AppContent() {
 }
 
 export default function App() {
+  // ── Global zero-field ergonomics ──────────────────────────────────────────
+  // Every voucher form prefills quantity and amount fields with 0. Clicking
+  // into one placed the caret NEXT to the zero, so typing 5 produced "05" or
+  // "50" depending on which side the caret landed — a constant paper cut at
+  // the till. This selects the zero on focus so the first keystroke replaces
+  // it. Deliberately narrow: it only fires when the value IS zero, so a field
+  // holding a real number keeps normal caret behaviour, and any input can opt
+  // out with data-no-autoselect="1".
+  useEffect(() => {
+    const ZERO = /^0([.,]0*)?$/
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target
+      if (!(t instanceof HTMLInputElement)) return
+      if (t.dataset.noAutoselect === '1') return
+      if (t.type !== 'number' && t.type !== 'text' && t.type !== 'tel') return
+      if (!ZERO.test(t.value)) return
+      t.select()
+      // The browser's default mouseup after a click collapses the selection
+      // back to a caret, undoing the select(). Suppress that first mouseup
+      // only, so the very next click inside the field behaves normally.
+      const keepSelection = (me: MouseEvent) => me.preventDefault()
+      t.addEventListener('mouseup', keepSelection, { once: true })
+    }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [])
+
   return (
     <AuthProvider>
       <SettingsProvider>

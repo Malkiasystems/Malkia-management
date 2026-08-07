@@ -4,9 +4,10 @@ import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
-import { today, tzs, getPostedBy } from '../../lib/utils'
+import { today, tzs } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
 import { useUserLocation } from '../../lib/useUserLocation'
+import { useAuth } from '../../lib/useAuth'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
@@ -15,6 +16,8 @@ interface StockLocation { id: string; code: string; name: string; branch_code: s
 
 export default function OpeningStock({ onNav }: Props) {
   const userLoc = useUserLocation()
+  const { user } = useAuth()
+  const postedByName = user?.full_name || 'System'
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -29,7 +32,7 @@ export default function OpeningStock({ onNav }: Props) {
 
   const loadData = async () => {
     const [{ data: prods }, { count }, { data: locs }] = await Promise.all([
-      supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).order('name'),
+      supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).eq('is_service', false).order('name'),
       supabase.from('vouchers').select('*', { count: 'exact', head: true }).eq('type', 'opening_stock'),
       supabase.from('stock_locations').select('id, code, name, branch_code').order('code'),
     ])
@@ -65,6 +68,7 @@ export default function OpeningStock({ onNav }: Props) {
       showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot post opening stock to ${form.locationCode}.`, 'error')
       return
     }
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['1110', '3040'])
@@ -76,7 +80,7 @@ export default function OpeningStock({ onNav }: Props) {
         ref: 'JV-' + form.ref, posting_date: form.date,
         description: `Opening Stock — ${form.ref} — Total: ${tzs(total)}`,
         journal_type: 'opening_stock', source_type: 'opening_stock', source_ref: form.ref,
-        posted_by: getPostedBy(), status: 'posted',
+        posted_by: postedByName, status: 'posted',
       })  
       if (jErr || !jRaw) throw new Error(jErr?.message || "Journal insert failed")
       const j = jRaw
@@ -93,43 +97,46 @@ export default function OpeningStock({ onNav }: Props) {
         supabase.rpc('update_account_balance', { p_account_id: equityId, p_debit: 0, p_credit: total }),
       ])
 
-      await supabase.from('vouchers').insert({
+      const { error: ck29 } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'opening_stock', posting_date: form.date,
         description: `Opening Stock — ${lines.filter(l => l.qty > 0).length} products — ${tzs(total)}`,
         total_amount: total, status: 'posted', journal_id: j.id,
-        notes: form.notes, posted_by: getPostedBy(),
+        notes: form.notes, posted_by: postedByName,
       })
+      if (ck29) throw new Error('vouchers write failed: ' + ck29.message)
 
       // Update product quantities + item ledger + per-location stock
       const selectedLoc = locations.find(l => l.code === form.locationCode)
       for (const line of lines) {
         if (!line.productId || !line.qty) continue
         await supabase.from('products').update({ qty_on_hand: line.qty, cost_price: line.cost }).eq('id', line.productId)
-        await postLedgerEntry({
+        const lr8 = await postLedgerEntry({
           product_id: line.productId, entry_type: 'opening_stock',
           document_type: 'opening_stock', document_ref: form.ref,
           posting_date: form.date, qty: line.qty, cost_amount: line.amount,
           location: selectedLoc || null,
         })
+        if (!lr8.success) throw new Error('Stock ledger write failed: ' + (lr8.error || 'unknown'))
         // Mirror the opening stock into product_locations so location filters work
         if (selectedLoc) {
-          await supabase.from('product_locations').upsert(
+          const { error: ck113 } = await supabase.from('product_locations').upsert(
             { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: line.qty, last_updated: new Date().toISOString() },
             { onConflict: 'product_id,location_id' }
           )
+          if (ck113) throw new Error('product_locations write failed: ' + ck113.message)
         }
       }
 
       showToast(`${form.ref} posted · ${lines.filter(l=>l.qty>0).length} products · Total value: ${tzs(total)}`)
       setAlreadyPosted(true)
-      setTimeout(() => onNav('vouchers'), 1800)
+      setTimeout(() => onNav('__refresh' as Page), 1800)  // stay here, fresh form — a clerk posts several in a row
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }
   }
 
   return (
-    <VoucherPage title="Opening Stock" icon="" subtitle="Enter initial stock quantities at go-live — one time only" color="rgba(212,135,74,.12)"
+    <VoucherPage title="Opening Stock" icon="" subtitle="Enter initial stock quantities at go-live — one time only" color="rgba(var(--accent-rgb),.12)"
       onPost={post} postLabel={posting ? 'Posting…' : 'Post Opening Stock'}
       journalNote="Dr Inventory (1110) · Cr Opening Stock Equity (3040) · Run once at system go-live">
       {alreadyPosted && (

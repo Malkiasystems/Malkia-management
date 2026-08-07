@@ -4,7 +4,7 @@ import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
-import { today, getPostedBy } from '../../lib/utils'
+import { today } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
 import type { Page, JournalLine } from '../../lib/types'
@@ -13,7 +13,7 @@ interface Props { onNav: (p: Page) => void }
 interface DBAccount { id: string; code: string; name: string; category?: string; balance?: number }
 
 export default function JournalEntry({ onNav }: Props) {
-  const { isSuperAdmin } = useAuth()
+  const { isSuperAdmin, user } = useAuth()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
@@ -72,6 +72,7 @@ export default function JournalEntry({ onNav }: Props) {
     if (!form.narration.trim() && !selectedLoan) { /* narration optional in loan mode; we build one */ }
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       const desc = form.narration.trim() || `Loan repayment — ${selectedLoan?.name} via ${selectedPayFrom?.name}`
@@ -83,7 +84,7 @@ export default function JournalEntry({ onNav }: Props) {
         p_journal_type: 'loan_payment',
         p_source_type: 'loan_payment',
         p_source_ref: form.ref,
-        p_posted_by: getPostedBy(),
+        p_posted_by: (user?.full_name || 'User'),
         p_branch: null,
         p_lines: [
           { account_id: loanPay.loanId, description: 'Loan repayment (reduces what you owe)', debit: loanAmount, credit: 0 },
@@ -93,14 +94,15 @@ export default function JournalEntry({ onNav }: Props) {
       if (error) throw new Error(error.message)
 
       // voucher header linked to the journal
-      await supabase.from('vouchers').insert({
+      const { error: ck22 } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'loan_payment', posting_date: form.date,
         description: desc, total_amount: loanAmount, status: 'posted',
-        journal_id: journalId, posted_by: getPostedBy(),
+        journal_id: journalId, posted_by: (user?.full_name || 'User'),
       })
+      if (ck22) throw new Error('vouchers write failed: ' + ck22.message)
 
       showToast(`${form.ref} posted · ${selectedLoan?.name} reduced by TZS ${fmt(loanAmount)}`)
-      onNav('vouchers')
+      onNav('__refresh' as Page)  // stay here, fresh form — a clerk posts several in a row
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
@@ -114,12 +116,13 @@ export default function JournalEntry({ onNav }: Props) {
     if (!form.narration.trim()) { showToast('Please enter a narration/description', 'error'); return }
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: form.ref, posting_date: form.date, description: form.narration,
         journal_type: form.type, source_type: 'manual',
-        posted_by: getPostedBy(), status: 'posted',
+        posted_by: (user?.full_name || 'User'), status: 'posted',
       })
       if (jErr || !journalRaw) throw new Error(jErr?.message || 'Journal insert failed')
       const journal = journalRaw
@@ -137,15 +140,16 @@ export default function JournalEntry({ onNav }: Props) {
         await supabase.rpc('update_account_balance', { p_account_id: line.account_id, p_debit: line.debit, p_credit: line.credit })
       }
 
-      await supabase.from('vouchers').insert({
+      const { error: ck21 } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'journal_entry', posting_date: form.date,
         description: form.narration || `Journal Entry — ${form.ref}`,
         total_amount: totalDr, status: 'posted',
-        journal_id: journal.id, posted_by: getPostedBy(),
+        journal_id: journal.id, posted_by: (user?.full_name || 'User'),
       })
+      if (ck21) throw new Error('vouchers write failed: ' + ck21.message)
 
       showToast(`${form.ref} posted · ${linesToInsert.length} lines · Balanced at TZS ${totalDr.toLocaleString()}`)
-      onNav('vouchers')
+      onNav('__refresh' as Page)  // stay here, fresh form — a clerk posts several in a row
     } catch (err: any) {
       showToast('' + (err.message || 'Something went wrong'), 'error')
     } finally {
@@ -156,7 +160,7 @@ export default function JournalEntry({ onNav }: Props) {
   const post = () => (isLoanMode ? postLoanPayment() : postRawJournal())
 
   return (
-    <VoucherPage title="Journal Entry" icon="" subtitle="Manual double-entry — corrections and adjustments" color="rgba(212,135,74,.12)"
+    <VoucherPage title="Journal Entry" icon="" subtitle="Manual double-entry — corrections and adjustments" color="rgba(var(--accent-rgb),.12)"
       onPost={post} postLabel={posting ? 'Posting…' : (isLoanMode ? 'Post Loan Payment' : 'Post Journal')}
       journalNote={isLoanMode
         ? 'Loan payment — pick the loan, the amount, and the account you paid from. The double-entry is built for you.'

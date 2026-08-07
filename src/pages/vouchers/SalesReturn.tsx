@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import { computeCartVat, taxSnapshotFromSettings } from '../../lib/vatEngine'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -21,12 +22,10 @@ export default function SalesReturn({ onNav }: Props) {
   const userLoc = useUserLocation()
   const { user, isSuperAdmin } = useAuth()
   const { settings } = useSettings()
-  const vatEnabled = settings.tax?.vat_enabled ?? false
-  const vatRate = settings.tax?.default_vat_rate ?? 18
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success'|'error'>('success')
   const [posting, setPosting] = useState(false)
-  const [products, setProducts] = useState<{id:string;name:string;cost_price:number;selling_price:number;qty_on_hand:number}[]>([])
+  const [products, setProducts] = useState<{id:string;name:string;cost_price:number;selling_price:number;qty_on_hand:number;is_service?:boolean;tax_code?:string|null;vat_rate?:number|null;price_includes_vat?:boolean|null}[]>([])
   const [cashAccounts, setCashAccounts] = useState<{id:string;code:string;name:string}[]>([])
   const [locations, setLocations] = useState<StockLoc[]>([])
   const [lines, setLines] = useState<ReturnLine[]>([{ productId: '', name: '', qty: 1, salePrice: 0, costPrice: 0, amount: 0 }])
@@ -37,7 +36,7 @@ export default function SalesReturn({ onNav }: Props) {
 
   const loadData = async () => {
     const [{ data: prods }, { data: cash }, { data: locs }] = await Promise.all([
-      supabase.from('products').select('id, name, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name'),
+      supabase.from('products').select('id, name, cost_price, selling_price, qty_on_hand, is_service, tax_code, vat_rate, price_includes_vat').eq('is_active', true).order('name'),
       supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
       supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code'),
     ])
@@ -96,6 +95,7 @@ export default function SalesReturn({ onNav }: Props) {
       return
     }
 
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       const { data: acctData } = await supabase.from('accounts').select('id, code').in('code', ['4050', '5010', '1110', '2020'])
@@ -106,7 +106,19 @@ export default function SalesReturn({ onNav }: Props) {
       const vatId = acct('2020')
       if (!returnsId || !cogsId || !inventoryId) throw new Error('Required accounts not found. Ensure 4050 Sales Returns exists in Chart of Accounts.')
 
-      const vat = vatEnabled ? Math.round(total * vatRate / (100 + vatRate)) : 0
+      // VAT (076): reversed PER LINE off each product's own treatment, not by
+      // applying one rate to the whole return. Returning an exempt item used to
+      // debit 2020 for VAT that was never charged on it, pushing the liability
+      // account into a phantom debit balance.
+      const returnCart = computeCartVat(
+        lines.filter(l => l.productId).map(l => ({
+          amount: l.amount,
+          product: products.find(p => p.id === l.productId),
+          isService: !!products.find(p => p.id === l.productId)?.is_service,
+        })),
+        taxSnapshotFromSettings(settings.tax)
+      )
+      const vat = returnCart.vat
       const netReturn = total - vat
 
       const { data: jRaw, error: jErr } = await insertJournalWithRetry({
@@ -135,13 +147,14 @@ export default function SalesReturn({ onNav }: Props) {
 
       await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
 
-      await supabase.from('vouchers').insert({
+      const { error: ck27 } = await supabase.from('vouchers').insert({
         ref: form.ref, type: 'sales_return', posting_date: form.date,
         description: `Sales Return — ${form.customer}`,
         total_amount: total, status: 'posted', journal_id: j.id,
         notes: `${form.reason}${form.originalRef ? ' · Orig: ' + form.originalRef : ''}`,
         posted_by: user.full_name,
       })
+      if (ck27) throw new Error('vouchers write failed: ' + ck27.message)
 
       // Restore stock
       const selectedLoc = locations.find(l => l.code === form.locationCode)
@@ -149,27 +162,32 @@ export default function SalesReturn({ onNav }: Props) {
         if (!line.productId) continue
         const prod = products.find(p => p.id === line.productId)
         if (!prod) continue
+        // Phantom-stock guard (064): a returned service is a refund, not
+        // goods coming back — no stock, no ledger row, no location write.
+        if ((prod as any).is_service) continue
         await supabase.from('products').update({ qty_on_hand: prod.qty_on_hand + line.qty }).eq('id', line.productId)
-        await postLedgerEntry({
+        const lr10 = await postLedgerEntry({
           product_id: line.productId, entry_type: 'return',
           document_type: 'sales_return', document_ref: form.ref,
           posting_date: form.date, qty: line.qty, cost_amount: line.costPrice * line.qty,
           location: selectedLoc || null,
         })
+        if (!lr10.success) throw new Error('Stock ledger write failed: ' + (lr10.error || 'unknown'))
         // Mirror the return back into the destination location
         if (selectedLoc) {
           const { data: pl } = await supabase.from('product_locations')
             .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
           const newLocQty = (pl?.qty_on_hand ?? 0) + line.qty
-          await supabase.from('product_locations').upsert(
+          const { error: ck114 } = await supabase.from('product_locations').upsert(
             { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
             { onConflict: 'product_id,location_id' }
           )
+          if (ck114) throw new Error('product_locations write failed: ' + ck114.message)
         }
       }
 
       showToast(`${form.ref} posted · Dr Sales Returns / Cr Cash · Stock restored · ${tzs(total)}`)
-      setTimeout(() => onNav('vouchers'), 1500)
+      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
     } catch (err: any) {
       console.error(err); showToast(err.message || 'Something went wrong', 'error')
     } finally { setPosting(false) }
@@ -178,6 +196,7 @@ export default function SalesReturn({ onNav }: Props) {
   // ─── Approval submission ───────────────────────────────────────────────
   const submitSalesReturnForApproval = async (reason: string) => {
     if (!user) return
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
     try {
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
@@ -226,7 +245,7 @@ export default function SalesReturn({ onNav }: Props) {
       // vouchers hub instead so the submitter can keep working.
       const approverPhrase = res.assignedToName ? ` · Sent to ${res.assignedToName}` : ''
       showToast(`Submitted for approval · ${reason}${approverPhrase}`, 'success')
-      setTimeout(() => onNav('vouchers'), 1500)
+      setTimeout(() => onNav('__refresh' as Page), 1500)  // stay here, fresh form — a clerk posts several in a row
     } catch (e: any) {
       showToast(e.message || 'Submission failed', 'error')
     } finally {

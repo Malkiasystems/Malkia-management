@@ -1,22 +1,36 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { supabase } from '../../lib/supabase'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
+import QuickAddSupplier from '../../components/QuickAddSupplier'
 import Toast from '../../components/Toast'
 import DraftBanner from '../../components/DraftBanner'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { postLedgerEntry } from '../../lib/itemLedger'
+import { GuideTip } from '../../components/GuideMode'
+import { receiveBatch } from '../../lib/batchPost'
+import {
+  EMPTY_BATCH_LINE, tracksBatches, defaultExpiryFrom, suggestBatchNo,
+  daysToExpiry, validateBatchLine,
+} from '../../lib/batchTypes'
+import { resolvePurchaseVat, taxSnapshotFromSettings } from '../../lib/vatEngine'
+import { useSettings } from '../../lib/settingsLoader'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import { useAuth } from '../../lib/useAuth'
 import { useUserLocation } from '../../lib/useUserLocation'
+import { branchNameOf } from '../../lib/branchLocations'
+import type { BranchLite } from '../../lib/branchLocations'
 import type { Page } from '../../lib/types'
 
 interface Props { onNav: (p: Page) => void }
-interface DBProduct { id: string; sku: string; name: string; cost_price: number; qty_on_hand: number }
+interface DBProduct { id: string; sku: string; name: string; cost_price: number; qty_on_hand: number; tax_code?: string | null; vat_rate?: number | null; tracks_batches?: boolean | null; shelf_life_days?: number | null }
 interface DBSupplier { id: string; name: string; balance_tzs: number }
 interface DBAccount { id: string; code: string; name: string; type: string; category: string | null; balance: number | null }
-interface PurchaseLine { productId: string; description: string; qty: number; unitCost: number; amount: number }
+// batchNo / expiryDate are carried on EVERY line and simply ignored for
+// products that are not batch tracked, which keeps the line shape uniform and
+// avoids a second parallel array to keep in sync with add/remove.
+interface PurchaseLine { productId: string; description: string; qty: number; unitCost: number; amount: number; batchNo: string; expiryDate: string }
 
 // Only two things a purchase can be: settled now, or owed.
 //
@@ -28,6 +42,11 @@ interface PurchaseLine { productId: string; description: string; qty: number; un
 // Bank, and the voucher would record payment_method 'Cash' while crediting the
 // bank. The account is the answer. Derive the label from it.
 type PaymentMode = 'credit' | 'now'
+
+// none      supplier issued no VAT invoice — the whole amount is cost
+// inclusive prices already contain VAT — extract it
+// exclusive VAT is added on top of the prices typed
+type VatMode = 'none' | 'inclusive' | 'exclusive'
 
 // Label a payment by the account it came from. Matches the convention already
 // used by CashReceipt, SalesInvoice and CustomerReceiptBatchInner: 101x and
@@ -43,7 +62,7 @@ function methodFromAccount(a?: { code: string; name: string } | null): string {
 }
 
 export default function Purchase({ onNav }: Props) {
-  const { user, can } = useAuth()
+  const { user, can, activeCompany } = useAuth()
 
   // Receiving goods and paying for them are two different jobs. Anyone who can
   // reach this page can bring stock in on account, which records the debt
@@ -55,14 +74,17 @@ export default function Purchase({ onNav }: Props) {
   const canSettle = can('accounting.create')
   const userLoc = useUserLocation()
   const [toast, setToast] = useState('')
+  const { settings } = useSettings()
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
+  const [showNewSupplier, setShowNewSupplier] = useState(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
-  const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
+  const [locations, setLocations] = useState<{id:string;code:string;name:string;branch_id?:string|null;branch_code?:string|null}[]>([])
+  const [branchList, setBranchList] = useState<BranchLite[]>([])
 
-  const [lines, setLines] = useState<PurchaseLine[]>([{ productId: '', description: '', qty: 1, unitCost: 0, amount: 0 }])
+  const [lines, setLines] = useState<PurchaseLine[]>([{ productId: '', description: '', qty: 1, unitCost: 0, amount: 0, ...EMPTY_BATCH_LINE }])
   const [form, setForm] = useState({
     date: today(),
     ref: 'PUR-10-????',
@@ -73,6 +95,12 @@ export default function Purchase({ onNav }: Props) {
     dueDate: '',
     location_code: '1002',
     notes: '',
+    // A VAT-registered business buys from registered wholesalers AND from a
+    // farmer or duka who issues no VAT invoice. Assuming VAT always applies
+    // would claim input tax that does not exist, which is worse than not
+    // claiming it. So the page asks, every time, and defaults to the
+    // company's usual answer rather than guessing per supplier.
+    vatMode: 'none' as VatMode,
   })
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
@@ -86,13 +114,22 @@ export default function Purchase({ onNav }: Props) {
   const resumeDraft = () => {
     if (!availableDraft) return
     setForm(availableDraft.form)
-    setLines(availableDraft.lines)
+    // A draft saved before the batch fields existed has no batchNo/expiryDate
+    // on its lines. Restoring it raw would leave them undefined, which turns
+    // the batch inputs into uncontrolled fields and makes line.batchNo.trim()
+    // throw in the pre-post duplicate-lot check. Drafts live in localStorage,
+    // so this is not hypothetical: anyone mid-purchase at deploy time has one.
+    setLines((availableDraft.lines || []).map(l => ({ ...EMPTY_BATCH_LINE, ...l })))
     acknowledgeResume()
   }
 
   useEffect(() => {
     loadProducts(); loadSuppliers(); loadAccounts(); loadNextRef()
-    supabase.from('stock_locations').select('id,code,name').eq('is_active', true).order('code')
+    // branch_id/branch_code ride along so the voucher can stamp the branch of
+    // the receiving location (mirrors salesInvoicePost / GRN attribution).
+    supabase.from('branches').select('id,code,name,city,is_default').eq('is_active', true).order('code')
+      .then(({ data }) => { if (data) setBranchList(data) })
+    supabase.from('stock_locations').select('id,code,name,branch_id,branch_code').eq('is_active', true).order('code')
       .then(({ data }) => {
         if (data) {
           setLocations(data)
@@ -121,7 +158,7 @@ export default function Purchase({ onNav }: Props) {
   }, [form, lines, saveDraft])
 
   const loadProducts = async () => {
-    const { data } = await supabase.from('products').select('id, sku, name, cost_price, qty_on_hand').eq('is_active', true).order('name')
+    const { data } = await supabase.from('products').select('id, sku, name, cost_price, qty_on_hand, tax_code, vat_rate, tracks_batches, shelf_life_days').eq('is_active', true).eq('is_service', false).order('name')
     if (data) setProducts(data)
   }
   const loadSuppliers = async () => {
@@ -137,7 +174,7 @@ export default function Purchase({ onNav }: Props) {
     set('ref', newRef)
   }
 
-  const addLine = () => setLines([...lines, { productId: '', description: '', qty: 1, unitCost: 0, amount: 0 }])
+  const addLine = () => setLines([...lines, { productId: '', description: '', qty: 1, unitCost: 0, amount: 0, ...EMPTY_BATCH_LINE }])
   const removeLine = (i: number) => setLines(lines.length > 1 ? lines.filter((_, idx) => idx !== i) : lines)
 
   const updateLine = (i: number, field: keyof PurchaseLine, value: string | number) => {
@@ -148,6 +185,15 @@ export default function Purchase({ onNav }: Props) {
       if (p) {
         newLines[i].description = p.name
         if (newLines[i].unitCost === 0) newLines[i].unitCost = p.cost_price || 0
+      }
+      // Batch defaults follow the product, so switching the product on a line
+      // must not leave the previous product's lot code sitting there.
+      if (tracksBatches(p)) {
+        newLines[i].batchNo    = suggestBatchNo(form.ref, i + 1)
+        newLines[i].expiryDate = defaultExpiryFrom(form.date, p?.shelf_life_days)
+      } else {
+        newLines[i].batchNo    = ''
+        newLines[i].expiryDate = ''
       }
     }
     // Recalculate on EVERY field, not just qty/unitCost.
@@ -166,7 +212,35 @@ export default function Purchase({ onNav }: Props) {
     setLines(newLines)
   }
 
-  const totalCost = lines.reduce((s, l) => s + (l.amount || 0), 0)
+  const taxCfg = taxSnapshotFromSettings(settings.tax)
+  // Recovery has to be switched on at company level before any of this is
+  // offered. A tenant that is not VAT registered never sees the question.
+  const vatAvailable = taxCfg.vatEnabled && (settings.tax?.input_vat_recovery_enabled ?? true)
+
+  // Default to how this company usually buys, but the user still confirms it
+  // on every purchase.
+  useEffect(() => {
+    if (!vatAvailable) { setForm(f => f.vatMode === 'none' ? f : { ...f, vatMode: 'none' }); return }
+    setForm(f => ({ ...f, vatMode: (settings.tax?.purchase_costs_include_vat ?? true) ? 'inclusive' : 'exclusive' }))
+  }, [vatAvailable, settings.tax?.purchase_costs_include_vat])
+
+  const lineTax = lines.map(l => {
+    const prod = products.find(p => p.id === l.productId)
+    if (!vatAvailable || form.vatMode === 'none' || !prod) {
+      return { gross: l.amount || 0, net: l.amount || 0, vat: 0 }
+    }
+    return resolvePurchaseVat(l.amount || 0, prod as any, taxCfg, form.vatMode === 'inclusive')
+  })
+
+  // net    capitalised into stock and into weighted average cost
+  // vat    recoverable, goes to 1150
+  // gross  what the supplier is owed and what leaves the bank
+  const netTotal   = lineTax.reduce((s, r) => s + r.net, 0)
+  const vatTotal   = lineTax.reduce((s, r) => s + r.vat, 0)
+  const grossTotal = lineTax.reduce((s, r) => s + r.gross, 0)
+  // Kept so existing guards and labels below keep reading the figure that
+  // actually leaves the account.
+  const totalCost = grossTotal
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast(msg); setToastType(type)
@@ -219,6 +293,43 @@ export default function Purchase({ onNav }: Props) {
       showToast(`You are locked to location ${userLoc.defaultLocationCode}. You cannot receive a purchase into ${form.location_code}.`, 'error')
       return
     }
+
+    // ── Batch validation (101-103) ─────────────────────────────────────────
+    // Checked BEFORE setPosting so a blank lot code costs the user a toast,
+    // not a half-written voucher. receive_batch raises on an empty batch_no,
+    // and it is called deep inside the posting loop after the journal and
+    // voucher header are already committed.
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (!line.productId) continue
+      const prod = products.find(p => p.id === line.productId)
+      const problem = validateBatchLine(
+        tracksBatches(prod),
+        { batchNo: line.batchNo, expiryDate: line.expiryDate },
+        prod?.name || `Line ${i + 1}`
+      )
+      if (problem) { showToast(problem, 'error'); return }
+    }
+    // Two lines of the same product sharing one batch number would merge into
+    // a single lot with one expiry date, quietly. receive_batch tops up by
+    // design, so this cannot be caught downstream.
+    const seenLots = new Set<string>()
+    for (const line of lines) {
+      if (!line.productId || !line.batchNo.trim()) continue
+      const key = `${line.productId}::${line.batchNo.trim().toLowerCase()}`
+      if (seenLots.has(key)) {
+        const prod = products.find(p => p.id === line.productId)
+        showToast(`Two lines use batch ${line.batchNo.trim()} for ${prod?.name || 'the same product'}. Give each delivery its own batch number, or combine them into one line.`, 'error')
+        return
+      }
+      seenLots.add(key)
+    }
+    if (!activeCompany?.id && lines.some(l => tracksBatches(products.find(p => p.id === l.productId)))) {
+      showToast('No active company. Reload and try again before receiving batch-tracked stock.', 'error')
+      return
+    }
+
+    if (posting) return  // double-submit guard: a second click during posting posts twice (Aisha's PCT-10-0001, twice in 0.9s)
     setPosting(true)
 
     try {
@@ -242,6 +353,10 @@ export default function Purchase({ onNav }: Props) {
       // ─── Create journal ────────────────────────────────────────────────
       // Credit purchase: Dr Inventory / Cr Accounts Payable
       // Cash purchase:   Dr Inventory / Cr Bank or Cash
+      // Branch of the receiving location — stamped on the journal AND the
+      // voucher so ledger reports and voucher books agree.
+      const rcvLoc = locations.find(l => l.code === form.location_code)
+      const rcvBranch = rcvLoc ? branchNameOf(rcvLoc, branchList) || null : null
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
         ref: 'JV-' + form.ref,
         posting_date: form.date,
@@ -251,6 +366,7 @@ export default function Purchase({ onNav }: Props) {
         source_ref: form.ref,
         posted_by: user.full_name,
         status: 'posted',
+        branch: rcvBranch,
       })
       if (jErr || !journalRaw) throw new Error(jErr?.message || 'Journal insert failed')
       const journal = journalRaw
@@ -258,26 +374,54 @@ export default function Purchase({ onNav }: Props) {
       const creditAcctId = isCredit ? apAcct!.id : form.payAccount
       const creditAcctLabel = isCredit ? `AP — ${supplierName}` : `Paid via ${accounts.find(a => a.id === form.payAccount)?.name || ''}`
 
-      const { error: jlErr } = await supabase.from('journal_lines').insert([
-        { journal_id: journal.id, line_number: 1, account_id: inventoryAcct.id, description: `Stock purchase — ${form.ref}`, debit: totalCost, credit: 0 },
-        { journal_id: journal.id, line_number: 2, account_id: creditAcctId, description: creditAcctLabel, debit: 0, credit: totalCost },
-      ])
+      // Only the goods figure is capitalised into stock. Recoverable VAT is
+      // an asset in its own right at 1150, where it offsets what is owed on
+      // sales. The supplier is credited the gross, so the journal balances.
+      let vatInputAcct: typeof accounts[number] | undefined
+      if (vatTotal > 0) {
+        vatInputAcct = accounts.find(a => a.code === '1150')
+        if (!vatInputAcct) {
+          throw new Error('VAT Input account (1150) not found in the Chart of Accounts. Add it, or set this purchase to "No VAT", then post again.')
+        }
+      }
+
+      const jLines: any[] = [
+        { journal_id: journal.id, line_number: 1, account_id: inventoryAcct.id, description: `Stock purchase — ${form.ref}`, debit: netTotal, credit: 0 },
+      ]
+      if (vatTotal > 0 && vatInputAcct) {
+        jLines.push({ journal_id: journal.id, line_number: 2, account_id: vatInputAcct.id, description: `Input VAT — ${form.ref}`, debit: vatTotal, credit: 0 })
+      }
+      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: creditAcctId, description: creditAcctLabel, debit: 0, credit: grossTotal })
+
+      const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
       if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
 
       // Update account balances via RPC
-      await Promise.all([
-        supabase.rpc('update_account_balance', { p_account_id: inventoryAcct.id, p_debit: totalCost, p_credit: 0 }),
-        supabase.rpc('update_account_balance', { p_account_id: creditAcctId, p_debit: 0, p_credit: totalCost }),
-      ])
+      const balanceUpdates = [
+        supabase.rpc('update_account_balance', { p_account_id: inventoryAcct.id, p_debit: netTotal, p_credit: 0 }),
+        supabase.rpc('update_account_balance', { p_account_id: creditAcctId, p_debit: 0, p_credit: grossTotal }),
+      ]
+      if (vatTotal > 0 && vatInputAcct) {
+        balanceUpdates.push(supabase.rpc('update_account_balance', { p_account_id: vatInputAcct.id, p_debit: vatTotal, p_credit: 0 }))
+      }
+      await Promise.all(balanceUpdates)
 
       // ─── Create the voucher ─────────────────────────────────────────────
       const { data: voucher, error: vErr } = await supabase.from('vouchers').insert({
         ref: form.ref,
         type: 'purchase',
         posting_date: form.date,
+        branch: rcvBranch,
         due_date: isCredit && form.dueDate ? form.dueDate : null,
         description: `Purchase — ${supplierName}${form.invoiceRef ? ` — Inv ${form.invoiceRef}` : ''}`,
-        total_amount: totalCost,
+        subtotal: netTotal,
+        // input_vat_amount, NOT vat_amount. On a voucher, vat_amount is OUTPUT
+        // VAT charged on a sale; input_vat_amount is the recoverable tax on a
+        // purchase. VATReport.tsx keys the input side of the return off this
+        // column, so writing the wrong one makes every purchase invisible to
+        // the return while still posting correctly to 1150.
+        input_vat_amount: vatTotal,
+        total_amount: grossTotal,
         // Derived from the account actually credited, so the voucher can never
         // claim 'Cash' while the money left CRDB.
         payment_method: isCredit ? 'On Account' : methodFromAccount(accounts.find(a => a.id === form.payAccount)),
@@ -297,39 +441,75 @@ export default function Purchase({ onNav }: Props) {
         const prod = products.find(p => p.id === line.productId)
         if (!prod) continue
 
-        // Weighted average cost
+        // Weighted average cost, on the NET figure.
+        // This is the part that would stay quietly wrong if only the journal
+        // were fixed: recoverable VAT is not part of what the goods cost, so
+        // letting it into cost_price would inflate COGS and understate margin
+        // on every future sale of this product, forever.
+        const lineIdx = lines.indexOf(line)
+        const lineNet = lineTax[lineIdx]?.net ?? line.amount
+        const netUnitCost = line.qty > 0 ? lineNet / line.qty : 0
+
         const newQty = prod.qty_on_hand + line.qty
         const newAvgCost = newQty > 0
-          ? ((prod.qty_on_hand * prod.cost_price) + (line.qty * line.unitCost)) / newQty
-          : line.unitCost
+          ? ((prod.qty_on_hand * prod.cost_price) + lineNet) / newQty
+          : netUnitCost
 
         await supabase.from('products')
           .update({ qty_on_hand: newQty, cost_price: newAvgCost })
           .eq('id', line.productId)
 
-        await postLedgerEntry({
+        // ── Batch receipt (101-103) ──────────────────────────────────────
+        // Runs BEFORE the ledger entry so the movement can name its lot.
+        // Untracked products skip this entirely and post exactly as before.
+        //
+        // Unit cost passed is the NET figure, matching what goes into the
+        // weighted average above. Recoverable VAT is not part of what the
+        // goods cost, and stock_batches.unit_cost feeds the value-at-risk
+        // figure on the expiry report.
+        let batchId: string | null = null
+        if (tracksBatches(prod) && selectedLoc && activeCompany?.id) {
+          const rb = await receiveBatch({
+            companyId:  activeCompany.id,
+            productId:  line.productId,
+            locationId: selectedLoc.id,
+            batchNo:    line.batchNo,
+            qty:        line.qty,
+            unitCost:   netUnitCost,
+            expiryDate: line.expiryDate || null,
+            supplierId: form.supplier || null,
+            sourceRef:  form.ref,
+          })
+          if (!rb.success) throw new Error(`Batch receipt failed for ${prod.name}: ${rb.error || 'unknown'}`)
+          batchId = rb.batchId || null
+        }
+
+        const lr11 = await postLedgerEntry({
           product_id: line.productId,
           entry_type: 'purchase',
           document_type: 'purchase',
           document_ref: form.ref,
           posting_date: form.date,
           qty: line.qty,
-          cost_amount: line.amount,
+          cost_amount: lineNet,
           location: selectedLoc || null,
+          batch_id: batchId,
         })
+        if (!lr11.success) throw new Error('Stock ledger write failed: ' + (lr11.error || 'unknown'))
 
         // Mirror into product_locations
         if (selectedLoc) {
           const { data: pl } = await supabase.from('product_locations')
             .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
           const newLocQty = (pl?.qty_on_hand ?? 0) + line.qty
-          await supabase.from('product_locations').upsert(
+          const { error: ck116 } = await supabase.from('product_locations').upsert(
             { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
             { onConflict: 'product_id,location_id' }
           )
+          if (ck116) throw new Error('product_locations write failed: ' + ck116.message)
         }
 
-        await supabase.from('voucher_lines').insert({
+        const { error: ck115 } = await supabase.from('voucher_lines').insert({
           voucher_id: voucher.id,
           line_number: i + 1,
           product_id: line.productId,
@@ -339,6 +519,7 @@ export default function Purchase({ onNav }: Props) {
           subtotal: line.amount,
           total: line.amount,
         })
+        if (ck115) throw new Error('voucher_lines write failed: ' + ck115.message)
       }
 
       // ─── Supplier-side accounting ────────────────────────────────────────
@@ -349,7 +530,7 @@ export default function Purchase({ onNav }: Props) {
             .update({ balance_tzs: (supplierObj.balance_tzs || 0) + totalCost })
             .eq('id', form.supplier)
         }
-        await supabase.from('vendor_ledger_entries').insert({
+        const { error: vleErr } = await supabase.from('vendor_ledger_entries').insert({
           supplier_id: form.supplier,
           posting_date: form.date,
           document_type: 'invoice',
@@ -361,19 +542,26 @@ export default function Purchase({ onNav }: Props) {
           due_date: form.dueDate || null,
           journal_id: journal.id,
         })
+        // A failed AP entry means the debt would vanish from AP Aging while
+        // the journal says it exists — never swallow it.
+        if (vleErr) throw new Error('Supplier ledger entry failed: ' + vleErr.message)
       } else {
-        // Cash/bank purchase: log a closed entry against the supplier so their statement shows the activity
-        await supabase.from('vendor_ledger_entries').insert({
+        // Cash/bank purchase: closed entry so the supplier statement shows
+        // the activity. document_type must be in the schema's allowed set
+        // (invoice / credit_note / payment / refund) — the old 'cash_purchase'
+        // value violated the CHECK constraint and silently dropped the row.
+        const { error: vleErr } = await supabase.from('vendor_ledger_entries').insert({
           supplier_id: form.supplier,
           posting_date: form.date,
-          document_type: 'cash_purchase',
+          document_type: 'invoice',
           document_ref: form.ref,
-          description: `Cash Purchase — ${supplierName}${form.invoiceRef ? ` (Inv ${form.invoiceRef})` : ''}`,
+          description: `Cash Purchase (paid at posting) — ${supplierName}${form.invoiceRef ? ` (Inv ${form.invoiceRef})` : ''}`,
           amount_tzs: 0,             // No outstanding amount; settled at point of purchase
           remaining_amount: 0,
           is_open: false,
           journal_id: journal.id,
         })
+        if (vleErr) throw new Error('Supplier ledger entry failed: ' + vleErr.message)
       }
 
       showToast(
@@ -382,7 +570,7 @@ export default function Purchase({ onNav }: Props) {
           : `${form.ref} posted · Stock added · Paid from ${accounts.find(a => a.id === form.payAccount)?.name || 'account'}`
       )
       clearDraft()
-      setTimeout(() => onNav('vouchers'), 1200)
+      setTimeout(() => onNav('__refresh' as Page), 1200)  // stay here, fresh form — a clerk posts several in a row
 
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
@@ -438,19 +626,66 @@ export default function Purchase({ onNav }: Props) {
 
       <div className="form-row">
         <FG label="Supplier" req>
-          <select className="form-input" value={form.supplier} onChange={e => set('supplier', e.target.value)}>
-            <option value="">— Select supplier —</option>
-            {suppliers.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.name}{s.balance_tzs > 0 ? ` (owes TZS ${s.balance_tzs.toLocaleString()})` : ''}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select className="form-input" style={{ flex: 1 }} value={form.supplier} onChange={e => set('supplier', e.target.value)}>
+              <option value="">— Select supplier —</option>
+              {suppliers.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name}{s.balance_tzs > 0 ? ` (owes TZS ${s.balance_tzs.toLocaleString()})` : ''}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="btn btn-ghost btn-sm" style={{ whiteSpace: 'nowrap' }} onClick={() => setShowNewSupplier(true)}>+ New</button>
+          </div>
+          <QuickAddSupplier open={showNewSupplier} onClose={() => setShowNewSupplier(false)}
+            onCreated={sNew => {
+              setSuppliers(prev => [...prev, sNew as any].sort((a, b) => a.name.localeCompare(b.name)))
+              set('supplier', sNew.id)
+            }} />
         </FG>
         <FG label="Supplier Invoice #">
           <input className="form-input" value={form.invoiceRef} onChange={e => set('invoiceRef', e.target.value)} placeholder="Optional" />
         </FG>
       </div>
+
+      {/* VAT on this purchase. Asked every time rather than assumed, because a
+          registered business buys from registered wholesalers AND from
+          suppliers who issue no VAT invoice. Hidden entirely when the company
+          is not VAT registered. */}
+      {vatAvailable && (
+        <div style={{ marginTop: 14, marginBottom: 6 }}>
+          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+            VAT on this purchase
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {([
+              { key: 'none' as VatMode,      label: 'No VAT',          sub: 'Supplier gave no VAT invoice' },
+              { key: 'inclusive' as VatMode, label: 'Included',        sub: 'Costs already contain VAT' },
+              { key: 'exclusive' as VatMode, label: 'Added on top',    sub: 'VAT added to costs typed' },
+            ]).map(opt => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => set('vatMode', opt.key)}
+                style={{
+                  flex: '1 1 150px', textAlign: 'left', cursor: 'pointer',
+                  padding: '10px 12px', borderRadius: 10,
+                  background: form.vatMode === opt.key ? 'rgba(var(--accent-rgb),.10)' : 'var(--surface2)',
+                  border: `1px solid ${form.vatMode === opt.key ? 'var(--accent)' : 'var(--border)'}`,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: form.vatMode === opt.key ? 'var(--accent)' : 'var(--text)' }}>{opt.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>{opt.sub}</div>
+              </button>
+            ))}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
+            {form.vatMode === 'none'
+              ? 'The whole amount goes into stock cost. Nothing is claimed back.'
+              : 'Only the goods figure enters stock value and cost averages. The VAT goes to 1150, where it offsets what you owe on sales.'}
+          </div>
+        </div>
+      )}
 
       {/* Payment mode toggle */}
       <div style={{ marginTop: 14, marginBottom: 6 }}>
@@ -484,6 +719,19 @@ export default function Purchase({ onNav }: Props) {
             </button>
           )})}
         </div>
+        {vatAvailable && form.vatMode !== 'none' && grossTotal > 0 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 12, display: 'grid', gap: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text3)' }}>
+              <span>Goods (into stock)</span><span style={{ fontFamily: 'var(--mono)' }}>{netTotal.toLocaleString()}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text3)' }}>
+              <span>Input VAT &rarr; 1150 (recoverable)</span><span style={{ fontFamily: 'var(--mono)' }}>{vatTotal.toLocaleString()}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--text)' }}>
+              <span>Supplier is owed</span><span style={{ fontFamily: 'var(--mono)' }}>{grossTotal.toLocaleString()}</span>
+            </div>
+          </div>
+        )}
         {!canSettle && (
           <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
             You can receive goods on account, which records what is owed to the supplier. Settling from cash or
@@ -539,8 +787,13 @@ export default function Purchase({ onNav }: Props) {
               </tr>
             </thead>
             <tbody>
-              {lines.map((line, i) => (
-                <tr key={i}>
+              {lines.map((line, i) => {
+                const lineProd = products.find(p => p.id === line.productId)
+                const lineTracked = tracksBatches(lineProd)
+                const lineDays = daysToExpiry(line.expiryDate)
+                return (
+                <Fragment key={i}>
+                <tr>
                   <td>
                     <select className="form-input" style={{ fontSize: 12, padding: '6px 8px' }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
                       <option value="">— Select —</option>
@@ -567,7 +820,52 @@ export default function Purchase({ onNav }: Props) {
                     )}
                   </td>
                 </tr>
-              ))}
+                {/* ── Batch sub-row (101-103) ────────────────────────────
+                    Only for products with tracks_batches on. Everything
+                    else keeps the single-row layout it has always had. */}
+                {lineTracked && (
+                  <tr style={{ background: 'var(--surface2)' }}>
+                    <td colSpan={6} style={{ padding: '8px 14px' }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1 }}>Batch</span>
+                        <input
+                          className="form-input"
+                          style={{ fontSize: 12, padding: '6px 8px', width: 170, fontFamily: 'var(--mono)' }}
+                          value={line.batchNo}
+                          placeholder="Lot / batch no."
+                          onChange={e => updateLine(i, 'batchNo', e.target.value)}
+                        />
+                        <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1 }}>Expires</span>
+                        <input
+                          type="date"
+                          className="form-input"
+                          style={{ fontSize: 12, padding: '6px 8px', width: 165, fontFamily: 'var(--mono)' }}
+                          value={line.expiryDate}
+                          onChange={e => updateLine(i, 'expiryDate', e.target.value)}
+                        />
+                        {lineDays !== null && lineDays < 0 && (
+                          <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600 }}>
+                            Already expired. It will be received but skipped when picking stock for a sale.
+                          </span>
+                        )}
+                        {lineDays !== null && lineDays >= 0 && lineDays <= 30 && (
+                          <span style={{ fontSize: 11, color: 'var(--yellow)', fontWeight: 600 }}>
+                            Short dated, {lineDays} day{lineDays === 1 ? '' : 's'} left. It will be sold first.
+                          </span>
+                        )}
+                        {!line.expiryDate && (
+                          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                            No expiry date. This lot is treated as never urgent and sells after every dated one.
+                          </span>
+                        )}
+                      </div>
+                      <GuideTip>This delivery becomes its own batch. The batch number is filled in from the voucher reference so you can post without hunting for a code, but if the carton has a printed lot number, type that instead so it matches the physical box. The expiry date is filled from this product's shelf life; change it if the carton says otherwise. When you sell, Tarakimu picks the batch expiring soonest first, even if it arrived later, so old stock leaves before it becomes a write-off. Two different lots in one delivery need two lines.</GuideTip>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                )
+              })}
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--surface2)' }}>
