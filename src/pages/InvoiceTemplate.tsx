@@ -208,16 +208,32 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
                     Keeps the big picture at the top and the invoice-specific
                     detail close to where the invoice total is shown below. */}
                 {(() => {
-                  // Prior debt = what the customer owed BEFORE this invoice was raised.
-                  // Since the current balance already includes this invoice's outstanding
-                  // amount, subtract what's still owed on this invoice to get
-                  // the prior debt figure. Clamp to 0 for safety.
-                  const priorDebt = Math.max(0, currentBalance - thisInvoiceRemaining)
+                  // Prior balance = account balance MINUS this invoice, SIGNED.
+                  // The old code clamped this at 0 "for safety", which erased
+                  // customer CREDITS from the printout: an overpaid customer
+                  // showed Prior 0 + Invoice 42,000 = Balance 0, arithmetic
+                  // that cannot happen on paper and reads as a mistake. A
+                  // credit is real money the customer gave us; it prints in
+                  // brackets, green, labelled as credit.
+                  const priorBalance = currentBalance - total
+                  const priorIsCredit = priorBalance < -0.5
+
+                  // Effectively unpaid on THIS invoice, derived from the
+                  // ACCOUNT (balance-based AR, payments settle oldest first):
+                  // whatever of the current balance this invoice accounts
+                  // for, capped at its total, floored at zero. A credit that
+                  // absorbs the invoice therefore settles it. An explicit
+                  // allocation (voucher._invoiceRemaining) still wins when
+                  // provided.
+                  const effRemaining = voucher._invoiceRemaining ?? Math.min(total, Math.max(0, currentBalance))
+                  const effPaid = isPaid || effRemaining <= 0.5
+                  const effPartial = !effPaid && (thisInvoicePaid > 0.5 || effRemaining < total - 0.5)
+                  const settledByCredit = effPaid && thisInvoicePaid <= 0.5 && priorIsCredit
                   return (
                     <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
-                        <span>Prior Balance (before this invoice)</span>
-                        <span style={{ fontFamily: mono }}>{priorDebt.toLocaleString()}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: priorIsCredit ? '#2d7a4f' : '#888' }}>
+                        <span>Prior Balance {priorIsCredit ? '(credit in customer favour)' : '(before this invoice)'}</span>
+                        <span style={{ fontFamily: mono }}>{priorIsCredit ? `(${Math.abs(priorBalance).toLocaleString()})` : Math.max(0, priorBalance).toLocaleString()}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '4px 0', color: '#888' }}>
                         <span>+ This Invoice ({voucher.ref})</span>
@@ -242,10 +258,10 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
                             Status of this invoice
                           </span>
                           <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700,
-                            color: isPaid ? '#2d7a4f' : isPartial ? '#b8860b' : '#c0392b' }}>
-                            {isPaid ? 'PAID IN FULL'
-                              : isPartial ? `PARTIAL · ${thisInvoiceRemaining.toLocaleString()} outstanding`
-                              : `OUTSTANDING · ${thisInvoiceRemaining.toLocaleString()}`}
+                            color: effPaid ? '#2d7a4f' : effPartial ? '#b8860b' : '#c0392b' }}>
+                            {effPaid ? (settledByCredit ? 'SETTLED · covered by account credit' : 'PAID IN FULL')
+                              : effPartial ? `PARTIAL · ${effRemaining.toLocaleString()} outstanding`
+                              : `OUTSTANDING · ${effRemaining.toLocaleString()}`}
                           </span>
                         </div>
                         {thisInvoicePaid > 0 && !isPaid && (
