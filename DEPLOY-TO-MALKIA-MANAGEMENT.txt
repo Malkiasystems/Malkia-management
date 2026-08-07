@@ -1,3 +1,2 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Invoice statement panel: customer credits shown honestly; invoices covered by credit read SETTLED, not OUTSTANDING.
-Deploy on top of MALKIA-invoice-complete (already live).
+Replaces MALKIA-invoice-credit-status.zip (build fix).

@@ -97,7 +97,8 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
   const thisInvoiceRemaining = voucher._invoiceRemaining ?? total
   const thisInvoicePaid = voucher._invoicePaid ?? 0
   const isPaid = isViewMode && thisInvoiceRemaining <= 0.5
-  const isPartial = isViewMode && thisInvoicePaid > 0.5 && thisInvoiceRemaining > 0.5
+  // (former isPartial removed — partial state now derived credit-aware as
+  // effPartial inside the statement panel)
   const statementDate = voucher._statementDate || localIso(new Date())
   const mono = "'DM Mono', 'Courier New', monospace"
   const display = "'Syne', 'Georgia', serif"
