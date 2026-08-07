@@ -88,7 +88,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
       .from('vouchers')
       .select(`
         *,
-        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_period, payment_terms, customer_number),
+        customers (id, name, company, contact_person, whatsapp, address, tin_number, phone, balance, credit_limit, credit_period, payment_terms, customer_number),
         voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category))
       `)
       .eq('id', voucherId)
