@@ -1,2 +1,2 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Replaces MALKIA-invoice-credit-status.zip (build fix).
+Petty Cash: per-line Delivery & Shipping (D&S) toggle locking the line to the 2085 float, same accounting as the CashPayment chip.

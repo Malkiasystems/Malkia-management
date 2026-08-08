@@ -73,6 +73,20 @@ export default function PettyCash({ onNav }: Props) {
   const updateLine = (i: number, k: keyof ExpLine, v: string | number) => {
     const nl = [...lines]; nl[i] = { ...nl[i], [k]: v as never }; setLines(nl)
   }
+
+  // Delivery & Shipping payouts from petty cash debit the SAME float account
+  // (2085) the CashPayment chip locks to: this is riders' money we withheld
+  // from delivery fees, not an expense. The per-line toggle exists because a
+  // single petty cash voucher legitimately mixes a rider payout with soda
+  // and stationery — a page-level chip could not.
+  const floatAccount = expAccounts.find((a: any) => a.code === '2085')
+  const toggleDeliveryLine = (i: number) => {
+    if (!floatAccount) return
+    const nl = [...lines]
+    const isLocked = nl[i].accountId === floatAccount.id
+    nl[i] = { ...nl[i], accountId: isLocked ? '' : floatAccount.id }
+    setLines(nl)
+  }
   const total = lines.reduce((s, l) => s + (l.amount || 0), 0)
   const vendorMissing = requireVendor && !supplierId
   const showToast = (msg: string, type: 'success'|'error' = 'success') => { setToast(msg); setToastType(type) }
@@ -319,8 +333,21 @@ export default function PettyCash({ onNav }: Props) {
         </div>
         {lines.map((line, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 140px auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <input className="form-input" style={{ fontSize: 12 }} placeholder="Description" value={line.desc} onChange={e => updateLine(i, 'desc', e.target.value)} />
-            <CategorySelect accounts={expAccounts} value={line.accountId} onChange={v => updateLine(i, 'accountId', v)} placeholder="— Expense / liability —" className="form-input" style={{ fontSize: 12 }} />
+            <input className="form-input" style={{ fontSize: 12 }} placeholder={floatAccount && line.accountId === floatAccount.id ? 'Rider / shipping company name' : 'Description'} value={line.desc} onChange={e => updateLine(i, 'desc', e.target.value)} />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {floatAccount && line.accountId === floatAccount.id ? (
+                <input className="form-input" value="2085 — Delivery & Shipping Float" readOnly
+                  style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', flex: 1 }} />
+              ) : (
+                <CategorySelect accounts={expAccounts} value={line.accountId} onChange={v => updateLine(i, 'accountId', v)} placeholder="— Expense / liability —" className="form-input" style={{ fontSize: 12, flex: 1 }} />
+              )}
+              {floatAccount && (
+                <button type="button" title={line.accountId === floatAccount.id ? 'Unlock — pick a different account' : 'Rider payout — lock this line to the Delivery & Shipping Float'}
+                  className={`btn btn-sm ${line.accountId === floatAccount.id ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ whiteSpace: 'nowrap', fontSize: 11, padding: '4px 8px' }}
+                  onClick={() => toggleDeliveryLine(i)}>D&S</button>
+              )}
+            </div>
             <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', textAlign: 'right' }} placeholder="Amount" value={line.amount || ''} onChange={e => updateLine(i, 'amount', parseFloat(e.target.value) || 0)} />
             {lines.length > 1 && <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button>}
           </div>
