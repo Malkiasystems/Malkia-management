@@ -286,18 +286,47 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   //   cash & bank positions      → accounting.view (viewable by more staff,
   //                                which is the intended split)
   //   loan vouchers              → accounting.create (they post journals)
+  // ── Audit 2026-08-08: six more pages found unmapped (= open to any login
+  // by URL, since canAccessPage defaults unmapped pages to allowed). Ranked
+  // by what an open door cost:
+  //
+  //   user-management     THE permission editor. Unmapped AND unguarded, so
+  //                       any login could reach it and grant itself
+  //                       everything. Gated on users.manage, which no user
+  //                       currently holds — so super admins only (>=40
+  //                       bypass) until the permission is deliberately
+  //                       granted from the catalog.
+  //   bank-opening-balance Shows every bank balance and posts opening
+  //                       journals. Structural accounting → accounting.coa.
+  //   approvals-settings  Controls approval thresholds (who may move how
+  //                       much unsupervised) → settings.edit.
+  //   invoice-template    The company's outward-facing paper → settings.edit.
+  //   health              Financial health = balances by another name →
+  //                       reports.financials.
+  //   display-settings    Cosmetic → settings.view.
+  'user-management': ['users.manage'],
+  'bank-opening-balance': ['accounting.coa'],
+  'approvals-settings': ['settings.edit'],
+  'invoice-template': ['settings.edit'],
+  'health': ['reports.financials'],
+  'display-settings': ['settings.view'],
+
   'ledger': ['reports.financials'],
   'ledger-health': ['reports.financials'],
   'cash-flow': ['reports.financials'],
   'product-profit': ['reports.financials'],
-  'loans': ['reports.financials'],
+  // Loans: super admin only (Joe's call, 2026-08-09). loans.manage exists in
+  // no user's grant list, so only the >=40 bypass reaches these pages until
+  // it is deliberately granted. Covers the register AND the posting vouchers
+  // — gating the register alone would leave the money doors open.
+  'loans': ['loans.manage'],
   'bank-recon': ['accounting.view'],
   'cash-center': ['accounting.view'],
   'vat-report': ['reports.view'],
   'import-register': ['reports.view'],
-  'new-loan': ['accounting.create'],
-  'loan-repayment': ['accounting.create'],
-  'opening-loans': ['accounting.create'],
+  'new-loan': ['loans.manage'],
+  'loan-repayment': ['loans.manage'],
+  'opening-loans': ['loans.manage'],
   'settings': ['settings.view'],
   'sales': ['sales.view'],
   'cash-sale': ['sales.create'],

@@ -1,2 +1,3 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Petty Cash: per-line Delivery & Shipping (D&S) toggle locking the line to the 2085 float, same accounting as the CashPayment chip.
+Replaces MALKIA-permission-map-fix.zip.
+Six unmapped pages closed + ALL loan pages now super-admin only (loans.manage).
