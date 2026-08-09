@@ -60,6 +60,8 @@ const Icon = ({ name, size = 20, color = 'currentColor', strokeWidth = 1.8, styl
 
 interface Campaign {
   id: string
+  productId?: string | null
+  bundleId?: string | null
   name: string
   product: string
   image?: string
@@ -116,6 +118,45 @@ export default function CRMPreorders({ onNav }: Props) {
   const [newCamp, setNewCamp] = useState({ name: '', targetKey: '', target: '', depositPercent: '30', minDeposit: '', closeDate: '', etaDate: '' })
   const [addCustFor, setAddCustFor] = useState<Campaign | null>(null)
   const [custSearch, setCustSearch] = useState('')
+  // Waiting-list waiters whose wanted product matches this campaign's
+  // product (or ANY item of its bundle). The waiting list IS the campaign's
+  // warmest audience — surface it instead of making anyone remember to check.
+  const [waiters, setWaiters] = useState<any[]>([])
+  useEffect(() => {
+    if (!addCustFor) { setWaiters([]); return }
+    ;(async () => {
+      let productIds: string[] = []
+      if (addCustFor.productId) productIds = [addCustFor.productId]
+      if (addCustFor.bundleId) {
+        const { data: items } = await supabase.from('bundle_items').select('product_id').eq('bundle_id', addCustFor.bundleId)
+        productIds = (items || []).map((i: any) => i.product_id)
+      }
+      if (productIds.length === 0) { setWaiters([]); return }
+      const { data } = await supabase.from('waiting_list')
+        .select('id, customer_id, customer_name, whatsapp, qty_wanted, product_name, created_at')
+        .in('product_id', productIds).in('status', ['waiting', 'notified'])
+        .order('created_at', { ascending: true })
+      setWaiters(data || [])
+    })()
+  }, [addCustFor])
+
+  const convertWaiter = async (w: any) => {
+    if (!addCustFor) return
+    const { error } = await supabase.from('pre_order_customers').insert({
+      campaign_id: addCustFor.id, customer_id: w.customer_id || null,
+      contact_name: w.customer_name || null, phone: w.whatsapp || '', tier: 'mama',
+    })
+    if (error) { showToast('Convert failed: ' + error.message); return }
+    await supabase.from('waiting_list').update({
+      status: 'fulfilled', closed_at: new Date().toISOString(),
+      closed_by_name: getPostedBy(), preorder_campaign_id: addCustFor.id,
+    }).eq('id', w.id)
+    await supabase.from('pre_order_campaigns')
+      .update({ orders_received: (addCustFor.orders || 0) + 1 }).eq('id', addCustFor.id)
+    setWaiters(ws => ws.filter(x => x.id !== w.id))
+    showToast(`${w.customer_name || 'Waiter'} moved from waiting list to the campaign`)
+    loadData()
+  }
   const [depositFor, setDepositFor] = useState<{ camp: Campaign; cust: PreOrderCustomer } | null>(null)
   const [depositForm, setDepositForm] = useState({ amount: '', accountId: '', txnRef: '' })
   const [refundFor, setRefundFor] = useState<{ camp: Campaign; cust: PreOrderCustomer } | null>(null)
@@ -135,7 +176,9 @@ export default function CRMPreorders({ onNav }: Props) {
         supabase.from('bundles').select('id, name, bundle_price').eq('is_active', true).order('name'),
       ])
       if (ar) setArAccountId(ar.id)
-      if (dep) { setDepositLiabilityId(dep.id); setCapitalHeld(-(dep.balance || 0)) }
+      // + 0 normalises JavaScript's negative zero — a liability with no
+      // balance was printing "TZS -0" on the capital card.
+      if (dep) { setDepositLiabilityId(dep.id); setCapitalHeld(-(dep.balance || 0) + 0) }
       setCashAccounts(cash || [])
       setProducts(prods || [])
       setBundles(bnds || [])
@@ -419,7 +462,7 @@ export default function CRMPreorders({ onNav }: Props) {
           bundles (name),
           pre_order_customers (
             id, customer_id, phone, tier, deposit_amount, 
-            paid_at, reminder_sent, receipt_ref, refund_ref,
+            paid_at, reminder_sent, receipt_ref, refund_ref, contact_name,
             customers (name)
           )
         `)
@@ -431,6 +474,8 @@ export default function CRMPreorders({ onNav }: Props) {
       // Transform database records to Campaign format
       const campaigns: Campaign[] = (preorderData || []).map((row: any) => ({
         id: row.id,
+        productId: row.product_id,
+        bundleId: row.bundle_id,
         name: row.name,
         product: row.bundles?.name ? `${row.bundles.name} (Bundle)` : (row.products?.name || 'Product'),
         target: row.target || 0,
@@ -445,7 +490,7 @@ export default function CRMPreorders({ onNav }: Props) {
           id: cust.id,
           customerId: cust.customer_id,
           receiptRef: cust.receipt_ref || '',
-          name: cust.customers?.name || cust.customer_id,
+          name: cust.customers?.name || cust.contact_name || cust.customer_id,
           phone: cust.phone || '',
           tier: cust.tier || 'mama',
           deposit: cust.deposit_amount || 0,
@@ -836,6 +881,21 @@ export default function CRMPreorders({ onNav }: Props) {
 
       {addCustFor && (
         <Modal title={`Add customer — ${addCustFor.name}`} onClose={() => { setAddCustFor(null); setCustSearch('') }}>
+          {waiters.length > 0 && (
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ padding: '6px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--accent)', background: 'var(--surface2)' }}>
+                Waiting for this product ({waiters.length}) — one tap to convert
+              </div>
+              {waiters.map(w => (
+                <div key={w.id} onClick={() => convertWaiter(w)}
+                  style={{ padding: '8px 10px', cursor: 'pointer', borderTop: '1px solid var(--border)', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+                  <span><strong>{w.customer_name || 'Unknown'}</strong>
+                    <span style={{ color: 'var(--text3)', fontSize: 11, marginLeft: 8 }}>{w.whatsapp || ''} · wants {w.qty_wanted}</span></span>
+                  <span style={{ color: 'var(--accent)', fontSize: 11 }}>Convert →</span>
+                </div>
+              ))}
+            </div>
+          )}
           <input className="form-input" autoFocus placeholder="Search customers (name / company / WhatsApp)" value={custSearch} onChange={e => setCustSearch(e.target.value)} />
           <div>
             {customerResults.map(c => (

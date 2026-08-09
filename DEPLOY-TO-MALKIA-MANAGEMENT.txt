@@ -1,3 +1,3 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Replaces MALKIA-preorders-liability-v2.zip.
-Campaigns can now target a PRODUCT or a BUNDLE (kits), with price-based deposit suggestion. Migration already applied.
+Replaces MALKIA-preorders-v4.zip.
+Waiting-list bridge: campaign Add Customer modal surfaces waiters for that product/bundle with one-tap convert. Migration already applied.
