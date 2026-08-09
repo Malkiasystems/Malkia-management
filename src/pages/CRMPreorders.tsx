@@ -105,13 +105,15 @@ export default function CRMPreorders({ onNav }: Props) {
   const [capitalHeld, setCapitalHeld] = useState(0)
   const [cashAccounts, setCashAccounts] = useState<{ id: string; code: string; name: string }[]>([])
   const [products, setProducts] = useState<{ id: string; name: string; selling_price: number }[]>([])
+  const [bundles, setBundles] = useState<{ id: string; name: string; bundle_price: number }[]>([])
   const [customerResults, setCustomerResults] = useState<{ id: string; name: string; company: string | null; whatsapp: string | null }[]>([])
   const [toast, setToast] = useState('')
   const showToast = (m: string) => { setToast(m); window.setTimeout(() => setToast(''), 5000) }
 
   // Modals
   const [newCampOpen, setNewCampOpen] = useState(false)
-  const [newCamp, setNewCamp] = useState({ name: '', productId: '', target: '', depositPercent: '30', minDeposit: '', closeDate: '', etaDate: '' })
+  // targetKey encodes what the campaign promises: 'p:<id>' product, 'b:<id>' bundle
+  const [newCamp, setNewCamp] = useState({ name: '', targetKey: '', target: '', depositPercent: '30', minDeposit: '', closeDate: '', etaDate: '' })
   const [addCustFor, setAddCustFor] = useState<Campaign | null>(null)
   const [custSearch, setCustSearch] = useState('')
   const [depositFor, setDepositFor] = useState<{ camp: Campaign; cust: PreOrderCustomer } | null>(null)
@@ -125,16 +127,18 @@ export default function CRMPreorders({ onNav }: Props) {
 
   useEffect(() => {
     ;(async () => {
-      const [{ data: ar }, { data: dep }, { data: cash }, { data: prods }] = await Promise.all([
+      const [{ data: ar }, { data: dep }, { data: cash }, { data: prods }, { data: bnds }] = await Promise.all([
         supabase.from('accounts').select('id').eq('code', '1050').single(),
         supabase.from('accounts').select('id, balance').eq('code', '2086').single(),
         supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
         supabase.from('products').select('id, name, selling_price').eq('is_active', true).order('name'),
+        supabase.from('bundles').select('id, name, bundle_price').eq('is_active', true).order('name'),
       ])
       if (ar) setArAccountId(ar.id)
       if (dep) { setDepositLiabilityId(dep.id); setCapitalHeld(-(dep.balance || 0)) }
       setCashAccounts(cash || [])
       setProducts(prods || [])
+      setBundles(bnds || [])
     })()
   }, [])
 
@@ -151,9 +155,13 @@ export default function CRMPreorders({ onNav }: Props) {
   }, [custSearch])
 
   const createCampaign = async () => {
-    if (!newCamp.name.trim() || !newCamp.productId) { showToast('Name and product are required'); return }
+    if (!newCamp.name.trim() || !newCamp.targetKey) { showToast('Name and a product or bundle are required'); return }
+    const isBundle = newCamp.targetKey.startsWith('b:')
+    const targetId = newCamp.targetKey.slice(2)
     const { error } = await supabase.from('pre_order_campaigns').insert({
-      name: newCamp.name.trim(), product_id: newCamp.productId,
+      name: newCamp.name.trim(),
+      product_id: isBundle ? null : targetId,
+      bundle_id: isBundle ? targetId : null,
       target: parseInt(newCamp.target) || 0,
       deposit_percent: parseFloat(newCamp.depositPercent) || 30,
       min_deposit: parseFloat(newCamp.minDeposit) || 0,
@@ -162,7 +170,7 @@ export default function CRMPreorders({ onNav }: Props) {
     })
     if (error) { showToast('Create failed: ' + error.message); return }
     setNewCampOpen(false)
-    setNewCamp({ name: '', productId: '', target: '', depositPercent: '30', minDeposit: '', closeDate: '', etaDate: '' })
+    setNewCamp({ name: '', targetKey: '', target: '', depositPercent: '30', minDeposit: '', closeDate: '', etaDate: '' })
     showToast('Campaign created')
     loadData()
   }
@@ -404,10 +412,11 @@ export default function CRMPreorders({ onNav }: Props) {
       const { data: preorderData, error } = await supabase
         .from('pre_order_campaigns')
         .select(`
-          id, name, product_id, target, orders_received, 
+          id, name, product_id, bundle_id, target, orders_received, 
           deposit_percent, min_deposit, total_deposits,
           close_date, eta_date, status, created_at,
           products (name),
+          bundles (name),
           pre_order_customers (
             id, customer_id, phone, tier, deposit_amount, 
             paid_at, reminder_sent, receipt_ref, refund_ref,
@@ -423,7 +432,7 @@ export default function CRMPreorders({ onNav }: Props) {
       const campaigns: Campaign[] = (preorderData || []).map((row: any) => ({
         id: row.id,
         name: row.name,
-        product: row.products?.name || 'Product',
+        product: row.bundles?.name ? `${row.bundles.name} (Bundle)` : (row.products?.name || 'Product'),
         target: row.target || 0,
         orders: row.orders_received || 0,
         depositPercent: row.deposit_percent || 30,
@@ -797,9 +806,22 @@ export default function CRMPreorders({ onNav }: Props) {
       {newCampOpen && (
         <Modal title="New Pre-Order Campaign" onClose={() => setNewCampOpen(false)}>
           <input className="form-input" placeholder="Campaign name (e.g. bbhugme Sept batch)" value={newCamp.name} onChange={e => setNewCamp({ ...newCamp, name: e.target.value })} />
-          <select className="form-input" value={newCamp.productId} onChange={e => setNewCamp({ ...newCamp, productId: e.target.value })}>
-            <option value="">— Product —</option>
-            {products.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+          <select className="form-input" value={newCamp.targetKey} onChange={e => {
+            const v = e.target.value
+            // Suggest a min deposit from the price × the campaign's deposit %
+            const pct = (parseFloat(newCamp.depositPercent) || 30) / 100
+            let suggest = ''
+            if (v.startsWith('b:')) { const b = bundles.find(x => x.id === v.slice(2)); if (b?.bundle_price) suggest = String(Math.round(b.bundle_price * pct)) }
+            if (v.startsWith('p:')) { const p2 = products.find(x => x.id === v.slice(2)); if (p2?.selling_price) suggest = String(Math.round(p2.selling_price * pct)) }
+            setNewCamp({ ...newCamp, targetKey: v, minDeposit: newCamp.minDeposit || suggest })
+          }}>
+            <option value="">— Product or bundle —</option>
+            <optgroup label="Bundles">
+              {bundles.map(b => <option key={b.id} value={'b:' + b.id}>{b.name} · {tzs(b.bundle_price)}</option>)}
+            </optgroup>
+            <optgroup label="Products">
+              {products.map(pr => <option key={pr.id} value={'p:' + pr.id}>{pr.name}</option>)}
+            </optgroup>
           </select>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <input type="number" className="form-input" placeholder="Target qty" value={newCamp.target} onChange={e => setNewCamp({ ...newCamp, target: e.target.value })} />
