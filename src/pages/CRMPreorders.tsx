@@ -1,7 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { tzs } from '../lib/utils'
+import { tzs, today } from '../lib/utils'
 import type { Page } from '../lib/types'
+import { useAuth } from '../lib/useAuth'
+import { nextRef, insertJournalWithRetry } from '../lib/refs'
+// Deposits are ACCOUNTING events, not CRM numbers. They post through the
+// same shared receipt machinery CashReceipt uses (Dr cash tile / Cr AR),
+// landing as customer credit that the fulfilment invoice consumes
+// automatically ("SETTLED · covered by account credit" on the printout).
+// These tables only record the promise; the ledger records the money.
+import { getPostedBy } from '../components/CustomerPaymentFlow'
 
 interface Props {
   onNav: (p: Page) => void // used for navigation actions
@@ -68,6 +76,8 @@ interface Campaign {
 
 interface PreOrderCustomer {
   id: string
+  customerId?: string
+  receiptRef?: string
   name: string
   phone: string
   tier: 'mama' | 'gold' | 'crown'
@@ -81,6 +91,309 @@ export default function CRMPreorders({ onNav }: Props) {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
   const [loading, setLoading] = useState(true)
   void onNav // available for future navigation
+
+  const { can, isSuperAdmin } = useAuth()
+  const canDeposit = can('accounting.receipt') || isSuperAdmin()
+  const canRefund = can('accounting.create') || isSuperAdmin()
+
+  // Accounting anchors: AR (1050) + the cash/bank tiles a deposit can land in
+  const [arAccountId, setArAccountId] = useState('')
+  // 2086 Customer Deposits — Pre-Orders. THE liability account: deposits sit
+  // here (money received before delivery = obligation to deliver), never as
+  // negative AR. Its credit balance IS the customer-funded capital pool.
+  const [depositLiabilityId, setDepositLiabilityId] = useState('')
+  const [capitalHeld, setCapitalHeld] = useState(0)
+  const [cashAccounts, setCashAccounts] = useState<{ id: string; code: string; name: string }[]>([])
+  const [products, setProducts] = useState<{ id: string; name: string; selling_price: number }[]>([])
+  const [customerResults, setCustomerResults] = useState<{ id: string; name: string; company: string | null; whatsapp: string | null }[]>([])
+  const [toast, setToast] = useState('')
+  const showToast = (m: string) => { setToast(m); window.setTimeout(() => setToast(''), 5000) }
+
+  // Modals
+  const [newCampOpen, setNewCampOpen] = useState(false)
+  const [newCamp, setNewCamp] = useState({ name: '', productId: '', target: '', depositPercent: '30', minDeposit: '', closeDate: '', etaDate: '' })
+  const [addCustFor, setAddCustFor] = useState<Campaign | null>(null)
+  const [custSearch, setCustSearch] = useState('')
+  const [depositFor, setDepositFor] = useState<{ camp: Campaign; cust: PreOrderCustomer } | null>(null)
+  const [depositForm, setDepositForm] = useState({ amount: '', accountId: '', txnRef: '' })
+  const [refundFor, setRefundFor] = useState<{ camp: Campaign; cust: PreOrderCustomer } | null>(null)
+  const [refundForm, setRefundForm] = useState({ amount: '', accountId: '' })
+  // Synchronous double-submit latch — same guard every money voucher carries
+  // after the BNK-10-0009 triple-post.
+  const postingRef = useRef(false)
+  const [posting, setPosting] = useState(false)
+
+  useEffect(() => {
+    ;(async () => {
+      const [{ data: ar }, { data: dep }, { data: cash }, { data: prods }] = await Promise.all([
+        supabase.from('accounts').select('id').eq('code', '1050').single(),
+        supabase.from('accounts').select('id, balance').eq('code', '2086').single(),
+        supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
+        supabase.from('products').select('id, name, selling_price').eq('is_active', true).order('name'),
+      ])
+      if (ar) setArAccountId(ar.id)
+      if (dep) { setDepositLiabilityId(dep.id); setCapitalHeld(-(dep.balance || 0)) }
+      setCashAccounts(cash || [])
+      setProducts(prods || [])
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!custSearch.trim()) { setCustomerResults([]); return }
+    const t = window.setTimeout(async () => {
+      const { data } = await supabase.from('customers')
+        .select('id, name, company, whatsapp')
+        .or(`name.ilike.%${custSearch}%,company.ilike.%${custSearch}%,whatsapp.ilike.%${custSearch}%`)
+        .limit(6)
+      setCustomerResults(data || [])
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [custSearch])
+
+  const createCampaign = async () => {
+    if (!newCamp.name.trim() || !newCamp.productId) { showToast('Name and product are required'); return }
+    const { error } = await supabase.from('pre_order_campaigns').insert({
+      name: newCamp.name.trim(), product_id: newCamp.productId,
+      target: parseInt(newCamp.target) || 0,
+      deposit_percent: parseFloat(newCamp.depositPercent) || 30,
+      min_deposit: parseFloat(newCamp.minDeposit) || 0,
+      close_date: newCamp.closeDate || null, eta_date: newCamp.etaDate || null,
+      status: 'active', created_by: getPostedBy(),
+    })
+    if (error) { showToast('Create failed: ' + error.message); return }
+    setNewCampOpen(false)
+    setNewCamp({ name: '', productId: '', target: '', depositPercent: '30', minDeposit: '', closeDate: '', etaDate: '' })
+    showToast('Campaign created')
+    loadData()
+  }
+
+  const setCampaignStatus = async (camp: Campaign, status: string) => {
+    const { error } = await supabase.from('pre_order_campaigns').update({ status }).eq('id', camp.id)
+    if (error) { showToast(error.message); return }
+    loadData()
+  }
+
+  const addCustomer = async (custId: string, whatsapp: string | null) => {
+    if (!addCustFor) return
+    const { error } = await supabase.from('pre_order_customers').insert({
+      campaign_id: addCustFor.id, customer_id: custId, phone: whatsapp || '', tier: 'mama',
+    })
+    if (error) { showToast('Add failed: ' + error.message); return }
+    await supabase.from('pre_order_campaigns')
+      .update({ orders_received: (addCustFor.orders || 0) + 1 }).eq('id', addCustFor.id)
+    setAddCustFor(null); setCustSearch('')
+    showToast('Customer added to campaign')
+    loadData()
+  }
+
+  // ── The accounting wiring ─────────────────────────────────────────────
+  // Deposit: a REAL cash receipt. Dr chosen cash/bank tile, Cr AR — the
+  // customer goes into credit, and the fulfilment invoice consumes that
+  // credit automatically. Voucher + journal + customer ledger + rederived
+  // balance, identical building blocks to the CashReceipt page.
+  const postDeposit = async () => {
+    if (postingRef.current) return
+    postingRef.current = true
+    setPosting(true)
+    try {
+      if (!depositFor || !arAccountId) throw new Error('Accounting accounts not loaded')
+      const amount = parseFloat(depositForm.amount)
+      if (!amount || amount <= 0) throw new Error('Enter a deposit amount')
+      if (!depositForm.accountId) throw new Error('Select where the money landed')
+      const custRow = depositFor.cust
+      if (!custRow) throw new Error('No customer')
+      const { data: custData } = await supabase.from('customers').select('id, name, company').eq('id', (custRow as any).customerId || '').single()
+      if (!custData) throw new Error('Customer record not found — add them in Customers first')
+      const custName = custData.company || custData.name
+      const narration = `Pre-order deposit — ${depositFor.camp.name}`
+
+      const freshRef = await nextRef('cash_receipt')
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
+        ref: 'JV-' + freshRef, posting_date: today(),
+        description: `Customer Receipt — ${custName} — ${freshRef}`,
+        journal_type: 'cash_receipt', source_type: 'cash_receipt',
+        source_ref: freshRef, posted_by: getPostedBy(), status: 'posted',
+      })
+      if (jErr || !journal) throw new Error(jErr?.message || 'Journal insert failed')
+      const finalRef = journal.source_ref
+
+      // Dr cash tile / Cr 2086 — the deposit is a LIABILITY (we owe product),
+      // not a reduction of what the customer owes. AR is untouched until the
+      // fulfilment invoice exists; then Apply moves 2086 -> AR.
+      if (!depositLiabilityId) throw new Error('Account 2086 not found — check Chart of Accounts')
+      const lines = [
+        { journal_id: journal.id, line_number: 1, account_id: depositForm.accountId, description: `Received from ${custName}`, debit: amount, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: depositLiabilityId, description: narration, debit: 0, credit: amount },
+      ]
+      const { error: jlErr } = await supabase.from('journal_lines').insert(lines)
+      if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
+
+      await Promise.all(lines.map(l => supabase.rpc('update_account_balance', {
+        p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit,
+      })))
+
+      const { error: vErr } = await supabase.from('vouchers').insert({
+        ref: finalRef, type: 'cash_receipt', posting_date: today(),
+        description: `Customer Receipt — ${custName}`,
+        total_amount: amount, status: 'posted', journal_id: journal.id,
+        payment_method: 'mpesa', payment_ref: depositForm.txnRef.trim() || null,
+        notes: narration, posted_by: getPostedBy(), customer_id: custData.id,
+      })
+      if (vErr) throw new Error('Voucher: ' + vErr.message)
+
+      await supabase.from('pre_order_customers').update({
+        deposit_amount: (custRow.deposit || 0) + amount,
+        paid_at: new Date().toISOString(), receipt_ref: finalRef,
+      }).eq('id', custRow.id)
+      await supabase.from('pre_order_campaigns').update({
+        total_deposits: (depositFor.camp.totalDeposits || 0) + amount,
+      }).eq('id', depositFor.camp.id)
+
+      showToast(`${finalRef} posted · TZS ${amount.toLocaleString()} deposit as credit on ${custName}'s account`)
+      setDepositFor(null); setDepositForm({ amount: '', accountId: '', txnRef: '' })
+      loadData()
+    } catch (err: any) {
+      showToast('' + (err.message || 'Something went wrong'))
+    } finally {
+      postingRef.current = false
+      setPosting(false)
+    }
+  }
+
+  // Apply at FULFILMENT: the liability converts into settlement of the
+  // customer's invoice. Dr 2086 (obligation discharged) / Cr AR, with a
+  // customer-ledger credit so the statement shows the deposit paying the
+  // invoice, and the balance rederived from the ledger (anti-drift).
+  const [applyFor, setApplyFor] = useState<{ camp: Campaign; cust: PreOrderCustomer } | null>(null)
+  const [applyForm, setApplyForm] = useState({ amount: '', invoiceNote: '' })
+  const postApplyDeposit = async () => {
+    if (postingRef.current) return
+    postingRef.current = true
+    setPosting(true)
+    try {
+      if (!applyFor || !arAccountId || !depositLiabilityId) throw new Error('Accounting accounts not loaded')
+      const amount = parseFloat(applyForm.amount)
+      if (!amount || amount <= 0) throw new Error('Enter the amount to apply')
+      if (amount > (applyFor.cust.deposit || 0) + 0.001) throw new Error('Exceeds the held deposit')
+      const { data: custData } = await supabase.from('customers').select('id, name, company').eq('id', (applyFor.cust as any).customerId || '').single()
+      if (!custData) throw new Error('Customer record not found')
+      const custName = custData.company || custData.name
+      const narration = `Pre-order deposit applied — ${applyFor.camp.name}${applyForm.invoiceNote ? ' · ' + applyForm.invoiceNote : ''}`
+
+      const freshRef = await nextRef('journal_entry')
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
+        ref: 'JV-' + freshRef, posting_date: today(),
+        description: `Journal — ${narration} — ${freshRef}`,
+        journal_type: 'journal_entry', source_type: 'journal_entry',
+        source_ref: freshRef, posted_by: getPostedBy(), status: 'posted',
+      })
+      if (jErr || !journal) throw new Error(jErr?.message || 'Journal insert failed')
+      const finalRef = journal.source_ref
+
+      const lines = [
+        { journal_id: journal.id, line_number: 1, account_id: depositLiabilityId, description: narration, debit: amount, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: arAccountId, description: `Deposit applied — ${custName}`, debit: 0, credit: amount },
+      ]
+      const { error: jlErr } = await supabase.from('journal_lines').insert(lines)
+      if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
+      await Promise.all(lines.map(l => supabase.rpc('update_account_balance', {
+        p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit,
+      })))
+
+      const { error: clErr } = await supabase.from('customer_ledger_entries').insert({
+        customer_id: custData.id, posting_date: today(), document_type: 'receipt',
+        document_ref: finalRef, description: narration,
+        amount: -amount, remaining_amount: 0, is_open: false, journal_id: journal.id,
+      })
+      if (clErr) throw new Error('Customer ledger: ' + clErr.message)
+      const { data: sumRow } = await supabase.from('customer_ledger_entries').select('amount').eq('customer_id', custData.id)
+      if (sumRow) {
+        const totalBal = sumRow.reduce((t: number, r: any) => t + (r.amount || 0), 0)
+        await supabase.from('customers').update({ balance: totalBal }).eq('id', custData.id)
+      }
+
+      await supabase.from('pre_order_customers').update({
+        deposit_amount: Math.max(0, (applyFor.cust.deposit || 0) - amount), applied_ref: finalRef,
+      }).eq('id', applyFor.cust.id)
+      await supabase.from('pre_order_campaigns').update({
+        total_deposits: Math.max(0, (applyFor.camp.totalDeposits || 0) - amount),
+      }).eq('id', applyFor.camp.id)
+
+      showToast(`${finalRef} posted · TZS ${amount.toLocaleString()} deposit applied to ${custName}'s account`)
+      setApplyFor(null); setApplyForm({ amount: '', invoiceNote: '' })
+      loadData()
+    } catch (err: any) {
+      showToast('' + (err.message || 'Something went wrong'))
+    } finally {
+      postingRef.current = false
+      setPosting(false)
+    }
+  }
+
+  // Refund: the exact reverse — Dr AR / Cr cash tile, ledger debit entry,
+  // balance rederived from the ledger (same anti-drift rule the receipt
+  // poster uses), cash_payment voucher for the register.
+  const postRefund = async () => {
+    if (postingRef.current) return
+    postingRef.current = true
+    setPosting(true)
+    try {
+      if (!refundFor || !arAccountId) throw new Error('Accounting accounts not loaded')
+      const amount = parseFloat(refundForm.amount)
+      if (!amount || amount <= 0) throw new Error('Enter the refund amount')
+      if (amount > (refundFor.cust.deposit || 0) + 0.001) throw new Error('Refund exceeds the recorded deposit')
+      if (!refundForm.accountId) throw new Error('Select which account pays the refund')
+      const { data: custData } = await supabase.from('customers').select('id, name, company').eq('id', (refundFor.cust as any).customerId || '').single()
+      if (!custData) throw new Error('Customer record not found')
+      const custName = custData.company || custData.name
+      const narration = `Pre-order deposit refund — ${refundFor.camp.name}`
+
+      const freshRef = await nextRef('cash_payment')
+      const { data: journal, error: jErr } = await insertJournalWithRetry({
+        ref: 'JV-' + freshRef, posting_date: today(),
+        description: `Cash Payment — ${custName} — ${freshRef}`,
+        journal_type: 'cash_payment', source_type: 'cash_payment',
+        source_ref: freshRef, posted_by: getPostedBy(), status: 'posted',
+      })
+      if (jErr || !journal) throw new Error(jErr?.message || 'Journal insert failed')
+      const finalRef = journal.source_ref
+
+      if (!depositLiabilityId) throw new Error('Account 2086 not found')
+      const lines = [
+        { journal_id: journal.id, line_number: 1, account_id: depositLiabilityId, description: narration, debit: amount, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: refundForm.accountId, description: `Refund to ${custName}`, debit: 0, credit: amount },
+      ]
+      const { error: jlErr } = await supabase.from('journal_lines').insert(lines)
+      if (jlErr) throw new Error('Journal lines: ' + jlErr.message)
+      await Promise.all(lines.map(l => supabase.rpc('update_account_balance', {
+        p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit,
+      })))
+
+      const { error: vErr } = await supabase.from('vouchers').insert({
+        ref: finalRef, type: 'cash_payment', posting_date: today(),
+        description: `Cash Payment — ${custName}`, total_amount: amount,
+        status: 'posted', journal_id: journal.id, notes: narration,
+        posted_by: getPostedBy(), customer_id: custData.id,
+      })
+      if (vErr) throw new Error('Voucher: ' + vErr.message)
+
+      await supabase.from('pre_order_customers').update({
+        deposit_amount: Math.max(0, (refundFor.cust.deposit || 0) - amount), refund_ref: finalRef,
+      }).eq('id', refundFor.cust.id)
+      await supabase.from('pre_order_campaigns').update({
+        total_deposits: Math.max(0, (refundFor.camp.totalDeposits || 0) - amount),
+      }).eq('id', refundFor.camp.id)
+
+      showToast(`${finalRef} posted · TZS ${amount.toLocaleString()} refunded to ${custName}`)
+      setRefundFor(null); setRefundForm({ amount: '', accountId: '' })
+      loadData()
+    } catch (err: any) {
+      showToast('' + (err.message || 'Something went wrong'))
+    } finally {
+      postingRef.current = false
+      setPosting(false)
+    }
+  }
 
   useEffect(() => { loadData() }, [])
 
@@ -97,7 +410,7 @@ export default function CRMPreorders({ onNav }: Props) {
           products (name),
           pre_order_customers (
             id, customer_id, phone, tier, deposit_amount, 
-            paid_at, reminder_sent,
+            paid_at, reminder_sent, receipt_ref, refund_ref,
             customers (name)
           )
         `)
@@ -121,6 +434,8 @@ export default function CRMPreorders({ onNav }: Props) {
         status: row.status || 'active',
         customers: (row.pre_order_customers || []).map((cust: any) => ({
           id: cust.id,
+          customerId: cust.customer_id,
+          receiptRef: cust.receipt_ref || '',
           name: cust.customers?.name || cust.customer_id,
           phone: cust.phone || '',
           tier: cust.tier || 'mama',
@@ -261,7 +576,7 @@ export default function CRMPreorders({ onNav }: Props) {
           <button style={s.btnGhost}>
             <Icon name="download" size={16} /> Export
           </button>
-          <button style={s.btnPrimary}>
+          <button style={s.btnPrimary} onClick={() => setNewCampOpen(true)}>
             <Icon name="plus" size={16} /> New Campaign
           </button>
         </div>
@@ -282,8 +597,8 @@ export default function CRMPreorders({ onNav }: Props) {
           <div style={s.statLabel}>Deposits Collected</div>
         </div>
         <div style={s.statCard}>
-          <div style={s.statValue('#f59e0b')}>30%</div>
-          <div style={s.statLabel}>Default Deposit Rate</div>
+          <div style={s.statValue('#f59e0b')}>{tzs(capitalHeld)}</div>
+          <div style={s.statLabel}>Customer Capital Held (2086)</div>
         </div>
       </div>
 
@@ -364,9 +679,21 @@ export default function CRMPreorders({ onNav }: Props) {
                 <Icon name="users" size={18} color="var(--accent)" />
                 Pre-Order Customers ({selectedCampaign.customers.length})
               </div>
-              <button style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <Icon name="moreVertical" size={18} color="var(--text3)" />
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => setAddCustFor(selectedCampaign)}>
+                  <Icon name="plus" size={12} /> Add customer
+                </button>
+                {selectedCampaign.status === 'active' && (
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => setCampaignStatus(selectedCampaign, 'paused')} title="Pause campaign">
+                    <Icon name="pause" size={12} />
+                  </button>
+                )}
+                {selectedCampaign.status === 'paused' && (
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => setCampaignStatus(selectedCampaign, 'active')} title="Resume campaign">
+                    <Icon name="play" size={12} />
+                  </button>
+                )}
+              </div>
             </div>
 
             {selectedCampaign.customers.length > 0 ? (
@@ -392,6 +719,39 @@ export default function CRMPreorders({ onNav }: Props) {
                           <Icon name="bellRing" size={10} /> Reminded
                         </span>
                       )}
+                      {customer.receiptRef && (
+                        <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>{customer.receiptRef}</div>
+                      )}
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
+                        {canDeposit && (
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '2px 6px' }}
+                            title="Record a deposit — posts a real cash receipt (customer goes into credit)"
+                            onClick={() => { setDepositFor({ camp: selectedCampaign, cust: customer }); setDepositForm({ amount: selectedCampaign.minDeposit ? String(selectedCampaign.minDeposit) : '', accountId: '', txnRef: '' }) }}>
+                            + Deposit
+                          </button>
+                        )}
+                        {canDeposit && customer.deposit > 0 && (
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '2px 6px', color: 'var(--accent)' }}
+                            title="Stock arrived and invoiced? Apply the held deposit against their account"
+                            onClick={() => { setApplyFor({ camp: selectedCampaign, cust: customer }); setApplyForm({ amount: String(customer.deposit), invoiceNote: '' }) }}>
+                            Apply
+                          </button>
+                        )}
+                        {canRefund && customer.deposit > 0 && (
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '2px 6px', color: 'var(--red)' }}
+                            title="Refund the deposit — posts a real cash payment"
+                            onClick={() => { setRefundFor({ camp: selectedCampaign, cust: customer }); setRefundForm({ amount: String(customer.deposit), accountId: '' }) }}>
+                            Refund
+                          </button>
+                        )}
+                        {customer.phone && (
+                          <a className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '2px 6px', textDecoration: 'none' }}
+                            href={`https://wa.me/${customer.phone.replace(/[^0-9]/g, '').replace(/^0/, '255')}`} target="_blank" rel="noreferrer"
+                            onClick={() => supabase.from('pre_order_customers').update({ reminder_sent: true }).eq('id', customer.id).then(() => loadData())}>
+                            WhatsApp
+                          </a>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -431,6 +791,104 @@ export default function CRMPreorders({ onNav }: Props) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Modals ─────────────────────────────────────────────────────── */}
+      {newCampOpen && (
+        <Modal title="New Pre-Order Campaign" onClose={() => setNewCampOpen(false)}>
+          <input className="form-input" placeholder="Campaign name (e.g. bbhugme Sept batch)" value={newCamp.name} onChange={e => setNewCamp({ ...newCamp, name: e.target.value })} />
+          <select className="form-input" value={newCamp.productId} onChange={e => setNewCamp({ ...newCamp, productId: e.target.value })}>
+            <option value="">— Product —</option>
+            {products.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+          </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input type="number" className="form-input" placeholder="Target qty" value={newCamp.target} onChange={e => setNewCamp({ ...newCamp, target: e.target.value })} />
+            <input type="number" className="form-input" placeholder="Deposit %" value={newCamp.depositPercent} onChange={e => setNewCamp({ ...newCamp, depositPercent: e.target.value })} />
+            <input type="number" className="form-input" placeholder="Min deposit (TZS)" value={newCamp.minDeposit} onChange={e => setNewCamp({ ...newCamp, minDeposit: e.target.value })} />
+            <input type="date" className="form-input" title="Close date" value={newCamp.closeDate} onChange={e => setNewCamp({ ...newCamp, closeDate: e.target.value })} />
+            <input type="date" className="form-input" title="ETA date" value={newCamp.etaDate} onChange={e => setNewCamp({ ...newCamp, etaDate: e.target.value })} />
+          </div>
+          <button className="btn btn-primary" onClick={createCampaign}>Create campaign</button>
+        </Modal>
+      )}
+
+      {addCustFor && (
+        <Modal title={`Add customer — ${addCustFor.name}`} onClose={() => { setAddCustFor(null); setCustSearch('') }}>
+          <input className="form-input" autoFocus placeholder="Search customers (name / company / WhatsApp)" value={custSearch} onChange={e => setCustSearch(e.target.value)} />
+          <div>
+            {customerResults.map(c => (
+              <div key={c.id} onClick={() => addCustomer(c.id, c.whatsapp)}
+                style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                <strong>{c.company || c.name}</strong>
+                <span style={{ color: 'var(--text3)', fontSize: 11, marginLeft: 8 }}>{c.whatsapp || ''}</span>
+              </div>
+            ))}
+            {custSearch.trim() && customerResults.length === 0 && (
+              <div style={{ padding: 10, fontSize: 12, color: 'var(--text3)' }}>No match — add them in Customers first, then return here.</div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {depositFor && (
+        <Modal title={`Deposit — ${depositFor.cust.name}`} onClose={() => setDepositFor(null)}>
+          <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.5 }}>
+            Posts a real cash receipt: the money lands in the account you pick and is HELD in 2086 Customer Deposits — a liability, because until delivery this is their money and our obligation. At fulfilment, use Apply to settle their invoice from it.
+          </div>
+          <input type="number" className="form-input" placeholder="Amount (TZS)" value={depositForm.amount} onChange={e => setDepositForm({ ...depositForm, amount: e.target.value })} />
+          <select className="form-input" value={depositForm.accountId} onChange={e => setDepositForm({ ...depositForm, accountId: e.target.value })}>
+            <option value="">— Where did the money land? —</option>
+            {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+          </select>
+          <input className="form-input" placeholder="M-Pesa / bank transaction ID (optional)" value={depositForm.txnRef} onChange={e => setDepositForm({ ...depositForm, txnRef: e.target.value })} />
+          <button className="btn btn-primary" disabled={posting} onClick={postDeposit}>{posting ? 'Posting…' : 'Post deposit receipt'}</button>
+        </Modal>
+      )}
+
+      {applyFor && (
+        <Modal title={`Apply deposit — ${applyFor.cust.name}`} onClose={() => setApplyFor(null)}>
+          <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.5 }}>
+            Use at fulfilment, AFTER their invoice is posted: moves the held deposit out of Customer Deposits (2086) and settles their account. Their statement will show the deposit paying the invoice.
+          </div>
+          <input type="number" className="form-input" placeholder="Amount to apply (TZS)" value={applyForm.amount} onChange={e => setApplyForm({ ...applyForm, amount: e.target.value })} />
+          <input className="form-input" placeholder="Invoice ref (optional, e.g. SI-10-0203)" value={applyForm.invoiceNote} onChange={e => setApplyForm({ ...applyForm, invoiceNote: e.target.value })} />
+          <button className="btn btn-primary" disabled={posting} onClick={postApplyDeposit}>{posting ? 'Posting…' : 'Apply deposit'}</button>
+        </Modal>
+      )}
+
+      {refundFor && (
+        <Modal title={`Refund deposit — ${refundFor.cust.name}`} onClose={() => setRefundFor(null)}>
+          <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.5 }}>
+            Posts a real cash payment reversing the deposit: their account credit is cleared and the money leaves the account you pick.
+          </div>
+          <input type="number" className="form-input" placeholder="Amount (TZS)" value={refundForm.amount} onChange={e => setRefundForm({ ...refundForm, amount: e.target.value })} />
+          <select className="form-input" value={refundForm.accountId} onChange={e => setRefundForm({ ...refundForm, accountId: e.target.value })}>
+            <option value="">— Pay refund from —</option>
+            {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+          </select>
+          <button className="btn btn-primary" disabled={posting} onClick={postRefund}>{posting ? 'Posting…' : 'Post refund'}</button>
+        </Modal>
+      )}
+
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 16px', fontSize: 12, maxWidth: 420, zIndex: 60, boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Minimal modal, styled with the app's tokens
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, width: 420, maxWidth: '92vw', display: 'flex', flexDirection: 'column', gap: 10 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong style={{ fontSize: 14 }}>{title}</strong>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 18 }}>×</button>
+        </div>
+        {children}
       </div>
     </div>
   )
