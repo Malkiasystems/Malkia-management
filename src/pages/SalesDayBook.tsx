@@ -89,7 +89,7 @@ export default function SalesDayBook({ onEdit }: Props) {
       .select(`
         id, ref, type, posting_date, description, total_amount, subtotal,
         payment_method, payment_split, status, notes, posted_by,
-        customers (name, whatsapp, pregnancy_stage, crown_points),
+        customers (name, whatsapp, pregnancy_stage, crown_points, customer_type),
         voucher_lines (
           id, qty, unit_price, unit_cost, total,
           products (name, sku, category)
@@ -101,7 +101,9 @@ export default function SalesDayBook({ onEdit }: Props) {
       .order('posting_date', { ascending: false })
       .order('created_at', { ascending: false })
 
-    if (voucherType !== 'all') query = query.eq('type', voucherType)
+    // Channel (retail/wholesale) is a property of the JOINED customer, not
+    // of the voucher row, so it cannot be a query filter — applied
+    // client-side in `filtered` instead.
     if (statusFilter !== 'all') query = query.eq('status', statusFilter)
 
     const { data, error } = await query
@@ -134,8 +136,14 @@ export default function SalesDayBook({ onEdit }: Props) {
     if (data?.value) { try { const p = JSON.parse(data.value); setTplSettings(s => ({ ...s, ...p })) } catch {} }
   }
 
+  // Channel test used by the filter AND the split below. Walk-ins with no
+  // customer record are retail by definition.
+  const isWholesale = (v: any) => (v.customers as any)?.customer_type === 'wholesale'
+
   // Client-side filtering
   const filtered = sales.filter(s => {
+    if (voucherType === 'retail' && isWholesale(s)) return false
+    if (voucherType === 'wholesale' && !isWholesale(s)) return false
     const custName = (s.customers as any)?.name?.toLowerCase() || ''
     const custWa = (s.customers as any)?.whatsapp || ''
     const products = (s.voucher_lines || []).map((l: any) => l.products?.name?.toLowerCase() || '').join(' ')
@@ -159,9 +167,16 @@ export default function SalesDayBook({ onEdit }: Props) {
   const podCount = filtered.filter(s => s.status === 'draft').length
   const postedCount = filtered.filter(s => s.status === 'posted').length
 
-  // Cash vs Credit split (cash_sale = cash, sales_invoice = credit)
-  const cashSales = filtered.filter(s => s.type === 'cash_sale')
-  const creditSales = filtered.filter(s => s.type === 'sales_invoice')
+  // Retail vs Wholesale split — by CUSTOMER TYPE, not payment vehicle.
+  // customers.customer_type: 'wholesale' (stores, supermarkets — 90 accounts)
+  // vs 'cash' (retail mamas). A wholesale account paying cash on the spot is
+  // still wholesale revenue; a mama invoiced on credit is still retail. The
+  // voucher type answers "how was it papered"; this answers "which business
+  // are we in". Walk-in cash sales with no customer record are retail by
+  // definition. Variable names keep their old identifiers to leave the many
+  // render call-sites untouched: cash* now means RETAIL, credit* WHOLESALE.
+  const cashSales = filtered.filter(s => !isWholesale(s))
+  const creditSales = filtered.filter(s => isWholesale(s))
   const cashTotal = cashSales.reduce((s, v) => s + (v.total_amount || 0), 0)
   const creditTotal = creditSales.reduce((s, v) => s + (v.total_amount || 0), 0)
   const cashPct = totalRevenue > 0 ? Math.round((cashTotal / totalRevenue) * 100) : 0
@@ -290,11 +305,11 @@ export default function SalesDayBook({ onEdit }: Props) {
         ))}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {/* Cash/Credit quick toggle */}
+          {/* Retail/Wholesale quick toggle */}
           <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', overflow: 'hidden' }}>
             <button onClick={() => setVoucherType('all')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'all' ? 'var(--accent)' : 'transparent', color: voucherType === 'all' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer' }}>All</button>
-            <button onClick={() => setVoucherType('cash_sale')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'cash_sale' ? 'var(--green)' : 'transparent', color: voucherType === 'cash_sale' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Cash</button>
-            <button onClick={() => setVoucherType('sales_invoice')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'sales_invoice' ? 'var(--blue)' : 'transparent', color: voucherType === 'sales_invoice' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Credit</button>
+            <button onClick={() => setVoucherType('retail')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'retail' ? 'var(--green)' : 'transparent', color: voucherType === 'retail' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Retail</button>
+            <button onClick={() => setVoucherType('wholesale')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: voucherType === 'wholesale' ? 'var(--blue)' : 'transparent', color: voucherType === 'wholesale' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Wholesale</button>
           </div>
           <button onClick={() => setShowFilters(!showFilters)} className="btn btn-ghost btn-sm" style={{ position: 'relative' }}>
             Filters
@@ -342,9 +357,9 @@ export default function SalesDayBook({ onEdit }: Props) {
             <div>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Voucher Type</div>
               <select className="form-input" style={{ fontSize: 12 }} value={voucherType} onChange={e => setVoucherType(e.target.value)}>
-                <option value="all">All Types</option>
-                <option value="cash_sale">Cash Sale</option>
-                <option value="sales_invoice">Sales Invoice</option>
+                <option value="all">All Channels</option>
+                <option value="retail">Retail</option>
+                <option value="wholesale">Wholesale</option>
               </select>
             </div>
             <div>
@@ -401,8 +416,8 @@ export default function SalesDayBook({ onEdit }: Props) {
       {/* STAT CARDS */}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
         <div className="stat-card green"><div className="stat-label">Total Revenue</div><div className="stat-value">{totalRevenue >= 1000000 ? (totalRevenue/1000000).toFixed(2)+'M' : (totalRevenue/1000).toFixed(0)+'K'}</div><div className="stat-change up">{filtered.length} vouchers</div></div>
-        <div className="stat-card green"><div className="stat-label">Cash Sales</div><div className="stat-value">{cashTotal >= 1000000 ? (cashTotal/1000000).toFixed(2)+'M' : (cashTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
-        <div className="stat-card blue"><div className="stat-label">Credit Sales</div><div className="stat-value">{creditTotal >= 1000000 ? (creditTotal/1000000).toFixed(2)+'M' : (creditTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
+        <div className="stat-card green"><div className="stat-label">Retail Sales</div><div className="stat-value">{cashTotal >= 1000000 ? (cashTotal/1000000).toFixed(2)+'M' : (cashTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
+        <div className="stat-card blue"><div className="stat-label">Wholesale Sales</div><div className="stat-value">{creditTotal >= 1000000 ? (creditTotal/1000000).toFixed(2)+'M' : (creditTotal/1000).toFixed(0)+'K'}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
         <div className="stat-card amber"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
         <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{vis.margin(marginPct)}</div><div className="stat-change up">{vis.canViewMargin ? tzs(totalMargin) : HIDDEN}</div></div>
       </div>
@@ -415,7 +430,7 @@ export default function SalesDayBook({ onEdit }: Props) {
           {/* Retail (cash sales) */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: 700 }}>
-              Retail — Cash Sales <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(cashTotal)})</span>
+              Retail <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({tzs(cashTotal)})</span>
             </div>
             {Object.keys(retailSplit).length === 0 ? (
               <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No retail sales in this period</div>
@@ -546,7 +561,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                       <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
                         <td colSpan={7} style={{ padding: '8px 14px 8px 30px', color: 'var(--text3)' }}>
                           <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--green)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
-                          Cash Sales ({cashSales.length} txns · {cashPct}%)
+                          Retail Sales ({cashSales.length} txns · {cashPct}%)
                         </td>
                         <td className="td-right td-mono" style={{ color: 'var(--green)', fontWeight: 700, padding: '8px 14px' }}>{cashTotal.toLocaleString()}</td>
                         <td></td>
@@ -554,7 +569,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                       <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
                         <td colSpan={7} style={{ padding: '8px 14px 8px 30px', color: 'var(--text3)' }}>
                           <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--blue)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
-                          Credit Sales ({creditSales.length} txns · {creditPct}%)
+                          Wholesale Sales ({creditSales.length} txns · {creditPct}%)
                         </td>
                         <td className="td-right td-mono" style={{ color: 'var(--blue)', fontWeight: 700, padding: '8px 14px' }}>{creditTotal.toLocaleString()}</td>
                         <td></td>
@@ -685,8 +700,8 @@ export default function SalesDayBook({ onEdit }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 14 }}>
                 {[
                   { label: 'Revenue', value: tzs(totalRevenue), color: 'var(--green)' },
-                  { label: 'Cash Sales', value: `${tzs(cashTotal)} (${cashPct}%)`, color: 'var(--green)' },
-                  { label: 'Credit Sales', value: `${tzs(creditTotal)} (${creditPct}%)`, color: 'var(--blue)' },
+                  { label: 'Retail Sales', value: `${tzs(cashTotal)} (${cashPct}%)`, color: 'var(--green)' },
+                  { label: 'Wholesale Sales', value: `${tzs(creditTotal)} (${creditPct}%)`, color: 'var(--blue)' },
                   { label: 'Cost of Goods', value: tzs(totalCost), color: 'var(--red)' },
                   { label: 'Gross Margin', value: `${tzs(totalMargin)} (${marginPct}%)`, color: 'var(--green)' },
                   { label: 'Avg per Sale', value: filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—', color: 'var(--text)' },

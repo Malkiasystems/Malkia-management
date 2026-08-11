@@ -1,3 +1,2 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Replaces MALKIA-preorders-v4.zip.
-Waiting-list bridge: campaign Add Customer modal surfaces waiters for that product/bundle with one-tap convert. Migration already applied.
+Sales Day Book: Retail vs Wholesale segmentation (by customer_type), replacing Cash vs Credit everywhere — cards, toggle, filters, detail groups, PDF.
