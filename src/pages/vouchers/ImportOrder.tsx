@@ -106,7 +106,7 @@ export default function ImportOrder({ onNav }: Props) {
       supabase.from('suppliers').select('id, code, name, balance_tzs').eq('is_active', true).order('name'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('accounts').select('id, code, name, category, type').eq('is_active', true).order('code'),
-      supabase.from('import_orders').select('*, suppliers(name, code)').order('created_at', { ascending: false }),
+      supabase.from('import_orders').select('*, suppliers(name, code), import_order_lines(qty, description, products(name))').order('created_at', { ascending: false }),
       supabase.from('stock_locations').select('id, code, name').eq('is_active', true).order('code'),
     ])
     if(s.data) setSuppliers(s.data as DBSupplier[]); if(p.data) setProducts(p.data as DBProduct[]); if(a.data) setAccounts(a.data as DBAccount[]); if(o.data) setOrders(o.data as ImportOrder[])
@@ -1026,6 +1026,7 @@ export default function ImportOrder({ onNav }: Props) {
     <div className="card"><div className="table-wrap"><table><thead><tr>
       <th onClick={()=>sortToggle('ref')} style={{cursor:'pointer'}}>Ref<SortIcon col="ref"/></th>
       <th onClick={()=>sortToggle('supplier')} style={{cursor:'pointer'}}>Supplier<SortIcon col="supplier"/></th>
+      <th>Products</th>
       <th onClick={()=>sortToggle('date')} style={{cursor:'pointer'}}>Date<SortIcon col="date"/></th>
       <th>Status</th>
       <th className="td-right">FX</th>
@@ -1040,6 +1041,18 @@ export default function ImportOrder({ onNav }: Props) {
           <tr key={o.id} style={{cursor:'pointer'}} onClick={()=>loadOrderDetail(o)} onMouseEnter={e=>(e.currentTarget.style.background='var(--surface2)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
             <td className="td-mono td-amber" style={{fontSize:12,fontWeight:700}}>{o.ref}</td>
             <td style={{fontSize:12,fontWeight:600}}>{o.suppliers?.name||''}</td>
+            <td style={{fontSize:11,maxWidth:180}} title={((o as any).import_order_lines||[]).map((l:any)=>`${(l.qty||0).toLocaleString()} × ${l.products?.name||l.description||'Item'}`).join('\n')||'No lines'}>
+              {(()=>{
+                const ls=((o as any).import_order_lines||[]) as any[]
+                if(ls.length===0)return <span style={{color:'var(--text3)'}}>—</span>
+                const first=ls[0]
+                const label=`${(first.qty||0).toLocaleString()} × ${first.products?.name||first.description||'Item'}`
+                return (<span style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                  <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130,display:'inline-block',verticalAlign:'bottom'}}>{label}</span>
+                  {ls.length>1&&<span className="pill pill-gray" style={{fontSize:9}}>+{ls.length-1} more</span>}
+                </span>)
+              })()}
+            </td>
             <td className="td-mono" style={{fontSize:11,color:'var(--text3)'}}>{o.order_date}</td>
             <td><span className={`pill ${STA_C[o.status]||'pill-gray'}`} style={{fontSize:9}}>{STA_L[o.status]||o.status}</span></td>
             <td className="td-right td-mono" style={{fontSize:11,color:'var(--text3)'}}>{isLocal?'—':`${o.currency} @ ${o.fx_rate}`}</td>
@@ -1051,7 +1064,7 @@ export default function ImportOrder({ onNav }: Props) {
       })}
     </tbody><tfoot>
       <tr style={{background:'var(--surface2)',fontWeight:700}}>
-        <td colSpan={5} style={{padding:'10px 14px',fontFamily:'var(--mono)',fontSize:11,textTransform:'uppercase',color:'var(--text3)'}}>Totals — {filteredOrders.length} orders</td>
+        <td colSpan={6} style={{padding:'10px 14px',fontFamily:'var(--mono)',fontSize:11,textTransform:'uppercase',color:'var(--text3)'}}>Totals — {filteredOrders.length} orders</td>
         <td className="td-right td-mono" style={{padding:'10px 14px'}}>{tzs(filteredOrders.reduce((s,o)=>s+(o.total_tzs||0),0))}</td>
         <td className="td-right td-mono" style={{padding:'10px 14px',color:'var(--blue)'}}>{tzs(filteredOrders.reduce((s,o)=>s+((o.total_landed_tzs||0)-(o.total_tzs||0)),0))}</td>
         <td className="td-right td-mono" style={{padding:'10px 14px',color:'var(--accent)'}}>{tzs(filteredOrders.reduce((s,o)=>s+(o.total_landed_tzs||0),0))}</td>

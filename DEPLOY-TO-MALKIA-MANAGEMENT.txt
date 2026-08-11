@@ -1,2 +1,2 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Homepage approval nag: must-click modal for approvers with pending assignments (no dismiss — only exit is Review approvals) + per-item acknowledgment notices for requesters on decided requests. Migration already applied.
+Import Orders list: Products column (qty x name; multi-product orders show first + "+N more" with full breakdown on hover).
