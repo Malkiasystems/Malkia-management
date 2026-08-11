@@ -1,3 +1,3 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Replaces MALKIA-daybook-retail-wholesale.zip.
-Retail/Wholesale segmentation on screen AND in all exports (PDF summary, detail PDF, CSV) — matched set, deploy both files.
+Replaces ALL previous retail/wholesale zips.
+Channel segmentation by customers.customer_type across: Sales Day Book (screen + PDF/CSV exports) AND Sales Register (cards, filter, transaction pills, per-customer and per-product splits, Compare tab).
