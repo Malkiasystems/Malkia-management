@@ -92,7 +92,7 @@ export default function ImportOrder({ onNav }: Props) {
   const [lines, setLines] = useState<OrderLine[]>([{...EMPTY_LINE}]); const [saving, setSaving] = useState(false)
   const [showPayModal, setShowPayModal] = useState(false); const [payType, setPayType] = useState<'supplier_deposit'|'supplier_balance'|'forwarding_agent'|'customs_duties'|'clearing_fees'|'local_carrier'>('supplier_deposit')
   const [payForm, setPayForm] = useState({ date:today(), amount:'', bankAccount:'', agentSupplierId:'', reference:'', notes:'', currency:'TZS', fxRate:'1' }); const [payPosting, setPayPosting] = useState(false)
-  const [showShipModal, setShowShipModal] = useState(false); const [shipForm, setShipForm] = useState({ method:'sea', agentName:'', trackingRef:'', shipDate:today(), expectedArrival:'', freightCost:'', notes:'' })
+  const [showShipModal, setShowShipModal] = useState(false); const [shipForm, setShipForm] = useState({ method:'sea', agentName:'', trackingRef:'', shipDate:today(), expectedArrival:'', freightCost:'', notes:'', freightPaidNow:'later', freightBank:'' })
   const [shipLines, setShipLines] = useState<{orderLineId:string;qty:number;desc:string}[]>([])
   const [showReceiveModal, setShowReceiveModal] = useState(false); const [receiveShipmentId, setReceiveShipmentId] = useState('')
   const [rcvShipment, setRcvShipment] = useState<Shipment|null>(null); const [receiveLines, setReceiveLines] = useState<ReceiveLine[]>([]); const [receiving, setReceiving] = useState(false)
@@ -435,6 +435,9 @@ export default function ImportOrder({ onNav }: Props) {
       showToast(`Cannot ship more than ordered. ${violations.join(' · ')}`, 'error')
       return
     }
+    if ((parseFloat(shipForm.freightCost) || 0) > 0 && shipForm.freightPaidNow === 'now' && !shipForm.freightBank) {
+      showToast('Freight marked as paid — select which bank it left', 'error'); return
+    }
     try {
       // Fetch fresh shipment count from DB to prevent duplicate numbers from race conditions
       const { count: existingCount } = await supabase
@@ -445,6 +448,40 @@ export default function ImportOrder({ onNav }: Props) {
       const { data: sh, error: sErr } = await supabase.from('import_shipments').insert({ order_id: activeOrder.id, shipment_number: num, method: shipForm.method, agent_name: shipForm.agentName || null, tracking_ref: shipForm.trackingRef || null, ship_date: shipForm.shipDate || null, expected_arrival: shipForm.expectedArrival || null, freight_cost_tzs: parseFloat(shipForm.freightCost) || 0, status: 'in_transit', notes: shipForm.notes || null }).select('id').single()
       if (sErr) throw new Error(sErr.message)
       await supabase.from('import_shipment_lines').insert(shipLines.filter(l => l.qty > 0).map(l => ({ shipment_id: sh.id, order_line_id: l.orderLineId, qty_shipped: l.qty, qty_received: 0 })))
+
+      // Freight paid at declaration: post the money the same way the Pay
+      // button does (Dr 1121 / Cr bank), link it to this shipment, and mark
+      // freight_paid. Declaring a cost and moving the money were previously
+      // two disconnected steps — that gap is how a freight figure baked into
+      // landed cost while no bank ever moved (IMP-10-0005, Aug 2026).
+      const freightAmt = parseFloat(shipForm.freightCost) || 0
+      if (freightAmt > 0 && shipForm.freightPaidNow === 'now') {
+        const drAcct = accounts.find(a => a.code === '1121')
+        if (!drAcct) throw new Error('Account 1121 not found')
+        const fdesc = `Import — Shipping/Freight — ${shipForm.agentName || 'Agent'} — ${activeOrder.ref} — Shipment #${num}`
+        const { data: fjnl, error: fjErr } = await supabase.from('journals').insert({
+          ref: `JV-${activeOrder.ref}-F${num}`, posting_date: today(), description: fdesc,
+          journal_type: 'import_payment', source_type: 'import_order', source_ref: activeOrder.ref,
+          posted_by: user?.full_name || 'System', status: 'posted',
+        }).select('id').single()
+        if (fjErr) throw new Error(fjErr.message)
+        await supabase.from('journal_lines').insert([
+          { journal_id: fjnl.id, line_number: 1, account_id: drAcct.id, description: fdesc, debit: freightAmt, credit: 0 },
+          { journal_id: fjnl.id, line_number: 2, account_id: shipForm.freightBank, description: `Bank — ${fdesc}`, debit: 0, credit: freightAmt },
+        ])
+        await Promise.all([
+          supabase.rpc('update_account_balance', { p_account_id: drAcct.id, p_debit: freightAmt, p_credit: 0 }),
+          supabase.rpc('update_account_balance', { p_account_id: shipForm.freightBank, p_debit: 0, p_credit: freightAmt }),
+        ])
+        const { data: fpay } = await supabase.from('import_payments').insert({
+          order_id: activeOrder.id, payment_type: 'forwarding_agent', payment_date: today(),
+          amount_tzs: freightAmt, bank_account_id: shipForm.freightBank,
+          reference: shipForm.trackingRef || null,
+          notes: `Freight for Shipment #${num}${shipForm.agentName ? ' — ' + shipForm.agentName : ''}`,
+          journal_id: fjnl.id, voucher_ref: `JV-${activeOrder.ref}-F${num}`,
+        }).select('id').single()
+        await supabase.from('import_shipments').update({ freight_paid: true, freight_payment_id: fpay?.id || null }).eq('id', sh.id)
+      }
       if (['draft', 'deposit_paid', 'in_production', 'balance_paid'].includes(activeOrder.status)) await supabase.from('import_orders').update({ status: 'shipped' }).eq('id', activeOrder.id)
       showToast(`Shipment #${num} (${shipForm.method}) added`); setShowShipModal(false)
       const r = (await supabase.from('import_orders').select('*,suppliers(name,code)').eq('id', activeOrder.id).single()).data
@@ -776,6 +813,29 @@ export default function ImportOrder({ onNav }: Props) {
         <div className="form-row"><FG label="Ship Date"><input type="date" className="form-input" value={shipForm.shipDate} onChange={e=>setShipForm(f=>({...f,shipDate:e.target.value}))}/></FG><FG label="ETA"><input type="date" className="form-input" value={shipForm.expectedArrival} onChange={e=>setShipForm(f=>({...f,expectedArrival:e.target.value}))}/></FG></div>
         <FG label="Tracking Ref"><input className="form-input" value={shipForm.trackingRef} onChange={e=>setShipForm(f=>({...f,trackingRef:e.target.value}))}/></FG>
         <FG label="Freight Cost (TZS)"><input type="number" className="form-input" style={{fontFamily:'var(--mono)'}} value={shipForm.freightCost} onChange={e=>setShipForm(f=>({...f,freightCost:e.target.value}))} placeholder="0"/></FG>
+        {(parseFloat(shipForm.freightCost)||0)>0 && (
+          <div style={{border:'1px solid var(--border)',borderRadius:8,padding:'10px 12px',marginBottom:10,background:'var(--surface2)'}}>
+            <div style={{fontSize:11,fontWeight:700,marginBottom:8}}>Has this freight been paid?</div>
+            <div style={{display:'flex',gap:14,fontSize:12,marginBottom:8}}>
+              <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                <input type="radio" checked={shipForm.freightPaidNow==='now'} onChange={()=>setShipForm(f=>({...f,freightPaidNow:'now'}))}/> Yes — record the payment now
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                <input type="radio" checked={shipForm.freightPaidNow==='later'} onChange={()=>setShipForm(f=>({...f,freightPaidNow:'later'}))}/> Not yet
+              </label>
+            </div>
+            {shipForm.freightPaidNow==='now' ? (
+              <select className="form-input" value={shipForm.freightBank} onChange={e=>setShipForm(f=>({...f,freightBank:e.target.value}))}>
+                <option value="">— Which bank did it leave? —</option>
+                {accounts.filter(a=>a.category==='Cash & Bank').map(a=><option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              </select>
+            ) : (
+              <div style={{fontSize:11,color:'var(--yellow,#b8860b)'}}>
+                The cost will be baked into landed value at receiving, but NO money moves until you post it via Pay → Shipping/Freight. Do not forget.
+              </div>
+            )}
+          </div>
+        )}
         <div style={{marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}><div style={{fontSize:11,fontWeight:600,marginBottom:10,color:'var(--text3)',textTransform:'uppercase'}}>Quantities per product</div>
         {shipLines.map((sl,i)=>{
           const ol3 = orderLines.find(l=>l.id===sl.orderLineId)

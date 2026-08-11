@@ -1,2 +1,3 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Import Orders list: Products column (qty x name; multi-product orders show first + "+N more" with full breakdown on hover).
+Replaces MALKIA-imports-products-column.zip (cumulative: includes the Products column too).
+Add Shipment now asks whether freight is paid: pay-now posts Dr 1121 / Cr chosen bank atomically and marks freight_paid; not-yet leaves an explicit amber warning.
