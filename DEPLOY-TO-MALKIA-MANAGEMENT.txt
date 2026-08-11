@@ -1,3 +1,2 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Replaces ALL previous retail/wholesale zips.
-Channel segmentation by customers.customer_type across: Sales Day Book (screen + PDF/CSV exports) AND Sales Register (cards, filter, transaction pills, per-customer and per-product splits, Compare tab).
+Homepage approval nag: must-click modal for approvers with pending assignments (no dismiss — only exit is Review approvals) + per-item acknowledgment notices for requesters on decided requests. Migration already applied.

@@ -18,6 +18,7 @@ import type { CSSProperties } from 'react'
 import type { Page } from '../lib/types'
 import { useState } from 'react'
 import { useAuth } from '../lib/useAuth'
+import ApprovalNag from '../components/ApprovalNag'
 import { useDashboard } from '../lib/useDashboard'
 import DashboardFinancial from './dashboard/DashboardFinancial'
 import DashboardOperations from './dashboard/DashboardOperations'
@@ -82,6 +83,8 @@ export default function Dashboard({ onNav }: Props) {
   const firstName = user?.full_name?.split(' ')[0] || 'there'
 
   return (
+    <>
+    <ApprovalNag onNav={onNav} />
     <div className="page">
       <div className="page-header dash-anim" style={{ '--d': 0 } as CSSProperties}>
         <div>
@@ -130,5 +133,6 @@ export default function Dashboard({ onNav }: Props) {
         </>
       )}
     </div>
+    </>
   )
 }
