@@ -10,6 +10,12 @@
 
 import { printHtmlDocument } from './printDocument'
 
+// Retail vs Wholesale is decided by the CUSTOMER's channel
+// (customers.customer_type), never by voucher type — a wholesale account
+// paying cash is still wholesale revenue. The page computes the totals on
+// the same rule; rows here classify identically so labels and numbers agree.
+export const sdbIsWholesale = (s: any) => s?.customers?.customer_type === 'wholesale'
+
 export interface SDBSale {
   id: string; ref: string; type?: string; posting_date: string; description: string
   total_amount: number; subtotal: number; payment_method: string
@@ -124,7 +130,7 @@ export function exportCSV(data: ExportData) {
   const rows: string[][] = filtered.map(s => [
     s.posting_date,
     s.ref,
-    s.type === 'sales_invoice' ? 'Credit' : 'Cash',
+    sdbIsWholesale(s) ? 'Wholesale' : 'Retail',
     `"${(s.customers as any)?.name || s.description || ''}"`,
     (s.customers as any)?.whatsapp || '',
     s.payment_method || '',
@@ -134,8 +140,8 @@ export function exportCSV(data: ExportData) {
   ])
   rows.push(['','','','','','','','',''])
   rows.push(['TOTALS',`${filtered.length} txns`,'','','','','','',String(totalRevenue)])
-  rows.push(['  Cash Sales',`${cashCount} txns`,`${cashPct}%`,'','','','','',String(cashTotal)])
-  rows.push(['  Credit Sales',`${creditCount} txns`,`${creditPct}%`,'','','','','',String(creditTotal)])
+  rows.push(['  Retail Sales',`${cashCount} txns`,`${cashPct}%`,'','','','','',String(cashTotal)])
+  rows.push(['  Wholesale Sales',`${creditCount} txns`,`${creditPct}%`,'','','','','',String(creditTotal)])
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
   const blob = new Blob([csv], { type: 'text/csv' })
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -200,7 +206,7 @@ export function exportPDF(data: ExportData) {
   const totalUnits = productsAggregate.reduce((s, p) => s + p.qty, 0)
 
   const tableRows = filtered.map(s => {
-    const isCredit = s.type === 'sales_invoice'
+    const isCredit = sdbIsWholesale(s) // channel: wholesale rows take the blue treatment
     return `<tr>
       <td>${s.posting_date}</td>
       <td class="ref">${s.ref}</td>
@@ -284,26 +290,26 @@ export function exportPDF(data: ExportData) {
       <div class="section-title">Sales Composition</div>
       <div class="stats" style="margin-bottom:24px">
         <div class="stat" style="background:#f0faf7;border-color:#1a7a4a20">
-          <div class="stat-label">Cash Sales</div>
+          <div class="stat-label">Retail Sales</div>
           <div class="stat-val green">TZS ${cashTotal.toLocaleString()}</div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">${cashCount} txns · ${cashPct}% of gross</div>
           <div style="height:4px;background:#eee;border-radius:2px;margin-top:8px"><div style="height:100%;width:${cashPct}%;background:#1a7a4a;border-radius:2px"></div></div>
         </div>
         <div class="stat" style="background:#eff6ff;border-color:#2563eb20">
-          <div class="stat-label">Credit Sales</div>
+          <div class="stat-label">Wholesale Sales</div>
           <div class="stat-val blue">TZS ${creditTotal.toLocaleString()}</div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">${creditCount} txns · ${creditPct}% of gross</div>
           <div style="height:4px;background:#eee;border-radius:2px;margin-top:8px"><div style="height:100%;width:${creditPct}%;background:#2563eb;border-radius:2px"></div></div>
         </div>
         <div class="stat">
-          <div class="stat-label">Avg Cash Sale</div>
+          <div class="stat-label">Avg Retail Sale</div>
           <div class="stat-val">TZS ${cashCount > 0 ? Math.round(cashTotal / cashCount).toLocaleString() : '0'}</div>
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Immediate receipt</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Per retail transaction</div>
         </div>
         <div class="stat">
-          <div class="stat-label">Avg Credit Sale</div>
+          <div class="stat-label">Avg Wholesale Sale</div>
           <div class="stat-val">TZS ${creditCount > 0 ? Math.round(creditTotal / creditCount).toLocaleString() : '0'}</div>
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Payment pending</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:#666;margin-top:6px">Per wholesale transaction</div>
         </div>
       </div>
 
@@ -343,8 +349,8 @@ export function exportPDF(data: ExportData) {
         <tbody>${tableRows}</tbody>
         <tfoot>
           <tr class="total-row"><td colspan="8">Sales Subtotal — ${filtered.length} transactions</td><td class="num">${totalRevenue.toLocaleString()}</td></tr>
-          <tr style="background:#f0faf7;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#1a7a4a;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Cash Sales (${cashCount} txns · ${cashPct}%)</td><td class="num" style="color:#1a7a4a;font-weight:700">${cashTotal.toLocaleString()}</td></tr>
-          <tr style="background:#eff6ff;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#2563eb;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Credit Sales (${creditCount} txns · ${creditPct}%)</td><td class="num" style="color:#2563eb;font-weight:700">${creditTotal.toLocaleString()}</td></tr>
+          <tr style="background:#f0faf7;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#1a7a4a;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Retail Sales (${cashCount} txns · ${cashPct}%)</td><td class="num" style="color:#1a7a4a;font-weight:700">${cashTotal.toLocaleString()}</td></tr>
+          <tr style="background:#eff6ff;font-size:11px"><td colspan="8" style="padding-left:24px;color:#666"><span style="display:inline-block;width:8px;height:8px;background:#2563eb;border-radius:2px;margin-right:6px;vertical-align:middle"></span>Wholesale Sales (${creditCount} txns · ${creditPct}%)</td><td class="num" style="color:#2563eb;font-weight:700">${creditTotal.toLocaleString()}</td></tr>
           ${creditNotes.length > 0 ? `
             ${creditNotes.map(c => `<tr style="color:#c0392b"><td>${c.posting_date}</td><td class="ref" style="color:#c0392b">${c.ref}</td><td colspan="6">${c.description || 'Credit Note'}</td><td class="num">(${(c.total_amount || 0).toLocaleString()})</td></tr>`).join('')}
             <tr style="background:#fef2f2;font-weight:700"><td colspan="8">Total Credit Notes</td><td class="num" style="color:#c0392b">(${totalCreditNotes.toLocaleString()})</td></tr>
@@ -384,7 +390,7 @@ export function exportDetailPDF(data: ExportData) {
   const logoAlign = t.logo_position === 'center' ? 'center' : t.logo_position === 'right' ? 'flex-end' : 'flex-start'
 
   const voucherCards = filtered.map(s => {
-    const isCredit = s.type === 'sales_invoice'
+    const isCredit = sdbIsWholesale(s) // channel: wholesale rows take the blue treatment
     const lines = s.voucher_lines || []
     const totalQty = lines.reduce((acc, l) => acc + (l.qty || 0), 0)
     const custMargin = lines.reduce((acc, l) => acc + ((l.unit_price - l.unit_cost) * l.qty), 0)
@@ -409,7 +415,7 @@ export function exportDetailPDF(data: ExportData) {
           </div>
           <div class="vh-pills">
             <span class="pill ${s.status === 'posted' ? 'pill-g' : 'pill-y'}">${s.status === 'draft' ? 'POD Pending' : 'Posted ✓'}</span>
-            <span class="pill ${isCredit ? 'pill-b' : 'pill-g'}">${isCredit ? 'Credit Sale' : 'Cash Sale'}</span>
+            <span class="pill ${isCredit ? 'pill-b' : 'pill-g'}">${isCredit ? 'Wholesale' : 'Retail'}</span>
             <span class="pill pill-a">${s.payment_method || '—'}</span>
           </div>
           <div class="vh-amt">

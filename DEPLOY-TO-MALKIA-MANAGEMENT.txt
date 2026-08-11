@@ -1,2 +1,3 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Sales Day Book: Retail vs Wholesale segmentation (by customer_type), replacing Cash vs Credit everywhere — cards, toggle, filters, detail groups, PDF.
+Replaces MALKIA-daybook-retail-wholesale.zip.
+Retail/Wholesale segmentation on screen AND in all exports (PDF summary, detail PDF, CSV) — matched set, deploy both files.
