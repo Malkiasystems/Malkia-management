@@ -1,3 +1,2 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Replaces ALL previous ImportOrder zips.
-RECEIVE GOODS button on the order: one-step receive with live cost math (pieces x buying price + unabsorbed PAID arrival costs). Shipment form no longer required to receive. Cumulative with all prior import fixes. Migration already applied.
+Replaces ALL previous ImportOrder zips (build fixes for v6). Receive Goods one-step flow + all prior import fixes.

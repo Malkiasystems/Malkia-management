@@ -545,7 +545,7 @@ export default function ImportOrder({ onNav }: Props) {
   }
 
   const doReceiveShipment = async (sidArg?: string, shArg?: Shipment, linesArg?: ReceiveLine[]) => {
-    const sid = sidArg || sid
+    const sid = sidArg || receiveShipmentId
     const rLines = linesArg || receiveLines
     if (!activeOrder || !sid) return
     const totalRcv = rLines.reduce((s, rl) => s + rl.qtyReceive, 0)
@@ -1008,7 +1008,7 @@ export default function ImportOrder({ onNav }: Props) {
           <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:11,color:'var(--text3)'}}>Receive:</span>
           <input type="number" className="form-input" style={{width:80,fontSize:13,padding:'5px 8px',textAlign:'center',fontFamily:'var(--mono)',fontWeight:700}} value={rl.qtyReceive} min={0} max={rem2} onChange={e=>{const nl=[...receiveLines];nl[i]={...nl[i],qtyReceive:parseInt(e.target.value)||0};setReceiveLines(nl)}}/>
           <span style={{fontSize:10,color:'var(--text3)'}}>of {rem2} remaining</span></div></div>)})}
-        <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}><button className="btn btn-ghost" onClick={()=>setShowReceiveModal(false)}>Cancel</button><button className="btn btn-primary" onClick={doReceiveShipment} disabled={receiving}>{receiving?'Updating stock...':'Confirm Received'}</button></div>
+        <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}><button className="btn btn-ghost" onClick={()=>setShowReceiveModal(false)}>Cancel</button><button className="btn btn-primary" onClick={() => doReceiveShipment()} disabled={receiving}>{receiving?'Updating stock...':'Confirm Received'}</button></div>
       </div></div>}
 
       {toast&&<Toast message={toast} type={toastType} onClose={()=>setToast('')}/>}
