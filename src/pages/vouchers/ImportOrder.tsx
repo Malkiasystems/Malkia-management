@@ -514,7 +514,18 @@ export default function ImportOrder({ onNav }: Props) {
     }
     setReceiving(true)
     try {
-      const freight = rcvShipment?.freight_cost_tzs || 0
+      // Arrival costs come from what was actually PAID on this order (same
+      // payment-type list the header's Other Costs card uses), minus what
+      // earlier receives already capitalized. The shipment freight field is
+      // an estimate only — retyping paid amounts into it created a second
+      // source of truth that could disagree with the payments (Aug 14).
+      const { data: ocPays } = await supabase.from('import_payments')
+        .select('amount_tzs, payment_type').eq('order_id', activeOrder.id)
+      const otherCostsPaidRcv = (ocPays || [])
+        .filter((pm: any) => ['forwarding_agent','customs_duties','clearing_fees','local_carrier'].includes(pm.payment_type))
+        .reduce((t: number, pm: any) => t + (pm.amount_tzs || 0), 0)
+      const absorbedRcv = (activeOrder as any).other_costs_absorbed_tzs || 0
+      const freight = Math.max(0, otherCostsPaidRcv - absorbedRcv)
       const receivedAt = today()
       for (const rl of receiveLines) {
         if (rl.qtyReceive <= 0) continue
@@ -634,6 +645,11 @@ export default function ImportOrder({ onNav }: Props) {
         total_landed_tzs: trueTotalLanded,
       }).eq('id', activeOrder.id)
 
+      if (freight > 0) {
+        await supabase.from('import_orders')
+          .update({ other_costs_absorbed_tzs: absorbedRcv + freight })
+          .eq('id', activeOrder.id)
+      }
       showToast(`Received at ${selectedLoc.code}: ${receiveLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
       setShowReceiveModal(false); await loadAll()
       const rf = (await supabase.from('import_orders').select('*, suppliers(name, code)').eq('id', activeOrder.id).single()).data
@@ -812,7 +828,7 @@ export default function ImportOrder({ onNav }: Props) {
         <div className="form-row"><FG label="Method" req><select className="form-input" value={shipForm.method} onChange={e=>setShipForm(f=>({...f,method:e.target.value}))}><option value="sea">Sea Cargo</option><option value="air">Air Cargo</option></select></FG><FG label="Agent"><input className="form-input" value={shipForm.agentName} onChange={e=>setShipForm(f=>({...f,agentName:e.target.value}))}/></FG></div>
         <div className="form-row"><FG label="Ship Date"><input type="date" className="form-input" value={shipForm.shipDate} onChange={e=>setShipForm(f=>({...f,shipDate:e.target.value}))}/></FG><FG label="ETA"><input type="date" className="form-input" value={shipForm.expectedArrival} onChange={e=>setShipForm(f=>({...f,expectedArrival:e.target.value}))}/></FG></div>
         <FG label="Tracking Ref"><input className="form-input" value={shipForm.trackingRef} onChange={e=>setShipForm(f=>({...f,trackingRef:e.target.value}))}/></FG>
-        <FG label="Freight Cost (TZS)"><input type="number" className="form-input" style={{fontFamily:'var(--mono)'}} value={shipForm.freightCost} onChange={e=>setShipForm(f=>({...f,freightCost:e.target.value}))} placeholder="0"/></FG>
+        <FG label="Freight Estimate (TZS) — optional; landed cost is computed from PAID arrival costs, not this field"><input type="number" className="form-input" style={{fontFamily:'var(--mono)'}} value={shipForm.freightCost} onChange={e=>setShipForm(f=>({...f,freightCost:e.target.value}))} placeholder="0"/></FG>
         {(parseFloat(shipForm.freightCost)||0)>0 && (
           <div style={{border:'1px solid var(--border)',borderRadius:8,padding:'10px 12px',marginBottom:10,background:'var(--surface2)'}}>
             <div style={{fontSize:11,fontWeight:700,marginBottom:8}}>Has this freight been paid?</div>

@@ -1,2 +1,3 @@
 FOR MALKIA-MANAGEMENT ONLY.
-Replaces ALL previous ImportOrder zips (build fix included). Cumulative: Products column + freight bank prompt.
+Replaces ALL previous ImportOrder zips.
+Receive capitalizes arrival costs from PAID amounts (unabsorbed pool). Freight field is now an optional estimate. Migration already applied. Cumulative: Products column + pay-now prompt.
