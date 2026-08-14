@@ -409,6 +409,50 @@ export default function ImportOrder({ onNav }: Props) {
   // For a given order line, how many more units can still be shipped?
   // = ordered qty - already shipped across all existing shipments
   // (We track shipped, not received, because once shipped, it's allocated even if not yet arrived.)
+  // ── Direct receive: goods arrived — receive them NOW, no shipment form.
+  // A consignment record is still created silently (register in-transit
+  // metrics read shipments), but the user answers one question: how many
+  // pieces arrived. Costing: this batch = its pieces' buying price + the
+  // arrival costs PAID and not yet absorbed by earlier batches. Each batch
+  // carries only its own costs — batch 2 never inherits batch 1's freight.
+  const [showDirectReceive, setShowDirectReceive] = useState(false)
+  const [directQty, setDirectQty] = useState<Record<string, number>>({})
+
+  const remainingToReceive = (ol: OrderLine): number => (ol.qty || 0) - (ol.qty_received || 0)
+  const unabsorbedPool = (): number => {
+    const paid = payments.filter(pm => ['forwarding_agent','customs_duties','clearing_fees','local_carrier'].includes(pm.payment_type))
+      .reduce((t, pm) => t + (pm.amount_tzs || 0), 0)
+    return Math.max(0, paid - ((activeOrder as any)?.other_costs_absorbed_tzs || 0))
+  }
+
+  const doDirectReceive = async () => {
+    if (!activeOrder) return
+    const picks = orderLines
+      .map(ol => ({ ol, qty: Math.min(directQty[ol.id!] ?? remainingToReceive(ol), remainingToReceive(ol)) }))
+      .filter(x => x.qty > 0)
+    if (picks.length === 0) { showToast('Enter quantities to receive', 'error'); return }
+    const num = (shipments.reduce((m, sh) => Math.max(m, sh.shipment_number || 0), 0)) + 1
+    const { data: sh, error: sErr } = await supabase.from('import_shipments').insert({
+      order_id: activeOrder.id, shipment_number: num, method: 'direct', agent_name: '',
+      tracking_ref: null, ship_date: today(), expected_arrival: null,
+      freight_cost_tzs: 0, freight_paid: false, status: 'in_transit',
+      notes: 'Auto-created by direct Receive Goods',
+    }).select('id, shipment_number').single()
+    if (sErr || !sh) { showToast('Could not create consignment: ' + (sErr?.message || ''), 'error'); return }
+    const { data: shLines, error: slErr } = await supabase.from('import_shipment_lines')
+      .insert(picks.map(x => ({ shipment_id: sh.id, order_line_id: x.ol.id, qty_shipped: x.qty, qty_received: 0 })))
+      .select('id, order_line_id, qty_shipped')
+    if (slErr || !shLines) { showToast('Could not create consignment lines: ' + (slErr?.message || ''), 'error'); return }
+    const lines: ReceiveLine[] = shLines.map((sl: any) => {
+      const ol = orderLines.find(l => l.id === sl.order_line_id)!
+      return { shipmentLineId: sl.id, orderLineId: sl.order_line_id, productId: ol.product_id || '',
+        qtyShipped: sl.qty_shipped, qtyAlreadyReceived: 0, qtyReceive: sl.qty_shipped,
+        desc: ol.description, unitCostTzs: ol.unit_cost_tzs || 0 }
+    })
+    setShowDirectReceive(false)
+    await doReceiveShipment(sh.id, { id: sh.id, shipment_number: sh.shipment_number, freight_cost_tzs: 0 } as any, lines)
+  }
+
   const remainingToShip = (orderLineId: string): number => {
     const ol = orderLines.find(l => l.id === orderLineId)
     if (!ol) return 0
@@ -500,9 +544,11 @@ export default function ImportOrder({ onNav }: Props) {
     setShowReceiveModal(true)
   }
 
-  const doReceiveShipment = async () => {
-    if (!activeOrder || !receiveShipmentId) return
-    const totalRcv = receiveLines.reduce((s, rl) => s + rl.qtyReceive, 0)
+  const doReceiveShipment = async (sidArg?: string, shArg?: Shipment, linesArg?: ReceiveLine[]) => {
+    const sid = sidArg || sid
+    const rLines = linesArg || receiveLines
+    if (!activeOrder || !sid) return
+    const totalRcv = rLines.reduce((s, rl) => s + rl.qtyReceive, 0)
     if (totalRcv <= 0) { showToast('Enter quantities', 'error'); return }
     if (!receiveLocationId) { showToast('Select the destination warehouse', 'error'); return }
     const selectedLoc = locations.find(l => l.id === receiveLocationId)
@@ -566,7 +612,7 @@ export default function ImportOrder({ onNav }: Props) {
             product_id: rl.productId,
             entry_type: 'purchase',
             document_type: 'grn',  // import receive maps to GRN-style entry
-            document_ref: `${activeOrder.ref}-RCV${rcvShipment?.shipment_number || ''}`,
+            document_ref: `${activeOrder.ref}-RCV${(shArg || rcvShipment)?.shipment_number || ''}`,
             posting_date: receivedAt,
             qty: rl.qtyReceive,
             cost_amount: landedTotal,
@@ -588,14 +634,14 @@ export default function ImportOrder({ onNav }: Props) {
       const invAcct = accounts.find(a => a.code === '1110')
       const grnAcct = accounts.find(a => a.code === '1121')
       if (invAcct && grnAcct) {
-        const tv = receiveLines.reduce((s, rl) => {
+        const tv = rLines.reduce((s, rl) => {
           if (rl.qtyReceive <= 0) return s
           const fp2 = totalRcv > 0 ? freight / totalRcv : 0
           return s + (rl.unitCostTzs + fp2) * rl.qtyReceive
         }, 0)
         if (tv > 0) {
-          const d2 = `Import received — ${activeOrder.ref} — Shipment #${rcvShipment?.shipment_number || ''}`
-          const { data: j2 } = await supabase.from('journals').insert({ ref: `JV-${activeOrder.ref}-RCV${rcvShipment?.shipment_number || ''}`, posting_date: receivedAt, description: d2, journal_type: 'import_receive', source_type: 'import_order', source_ref: activeOrder.ref, posted_by: user?.full_name || 'System', status: 'posted' }).select('id').single()
+          const d2 = `Import received — ${activeOrder.ref} — Shipment #${(shArg || rcvShipment)?.shipment_number || ''}`
+          const { data: j2 } = await supabase.from('journals').insert({ ref: `JV-${activeOrder.ref}-RCV${(shArg || rcvShipment)?.shipment_number || ''}`, posting_date: receivedAt, description: d2, journal_type: 'import_receive', source_type: 'import_order', source_ref: activeOrder.ref, posted_by: user?.full_name || 'System', status: 'posted' }).select('id').single()
           if (j2) {
             await supabase.from('journal_lines').insert([
               { journal_id: j2.id, line_number: 1, account_id: invAcct.id, description: d2, debit: Math.round(tv), credit: 0 },
@@ -614,12 +660,12 @@ export default function ImportOrder({ onNav }: Props) {
       const { data: shLines } = await supabase
         .from('import_shipment_lines')
         .select('qty_shipped, qty_received')
-        .eq('shipment_id', receiveShipmentId)
+        .eq('shipment_id', sid)
       const shipmentFullyReceived = shLines?.every(l => (l.qty_received || 0) >= (l.qty_shipped || 0)) || false
       await supabase.from('import_shipments').update({
         status: shipmentFullyReceived ? 'received' : 'in_transit',
         actual_arrival: shipmentFullyReceived ? receivedAt : null,
-      }).eq('id', receiveShipmentId)
+      }).eq('id', sid)
 
       const { data: fol } = await supabase.from('import_order_lines').select('qty, qty_received').eq('order_id', activeOrder.id)
       const allDone = fol?.every(l => l.qty_received >= l.qty) || false
@@ -650,7 +696,7 @@ export default function ImportOrder({ onNav }: Props) {
           .update({ other_costs_absorbed_tzs: absorbedRcv + freight })
           .eq('id', activeOrder.id)
       }
-      showToast(`Received at ${selectedLoc.code}: ${receiveLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
+      showToast(`Received at ${selectedLoc.code}: ${rLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
       setShowReceiveModal(false); await loadAll()
       const rf = (await supabase.from('import_orders').select('*, suppliers(name, code)').eq('id', activeOrder.id).single()).data
       if (rf) await loadOrderDetail(rf as ImportOrder)
@@ -697,7 +743,45 @@ export default function ImportOrder({ onNav }: Props) {
         {activeOrder.status === 'deposit_paid' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('in_production')}>Mark In Production</button>}
         {activeOrder.status === 'shipped' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('at_port')}>Mark At Port</button>}
         {activeOrder.status === 'at_port' && <button className="btn btn-ghost btn-sm" onClick={()=>advanceStatus('with_carrier')}>With Local Carrier</button>}
-        {!isClosed && <button className="btn btn-primary btn-sm" onClick={()=>{setShipForm({method:'sea',agentName:'',trackingRef:'',shipDate:today(),expectedArrival:'',freightCost:'',notes:'',freightPaidNow:'later',freightBank:''});setShipLines(orderLines.map(l=>({orderLineId:l.id!,qty:remainingToShip(l.id!),desc:l.description})));setShowShipModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="ship" s={13}/> Add Shipment</button>}
+        {!isClosed && orderLines.some(l=>remainingToReceive(l)>0) && <button className="btn btn-primary btn-sm" onClick={()=>{setDirectQty(Object.fromEntries(orderLines.filter(l=>remainingToReceive(l)>0).map(l=>[l.id!,remainingToReceive(l)])));setShowDirectReceive(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="check" s={13}/> Receive Goods</button>}
+                {!isClosed && <button className="btn btn-ghost btn-sm" onClick={()=>{setShipForm({method:'sea',agentName:'',trackingRef:'',shipDate:today(),expectedArrival:'',freightCost:'',notes:'',freightPaidNow:'later',freightBank:''});setShipLines(orderLines.map(l=>({orderLineId:l.id!,qty:remainingToShip(l.id!),desc:l.description})));setShowShipModal(true)}} style={{display:'flex',alignItems:'center',gap:6}}><Ic n="ship" s={13}/> Add Shipment</button>}
+                {showDirectReceive && activeOrder && (()=>{
+                  const picks = orderLines.filter(l=>remainingToReceive(l)>0)
+                  const totalQty = picks.reduce((t,l)=>t+Math.min(directQty[l.id!]??0, remainingToReceive(l)),0)
+                  const goods = picks.reduce((t,l)=>t+Math.min(directQty[l.id!]??0, remainingToReceive(l))*(l.unit_cost_tzs||0),0)
+                  const pool = unabsorbedPool()
+                  const landed = goods + pool
+                  return (
+                    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:60,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowDirectReceive(false)}>
+                      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:22,width:520,maxWidth:'94vw'}} onClick={e=>e.stopPropagation()}>
+                        <div style={{fontSize:16,fontWeight:800,marginBottom:4}}>Receive Goods — {activeOrder.ref}</div>
+                        <div style={{fontSize:11,color:'var(--text3)',marginBottom:14}}>How many pieces arrived? Costs are computed from what you have PAID.</div>
+                        {picks.map(l=>(
+                          <div key={l.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:8}}>
+                            <span style={{fontSize:13}}>{l.description}<span style={{color:'var(--text3)',fontSize:11,marginLeft:8}}>{remainingToReceive(l)} remaining</span></span>
+                            <input type="number" className="form-input" style={{width:90,fontFamily:'var(--mono)'}} min={0} max={remainingToReceive(l)}
+                              value={directQty[l.id!]??0}
+                              onChange={e=>setDirectQty(q=>({...q,[l.id!]:Math.max(0,Math.min(parseInt(e.target.value)||0, remainingToReceive(l)))}))}/>
+                          </div>
+                        ))}
+                        <div style={{border:'1px solid var(--border)',borderRadius:8,padding:'10px 12px',margin:'12px 0',background:'var(--surface2)',fontSize:12,fontFamily:'var(--mono)'}}>
+                          <div style={{display:'flex',justifyContent:'space-between'}}><span>Goods ({totalQty} pcs × buying price)</span><span>{tzs(goods)}</span></div>
+                          <div style={{display:'flex',justifyContent:'space-between'}}><span>Arrival costs paid, not yet used</span><span>{tzs(pool)}</span></div>
+                          <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,borderTop:'1px solid var(--border)',marginTop:6,paddingTop:6}}>
+                            <span>Landed — this batch</span><span>{tzs(landed)}{totalQty>0?` (${tzs(Math.round(landed/totalQty))}/unit)`:''}</span>
+                          </div>
+                          <div style={{fontSize:10,color:'var(--text3)',marginTop:6,fontFamily:'inherit'}}>
+                            These arrival costs get stamped as used by this batch. The next batch will carry only costs paid after this.
+                          </div>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
+                          <button className="btn btn-ghost" onClick={()=>setShowDirectReceive(false)}>Cancel</button>
+                          <button className="btn btn-primary" disabled={receiving||totalQty<=0} onClick={doDirectReceive}>{receiving?'Receiving…':`Receive ${totalQty} pcs`}</button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
         {canClose && <button className="btn btn-primary btn-sm" onClick={closeOrder} style={{background:'var(--green)',borderColor:'var(--green)'}}><Ic n="check" s={13} c="#fff"/> Close Order</button>}
         {!isClosed && activeOrder.status !== 'voided' && (
           <button className="btn btn-ghost btn-sm" onClick={voidOrder} style={{color:'var(--red)',borderColor:'rgba(255,71,87,.3)'}} title="Void this order">Void</button>

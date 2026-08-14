@@ -1,3 +1,3 @@
 FOR MALKIA-MANAGEMENT ONLY.
 Replaces ALL previous ImportOrder zips.
-Receive capitalizes arrival costs from PAID amounts (unabsorbed pool). Freight field is now an optional estimate. Migration already applied. Cumulative: Products column + pay-now prompt.
+RECEIVE GOODS button on the order: one-step receive with live cost math (pieces x buying price + unabsorbed PAID arrival costs). Shipment form no longer required to receive. Cumulative with all prior import fixes. Migration already applied.
