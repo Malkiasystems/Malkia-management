@@ -573,7 +573,7 @@ export default function ImportOrder({ onNav }: Props) {
       const absorbedRcv = (activeOrder as any).other_costs_absorbed_tzs || 0
       const freight = Math.max(0, otherCostsPaidRcv - absorbedRcv)
       const receivedAt = today()
-      for (const rl of receiveLines) {
+      for (const rl of rLines) {
         if (rl.qtyReceive <= 0) continue
         const ol = orderLines.find(l => l.id === rl.orderLineId)
         if (!ol) continue
