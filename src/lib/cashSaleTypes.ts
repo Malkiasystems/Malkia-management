@@ -59,8 +59,11 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'mixx',  label: 'Mixx by YAS', sublabel: '17915715 · Malkia Wellness',      accountCode: '1021', color: '#facc15', bg: '#1e3a8a', showRef: true  },
   { id: 'nmb',   label: 'NMB Bank',    sublabel: '22510074972 · Malkia Wellness',   accountCode: '1022', color: '#60a5fa', bg: '#1e3a5f', showRef: true  },
   { id: 'crdb',  label: 'CRDB Bank',   sublabel: '015C874857300 · Malkia Wellness', accountCode: '1030', color: '#4ade80', bg: '#14532d', showRef: true  },
-  // POS Card was removed as a separate tile: the card machine settles into
-  // CRDB 1030, so it was the same account wearing a second face. Old vouchers
-  // that say 'POS Card' resume under the CRDB tile (see the resolver in
-  // CashSale.tsx), and the machine's approval code still fits in the CRDB ref.
+  // POS Card is back as its own tile, now settling into the dedicated
+  // CRDB Bank - POS account (1032) rather than the main CRDB 1030. Keeping
+  // card settlements on their own ledger makes the POS statement reconcile
+  // line for line instead of being mixed into RTGS/transfer traffic.
+  // NOTE: Cash Sale tiles are this hardcoded list. The show_in_cash_sale flag
+  // on accounts (Banks page) is NOT read here yet.
+  { id: 'pos',   label: 'POS Card',    sublabel: 'CRDB Bank — POS · 1032',          accountCode: '1032', color: '#c084fc', bg: '#3b0764', showRef: true  },
 ]

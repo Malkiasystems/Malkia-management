@@ -306,14 +306,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       
       // Set payment method
       const pm = voucher.payment_method || 'Cash'
-      const methodId = pm.toLowerCase().includes('cash') ? 'cash' :
+      // 'pos' is checked before 'crdb' on purpose: the POS tile's own label
+      // and old 'POS Card' drafts both resume on the POS tile (account 1032),
+      // not on the main CRDB tile.
+      const methodId = pm.toLowerCase().includes('pos') ? 'pos' :
+                       pm.toLowerCase().includes('cash') ? 'cash' :
                        pm.toLowerCase().includes('m-pesa') ? 'mpesa' :
                        pm.toLowerCase().includes('mixx') ? 'mixx' :
                        pm.toLowerCase().includes('nmb') ? 'nmb' :
-                       pm.toLowerCase().includes('crdb') ? 'crdb' :
-                       // POS drafts predate the tile's removal; the card
-                       // machine settles into CRDB, so they resume there.
-                       pm.toLowerCase().includes('pos') ? 'crdb' : 'cash'
+                       pm.toLowerCase().includes('crdb') ? 'crdb' : 'cash'
       setSelectedMethod(methodId)
       
       // Set POD status

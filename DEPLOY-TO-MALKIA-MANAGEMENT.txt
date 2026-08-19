@@ -1,2 +1,1 @@
-FOR MALKIA-MANAGEMENT ONLY.
-Replaces ALL previous ImportOrder zips. Fixes v7 receive loop iterating empty state (stock/ledger updates were skipped). Deploy BEFORE any further receives.
+Deploy to: Malkia-management repo (malkia-management.vercel.app). NOT AtlasOS. NOT Malkia-Shop.
