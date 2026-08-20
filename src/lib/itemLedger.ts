@@ -23,6 +23,8 @@ export type LedgerEntryType =
   | 'transfer_in'
   | 'transfer_out'
   | 'internal_use'          // product consumed internally (sample / own use / damage / training)
+  | 'assembly_in'           // kit built (stock in) or component recovered on disassembly
+  | 'assembly_out'          // component consumed into a kit, or kit broken apart
 
 export type LedgerDocumentType =
   | 'cash_sale'
@@ -38,6 +40,7 @@ export type LedgerDocumentType =
   | 'data_import'
   | 'backfill'
   | 'internal_use'          // matches the InternalUse voucher type
+  | 'kit_assembly'          // matches the KitAssembly voucher type
 
 export interface LedgerEntryInput {
   product_id: string

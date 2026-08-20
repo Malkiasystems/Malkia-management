@@ -44,7 +44,7 @@ const VOUCHER_PAGES: Page[] = [
   'bank-receipt', 'bank-transfer', 'petty-cash', 'contra', 'sales-invoice',
   'quotation', 'sales-return', 'debit-note', 'credit-note', 'purchase-order',
   'grn', 'purchase', 'purchase-invoice', 'purchase-return', 'opening-stock',
-  'stock-adjustment', 'stock-transfer', 'journal-entry', 'internal-use',
+  'stock-adjustment', 'stock-transfer', 'journal-entry', 'internal-use', 'kit-assembly',
   'proforma', 'proformas-list', 'posted-vouchers'
 ]
 

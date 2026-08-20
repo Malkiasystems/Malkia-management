@@ -33,6 +33,7 @@ export const VOUCHER_PREFIXES: Record<string, string> = {
   journal_entry:    'JNL',
   import_order:     'IMP',
   internal_use:     'IU',
+  kit_assembly:     'KIT',
 }
 
 const DEFAULT_BRANCH = '10'

@@ -1,1 +1,3 @@
-Deploy to: Malkia-management repo (malkia-management.vercel.app). NOT AtlasOS. NOT Malkia-Shop.
+FOR MALKIA-MANAGEMENT ONLY.
+Kit Assembly feature: new voucher (KIT prefix), kit_components recipe table, assembly/disassembly posting with weighted-average kit costing.
+Migration 038 ALREADY APPLIED to ebokhvibnypiomzqimfg via MCP on 2026-08-20. Deploy code anytime.

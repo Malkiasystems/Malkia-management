@@ -31,6 +31,7 @@ const TYPE_LABEL: Record<string, string> = {
   inventory_adjustment: 'Stock Adjustment', stock_adjustment: 'Stock Adjustment', opening_stock: 'Opening Stock',
   transfer_in: 'Transfer In', transfer_out: 'Transfer Out', sale: 'Sale', internal_use: 'Internal Use',
   purchase_return: 'Purchase Return', import_receive: 'Import Received',
+  kit_assembly: 'Kit Assembly', assembly_in: 'Kit Assembled', assembly_out: 'Component to Kit',
 }
 const label = (docType: string | null, entryType: string) =>
   TYPE_LABEL[docType || ''] || TYPE_LABEL[entryType] || (docType || entryType).replace(/_/g, ' ')

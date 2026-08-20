@@ -373,6 +373,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'purchase-return': ['accounting.create'],
   'opening-stock': ['inventory.adjust'],
   'stock-adjustment': ['inventory.adjust'],
+  'kit-assembly': ['inventory.adjust'],
   'stock-transfer': ['inventory.transfer'],
   // Anyone with inventory.view can request a transfer FROM another location
   // (they don't actually do the moving — an approver at the source location does)

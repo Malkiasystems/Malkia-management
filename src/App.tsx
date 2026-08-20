@@ -137,6 +137,7 @@ const ARFollowup = lazy(() => import('./pages/ARFollowup'))
 const DayClose = lazy(() => import('./pages/DayClose'))
 const ImportOrder = lazy(() => import('./pages/vouchers/ImportOrder'))
 const InternalUse = lazy(() => import('./pages/vouchers/InternalUse'))
+const KitAssembly = lazy(() => import('./pages/vouchers/KitAssembly'))
 const InternalUseReport = lazy(() => import('./pages/reports/InternalUseReport'))
 const InternalUseReturns = lazy(() => import('./pages/InternalUseReturns'))
 
@@ -669,6 +670,7 @@ function AppContent() {
       case 'journal-entry':     return <JournalEntry onNav={navigate} />
       case 'import-order':      return <ImportOrder onNav={navigate} />
       case 'internal-use':      return <InternalUse onNav={navigate} />
+      case 'kit-assembly':      return <KitAssembly onNav={navigate} />
       case 'internal-use-report': return <InternalUseReport onNav={navigate} />
       case 'internal-use-returns': return <InternalUseReturns onNav={navigate} />
       case 'data-import':       return <DataImport />

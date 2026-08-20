@@ -51,6 +51,7 @@ const SECTIONS = [
       { icon: 'adjust', name: 'Stock Adjustment', desc: 'Physical count correction or write-off', color: 'rgba(255,71,87,.12)', page: 'stock-adjustment' as Page },
       { icon: 'stock-xfer', name: 'Stock Transfer', desc: 'Move stock between branches', color: 'rgba(61,139,255,.12)', page: 'stock-transfer' as Page },
       { icon: 'adjust', name: 'Internal Use', desc: 'Samples, own use, damage, training', color: 'rgba(212,135,74,.12)', page: 'internal-use' as Page },
+      { icon: 'package', name: 'Kit Assembly', desc: 'Build kits from components — cost rolled up', color: 'rgba(139,92,246,.12)', page: 'kit-assembly' as Page },
     ]
   },
   {

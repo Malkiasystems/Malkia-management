@@ -19,6 +19,7 @@ const TYPE_LABEL: Record<string, string> = {
   sales_return: 'Sales Return', positive_adjustment: 'Positive Adjustment', inventory_adjustment: 'Stock Adjustment',
   stock_adjustment: 'Stock Adjustment', opening_stock: 'Opening Stock', transfer_in: 'Transfer In', transfer_out: 'Transfer Out',
   sale: 'Sale', internal_use: 'Internal Use', purchase_return: 'Purchase Return', import_receive: 'Import Received',
+  kit_assembly: 'Kit Assembly', assembly_in: 'Kit Assembled', assembly_out: 'Component to Kit',
 }
 const tlabel = (dt: string | null, et: string) => TYPE_LABEL[dt || ''] || TYPE_LABEL[et] || (dt || et).replace(/_/g, ' ')
 const n = (x: number) => x.toLocaleString('en-TZ', { maximumFractionDigits: 0 })

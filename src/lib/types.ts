@@ -8,7 +8,7 @@ export type Page =
   | 'opening-stock' | 'bank-opening-balance' | 'loans' | 'new-loan' | 'opening-loans' | 'loan-repayment' | 'attendance-kiosk' | 'attendance-checkin' | 'stock-adjustment' | 'stock-transfer' | 'journal-entry' | 'import-order'
   | 'stock-transfer-request' | 'stock-transfer-approvals'
   | 'stock-dashboard'
-  | 'internal-use' | 'internal-use-report'
+  | 'internal-use' | 'internal-use-report' | 'kit-assembly'
   | 'sales' | 'inventory' | 'reports' | 'pnl'
   | 'sales-register' | 'sales-day-book' | 'sales-invoices-list' | 'trial-balance' | 'balance-sheet'
   | 'ar-aging' | 'ap-aging' | 'stock-valuation'

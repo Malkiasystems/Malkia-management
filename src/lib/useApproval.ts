@@ -27,7 +27,7 @@ import { supabase } from './supabase'
 export type ApprovalTypeCode =
   | 'internal_use' | 'internal_use_own' | 'internal_use_damage'
   | 'sales_discount' | 'sales_return' | 'credit_note' | 'price_override'
-  | 'stock_adjustment' | 'stock_transfer' | 'opening_stock'
+  | 'stock_adjustment' | 'stock_transfer' | 'opening_stock' | 'kit_assembly'
   | 'petty_cash' | 'bank_transfer' | 'cash_payment' | 'journal_entry' | 'large_purchase'
   | 'overdue_invoice' | 'credit_limit_override'
   | 'void_transaction' | 'backdated_posting'

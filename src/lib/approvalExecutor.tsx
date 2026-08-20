@@ -17,6 +17,8 @@ import { supabase } from './supabase'
 import { insertJournalWithRetry } from './refs'
 import { postLedgerEntry } from './itemLedger'
 import { markRequestExecuted } from './useApproval'
+import { postKitAssembly } from './kitAssemblyPost'
+import type { KitAssemblyMode } from './kitAssemblyPost'
 
 // ─── Tax settings reader ────────────────────────────────────────────────────
 // Mirrors useSettings().settings.tax for non-React contexts (executors are
@@ -798,6 +800,45 @@ async function executeJournalEntry(c: ExecuteContext): Promise<ExecutorResult> {
   return { success: true, voucherId: c.referenceId }
 }
 
+// Kit Assembly — delegates to the shared postKitAssembly (same function the
+// voucher page calls directly), so page and executor can never diverge.
+// Quantities come from the approved snapshot; component COSTS are re-read at
+// execution time, because stock moves now and must move at today's average
+// cost. The value shown to the approver was indicative.
+async function executeKitAssembly(c: ExecuteContext): Promise<ExecutorResult> {
+  const p = c.payload as {
+    form: { date: string; ref: string; mode: KitAssemblyMode; kitProductId: string; kits: number; notes?: string; locationCode: string }
+    components: Array<{ productId: string; qtyPer: number }>
+    total: number
+  }
+
+  const { data: locRow } = await supabase.from('stock_locations')
+    .select('id, code').eq('code', p.form.locationCode).maybeSingle()
+  // Hard guard — same reasoning as executeInternalUse.
+  if (!locRow) {
+    return { success: false, error: `Cannot execute: location code "${p.form.locationCode || '(empty)'}" not found in stock_locations` }
+  }
+
+  const result = await postKitAssembly({
+    mode: p.form.mode,
+    kitProductId: p.form.kitProductId,
+    kits: p.form.kits,
+    ref: p.form.ref,
+    postingDate: p.form.date,
+    location: locRow,
+    notes: p.form.notes || '',
+    postedBy: c.executedByName,
+    components: p.components,
+    existingVoucherId: c.referenceId,
+  })
+  if (!result.success) return { success: false, error: result.error }
+  // A warning means stock moved but a follow-up step (journal / cost) failed.
+  // Surface it as a soft error message so the approver sees it, while the
+  // voucher itself is posted.
+  if (result.warning) return { success: true, voucherId: result.voucherId, error: result.warning }
+  return { success: true, voucherId: result.voucherId }
+}
+
 // ─── Registry ──────────────────────────────────────────────────────────────
 type Executor = (c: ExecuteContext) => Promise<ExecutorResult>
 
@@ -807,6 +848,7 @@ const EXECUTORS: Record<string, Executor> = {
   'internal_use_own':     executeInternalUse,
   'internal_use_damage':  executeInternalUse,
   'stock_adjustment':     executeStockAdjustment,
+  'kit_assembly':         executeKitAssembly,
   'petty_cash':           executePettyCash,
   'bank_transfer':        executeBankTransfer,
   'credit_note':          executeCreditNote,
