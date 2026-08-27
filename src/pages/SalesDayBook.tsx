@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
+import { useAuth } from '../lib/useAuth'
 import { tzs, localIso } from '../lib/utils'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
@@ -16,6 +17,13 @@ interface Props {
 
 export default function SalesDayBook({ onEdit }: Props) {
   const vis = useCostVisibility()
+  // Expense visibility gate. The vouchers page itself requires
+  // accounting.view, but this page only requires sales.view and was
+  // fetching every expense voucher (incl. sensitive back-office bank
+  // payments) into the browser for anyone with sales access. Expenses
+  // here now match the gate on the pages that own them.
+  const { can, isSuperAdmin } = useAuth()
+  const canSeeExpenses = can('accounting.view') || isSuperAdmin()
   const [sales, setSales] = useState<SDBSale[]>([])
   // Day Close status: if today has been closed (daily_closes), say so and show
   // the variance — this page is where the cashier lands after closing.
@@ -114,13 +122,23 @@ export default function SalesDayBook({ onEdit }: Props) {
   }
 
   const loadExpenses = async (from: string, to: string) => {
-    const { data } = await supabase.from('vouchers')
-      .select('ref, description, total_amount, payment_method, notes')
-      .in('type', ['cash_payment', 'bank_payment', 'petty_cash'])
-      .gte('posting_date', from).lte('posting_date', to)
-      .eq('status', 'posted')
-      .order('created_at', { ascending: false })
-    if (data) setExpenses(data as any)
+    // Only fetch when the user is allowed to see expenses at all. Skipping
+    // the query entirely (not just hiding the render) keeps the rows out of
+    // the network tab and browser memory for sales-only users.
+    if (canSeeExpenses) {
+      // Till-relevant types only. bank_payment is deliberately excluded:
+      // back-office bank spends are not part of a sales floor day book and
+      // live in the Expense Register / vouchers pages instead.
+      const { data } = await supabase.from('vouchers')
+        .select('ref, description, total_amount, payment_method, notes')
+        .in('type', ['cash_payment', 'petty_cash'])
+        .gte('posting_date', from).lte('posting_date', to)
+        .eq('status', 'posted')
+        .order('created_at', { ascending: false })
+      if (data) setExpenses(data as any)
+    } else {
+      setExpenses([])
+    }
 
     const { data: cn } = await supabase.from('vouchers')
       .select('ref, description, total_amount, posting_date')
@@ -250,12 +268,12 @@ export default function SalesDayBook({ onEdit }: Props) {
     (voucherType !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)
 
   // ── EXPORT: CSV ──────────────────────────────────────────────────────
-  const exportCSV = () => doExportCSV({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings, dayClosed })
+  const exportCSV = () => doExportCSV({ filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings, dayClosed, expensesHidden: !canSeeExpenses })
 
   // ── EXPORT: PDF (Print) ──────────────────────────────────────────────
   // View-aware: Summary view → summary PDF; Detail view → per-voucher detail PDF.
   const exportPDF = () => {
-    const payload = { filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings }
+    const payload = { filtered, expenses, creditNotes, paymentSplit, expenseSplit, totalRevenue, totalExpenses, totalCreditNotes, netSales, totalCost, totalMargin, marginPct, cashTotal, creditTotal, cashCount: cashSales.length, creditCount: creditSales.length, cashPct, creditPct, fromDate, toDate, tplSettings, expensesHidden: !canSeeExpenses }
     if (view === 'detail') doExportDetailPDF(payload)
     else doExportPDF(payload)
   }

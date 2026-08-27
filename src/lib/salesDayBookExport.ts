@@ -65,6 +65,10 @@ export interface ExportData {
   fromDate: string
   toDate: string
   tplSettings: SDBTemplateSettings
+  // True when the viewer lacks accounting.view: expenses were never fetched.
+  // The PDF must say "restricted", not "no expenses recorded", so a manager
+  // reading a cashier's export doesn't mistake hidden for zero.
+  expensesHidden?: boolean
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────
@@ -175,7 +179,7 @@ export function exportPDF(data: ExportData) {
     filtered, expenses, creditNotes, paymentSplit, expenseSplit,
     totalRevenue, totalExpenses, totalCreditNotes, netSales,
     cashTotal, creditTotal, cashCount, creditCount, cashPct, creditPct,
-    fromDate, toDate, tplSettings,
+    fromDate, toDate, tplSettings, expensesHidden,
   } = data
   if (filtered.length === 0) return
 
@@ -283,8 +287,8 @@ export function exportPDF(data: ExportData) {
         <div class="stat"><div class="stat-label">Gross Sales</div><div class="stat-val green">TZS ${totalRevenue.toLocaleString()}</div></div>
         <div class="stat"><div class="stat-label">Credit Notes</div><div class="stat-val" style="color:${totalCreditNotes > 0 ? '#c0392b' : '#999'}">${totalCreditNotes > 0 ? '(TZS ' + totalCreditNotes.toLocaleString() + ')' : 'None'}</div></div>
         <div class="stat"><div class="stat-label">Net Sales</div><div class="stat-val green">TZS ${netSales.toLocaleString()}</div></div>
-        <div class="stat"><div class="stat-label">Expenses</div><div class="stat-val red">TZS ${totalExpenses.toLocaleString()}</div></div>
-        <div class="stat" style="background:${(netSales - totalExpenses) >= 0 ? '#f0faf7' : '#fef2f2'};border-color:${(netSales - totalExpenses) >= 0 ? pc + '40' : '#fca5a540'}"><div class="stat-label">Net Position</div><div class="stat-val" style="color:${(netSales - totalExpenses) >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${(netSales - totalExpenses).toLocaleString()}</div></div>
+        <div class="stat"><div class="stat-label">Expenses</div><div class="stat-val red">${expensesHidden ? '<span style="color:#999;font-size:12px">Restricted</span>' : 'TZS ' + totalExpenses.toLocaleString()}</div></div>
+        ${expensesHidden ? '' : `<div class="stat" style="background:${(netSales - totalExpenses) >= 0 ? '#f0faf7' : '#fef2f2'};border-color:${(netSales - totalExpenses) >= 0 ? pc + '40' : '#fca5a540'}"><div class="stat-label">Net Position</div><div class="stat-val" style="color:${(netSales - totalExpenses) >= 0 ? '#1a7a4a' : '#c0392b'}">TZS ${(netSales - totalExpenses).toLocaleString()}</div></div>`}
       </div>
 
       <div class="section-title">Sales Composition</div>
@@ -328,8 +332,8 @@ export function exportPDF(data: ExportData) {
           </table>
         </div>
         <div>
-          <div class="section-title">Expense Summary</div>
-          ${expenses.length > 0 ? `
+          <div class="section-title">Cash &amp; Petty Expenses</div>
+          ${expensesHidden ? '<div style="font-size:12px;color:#bbb;padding:16px 0">Restricted — requires accounting permission.</div>' : expenses.length > 0 ? `
             <table class="compact"><thead><tr><th>Ref</th><th>Description</th><th>Paid From</th><th class="num">Amount (TZS)</th></tr></thead>
             <tbody>${expenseRows}</tbody>
             <tfoot><tr class="total-row"><td colspan="3">Total Expenses</td><td class="num">${totalExpenses.toLocaleString()}</td></tr></tfoot>
