@@ -490,12 +490,18 @@ export default function ImportOrder({ onNav }: Props) {
     }
     setShipSaving(true)
     try {
-      // Fetch fresh shipment count from DB to prevent duplicate numbers from race conditions
-      const { count: existingCount } = await supabase
+      // Fetch fresh MAX(shipment_number) from DB to prevent duplicate numbers.
+      // Was count+1, which breaks the moment any shipment row is deleted:
+      // after the IMP-10-0004 cleanup (rows #2/#4 removed, #1/#3 kept) a
+      // count-based scheme would have issued #3 again. MAX+1 is equally
+      // race-safe (still read fresh per click) and gap-safe.
+      const { data: maxRow } = await supabase
         .from('import_shipments')
-        .select('*', { count: 'exact', head: true })
+        .select('shipment_number')
         .eq('order_id', activeOrder.id)
-      const num = (existingCount || 0) + 1
+        .order('shipment_number', { ascending: false })
+        .limit(1)
+      const num = ((maxRow && maxRow[0]?.shipment_number) || 0) + 1
       const { data: sh, error: sErr } = await supabase.from('import_shipments').insert({ order_id: activeOrder.id, shipment_number: num, method: shipForm.method, agent_name: shipForm.agentName || null, tracking_ref: shipForm.trackingRef || null, ship_date: shipForm.shipDate || null, expected_arrival: shipForm.expectedArrival || null, freight_cost_tzs: parseFloat(shipForm.freightCost) || 0, status: 'in_transit', notes: shipForm.notes || null }).select('id').single()
       if (sErr) throw new Error(sErr.message)
       await supabase.from('import_shipment_lines').insert(shipLines.filter(l => l.qty > 0).map(l => ({ shipment_id: sh.id, order_line_id: l.orderLineId, qty_shipped: l.qty, qty_received: 0 })))

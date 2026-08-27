@@ -7,6 +7,9 @@ Contents:
 Migrations: NONE. Code-only deploy.
 
 What changed (all inside addShipment + one button):
+  0. Shipment numbering now uses MAX(shipment_number)+1 fetched fresh
+     from the DB instead of row count+1. Count-based numbering would
+     reissue #3 on IMP-10-0004 after the cleanup deleted rows #2 and #4.
   1. shipSaving in-flight guard: early return + button disabled with
      'Creating...' label while the flow posts. This is the fix for the
      triple-click that created shipments #2/#3/#4 and the duplicate
