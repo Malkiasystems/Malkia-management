@@ -1,3 +1,24 @@
-FOR MALKIA-MANAGEMENT ONLY.
-Kit Assembly feature: new voucher (KIT prefix), kit_components recipe table, assembly/disassembly posting with weighted-average kit costing.
-Migration 038 ALREADY APPLIED to ebokhvibnypiomzqimfg via MCP on 2026-08-20. Deploy code anytime.
+This bundle deploys to Malkia-management (MalkiaOS) ONLY.
+Do not copy any file in here into AtlasOS / Tarakimu.
+
+Contents:
+  src/pages/vouchers/ImportOrder.tsx   (edited: Add Shipment double-post fix)
+
+Migrations: NONE. Code-only deploy.
+
+What changed (all inside addShipment + one button):
+  1. shipSaving in-flight guard: early return + button disabled with
+     'Creating...' label while the flow posts. This is the fix for the
+     triple-click that created shipments #2/#3/#4 and the duplicate
+     TZS 741,150 freight payment on IMP-10-0004 (27 Aug 2026).
+  2. On failure, order detail reloads before the modal lets you retry,
+     so remaining-to-ship validation runs against real DB state instead
+     of the stale pre-click snapshot.
+  3. After a freight-paid-now payment, import_orders.total_freight_tzs
+     is recomputed from import_payments (same figure recordPayment
+     maintains). Previously this path never updated the stored column,
+     so ImportRegister understated freight for shipment-declared
+     payments. total_landed_tzs is not touched; doReceiveShipment owns it.
+
+Deploy AFTER running the data cleanup for IMP-10-0004 (see chat), so the
+cleanup happens on known data and the fix prevents recurrence.

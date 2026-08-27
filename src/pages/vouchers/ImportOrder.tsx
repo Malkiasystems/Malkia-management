@@ -92,6 +92,11 @@ export default function ImportOrder({ onNav }: Props) {
   const [lines, setLines] = useState<OrderLine[]>([{...EMPTY_LINE}]); const [saving, setSaving] = useState(false)
   const [showPayModal, setShowPayModal] = useState(false); const [payType, setPayType] = useState<'supplier_deposit'|'supplier_balance'|'forwarding_agent'|'customs_duties'|'clearing_fees'|'local_carrier'>('supplier_deposit')
   const [payForm, setPayForm] = useState({ date:today(), amount:'', bankAccount:'', agentSupplierId:'', reference:'', notes:'', currency:'TZS', fxRate:'1' }); const [payPosting, setPayPosting] = useState(false)
+  // In-flight guard for Add Shipment. Every other posting button on this page
+  // (saveOrder, recordPayment, receives) already has one. Its absence here is
+  // how IMP-10-0004 got shipments #2/#3/#4 and a duplicate 741,150 freight
+  // payment from three clicks on Create Shipment (27 Aug 2026).
+  const [shipSaving, setShipSaving] = useState(false)
   const [showShipModal, setShowShipModal] = useState(false); const [shipForm, setShipForm] = useState({ method:'sea', agentName:'', trackingRef:'', shipDate:today(), expectedArrival:'', freightCost:'', notes:'', freightPaidNow:'later', freightBank:'' })
   const [shipLines, setShipLines] = useState<{orderLineId:string;qty:number;desc:string}[]>([])
   const [showReceiveModal, setShowReceiveModal] = useState(false); const [receiveShipmentId, setReceiveShipmentId] = useState('')
@@ -465,6 +470,7 @@ export default function ImportOrder({ onNav }: Props) {
 
   const addShipment = async () => {
     if (!activeOrder) return
+    if (shipSaving) return // second click while the first is still posting does nothing
     if (shipLines.every(l => l.qty <= 0)) { showToast('Add quantities', 'error'); return }
     // Validate every line's qty doesn't exceed remaining-to-ship
     const violations: string[] = []
@@ -482,6 +488,7 @@ export default function ImportOrder({ onNav }: Props) {
     if ((parseFloat(shipForm.freightCost) || 0) > 0 && shipForm.freightPaidNow === 'now' && !shipForm.freightBank) {
       showToast('Freight marked as paid — select which bank it left', 'error'); return
     }
+    setShipSaving(true)
     try {
       // Fetch fresh shipment count from DB to prevent duplicate numbers from race conditions
       const { count: existingCount } = await supabase
@@ -525,12 +532,35 @@ export default function ImportOrder({ onNav }: Props) {
           journal_id: fjnl.id, voucher_ref: `JV-${activeOrder.ref}-F${num}`,
         }).select('id').single()
         await supabase.from('import_shipments').update({ freight_paid: true, freight_payment_id: fpay?.id || null }).eq('id', sh.id)
+
+        // Keep the stored header column in sync the way recordPayment does.
+        // ImportRegister reads import_orders.total_freight_tzs directly, so a
+        // freight payment posted from this path was invisible to the register.
+        // Summed fresh from the DB, not from client state, so it is correct
+        // even after a failed attempt. total_landed_tzs is deliberately left
+        // alone: doReceiveShipment owns it (trueTotalLanded).
+        const { data: allPays } = await supabase.from('import_payments').select('amount_tzs, payment_type').eq('order_id', activeOrder.id)
+        const otherCostsNow = (allPays || [])
+          .filter(p => ['forwarding_agent','customs_duties','clearing_fees','local_carrier'].includes(p.payment_type))
+          .reduce((s, p) => s + (Number(p.amount_tzs) || 0), 0)
+        await supabase.from('import_orders').update({ total_freight_tzs: otherCostsNow }).eq('id', activeOrder.id)
       }
       if (['draft', 'deposit_paid', 'in_production', 'balance_paid'].includes(activeOrder.status)) await supabase.from('import_orders').update({ status: 'shipped' }).eq('id', activeOrder.id)
       showToast(`Shipment #${num} (${shipForm.method}) added`); setShowShipModal(false)
       const r = (await supabase.from('import_orders').select('*,suppliers(name,code)').eq('id', activeOrder.id).single()).data
       if (r) await loadOrderDetail(r as ImportOrder)
-    } catch (e: unknown) { showToast(e instanceof Error ? e.message : 'Failed', 'error') }
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed', 'error')
+      // A mid-flow failure can leave a half-created shipment behind (that is
+      // exactly what shipment #2 on IMP-10-0004 was). Reload so the modal's
+      // remaining-to-ship validation runs against what actually exists in the
+      // DB instead of the stale pre-click state, which is what let the retry
+      // over-ship 252 units twice more.
+      try {
+        const r2 = (await supabase.from('import_orders').select('*,suppliers(name,code)').eq('id', activeOrder.id).single()).data
+        if (r2) await loadOrderDetail(r2 as ImportOrder)
+      } catch { /* reload is best-effort; the error toast above already showed */ }
+    } finally { setShipSaving(false) }
   }
 
   const openReceiveModal = async (sh: Shipment) => {
@@ -974,8 +1004,8 @@ export default function ImportOrder({ onNav }: Props) {
           <button
             className="btn btn-primary"
             onClick={addShipment}
-            disabled={shipLines.some(sl => sl.qty > remainingToShip(sl.orderLineId)) || shipLines.every(sl => sl.qty <= 0)}
-          >Create Shipment</button>
+            disabled={shipSaving || shipLines.some(sl => sl.qty > remainingToShip(sl.orderLineId)) || shipLines.every(sl => sl.qty <= 0)}
+          >{shipSaving ? 'Creating...' : 'Create Shipment'}</button>
         </div>
       </div></div>}
 
