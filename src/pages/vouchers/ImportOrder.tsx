@@ -517,7 +517,11 @@ export default function ImportOrder({ onNav }: Props) {
         if (!drAcct) throw new Error('Account 1121 not found')
         const fdesc = `Import — Shipping/Freight — ${shipForm.agentName || 'Agent'} — ${activeOrder.ref} — Shipment #${num}`
         const { data: fjnl, error: fjErr } = await supabase.from('journals').insert({
-          ref: `JV-${activeOrder.ref}-F${num}`, posting_date: today(), description: fdesc,
+          // FS prefix, not F: journals.ref has a UNIQUE index (journals_ref_key) and
+          // recordPayment numbers its freight journals F{payment count} while this
+          // path numbered F{shipment number}. The two schemes collided on 27 Aug
+          // (JV-IMP-10-0004-F2), killing the flow mid-post and stranding shipment #2.
+          ref: `JV-${activeOrder.ref}-FS${num}`, posting_date: today(), description: fdesc,
           journal_type: 'import_payment', source_type: 'import_order', source_ref: activeOrder.ref,
           posted_by: user?.full_name || 'System', status: 'posted',
         }).select('id').single()
@@ -535,7 +539,7 @@ export default function ImportOrder({ onNav }: Props) {
           amount_tzs: freightAmt, bank_account_id: shipForm.freightBank,
           reference: shipForm.trackingRef || null,
           notes: `Freight for Shipment #${num}${shipForm.agentName ? ' — ' + shipForm.agentName : ''}`,
-          journal_id: fjnl.id, voucher_ref: `JV-${activeOrder.ref}-F${num}`,
+          journal_id: fjnl.id, voucher_ref: `JV-${activeOrder.ref}-FS${num}`,
         }).select('id').single()
         await supabase.from('import_shipments').update({ freight_paid: true, freight_payment_id: fpay?.id || null }).eq('id', sh.id)
 

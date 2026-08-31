@@ -475,7 +475,10 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       ))
 
       // ── 7. Create voucher record ──────────────────────
-      await supabase.from('vouchers').insert({
+      // Error-checked: this insert failed silently for every payroll run
+      // before migration 037 (vouchers_type_check had no 'payroll' type),
+      // so no payroll voucher ever existed and nobody knew.
+      const { error: vchErr } = await supabase.from('vouchers').insert({
         ref, type: 'payroll', posting_date: `${period}-28`,
         description: `Payroll — ${period} — ${lines.length} employees`,
         total_amount: totals.gross + totals.nssfEr + totals.sdl,
@@ -483,6 +486,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
         notes: `Gross: ${totals.gross.toLocaleString()} · PAYE: ${totals.paye.toLocaleString()} · NSSF Ee: ${totals.nssfEe.toLocaleString()} · Er: ${totals.nssfEr.toLocaleString()} · SDL: ${totals.sdl.toLocaleString()} · Net: ${totals.net.toLocaleString()}`,
         posted_by: userName,
       })
+      if (vchErr) throw new Error(`Payroll posted but voucher record failed: ${vchErr.message}`)
 
       // ── 8. Deduct salary advances ─────────────────────
       for (const l of lines) {
