@@ -1,27 +1,55 @@
 This bundle deploys to Malkia-management (MalkiaOS) ONLY.
 Do not copy any file in here into AtlasOS / Tarakimu.
 
+SESSION BUNDLE 27 Aug 2026. Supersedes the earlier
+malkia-importorder-shipment-doublepost-fix.zip from this session.
+Deploy this one; all three files go together.
+
 Contents:
-  src/pages/vouchers/ImportOrder.tsx   (edited: Add Shipment double-post fix)
+  src/pages/vouchers/ImportOrder.tsx    (shipment double-post fix)
+  src/pages/SalesDayBook.tsx            (expense visibility fix)
+  src/lib/salesDayBookExport.ts         (expense visibility fix)
 
 Migrations: NONE. Code-only deploy.
+Data cleanup for IMP-10-0004 already applied directly to the DB via
+MCP earlier today (F4 reversed as JV-FIX-IMP-10-0004-V, duplicate
+payment row + shipments #2/#4 deleted, total_freight_tzs resynced).
 
-What changed (all inside addShipment + one button):
+CHANGE 1 — ImportOrder.tsx (Add Shipment double-post):
   0. Shipment numbering now uses MAX(shipment_number)+1 fetched fresh
      from the DB instead of row count+1. Count-based numbering would
      reissue #3 on IMP-10-0004 after the cleanup deleted rows #2 and #4.
   1. shipSaving in-flight guard: early return + button disabled with
-     'Creating...' label while the flow posts. This is the fix for the
-     triple-click that created shipments #2/#3/#4 and the duplicate
-     TZS 741,150 freight payment on IMP-10-0004 (27 Aug 2026).
+     'Creating...' label while the flow posts. Fix for the triple-click
+     that created shipments #2/#3/#4 and the duplicate TZS 741,150
+     freight payment.
   2. On failure, order detail reloads before the modal lets you retry,
-     so remaining-to-ship validation runs against real DB state instead
-     of the stale pre-click snapshot.
+     so remaining-to-ship validation runs against real DB state.
   3. After a freight-paid-now payment, import_orders.total_freight_tzs
-     is recomputed from import_payments (same figure recordPayment
-     maintains). Previously this path never updated the stored column,
-     so ImportRegister understated freight for shipment-declared
-     payments. total_landed_tzs is not touched; doReceiveShipment owns it.
+     is recomputed from import_payments. Previously this path never
+     updated the stored column, so ImportRegister understated freight.
 
-Deploy AFTER running the data cleanup for IMP-10-0004 (see chat), so the
-cleanup happens on known data and the fix prevents recurrence.
+CHANGE 2 — SalesDayBook.tsx + salesDayBookExport.ts (expenses):
+  1. Day Book expenses filter by PAYMENT METHOD, not voucher type:
+     petty_cash, plus cash_payment paid by physical cash. Electronic
+     methods (rtgs, mpesa, mixx) and null methods are excluded for
+     every viewer. Reason: the bank-payment page is a legacy alias of
+     the cash payment screen and no bank_payment type vouchers exist
+     (verified in prod), so a type filter excluded nothing. Salaries,
+     supplier transfers, and other back-office spends are electronic,
+     so this keeps them off cashiers' screens. Cashiers keep full
+     visibility of drawer expenses they record.
+  2. Caveat: a shop expense paid via M-Pesa will also be hidden from
+     the Day Book. Erring toward hiding, per Joe's sensitivity call.
+     A sensitive spend paid in PHYSICAL cash will still show.
+  3. Summary PDF: expense section retitled 'Cash & Petty Expenses'
+     since it no longer claims to be total expenses. The export lib
+     also gained an optional expensesHidden flag that prints
+     'Restricted' instead of figures; currently nothing passes it, it
+     is inert and ready if role-gating is ever wanted back.
+
+NOT in this bundle (agreed for a later session):
+  - RLS on vouchers is still USING(true): any authenticated user can
+    read all vouchers via the REST API directly. The real lock needs a
+    has_permission() helper + policy + full impact sweep. This bundle
+    is the UI/UX layer only.

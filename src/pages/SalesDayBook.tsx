@@ -114,9 +114,19 @@ export default function SalesDayBook({ onEdit }: Props) {
   }
 
   const loadExpenses = async (from: string, to: string) => {
+    // Till-relevant expenses only, visible to everyone who can open this
+    // page (cashiers see the drawer expenses they record themselves).
+    // Discriminator is the PAYMENT METHOD, not the voucher type: the
+    // bank-payment page is a legacy alias and every payment posts as
+    // type cash_payment, so filtering by type alone excludes nothing.
+    // Rule: petty_cash, plus cash_payment paid by physical cash. Anything
+    // electronic (rtgs / mpesa / mixx) is back-office money movement and
+    // stays off the sales floor day book: salaries, supplier transfers,
+    // director spends. A null payment_method is treated as hidden (safe
+    // default).
     const { data } = await supabase.from('vouchers')
       .select('ref, description, total_amount, payment_method, notes')
-      .in('type', ['cash_payment', 'bank_payment', 'petty_cash'])
+      .or('type.eq.petty_cash,and(type.eq.cash_payment,payment_method.eq.cash)')
       .gte('posting_date', from).lte('posting_date', to)
       .eq('status', 'posted')
       .order('created_at', { ascending: false })
