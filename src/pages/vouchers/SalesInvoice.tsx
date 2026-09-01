@@ -41,9 +41,16 @@ interface DBCustomer {
 
 interface DBProduct {
   id: string; sku: string; name: string; category: string
-  cost_price: number; selling_price: number; qty_on_hand: number
+  cost_price: number; selling_price: number; wholesale_price: number; qty_on_hand: number
   units_per_carton?: number | null
 }
+
+// Wholesale invoices price at the product's wholesale_price (set on the
+// Pricing page) and may never exceed it. Discounts below it are fine.
+// Products with no wholesale price set fall back to retail selling_price
+// as both default and ceiling, and the UI flags them so they get fixed.
+const hasWholesale = (p: DBProduct) => (Number(p.wholesale_price) || 0) > 0
+const priceCap = (p: DBProduct) => hasWholesale(p) ? Number(p.wholesale_price) : (Number(p.selling_price) || 0)
 
 interface InvLine {
   // qty is ALWAYS pieces — the item ledger, stock checks and posting all
@@ -335,7 +342,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   }
 
   const loadProducts = () => {
-    supabase.from('products').select('id, sku, name, category, cost_price, selling_price, qty_on_hand, units_per_carton')
+    supabase.from('products').select('id, sku, name, category, cost_price, selling_price, wholesale_price, qty_on_hand, units_per_carton')
       .eq('is_active', true).order('name').then(({ data }) => { if (data) setProducts(data) })
   }
 
@@ -421,9 +428,17 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     const nl = [...lines]; nl[i] = { ...nl[i], [field]: val } as InvLine
     if (field === 'productId') {
       const p = products.find(p => p.id === val)
-      if (p) { nl[i].name = p.name; nl[i].price = p.selling_price }
+      if (p) { nl[i].name = p.name; nl[i].price = priceCap(p) }
     }
-    const price = field === 'price' ? Number(val) : nl[i].price
+    if (field === 'price') {
+      // Ceiling is the wholesale price. Typing above it snaps back to it.
+      const p = products.find(p => p.id === nl[i].productId)
+      if (p && Number(val) > priceCap(p)) {
+        nl[i].price = priceCap(p)
+        showToast(`${p.name}: capped at ${hasWholesale(p) ? 'wholesale' : 'retail'} price ${tzs(priceCap(p))}. Wholesale invoices cannot exceed set prices.`, 'error')
+      }
+    }
+    const price = Number(nl[i].price) || 0
     const qty = field === 'qty' ? Number(val) : nl[i].qty
     const disc = field === 'discount' ? Number(val) : nl[i].discount
     const mode = field === 'discountMode' ? (val as 'percent' | 'absolute') : (nl[i].discountMode || 'percent')
@@ -453,6 +468,17 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     if (!selectedCust) { showToast('Select a customer from the database first', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (subtotal <= 0) { showToast('Invoice total must be greater than zero', 'error'); return }
+
+    // Ceiling check at post time too: updateLine clamps live typing, but a
+    // restored draft can carry a price saved before this rule existed.
+    const overCap = lines.filter(l => l.productId).find(l => {
+      const p = products.find(x => x.id === l.productId)
+      return p && Number(l.price) > priceCap(p) + 0.5
+    })
+    if (overCap) {
+      const p = products.find(x => x.id === overCap.productId)!
+      showToast(`${p.name}: unit price ${tzs(Number(overCap.price))} is above the ${hasWholesale(p) ? 'wholesale' : 'retail'} price ${tzs(priceCap(p))}. Lower it before posting.`, 'error'); return
+    }
 
     // Optional advance payment validation. If the user typed an amount in
     // the "Payment received at issue" block we need a deposit account and
@@ -1143,8 +1169,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                                     {p.sku} · Stock: <span style={{ color: p.qty_on_hand > 0 ? 'var(--green)' : 'var(--red)' }}>{p.qty_on_hand}</span>
                                   </div>
                                 </div>
-                                <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginLeft: 12 }}>
-                                  {tzs(p.selling_price)}
+                                <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginLeft: 12, textAlign: 'right' }}>
+                                  {tzs(priceCap(p))}
+                                  {!hasWholesale(p) && <div style={{ fontSize: 9, fontWeight: 500, color: 'var(--amber, #d48744)' }}>no wholesale price · retail</div>}
                                 </div>
                               </div>
                             ))}
@@ -1229,8 +1256,16 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                     <div>
                       <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Unit Price</div>
                       <input type="number" className="form-input"
-                        value={line.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)}
+                        value={line.price} max={selectedProd ? priceCap(selectedProd) : undefined}
+                        onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)}
                         style={{ fontFamily: 'var(--mono)', fontSize: 13, textAlign: 'right' }} />
+                      {selectedProd && (
+                        <div style={{ fontSize: 9, fontFamily: 'var(--mono)', marginTop: 3, color: hasWholesale(selectedProd) ? 'var(--text3)' : 'var(--amber, #d48744)' }}>
+                          {hasWholesale(selectedProd)
+                            ? `Max ${tzs(priceCap(selectedProd))} (wholesale)`
+                            : `No wholesale price set · max ${tzs(priceCap(selectedProd))} (retail)`}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
