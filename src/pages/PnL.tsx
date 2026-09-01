@@ -5,6 +5,52 @@ import { useExpenseBudgets, loadActualSpend, buildBudgetLines, getMonthPeriod, d
 import type { BudgetLine } from '../lib/useExpenseBudgets'
 import Toast from '../components/Toast'
 import { clampFrom } from '../lib/ledgerCutover'
+import { printHtmlDocument } from '../lib/printDocument'
+
+// Same PDF chrome as TrialBalance / BalanceSheet (each page keeps its own copy).
+const MALKIA_PDF_HEADER = (title: string, subtitle: string, date: string) => `
+<div class="header">
+  <div class="logo-area">
+    <div class="logo-mark"><div class="logo-inner"></div></div>
+    <div class="company">
+      <div class="company-name">Malkia Wellness Group Ltd</div>
+      <div class="company-sub">Dar es Salaam, Tanzania · MalkiaOS Financial Reports</div>
+    </div>
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">${title}</div>
+    <div class="doc-meta">${subtitle}<br>Generated: ${date}</div>
+  </div>
+</div>`
+
+const PDF_BASE_STYLES = `
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Instrument Sans', sans-serif; background: #fff; color: #1a1a1a; padding: 40px; font-size: 12px; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; padding-bottom: 18px; border-bottom: 3px solid #0a0a0a; }
+.logo-area { display: flex; align-items: center; gap: 14px; }
+.logo-mark { width: 48px; height: 48px; background: #0a0a0a; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.logo-inner { width: 26px; height: 26px; background: #D48744; border-radius: 6px; }
+.company-name { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 800; letter-spacing: -0.5px; }
+.company-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: #666; margin-top: 3px; }
+.doc-info { text-align: right; }
+.doc-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; }
+.doc-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: #888; margin-top: 4px; line-height: 1.6; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+thead tr { background: #0a0a0a; color: #fff; }
+th { font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; padding: 10px; text-align: left; }
+td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+.num { text-align: right; font-family: 'DM Mono', monospace; }
+.pos { color: #1a7a4a; } .neg { color: #c0392b; }
+.section-row { background: #f8f8f8; font-weight: 600; font-size: 11px; }
+.subtotal-row td { font-weight: 700; border-top: 1px solid #ddd; }
+.total-row { background: #0a0a0a; color: #fff; font-weight: 700; }
+.total-row td { font-family: 'DM Mono', monospace; padding: 12px 10px; border: none; }
+.net { margin-top: 20px; padding: 16px 18px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-family: 'DM Mono', monospace; }
+.net.pos { background: #e8f8f0; color: #1a7a4a; } .net.neg { background: #fdecec; color: #c0392b; }
+.net .big { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; }
+.footer { margin-top: 28px; padding-top: 14px; border-top: 1px solid #eee; display: flex; justify-content: space-between; font-size: 9px; color: #999; font-family: 'DM Mono', monospace; }
+`
 
 interface AccountBalance { id: string; code: string; name: string; type: string; category: string; balance: number }
 
@@ -82,21 +128,20 @@ export default function PnL() {
     const accountIds = accounts.map(a => a.id)
     if (accountIds.length === 0) { setPeriodLoading(false); return }
 
+    // Server-side aggregation (migration 038). The previous raw journal_lines
+    // read silently truncated at the PostgREST 1,000-row cap: August 2026
+    // needed 1,231 rows and showed salaries at 230,000 instead of 7,396,000
+    // and B2C sales 8.9M short. This returns one row per account, uncapped.
     const { data: lines } = await supabase
-      .from('journal_lines')
-      .select('account_id, debit, credit, journals!inner(posting_date, status)')
-      .in('account_id', accountIds)
-      .gte('journals.posting_date', fromDate)
-      .lte('journals.posting_date', toDate)
-      .eq('journals.status', 'posted')
+      .rpc('account_period_totals', { p_from: fromDate, p_to: toDate, p_account_ids: accountIds })
 
     const result: Record<string, { debit: number; credit: number }> = {}
     accountIds.forEach(id => { result[id] = { debit: 0, credit: 0 } })
     if (lines) {
       lines.forEach((l: any) => {
         if (!result[l.account_id]) result[l.account_id] = { debit: 0, credit: 0 }
-        result[l.account_id].debit += (l.debit || 0)
-        result[l.account_id].credit += (l.credit || 0)
+        result[l.account_id].debit += Number(l.debit) || 0
+        result[l.account_id].credit += Number(l.credit) || 0
       })
     }
     setPeriodActuals(result)
@@ -175,6 +220,43 @@ export default function PnL() {
   const totalExpenses = expenses.reduce((s, a) => s + getAccountValue(a), 0)
   const netProfit = grossProfit - totalExpenses
   const margin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : '0'
+
+  // ── PDF export ────────────────────────────────────────────
+  // Same figures as the screen (uses getAccountValue, so it follows the
+  // selected period), same row filter (accounts with a positive value).
+  const exportPDF = () => {
+    const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    const fmt = (n: number) => n < 0 ? `(${Math.abs(n).toLocaleString()})` : n.toLocaleString()
+    const lines = (list: AccountBalance[], cls: string) => list
+      .filter(a => getAccountValue(a) > 0)
+      .map(a => `<tr><td style="font-family:'DM Mono',monospace;color:#D48744">${a.code}</td><td>${a.name}</td><td class="num ${cls}">${fmt(getAccountValue(a))}</td></tr>`)
+      .join('') || `<tr><td colspan="3" style="color:#999">None posted</td></tr>`
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Profit &amp; Loss</title><style>${PDF_BASE_STYLES}</style></head><body>
+      ${MALKIA_PDF_HEADER('Profit &amp; Loss', periodLabel(), now)}
+      <table>
+        <thead><tr><th>Code</th><th>Account</th><th class="num">TZS</th></tr></thead>
+        <tbody>
+          <tr class="section-row"><td colspan="3">REVENUE</td></tr>
+          ${lines(revenue, 'pos')}
+          <tr class="subtotal-row"><td colspan="2">Total Revenue</td><td class="num pos">${fmt(totalRevenue)}</td></tr>
+          <tr class="section-row"><td colspan="3">COST OF GOODS SOLD</td></tr>
+          ${lines(cogs, 'neg')}
+          <tr class="subtotal-row"><td colspan="2">Total COGS</td><td class="num neg">(${Math.abs(totalCogs).toLocaleString()})</td></tr>
+          <tr class="subtotal-row"><td colspan="2">Gross Profit</td><td class="num ${grossProfit >= 0 ? 'pos' : 'neg'}">${fmt(grossProfit)}</td></tr>
+          <tr class="section-row"><td colspan="3">OPERATING EXPENSES</td></tr>
+          ${lines(expenses, 'neg')}
+          <tr class="subtotal-row"><td colspan="2">Total Expenses</td><td class="num neg">(${Math.abs(totalExpenses).toLocaleString()})</td></tr>
+        </tbody>
+        <tfoot><tr class="total-row"><td colspan="2">NET ${netProfit >= 0 ? 'PROFIT' : 'LOSS'}</td><td class="num">${fmt(netProfit)}</td></tr></tfoot>
+      </table>
+      <div class="net ${netProfit >= 0 ? 'pos' : 'neg'}">
+        <span>Margin ${margin}% · Revenue ${totalRevenue.toLocaleString()} · Gross profit ${fmt(grossProfit)}</span>
+        <span class="big">${netProfit < 0 ? '(' : ''}TZS ${Math.abs(netProfit).toLocaleString()}${netProfit < 0 ? ')' : ''}</span>
+      </div>
+      <div class="footer"><span>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</span><span>MalkiaOS v1.0 · Confidential</span></div>
+    </body></html>`)
+    if (!printRes.ok && printRes.error) alert(printRes.error)
+  }
 
   // ── Budget setup helpers ──────────────────────────────────
   const openBudgetSetup = () => {
@@ -316,6 +398,11 @@ export default function PnL() {
           <button className="btn btn-ghost btn-sm" onClick={() => { loadPnL(); reloadBudgets() }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh
           </button>
+          {tab === 'actuals' && (
+            <button className="btn btn-primary btn-sm" onClick={exportPDF} disabled={loading || periodLoading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg> Export PDF
+            </button>
+          )}
         </div>
       </div>
 

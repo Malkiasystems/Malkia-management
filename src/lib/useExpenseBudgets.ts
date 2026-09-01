@@ -95,14 +95,10 @@ export async function loadActualSpend(
 ): Promise<Record<string, number>> {
   if (expenseAccountIds.length === 0) return {}
 
-  // Get all journal lines for these expense accounts
+  // Server-side aggregation (migration 038) instead of raw journal_lines,
+  // which truncated at the PostgREST 1,000-row cap. One row per account.
   const { data: lines } = await supabase
-    .from('journal_lines')
-    .select('account_id, debit, credit, journals!inner(posting_date, status)')
-    .in('account_id', expenseAccountIds)
-    .gte('journals.posting_date', fromDate)
-    .lte('journals.posting_date', toDate)
-    .eq('journals.status', 'posted')
+    .rpc('account_period_totals', { p_from: fromDate, p_to: toDate, p_account_ids: expenseAccountIds })
 
   const result: Record<string, number> = {}
   expenseAccountIds.forEach(id => { result[id] = 0 })
@@ -111,7 +107,7 @@ export async function loadActualSpend(
     lines.forEach((l: any) => {
       // Expenses are debited, so actual spend = sum of debits
       const id = l.account_id
-      result[id] = (result[id] || 0) + (l.debit || 0)
+      result[id] = (result[id] || 0) + (Number(l.debit) || 0)
     })
   }
 

@@ -437,24 +437,18 @@ export default function Banks({ onNav }: Props) {
 
     // Bounded in the query. The unbounded version hit the same 1,000-row cap
     // as loadLedger and quietly reported MONTH IN/OUT as zero.
+    // Server-side aggregation (migration 038). The date-bounded raw read
+    // below it replaced was still subject to the 1,000-row cap in a busy
+    // month; this returns one row per account regardless of volume.
     const ids = accts.map(a => a.id)
     const { data } = await supabase
-      .from('journal_lines')
-      .select('account_id, debit, credit, journals!inner(posting_date, status)')
-      .in('account_id', ids)
-      .gte('journals.posting_date', monthStart)
-      .lte('journals.posting_date', todayStr)
-      .eq('journals.status', 'posted')
+      .rpc('account_period_totals', { p_from: monthStart, p_to: todayStr, p_account_ids: ids })
 
     if (data) {
-      // Filter by month in JS
       data.forEach((l: any) => {
-        const pd = l.journals?.posting_date || ''
-        if (pd >= monthStart && pd <= todayStr) {
-          if (!stats[l.account_id]) stats[l.account_id] = { in: 0, out: 0 }
-          stats[l.account_id].in += (l.debit || 0)
-          stats[l.account_id].out += (l.credit || 0)
-        }
+        if (!stats[l.account_id]) stats[l.account_id] = { in: 0, out: 0 }
+        stats[l.account_id].in += Number(l.debit) || 0
+        stats[l.account_id].out += Number(l.credit) || 0
       })
     }
     setMonthStats(stats)

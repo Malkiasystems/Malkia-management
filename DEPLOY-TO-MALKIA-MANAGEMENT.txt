@@ -10,10 +10,15 @@ Contents:
   src/pages/SalesDayBook.tsx            (expense visibility fix)
   src/lib/salesDayBookExport.ts         (expense visibility fix)
   src/pages/hrm/HRMPayroll.tsx          (voucher insert error check)
-  src/lib/migrations/037_voucher_type_payroll.sql (record only)
+  src/pages/PnL.tsx                     (1,000-row cap fix + PDF export)
+  src/lib/useExpenseBudgets.ts          (1,000-row cap fix)
+  src/pages/Banks.tsx                   (1,000-row cap fix, month stats)
+  src/lib/migrations/037_voucher_type_payroll.sql   (record only)
+  src/lib/migrations/038_account_period_totals.sql  (record only)
 
-Migrations: 037 ALREADY APPLIED to prod via MCP on 31 Aug. The file is
-in this bundle only so the repo matches the database. Do not run twice.
+Migrations: 037 (31 Aug) and 038 (1 Sep) ALREADY APPLIED to prod via
+MCP. Files are in this bundle only so the repo matches the database.
+Do not run them again.
 Data cleanup for IMP-10-0004 already applied directly to the DB via
 MCP earlier today (F4 reversed as JV-FIX-IMP-10-0004-V, duplicate
 payment row + shipments #2/#4 deleted, total_freight_tzs resynced).
@@ -65,6 +70,23 @@ CHANGE 2 — SalesDayBook.tsx + salesDayBookExport.ts (expenses):
      also gained an optional expensesHidden flag that prints
      'Restricted' instead of figures; currently nothing passes it, it
      is inert and ready if role-gating is ever wanted back.
+
+CHANGE 4 — P&L / Budgets / Banks (added 1 Sep):
+  1. P&L period actuals, Budget vs Actual actual spend, and the Banks
+     month in/out card all read raw journal_lines for a date range in
+     one unpaginated call. PostgREST caps that at 1,000 rows; August
+     2026 needs 1,231, so 231 lines were silently dropped. On screen:
+     6010 salaries showed 230,000 (true 7,396,000), 4010 B2C sales
+     showed 33,333,000 (true 42,210,000). All three now call the
+     account_period_totals() function from migration 038, which
+     aggregates server-side and returns one row per account.
+  2. P&L gained an Export PDF button (actuals tab), same chrome as the
+     Trial Balance / Balance Sheet PDFs, same figures and row filter as
+     the screen for whichever period is selected.
+  3. Still capped, NOT fixed here: the per-account ledger drilldown in
+     Chart of Accounts (and the Banks ledger view) list raw lines and
+     will truncate on busy accounts. They need pagination like
+     useInterimRecon already does. Later session.
 
 NOT in this bundle (agreed for a later session):
   - RLS on vouchers is still USING(true): any authenticated user can
