@@ -12,6 +12,47 @@ import { tzs, getPostedBy, localIso } from '../lib/utils'
 import { fmtDualQty, fmtCartonBreakdown, cartonsToPieces } from '../lib/uom'
 import { useCostVisibility, HIDDEN } from '../lib/costVisibility'
 import { consumeSalesRegisterTab, rememberSalesRegisterTab, subscribeSalesRegisterTab } from '../lib/salesRegisterTab'
+import { printHtmlDocument } from '../lib/printDocument'
+
+// Same PDF chrome as PnL / TrialBalance / BalanceSheet (each page keeps a copy).
+const MALKIA_PDF_HEADER = (title: string, subtitle: string, date: string) => `
+<div class="header">
+  <div class="logo-area">
+    <div class="logo-mark"><div class="logo-inner"></div></div>
+    <div class="company">
+      <div class="company-name">Malkia Wellness Group Ltd</div>
+      <div class="company-sub">Dar es Salaam, Tanzania · MalkiaOS Financial Reports</div>
+    </div>
+  </div>
+  <div class="doc-info">
+    <div class="doc-title">${title}</div>
+    <div class="doc-meta">${subtitle}<br>Generated: ${date}</div>
+  </div>
+</div>`
+
+const PDF_BASE_STYLES = `
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@500;600&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Instrument Sans', sans-serif; background: #fff; color: #1a1a1a; padding: 40px; font-size: 12px; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; padding-bottom: 18px; border-bottom: 3px solid #0a0a0a; }
+.logo-area { display: flex; align-items: center; gap: 14px; }
+.logo-mark { width: 48px; height: 48px; background: #0a0a0a; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.logo-inner { width: 26px; height: 26px; background: #D48744; border-radius: 6px; }
+.company-name { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 800; letter-spacing: -0.5px; }
+.company-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: #666; margin-top: 3px; }
+.doc-info { text-align: right; }
+.doc-title { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; }
+.doc-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: #888; margin-top: 4px; line-height: 1.6; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+thead tr { background: #0a0a0a; color: #fff; }
+th { font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; padding: 10px; text-align: left; }
+th.num { text-align: right; }
+td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+.num { text-align: right; font-family: 'DM Mono', monospace; }
+.section-row { background: #f8f8f8; font-weight: 600; font-size: 12px; }
+.section-row td { border-top: 2px solid #e5e5e5; padding-top: 10px; }
+.footer { margin-top: 28px; padding-top: 14px; border-top: 1px solid #eee; display: flex; justify-content: space-between; font-size: 9px; color: #999; font-family: 'DM Mono', monospace; }
+`
 import type { Page } from '../lib/types'
 
 // ── Types ───────────────────────────────────────────────────
@@ -230,6 +271,9 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   type AllocProgress = { name: string; target_value: number; current: number; pct: number; employee_ids: string[] }
   type TargetProgressX = TargetProgress & { allocProgress?: AllocProgress[] }
   const [targetProgress, setTargetProgress] = useState<TargetProgressX[]>([])
+  const [showTargetCompare, setShowTargetCompare] = useState(false)
+  const [cmpA, setCmpA] = useState('')
+  const [cmpB, setCmpB] = useState('')
 
   // Bundles
   const { sales: bundleSales, totalBundlesSold, totalRevenue: bundleRevenue, totalSavingsGiven, byBundle, loading: bundlesLoading, refresh: refreshBundles } = useBundleSales(fromDate, toDate)
@@ -461,12 +505,9 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   }
 
   // Load target progress
-  const loadTargetProgress = useCallback(async () => {
-    const activeTs = targets.filter(t => t.is_active)
-    if (activeTs.length === 0) { setTargetProgress([]); return }
-
-    const results: TargetProgressX[] = []
-    for (const t of activeTs) {
+  // Progress for ONE target (any status). Extracted so the PDF report and
+  // target comparison can use ended targets, not just the active grid.
+  const progressForTarget = useCallback(async (t: SalesTarget): Promise<TargetProgressX> => {
       if (t.product_id) {
         const { data: lines } = await supabase
           .from('voucher_lines')
@@ -480,7 +521,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         const current = t.metric === 'revenue'
           ? spLines.reduce((s: number, l: any) => s + (l.total || 0), 0)
           : spLines.reduce((s: number, l: any) => s + (l.qty || 0), 0)
-        results.push({ ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, lines || []) })
+        return { ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, lines || []) }
       } else if (t.category) {
         const { data: lines } = await supabase
           .from('voucher_lines')
@@ -494,7 +535,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         const current = t.metric === 'revenue'
           ? spLines2.reduce((s: number, l: any) => s + (l.total || 0), 0)
           : spLines2.reduce((s: number, l: any) => s + (l.qty || 0), 0)
-        results.push({ ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, lines || []) })
+        return { ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, lines || []) }
       } else {
         let q = supabase
           .from('vouchers')
@@ -513,11 +554,19 @@ export default function SalesRegister({ onEdit }: Props = {}) {
           qty: (v.voucher_lines || []).reduce((a: number, l: any) => a + (l.qty || 0), 0),
           vouchers: { salesperson_id: v.salesperson_id },
         }))
-        results.push({ ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, vLines) })
+        return { ...calcTargetProgress(t, current), allocProgress: allocProgressFromLines(t, vLines) }
       }
-    }
+  }, [salespeople])
+
+  // Progress for ALL targets, active first (targets already arrive sorted
+  // is_active desc, start_date desc). The card grid filters to active; the
+  // PDF report and comparison consume the full list including ended ones.
+  const loadTargetProgress = useCallback(async () => {
+    if (targets.length === 0) { setTargetProgress([]); return }
+    const results: TargetProgressX[] = []
+    for (const t of targets) results.push(await progressForTarget(t))
     setTargetProgress(results)
-  }, [targets])
+  }, [targets, progressForTarget])
 
   useEffect(() => { loadSales() }, [])
   useEffect(() => { if (tab === 'compare') loadCompareSales() }, [tab, compareFrom, compareTo])
@@ -744,6 +793,59 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     setAllocDrafts((t.allocations || []).map(a => ({ name: a.name, employee_ids: a.employee_ids || [], value: String(a.target_value) })))
     setShowTargetForm(true)
   }
+  // Duplicate: prefill the create form from an existing target, dates rolled
+  // to the next period (start = day after the old end, end left blank so
+  // saveTarget's autoEndDate computes it from the period type). Allocations
+  // are copied; progress obviously starts at zero.
+  const openDuplicateTarget = (t: SalesTarget) => {
+    setEditingTarget(null)
+    const nextStart = new Date(t.end_date); nextStart.setDate(nextStart.getDate() + 1)
+    setTargetForm({ name: t.name + ' (copy)', period_type: t.period_type, metric: t.metric, target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', salesperson_id: t.salesperson_id || '', start_date: localIso(nextStart), end_date: '', notes: t.notes || '' })
+    setTargetUnit('pcs')
+    setAllocDrafts((t.allocations || []).map(a => ({ name: a.name, employee_ids: a.employee_ids || [], value: String(a.target_value) })))
+    setShowTargetForm(true)
+  }
+  // ── Targets report + comparison helpers ───────────────────
+  const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const tpScope = (t: SalesTarget) => t.product_id ? (products.find(p => p.id === t.product_id)?.name || 'Product') : t.category ? `Category: ${t.category}` : 'All sales'
+  const tpUpc = (t: SalesTarget) => t.product_id ? (products.find(p => p.id === t.product_id)?.units_per_carton || 0) : 0
+  const tpVal = (t: SalesTarget, v: number) => t.metric === 'revenue' ? tzs(v) : (tpUpc(t) >= 2 ? fmtDualQty(Math.round(v), tpUpc(t)) : Math.round(v).toLocaleString() + ' pcs')
+  const tpStatus = (tp: TargetProgressX) => tp.percentage >= 100 ? 'Achieved' : tp.daysLeft === 0 ? 'Ended · missed' : tp.onTrack ? 'On track' : 'Behind pace'
+
+  const exportTargetsPDF = () => {
+    if (targetProgress.length === 0) return
+    const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    const activeCount = targetProgress.filter(x => x.target.is_active).length
+    const sections = targetProgress.map(tp => {
+      const t = tp.target
+      const color = tp.percentage >= 100 ? '#1a7a4a' : tp.daysLeft === 0 ? '#c0392b' : tp.onTrack ? '#1a7a4a' : '#c0392b'
+      const allocRows = (tp.allocProgress || []).map(ap => `
+        <tr><td style="padding-left:24px;color:#666">${esc(ap.name)}</td>
+        <td class="num">${esc(tpVal(t, ap.current))} / ${esc(tpVal(t, ap.target_value))}</td>
+        <td class="num" style="color:${ap.pct >= 100 ? '#1a7a4a' : '#666'}">${ap.pct.toFixed(0)}%</td></tr>`).join('')
+      return `
+        <tr class="section-row"><td>${esc(t.name)}${t.is_active ? '' : ' <span style="color:#999;font-weight:400">(paused)</span>'}</td>
+        <td class="num">${esc(t.start_date)} → ${esc(t.end_date)}</td>
+        <td class="num" style="color:${color};font-weight:700">${tpStatus(tp)}</td></tr>
+        <tr><td style="color:#666">${esc(tpScope(t))} · ${t.period_type} · ${t.metric}</td>
+        <td class="num">${esc(tpVal(t, tp.current))} / ${esc(tpVal(t, t.target_value))}</td>
+        <td class="num" style="font-weight:700">${tp.percentage.toFixed(1)}%</td></tr>
+        <tr><td style="color:#999;font-size:10px">Daily rate ${esc(tpVal(t, tp.dailyRunRate))} · ${tp.daysLeft > 0 ? `need/day ${esc(tpVal(t, tp.requiredDailyRate))} · ${tp.daysLeft} days left` : 'period ended'}</td>
+        <td class="num" style="color:#999;font-size:10px">Projected ${esc(tpVal(t, tp.projectedTotal))}</td>
+        <td class="num" style="color:#999;font-size:10px">Remaining ${esc(tpVal(t, tp.remaining))}</td></tr>
+        ${allocRows}`
+    }).join('')
+    const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sales Targets Report</title><style>${PDF_BASE_STYLES}</style></head><body>
+      ${MALKIA_PDF_HEADER('Sales Targets Report', `${targetProgress.length} target${targetProgress.length !== 1 ? 's' : ''} · ${activeCount} active`, now)}
+      <table>
+        <thead><tr><th>Target / Allocation</th><th class="num">Achieved / Target</th><th class="num">Status</th></tr></thead>
+        <tbody>${sections}</tbody>
+      </table>
+      <div class="footer"><span>Malkia Wellness Group Ltd · Dar es Salaam, Tanzania</span><span>MalkiaOS v1.0 · Confidential</span></div>
+    </body></html>`)
+    if (!printRes.ok && printRes.error) setToast({ msg: printRes.error, type: 'error' })
+  }
+
   const autoEndDate = (startDate: string, periodType: string) => {
     const d = new Date(startDate)
     if (periodType === 'annual') d.setFullYear(d.getFullYear() + 1)
@@ -870,8 +972,8 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       {tab === 'transactions' && (
         <>
           {/* Target pulse bar */}
-          {targetProgress.length > 0 && (() => {
-            const main = targetProgress[0]
+          {targetProgress.some(tp => tp.target.is_active) && (() => {
+            const main = targetProgress.find(tp => tp.target.is_active)!
             const t = main.target
             return (
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -1464,15 +1566,17 @@ export default function SalesRegister({ onEdit }: Props = {}) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div style={{ fontSize: 13, color: 'var(--text3)' }}>{targets.filter(t => t.is_active).length} active target{targets.filter(t => t.is_active).length !== 1 ? 's' : ''}</div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setCmpA(targetProgress[0]?.target.id || ''); setCmpB(targetProgress[1]?.target.id || ''); setShowTargetCompare(true) }} disabled={targetProgress.length < 2} title={targetProgress.length < 2 ? 'Needs at least two targets' : 'Compare two targets side by side'}>Compare</button>
+              <button className="btn btn-ghost btn-sm" onClick={exportTargetsPDF} disabled={targetProgress.length === 0}>Export PDF</button>
               <button className="btn btn-ghost btn-sm" onClick={loadTargetProgress}>Refresh Progress</button>
               {canManageTargets && <button className="btn btn-primary" onClick={openNewTarget}>+ New Target</button>}
             </div>
           </div>
 
           {/* Active target cards */}
-          {targetProgress.length > 0 && (
+          {targetProgress.filter(tp => tp.target.is_active).length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 16, marginBottom: 24 }}>
-              {targetProgress.map((tp) => {
+              {targetProgress.filter(tp => tp.target.is_active).map((tp) => {
                 const t = tp.target
                 // Carton-aware formatting for the whole card when the target's
                 // product is carton-packed. Units metric only; revenue stays TZS.
@@ -1496,6 +1600,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                       {canManageTargets && (
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 10 }} onClick={() => openEditTarget(t)}>Edit</button>
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 10 }} title="Create the next period's target from this one" onClick={() => openDuplicateTarget(t)}>Duplicate</button>
                         <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 10, color: 'var(--text3)' }} onClick={() => toggleTarget(t.id, false)}>Pause</button>
                         <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 10, color: 'var(--red)' }} onClick={async () => {
                           if (confirm('Delete this target?')) { await removeTarget(t.id); setToast({ msg: 'Target deleted', type: 'success' }) }
@@ -1571,8 +1676,8 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                       <div style={{ background: 'var(--surface2)', borderRadius: 8, padding: 10, textAlign: 'center' }}>
                         <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--mono)', color: tp.onTrack ? 'var(--green)' : 'var(--red)' }}>
                           {t.metric === 'revenue'
-                            ? (tp.requiredDailyRate === Infinity ? '∞' : tp.requiredDailyRate >= 1000000 ? (tp.requiredDailyRate / 1000000).toFixed(1) + 'M' : (tp.requiredDailyRate / 1000).toFixed(0) + 'K')
-                            : (tp.requiredDailyRate === Infinity ? '∞' : rate(tp.requiredDailyRate))}
+                            ? (tp.requiredDailyRate === Infinity ? 'Ended' : tp.requiredDailyRate >= 1000000 ? (tp.requiredDailyRate / 1000000).toFixed(1) + 'M' : (tp.requiredDailyRate / 1000).toFixed(0) + 'K')
+                            : (tp.requiredDailyRate === Infinity ? 'Ended' : rate(tp.requiredDailyRate))}
                         </div>
                         <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>Need/Day</div>
                       </div>
@@ -1625,6 +1730,75 @@ export default function SalesRegister({ onEdit }: Props = {}) {
               <button className="btn btn-primary" onClick={openNewTarget}>+ Create First Target</button>
             </div>
           )}
+
+          {/* Target vs target comparison */}
+          {showTargetCompare && (() => {
+            const A = targetProgress.find(x => x.target.id === cmpA)
+            const B = targetProgress.find(x => x.target.id === cmpB)
+            const pick = (v: string, set: (s: string) => void) => (
+              <select className="form-input" value={v} onChange={e => set(e.target.value)} style={{ width: '100%', fontSize: 12 }}>
+                <option value="">Select target...</option>
+                {targetProgress.map(x => (
+                  <option key={x.target.id} value={x.target.id}>
+                    {x.target.name} ({x.target.start_date} to {x.target.end_date}){x.target.is_active ? '' : ' · paused'}
+                  </option>
+                ))}
+              </select>
+            )
+            const cell = (label: string, va: any, vb: any) => (
+              <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 12 }}>
+                <div style={{ color: 'var(--text3)', fontSize: 10, fontFamily: 'var(--mono)', textTransform: 'uppercase', alignSelf: 'center' }}>{label}</div>
+                <div style={{ fontFamily: 'var(--mono)' }}>{va}</div>
+                <div style={{ fontFamily: 'var(--mono)' }}>{vb}</div>
+              </div>
+            )
+            const allocNames = A && B ? Array.from(new Set([...(A.allocProgress || []).map(a => a.name), ...(B.allocProgress || []).map(a => a.name)])) : []
+            const allocOf = (tp: TargetProgressX | undefined, n: string) => (tp?.allocProgress || []).find(a => a.name === n)
+            return (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }} onClick={e => { if (e.target === e.currentTarget) setShowTargetCompare(false) }}>
+                <div style={{ background: 'var(--card)', borderRadius: 12, padding: 24, width: '94%', maxWidth: 680, maxHeight: '90vh', overflow: 'auto' }}>
+                  <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 700, marginBottom: 16 }}>Compare Targets</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr', gap: 8, marginBottom: 12 }}>
+                    <div />
+                    {pick(cmpA, setCmpA)}
+                    {pick(cmpB, setCmpB)}
+                  </div>
+                  {A && B && A.target.id !== B.target.id ? (
+                    <>
+                      {A.target.metric !== B.target.metric && (
+                        <div style={{ fontSize: 11, color: 'var(--amber, #d48744)', marginBottom: 8 }}>Different metrics ({A.target.metric} vs {B.target.metric}): compare percentages, not values.</div>
+                      )}
+                      {cell('Scope', tpScope(A.target), tpScope(B.target))}
+                      {cell('Period', `${A.target.start_date} → ${A.target.end_date}`, `${B.target.start_date} → ${B.target.end_date}`)}
+                      {cell('Status', tpStatus(A), tpStatus(B))}
+                      {cell('Target', tpVal(A.target, A.target.target_value), tpVal(B.target, B.target.target_value))}
+                      {cell('Achieved', tpVal(A.target, A.current), tpVal(B.target, B.current))}
+                      {cell('Achievement', <b style={{ color: A.percentage >= 100 ? 'var(--green)' : undefined }}>{A.percentage.toFixed(1)}%</b>, <b style={{ color: B.percentage >= 100 ? 'var(--green)' : undefined }}>{B.percentage.toFixed(1)}%</b>)}
+                      {cell('Daily rate', tpVal(A.target, A.dailyRunRate), tpVal(B.target, B.dailyRunRate))}
+                      {cell('Projected', tpVal(A.target, A.projectedTotal), tpVal(B.target, B.projectedTotal))}
+                      {A.target.metric === B.target.metric && cell('Achieved Δ (B−A)', '', tpVal(B.target, B.current - A.current))}
+                      {allocNames.length > 0 && (
+                        <div style={{ marginTop: 14 }}>
+                          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>Allocations</div>
+                          {allocNames.map(n => {
+                            const a = allocOf(A, n); const b = allocOf(B, n)
+                            return cell(n,
+                              a ? `${tpVal(A.target, a.current)} · ${a.pct.toFixed(0)}%` : '—',
+                              b ? `${tpVal(B.target, b.current)} · ${b.pct.toFixed(0)}%` : '—')
+                          })}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 13, color: 'var(--text3)', padding: '20px 0' }}>Pick two different targets to compare.</div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                    <button className="btn btn-ghost" onClick={() => setShowTargetCompare(false)}>Close</button>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
         </>
       )}
 
