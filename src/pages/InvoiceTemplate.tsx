@@ -107,7 +107,13 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
   const headerText = '#ffffff'
 
   return (
-    <div style={{ width: 794, background: '#ffffff', fontFamily: body, boxShadow: '0 4px 32px rgba(0,0,0,.12)', borderRadius: 2 }}>
+    <div style={{ width: 794, minHeight: 1122, display: 'flex', flexDirection: 'column', background: '#ffffff', fontFamily: body, boxShadow: '0 4px 32px rgba(0,0,0,.12)', borderRadius: 2 }}>
+      {/* minHeight 1122px = a hair under A4 at 96dpi (297mm = 1123.2px), so
+          the doc fills a full page on screen, in the PNG, and in print
+          WITHOUT ever spilling a blank second page. Flex column + the spacer
+          before the footer pin the footer and bottom band to the page's
+          bottom edge; short invoices get their empty space between the
+          signature area and the footer, where it looks deliberate. */}
 
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
       <div style={{ background: headerBg, padding: '24px 40px', position: 'relative', overflow: 'hidden' }}>
@@ -378,6 +384,11 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
           <div style={{ borderTop: '1px solid #ccc', paddingTop: 5, fontSize: 9, color: '#888' }}>Date</div>
         </div>
       </div>
+
+      {/* Flexible spacer: absorbs all leftover page height so the footer and
+          bottom band sit at the page's bottom edge. Collapses to zero when
+          the item table is long enough to fill (or paginate) the page. */}
+      <div style={{ flex: 1 }} />
 
       {/* ── FOOTER ──────────────────────────────────────────────────────────── */}
       <div style={{ margin: '20px 40px 0', padding: '14px 0', borderTop: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
