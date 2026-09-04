@@ -1893,7 +1893,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             }}>Close</button>
           </div>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '32px 20px' }}>
           <div id="malkia-invoice">
             <MalkiaInvoice voucher={lastInvoice} settings={invoiceSettings || {
               company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',

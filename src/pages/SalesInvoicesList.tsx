@@ -555,7 +555,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
               <button className="btn btn-ghost" onClick={closePreview}>Close</button>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '32px 20px' }}>
             <div id="invoice-preview">
               <MalkiaInvoice voucher={previewVoucher} settings={invoiceSettings || {
                 company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',

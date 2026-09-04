@@ -953,7 +953,7 @@ _Malkia Wellness Group Ltd_`
           </div>
 
           {/* Document preview */}
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '32px 20px' }}>
             <MalkiaProforma voucher={lastVoucher} settings={templateSettings} />
           </div>
         </div>

@@ -378,10 +378,22 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   const openLedger = async (c: Customer) => {
     setSelected(c); setView('ledger'); setLoadingLedger(true)
     onLedgerChange?.(c.id)   // remember it, so returning from a receipt reopens this ledger
-    const { data } = await supabase.from('customer_ledger_entries')
-      .select('*').eq('customer_id', c.id)
-      .order('posting_date', { ascending: false })
+    // Fetch the customer row FRESH alongside the ledger. The list row passed
+    // in here is a snapshot from whenever the customers list last loaded, so
+    // after posting receipts the header card (balance, credit used) showed a
+    // stale figure next to a fresh ledger table until the list happened to
+    // reload. Secondary sort on created_at keeps same-day entries (e.g. two
+    // receipts posted minutes apart) in true posting order so the running
+    // balance column reads correctly.
+    const [{ data }, { data: freshCust }] = await Promise.all([
+      supabase.from('customer_ledger_entries')
+        .select('*').eq('customer_id', c.id)
+        .order('posting_date', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase.from('customers').select('*').eq('id', c.id).single(),
+    ])
     if (data) setLedger(data as LedgerEntry[])
+    if (freshCust) setSelected(freshCust as Customer)
     setLoadingLedger(false)
   }
 

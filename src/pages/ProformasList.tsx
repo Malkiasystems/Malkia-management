@@ -619,7 +619,7 @@ export default function ProformasList({ onNav, onEdit }: Props) {
                 <button className="btn btn-ghost" onClick={closePreview}>Close</button>
               </div>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '32px 20px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '32px 20px' }}>
               <div id="proforma-preview">
                 <MalkiaProforma voucher={previewVoucher} settings={templateSettings} />
               </div>
