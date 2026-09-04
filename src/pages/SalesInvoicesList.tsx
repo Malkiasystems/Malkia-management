@@ -95,18 +95,18 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
       .single()
 
     // Resolve salesperson_id to a display name for the printout. The vouchers
-    // row stores the id; the template wants voucher.salesperson as text. Done
-    // as a second small lookup rather than a join so a missing/legacy id
-    // degrades to the posted_by fallback instead of failing the whole preview.
+    // row stores an hrm_employees id (useSalespeople loads the picker from
+    // hrm_employees), so resolve against THAT table — the previous lookup hit
+    // `users`, always missed, and every reprint fell back to posted_by,
+    // showing the person who typed the invoice as the salesperson.
     // Reprints must show the same code as the original print, so the code is
     // recomputed from the FULL roster (collisions depend on everyone, not
     // just this seller).
     if (voucher?.salesperson_id) {
-      const { data: sp } = await supabase.from('users')
-        .select('full_name').eq('id', voucher.salesperson_id).single()
+      const { data: roster } = await supabase.from('hrm_employees').select('id, emp_code, full_name')
+      const sp = (roster || []).find(r => r.id === voucher.salesperson_id)
       if (sp?.full_name) {
         (voucher as any).salesperson = sp.full_name
-        const { data: roster } = await supabase.from('hrm_employees').select('id, emp_code, full_name')
         ;(voucher as any).salesperson_code = salespersonCodeFor(roster || [], sp.full_name)
       }
     }
