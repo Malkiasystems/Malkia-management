@@ -1950,8 +1950,29 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                     <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
                       Allocations (optional) — split across individuals or groups
                     </div>
-                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '3px 8px' }}
-                      onClick={() => setAllocDrafts(d => [...d, { name: '', employee_ids: [], value: '' }])}>+ Add allocation</button>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {/* Quick-add: pick a salesperson, get their allocation row
+                          prefilled (name = first name, their chip selected) in
+                          one tap, instead of a blank row + chip hunt. People
+                          who already have their own single-person row are
+                          filtered out. Value is left empty on purpose: it is
+                          typed in the selected unit (pcs/ctn), so prefilling
+                          converted numbers would silently mis-scale. */}
+                      <select className="form-input" value="" style={{ fontSize: 10, padding: '3px 8px', width: 'auto' }}
+                        onChange={e => {
+                          const sp = salespeople.find(s => s.id === e.target.value)
+                          if (!sp) return
+                          const first = (sp.full_name || '').trim().split(/\s+/)[0]
+                          setAllocDrafts(d => [...d, { name: first, employee_ids: [sp.id], value: '' }])
+                        }}>
+                        <option value="">+ Add for salesperson…</option>
+                        {salespeople
+                          .filter(sp => !allocDrafts.some(a => a.employee_ids.length === 1 && a.employee_ids[0] === sp.id))
+                          .map(sp => <option key={sp.id} value={sp.id}>{sp.full_name}</option>)}
+                      </select>
+                      <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '3px 8px' }}
+                        onClick={() => setAllocDrafts(d => [...d, { name: '', employee_ids: [], value: '' }])}>+ Add allocation</button>
+                    </div>
                   </div>
                   {allocDrafts.length === 0 && (
                     <div style={{ fontSize: 11, color: 'var(--text3)' }}>

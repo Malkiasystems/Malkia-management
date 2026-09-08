@@ -575,22 +575,28 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       })  
       if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
       const journal = journalRaw
+      // insertJournalWithRetry bumps the ref on a collision (a form left open
+      // while other invoices post carries a stale number). EVERYTHING below
+      // must use the ref that actually landed, or the voucher insert dies on
+      // vouchers_ref_key — which is exactly what created orphan journals
+      // SI-10-0290/0291 on 08/09/2026 and the same PAY-10-008x mess in Aug.
+      const finalRef = (journal as any).source_ref || form.ref
 
       const jLines: any[] = [
-        { journal_id: journal.id, line_number: 1, account_id: arId, description: `AR — ${selectedCust.company || selectedCust.name} — ${form.ref}`, debit: subtotal, credit: 0 },
-        { journal_id: journal.id, line_number: 2, account_id: revenueId, description: `Revenue — ${form.ref}`, debit: 0, credit: netRevenue },
+        { journal_id: journal.id, line_number: 1, account_id: arId, description: `AR — ${selectedCust.company || selectedCust.name} — ${finalRef}`, debit: subtotal, credit: 0 },
+        { journal_id: journal.id, line_number: 2, account_id: revenueId, description: `Revenue — ${finalRef}`, debit: 0, credit: netRevenue },
       ]
       if (vat > 0 && vatId) {
-        jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: vatId, description: `VAT — ${form.ref}`, debit: 0, credit: vat })
+        jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: vatId, description: `VAT — ${finalRef}`, debit: 0, credit: vat })
       }
-      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: cogsId, description: `COGS — ${form.ref}`, debit: cogsTotal, credit: 0 })
-      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: inventoryId, description: `Inventory out — ${form.ref}`, debit: 0, credit: cogsTotal })
+      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: cogsId, description: `COGS — ${finalRef}`, debit: cogsTotal, credit: 0 })
+      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: inventoryId, description: `Inventory out — ${finalRef}`, debit: 0, credit: cogsTotal })
       const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
       if (jlErr) throw new Error(jlErr.message)
       await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
 
       const voucherPayload: Record<string, unknown> = {
-        ref: form.ref, type: 'sales_invoice', posting_date: form.date,
+        ref: finalRef, type: 'sales_invoice', posting_date: form.date,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
         subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
         status: 'posted', customer_id: customerId, journal_id: journal.id,
@@ -612,7 +618,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       // The invoice still posts and deducts stock; only dispatch is gated.
       if (form.holdForApproval) {
         await supabase.from('invoice_payment_holds').insert({
-          voucher_id: voucher.id, ref: form.ref, customer_name: selectedCust?.company || selectedCust?.name || null,
+          voucher_id: voucher.id, ref: finalRef, customer_name: selectedCust?.company || selectedCust?.name || null,
           amount: subtotal, status: 'pending',
           requested_by: user?.id || null, requested_by_name: user?.full_name || null,
         }).then(() => {}, () => {})  // best-effort; never block the post
@@ -637,7 +643,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         const selectedLoc = locations.find(l => l.code === locationCode)
         await postLedgerEntry({
           product_id: line.productId, entry_type: 'sale',
-          document_type: 'sales_invoice', document_ref: form.ref,
+          document_type: 'sales_invoice', document_ref: finalRef,
           posting_date: form.date, qty: -line.qty, cost_amount: prod.cost_price * line.qty,
           location: selectedLoc || null,
         })
@@ -687,7 +693,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       const invoiceStillOpen = invoiceRemaining > 0.5
       const { error: ledgerErr } = await supabase.from('customer_ledger_entries').insert({
         customer_id: customerId, posting_date: form.date,
-        document_type: 'invoice', document_ref: form.ref,
+        document_type: 'invoice', document_ref: finalRef,
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
         amount: subtotal, remaining_amount: invoiceRemaining,
         due_date: form.dueDate || null, is_open: invoiceStillOpen, journal_id: journal.id,
@@ -714,7 +720,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
 
           const { data: receiptJournalRaw, error: rjErr } = await insertJournalWithRetry({
             ref: 'JV-' + receiptRef, posting_date: form.date,
-            description: `Customer Receipt (advance on ${form.ref}) — ${custName} — ${receiptRef}`,
+            description: `Customer Receipt (advance on ${finalRef}) — ${custName} — ${receiptRef}`,
             journal_type: 'cash_receipt', source_type: 'cash_receipt',
             source_ref: receiptRef, posted_by: getPostedBy(), status: 'posted',
           })
@@ -724,13 +730,13 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             {
               journal_id: receiptJournalRaw.id, line_number: 1,
               account_id: form.paidDepositAccountId,
-              description: `Received from ${custName} — advance on ${form.ref}`,
+              description: `Received from ${custName} — advance on ${finalRef}`,
               debit: paidNow, credit: 0,
             },
             {
               journal_id: receiptJournalRaw.id, line_number: 2,
               account_id: arId,
-              description: `AR payment — ${custName} — ${form.ref}`,
+              description: `AR payment — ${custName} — ${finalRef}`,
               debit: 0, credit: paidNow,
             },
           ])
@@ -745,12 +751,12 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           // exposes it in the Payment Register page.
           await supabase.from('vouchers').insert({
             ref: receiptRef, type: 'cash_receipt', posting_date: form.date,
-            description: `Customer Receipt (advance on ${form.ref}) — ${custName}`,
+            description: `Customer Receipt (advance on ${finalRef}) — ${custName}`,
             total_amount: paidNow, status: 'posted', journal_id: receiptJournalRaw.id,
             payment_method: payMethod,
             notes: form.paidTransactionId
-              ? `Advance payment for ${form.ref} · ${payMethod.toUpperCase()} ref: ${form.paidTransactionId}`
-              : `Advance payment for ${form.ref}`,
+              ? `Advance payment for ${finalRef} · ${payMethod.toUpperCase()} ref: ${form.paidTransactionId}`
+              : `Advance payment for ${finalRef}`,
             posted_by: getPostedBy(), customer_id: customerId,
           })
 
@@ -763,7 +769,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           await supabase.from('customer_ledger_entries').insert({
             customer_id: customerId, posting_date: form.date,
             document_type: 'receipt', document_ref: receiptRef,
-            description: `Payment received against ${form.ref}`,
+            description: `Payment received against ${finalRef}`,
             amount: -paidNow, remaining_amount: 0,
             is_open: false, journal_id: receiptJournalRaw.id,
           })
@@ -772,7 +778,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           // failure so the user knows to retry the receipt manually rather
           // than thinking the whole thing failed.
           console.error('Advance receipt failed after invoice posted:', advErr.message)
-          showToast(`Invoice ${form.ref} posted, but advance receipt failed: ${advErr.message}. Please post the receipt manually via Cash Receipt.`, 'error')
+          showToast(`Invoice ${finalRef} posted, but advance receipt failed: ${advErr.message}. Please post the receipt manually via Cash Receipt.`, 'error')
         }
       }
 
@@ -785,7 +791,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       const thisInvoiceRemaining = Math.max(0, subtotal - paidNow)
 
       const invoiceData = {
-        ref: form.ref, posting_date: form.date, due_date: form.dueDate,
+        ref: finalRef, posting_date: form.date, due_date: form.dueDate,
         payment_terms: form.paymentTerms, notes: form.notes,
         total_amount: subtotal, vat_amount: vat, subtotal: netRevenue,
         // Two separate fields, matching the DB row (posted_by vs
@@ -832,7 +838,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         : paidNow > 0
           ? ` · Paid TZS ${paidNow.toLocaleString()} (balance ${(subtotal - paidNow).toLocaleString()})`
           : ''
-      showToast(`${form.ref} posted · TZS ${subtotal.toLocaleString()}${paidLabel}`)
+      showToast(`${finalRef} posted · TZS ${subtotal.toLocaleString()}${paidLabel}`)
       clearDraft()  // posted successfully — no draft to recover
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
