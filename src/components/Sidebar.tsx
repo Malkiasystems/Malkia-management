@@ -22,10 +22,18 @@ const SB_CSS = (
     .sb-sub:hover { transform: translateY(-1px); background: var(--surface3) !important; box-shadow: inset 2px 0 0 var(--accent); }
     .sb-sub:hover svg { stroke: var(--accent); }
     .sb-rail { transition: width .2s ease; }
+    /* Submenus slide open instead of popping in. Mount-only by design. */
+    .sb-submenu { animation: sbOpen .16s ease; }
+    @keyframes sbOpen { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+    /* Expanded rail: child rows indent off the section edge so the tree
+       reads as a tree; the 2px active edge stays at the container border
+       where it pops against the indent. */
+    .sb-rail-x .sb-sub { padding-left: 24px !important; }
     .sb-rail-x .sb-key:hover { transform: translateY(-1px); }
     @media (prefers-reduced-motion: reduce) {
       .sb-key:hover, .sb-sub:hover, .sb-key:active { transform: none; }
       .sb-rail { transition: none; }
+      .sb-submenu { animation: none; }
     }
   `}</style>
 )
@@ -203,14 +211,24 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   // navigating, so this effect (keyed on page change) does not re-open it.
   useEffect(() => {
     const INVENTORY_PAGES: Page[] = ['inventory', 'stock-transfer', 'stock-transfer-outgoing', 'stock-transfer-approvals', 'dispatch', 'stock-movements', 'stock-movement-report', 'stock-as-of', 'internal-use-returns', 'stock-count']
-    if (VOUCHER_PAGES.includes(current)) setVouchersOpen(true)
-    else if (SALES_PAGES.includes(current)) setSalesOpen(true)
-    else if (EXPENSE_PAGES.includes(current)) setExpensesOpen(true)
-    else if (CRM_PAGES.includes(current)) setCrmOpen(true)
-    else if (SETTINGS_PAGES.includes(current)) setSettingsOpen(true)
-    else if (HRM_PAGES.includes(current)) setHrmOpen(true)
-    else if (ACCOUNTS_PAGES.includes(current)) setAccountsOpen(true)
-    else if (INVENTORY_PAGES.includes(current)) setInventoryOpen(true)
+    // Exclusive, matching header-click behavior: navigating into a section
+    // closes whichever other section was open. Before this, opening a page
+    // from search or a deep link stacked its section UNDER the already-open
+    // one, and the rail turned into a wall of items.
+    const openOnly = (which: string) => {
+      setVouchersOpen(which === 'vouchers'); setSalesOpen(which === 'sales')
+      setExpensesOpen(which === 'expenses'); setCrmOpen(which === 'crm')
+      setSettingsOpen(which === 'settings'); setHrmOpen(which === 'hrm')
+      setAccountsOpen(which === 'accounts'); setInventoryOpen(which === 'inventory')
+    }
+    if (VOUCHER_PAGES.includes(current)) openOnly('vouchers')
+    else if (SALES_PAGES.includes(current)) openOnly('sales')
+    else if (EXPENSE_PAGES.includes(current)) openOnly('expenses')
+    else if (CRM_PAGES.includes(current)) openOnly('crm')
+    else if (SETTINGS_PAGES.includes(current)) openOnly('settings')
+    else if (HRM_PAGES.includes(current)) openOnly('hrm')
+    else if (ACCOUNTS_PAGES.includes(current)) openOnly('accounts')
+    else if (INVENTORY_PAGES.includes(current)) openOnly('inventory')
   }, [current])
   
   const { permissions } = useAuth()
@@ -392,6 +410,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           justifyContent: expanded ? 'flex-start' : 'center',
           padding: expanded ? '6px 12px' : '6px 0', margin: '0 0 6px',
           color: 'var(--text3)',
+          position: 'sticky', top: -10, zIndex: 2, background: 'var(--surface)',
+          alignSelf: 'stretch',
         }}>
         <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"
           style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
@@ -563,7 +583,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Inventory sub-menu */}
             {Boolean(isInventoryItem) && inventoryOpen && visibleInventorySub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page
                   const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : sub.page === 'stock-movements' ? (stockInCount || 0) : 0
@@ -589,7 +609,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Accounts sub-menu */}
             {Boolean(isAccountsItem) && accountsOpen && visibleAccountsSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleAccountsSub.map(sub => {
                   const subActive = current === sub.page
                   return (
@@ -611,7 +631,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Vouchers sub-menu */}
             {Boolean(isVouchersItem) && vouchersOpen && visibleVouchersSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleVouchersSub.map(sub => {
                   const subActive = current === sub.page
                   return (
@@ -633,7 +653,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Expenses sub-menu */}
             {Boolean(isExpenseItem) && expensesOpen && visibleExpenseSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleExpenseSub.map(sub => {
                   // Tab items (Budget, Recurring) all point at expense-register;
                   // only the plain Register item shows the active highlight to
@@ -658,7 +678,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Sales sub-menu */}
             {Boolean(isSalesItem) && salesOpen && visibleSalesSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSalesSub.map(sub => {
                   // Reports and Targets both point at sales-register; only the
                   // plain Reports row shows the active highlight (same rule as
@@ -683,7 +703,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* CRM sub-menu */}
             {Boolean(isCrmItem) && crmOpen && visibleCrmSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleCrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
@@ -705,7 +725,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Settings sub-menu */}
             {Boolean(isSettingsItem) && settingsOpen && visibleSettingsSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleSettingsSub.map(sub => {
                   const subActive = current === sub.page
                   return (
@@ -727,7 +747,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* HRM sub-menu */}
             {Boolean(isHrmItem) && hrmOpen && visibleHrmSub.length > 0 && (
-              <div style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
                 {visibleHrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
