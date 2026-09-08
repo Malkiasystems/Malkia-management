@@ -18,6 +18,9 @@ export interface SalesTarget {
   name: string
   period_type: 'annual' | 'quarterly' | 'monthly'
   metric: 'revenue' | 'units'
+  // Sales channel scope: retail = cash_sale vouchers only, wholesale =
+  // sales_invoice vouchers only. Older rows default to 'all' (migration 039).
+  channel: 'all' | 'retail' | 'wholesale'
   target_value: number
   product_id: string | null
   category: string | null

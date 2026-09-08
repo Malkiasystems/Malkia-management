@@ -250,7 +250,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const [editingTarget, setEditingTarget] = useState<SalesTarget | null>(null)
   const [targetForm, setTargetForm] = useState({
     name: '', period_type: 'monthly' as SalesTarget['period_type'],
-    metric: 'revenue' as SalesTarget['metric'], target_value: '',
+    metric: 'revenue' as SalesTarget['metric'], channel: 'all' as SalesTarget['channel'], target_value: '',
     product_id: '', category: '', salesperson_id: '', start_date: monthStart(), end_date: '',
     notes: ''
   })
@@ -508,6 +508,11 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   // Progress for ONE target (any status). Extracted so the PDF report and
   // target comparison can use ended targets, not just the active grid.
   const progressForTarget = useCallback(async (t: SalesTarget): Promise<TargetProgressX> => {
+      // Channel scope: retail targets count cash sales only, wholesale
+      // targets count sales invoices only, 'all' (and legacy rows) both.
+      const chTypes = t.channel === 'retail' ? ['cash_sale']
+        : t.channel === 'wholesale' ? ['sales_invoice']
+        : ['cash_sale', 'sales_invoice']
       if (t.product_id) {
         const { data: lines } = await supabase
           .from('voucher_lines')
@@ -515,7 +520,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
           .eq('product_id', t.product_id)
           .gte('vouchers.posting_date', t.start_date)
           .lte('vouchers.posting_date', t.end_date)
-          .in('vouchers.type', ['cash_sale', 'sales_invoice'])
+          .in('vouchers.type', chTypes)
           .eq('vouchers.status', 'posted')
         const spLines = t.salesperson_id ? (lines || []).filter((l: any) => l.vouchers?.salesperson_id === t.salesperson_id) : (lines || [])
         const current = t.metric === 'revenue'
@@ -529,7 +534,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
           .eq('products.category', t.category)
           .gte('vouchers.posting_date', t.start_date)
           .lte('vouchers.posting_date', t.end_date)
-          .in('vouchers.type', ['cash_sale', 'sales_invoice'])
+          .in('vouchers.type', chTypes)
           .eq('vouchers.status', 'posted')
         const spLines2 = t.salesperson_id ? (lines || []).filter((l: any) => l.vouchers?.salesperson_id === t.salesperson_id) : (lines || [])
         const current = t.metric === 'revenue'
@@ -540,7 +545,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         let q = supabase
           .from('vouchers')
           .select('total_amount, salesperson_id, voucher_lines(qty)')
-          .in('type', ['cash_sale', 'sales_invoice'])
+          .in('type', chTypes)
           .eq('status', 'posted')
           .gte('posting_date', t.start_date)
           .lte('posting_date', t.end_date)
@@ -781,14 +786,14 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
   // ── Target Form Helpers ───────────────────────────────────
   const resetTargetForm = () => {
-    setTargetForm({ name: '', period_type: 'monthly', metric: 'revenue', target_value: '', product_id: '', category: '', salesperson_id: '', start_date: monthStart(), end_date: '', notes: '' })
+    setTargetForm({ name: '', period_type: 'monthly', metric: 'revenue', channel: 'all', target_value: '', product_id: '', category: '', salesperson_id: '', start_date: monthStart(), end_date: '', notes: '' })
     setAllocDrafts([]); setTargetUnit('pcs')
     setEditingTarget(null)
   }
   const openNewTarget = () => { resetTargetForm(); setShowTargetForm(true) }
   const openEditTarget = (t: SalesTarget) => {
     setEditingTarget(t)
-    setTargetForm({ name: t.name, period_type: t.period_type, metric: t.metric, target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', salesperson_id: t.salesperson_id || '', start_date: t.start_date, end_date: t.end_date, notes: t.notes || '' })
+    setTargetForm({ name: t.name, period_type: t.period_type, metric: t.metric, channel: t.channel || 'all', target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', salesperson_id: t.salesperson_id || '', start_date: t.start_date, end_date: t.end_date, notes: t.notes || '' })
     setTargetUnit('pcs')
     setAllocDrafts((t.allocations || []).map(a => ({ name: a.name, employee_ids: a.employee_ids || [], value: String(a.target_value) })))
     setShowTargetForm(true)
@@ -800,14 +805,14 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const openDuplicateTarget = (t: SalesTarget) => {
     setEditingTarget(null)
     const nextStart = new Date(t.end_date); nextStart.setDate(nextStart.getDate() + 1)
-    setTargetForm({ name: t.name + ' (copy)', period_type: t.period_type, metric: t.metric, target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', salesperson_id: t.salesperson_id || '', start_date: localIso(nextStart), end_date: '', notes: t.notes || '' })
+    setTargetForm({ name: t.name + ' (copy)', period_type: t.period_type, metric: t.metric, channel: t.channel || 'all', target_value: String(t.target_value), product_id: t.product_id || '', category: t.category || '', salesperson_id: t.salesperson_id || '', start_date: localIso(nextStart), end_date: '', notes: t.notes || '' })
     setTargetUnit('pcs')
     setAllocDrafts((t.allocations || []).map(a => ({ name: a.name, employee_ids: a.employee_ids || [], value: String(a.target_value) })))
     setShowTargetForm(true)
   }
   // ── Targets report + comparison helpers ───────────────────
   const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const tpScope = (t: SalesTarget) => t.product_id ? (products.find(p => p.id === t.product_id)?.name || 'Product') : t.category ? `Category: ${t.category}` : 'All sales'
+  const tpScope = (t: SalesTarget) => (t.product_id ? (products.find(p => p.id === t.product_id)?.name || 'Product') : t.category ? `Category: ${t.category}` : 'All sales') + (t.channel === 'retail' ? ' \u00b7 Retail only' : t.channel === 'wholesale' ? ' \u00b7 Wholesale only' : '')
   const tpUpc = (t: SalesTarget) => t.product_id ? (products.find(p => p.id === t.product_id)?.units_per_carton || 0) : 0
   const tpVal = (t: SalesTarget, v: number) => t.metric === 'revenue' ? tzs(v) : (tpUpc(t) >= 2 ? fmtDualQty(Math.round(v), tpUpc(t)) : Math.round(v).toLocaleString() + ' pcs')
   const tpStatus = (tp: TargetProgressX) => tp.percentage >= 100 ? 'Achieved' : tp.daysLeft === 0 ? 'Ended · missed' : tp.onTrack ? 'On track' : 'Behind pace'
@@ -864,6 +869,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     const endDate = targetForm.end_date || autoEndDate(targetForm.start_date, targetForm.period_type)
     const payload = {
       name: targetForm.name.trim(), period_type: targetForm.period_type, metric: targetForm.metric,
+      channel: targetForm.channel || 'all',
       target_value: val, product_id: targetForm.product_id || null, category: targetForm.category || null,
       salesperson_id: targetForm.salesperson_id || null,
       start_date: targetForm.start_date, end_date: endDate, is_active: true,
@@ -1595,6 +1601,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                           {periodLabel(t.period_type)} · {t.metric === 'revenue' ? 'Revenue' : 'Units'} · {t.start_date} to {t.end_date}
                         </div>
                         {t.product_id && <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>Product: {products.find(p => p.id === t.product_id)?.name || 'Loading...'}</div>}
+                        {t.channel && t.channel !== 'all' && <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>{t.channel === 'retail' ? 'Retail only (cash sales)' : 'Wholesale only (invoices)'}</div>}
                         {t.category && <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>Category: {t.category}</div>}
                       </div>
                       {canManageTargets && (
@@ -1934,6 +1941,14 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                   <select className="form-input" value={targetForm.metric} onChange={e => setTargetForm(f => ({ ...f, metric: e.target.value as SalesTarget['metric'] }))}>
                     <option value="revenue">Revenue (TZS)</option>
                     <option value="units">Units Sold</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 6 }}>Channel</div>
+                  <select className="form-input" value={targetForm.channel} onChange={e => setTargetForm(f => ({ ...f, channel: e.target.value as SalesTarget['channel'] }))}>
+                    <option value="all">All channels</option>
+                    <option value="retail">Retail only (cash sales)</option>
+                    <option value="wholesale">Wholesale only (invoices)</option>
                   </select>
                 </div>
                 <div>
