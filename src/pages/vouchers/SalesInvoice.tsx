@@ -181,19 +181,39 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     lines: InvLine[]
     selectedCust: DBCustomer | null
     locationCode: string
+    salespersonId?: string
   }
   const {
     availableDraft, draftAgeMs,
     saveDraft, clearDraft, acknowledgeResume, discardDraft,
   } = useVoucherDraft<DraftSnapshot>('sales-invoice', !!editVoucherId)
 
-  const resumeDraft = () => {
+  const resumeDraft = async () => {
     if (!availableDraft) return
     // Apply each slice back into its respective state
     setForm(availableDraft.form)
     setLines(availableDraft.lines)
     setSelectedCust(availableDraft.selectedCust)
     setLocationCode(availableDraft.locationCode)
+    // Salesperson comes back too (old drafts predate the field: fall back to
+    // empty, same as before). Then the customer lock is RE-DERIVED from the
+    // customers table as it is NOW, not from the draft snapshot: assignments
+    // can change while a draft sits, and a stale snapshot must never weaken
+    // the lock. This was the hole where a resumed draft showed an empty,
+    // editable salesperson for a locked customer and the post then hit the
+    // enforce_sales_salesperson trigger error.
+    setSalespersonId(availableDraft.salespersonId || '')
+    setSpLocked(false)
+    const cid = availableDraft.selectedCust?.id
+    if (cid) {
+      const { data: fresh } = await supabase.from('customers').select('*').eq('id', cid).single()
+      const c = (fresh as DBCustomer | null) || availableDraft.selectedCust
+      if (fresh) setSelectedCust(fresh as DBCustomer)
+      if (c?.assigned_salesperson_id) {
+        setSalespersonId(c.assigned_salesperson_id)
+        setSpLocked(true)
+      }
+    }
     acknowledgeResume()
   }
 
@@ -268,8 +288,8 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       form.notes.trim().length > 0 ||
       lines.some(l => l.productId || l.qty !== 1 || l.price > 0)
     if (!hasAnything) return
-    saveDraft({ form, lines, selectedCust, locationCode })
-  }, [form, lines, selectedCust, locationCode, editVoucherId, saveDraft])
+    saveDraft({ form, lines, selectedCust, locationCode, salespersonId })
+  }, [form, lines, selectedCust, locationCode, salespersonId, editVoucherId, saveDraft])
 
   // Ctrl+Enter (or Cmd+Enter on Mac) posts the invoice from anywhere on the
   // page. Escape closes the product-search dropdowns if any are open.
@@ -464,7 +484,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const post = async () => {
-    if (!salespersonId) { showToast('Select a salesperson before posting', 'error'); return }
+    // The customer's assignment overrides whatever the picker holds, no
+    // matter how this form was reached (fresh, draft, future paths). The
+    // enforce_sales_salesperson trigger is the backstop; this keeps any
+    // mismatch from ever reaching it.
+    const salespersonIdFinal = selectedCust?.assigned_salesperson_id || salespersonId
+    if (selectedCust?.assigned_salesperson_id && salespersonId !== selectedCust.assigned_salesperson_id) {
+      setSalespersonId(selectedCust.assigned_salesperson_id); setSpLocked(true)
+    }
+    if (!salespersonIdFinal) { showToast('Select a salesperson before posting', 'error'); return }
     if (!selectedCust) { showToast('Select a customer from the database first', 'error'); return }
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (subtotal <= 0) { showToast('Invoice total must be greater than zero', 'error'); return }
@@ -600,7 +628,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
         subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
         status: 'posted', customer_id: customerId, journal_id: journal.id,
-        salesperson_id: salespersonId,
+        salesperson_id: salespersonIdFinal,
         notes: form.notes || null, posted_by: getPostedBy(),
       }
       if (form.dueDate) voucherPayload.due_date = form.dueDate
@@ -801,9 +829,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         // reprint of the same invoice show different names, since the reprint
         // path reads the real posted_by from the vouchers table.
         posted_by: getPostedBy(),
-        salesperson: (salespeople.find(s => s.id === salespersonId)?.full_name) || form.salesperson || '',
+        salesperson: (salespeople.find(s => s.id === salespersonIdFinal)?.full_name) || form.salesperson || '',
         salesperson_code: salespersonCodeFor(salespeople,
-          (salespeople.find(s => s.id === salespersonId)?.full_name) || form.salesperson || ''),
+          (salespeople.find(s => s.id === salespersonIdFinal)?.full_name) || form.salesperson || ''),
         customers: {
           name: selectedCust.name, company: selectedCust.company || '',
           contact_person: selectedCust.contact_person || '',
