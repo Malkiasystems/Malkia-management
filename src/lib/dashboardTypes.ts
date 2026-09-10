@@ -23,6 +23,10 @@ export interface FinancialData {
   // Per-account P&L for the current month (the actual line items).
   pnlBreakdown: { revenue: PnlLine[]; cogs: PnlLine[]; expenses: PnlLine[] }
   cashPosition: number        // snapshot across tills, mobile money, banks
+  /** The three largest Cash & Bank accounts, for the Banks cue tile body.
+   *  Derived from the same accounts fetch that sums cashPosition, so the
+   *  list can never disagree with the total beside it. */
+  bankTop: { n: string; b: number }[]
   inventoryValue: number      // GL account 1110 balance
   payrollCost: number         // current-month salary expense (60xx)
   ar: {
@@ -40,6 +44,11 @@ export interface FinancialData {
 // Operational tier — always populated.
 export interface OperationsData {
   sales: { count: number; total: number; cash: number; credit: number }
+  /** Posted sales value for today alone. Feeds the New Cash Sale cue tile. */
+  salesToday: number
+  /** Posted sales value per day, oldest first, ending today (7 entries).
+   *  Feeds the sparkline inside the New Cash Sale tile. */
+  sales7d: number[]
   inventory: { products: number; lowStock: number; outOfStock: number }
   hrm: { headcount: number; onLeave: number }
   crm: {

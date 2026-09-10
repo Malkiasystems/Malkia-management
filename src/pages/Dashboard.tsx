@@ -112,7 +112,8 @@ export default function Dashboard({ onNav }: Props) {
 
       {/* Shortcuts sit between the greeting and the dashboard proper. */}
       <div className="dash-anim" style={{ '--d': 1 } as CSSProperties}>
-        <ShortcutTiles onNav={onNav} fin={data?.financial} canViewFinancials={canViewFinancials} />
+        <ShortcutTiles onNav={onNav} fin={data?.financial} ops={data?.operations}
+          canViewFinancials={canViewFinancials} userId={user?.id} />
       </div>
 
       {loading && <Skeleton />}

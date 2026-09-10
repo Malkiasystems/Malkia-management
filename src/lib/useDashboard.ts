@@ -72,9 +72,17 @@ export function useDashboard(canViewFinancials: boolean) {
 // ── Operational tier (always) ────────────────────────────────────────────────
 async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<OperationsData> {
   const todayIso = localIso(new Date())
+  // The tile sparkline needs the last seven days, which cross the month
+  // boundary early in a month. Fetch from whichever is earlier: the month
+  // start or six days back (clamped to the ledger cutover like everything
+  // else). The MONTH aggregates below must then filter to monthStart again,
+  // or the first week of a month would quietly include the previous month.
+  const sixBack = new Date(); sixBack.setDate(sixBack.getDate() - 6)
+  const sparkFrom = clampFrom(localIso(sixBack))
+  const fetchFrom = sparkFrom < b.monthStart ? sparkFrom : b.monthStart
   const [salesRes, prodRes, empRes, leaveRes, retailCountRes, retailNewRes, b2bRes, apprRes, recentRes] = await Promise.all([
     supabase.from('vouchers').select('type, total_amount, posting_date, status')
-      .in('type', ['cash_sale', 'sales_invoice']).eq('status', 'posted').gte('posting_date', b.monthStart),
+      .in('type', ['cash_sale', 'sales_invoice']).eq('status', 'posted').gte('posting_date', fetchFrom),
     supabase.from('products').select('id, name, qty_on_hand, reorder_point, category, is_active').eq('is_active', true),
     // This used to select 'id, is_active, on_leave'. There is no on_leave column
     // on hrm_employees and there never has been, so PostgREST rejected the whole
@@ -100,10 +108,24 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
       .eq('status', 'posted').order('created_at', { ascending: false }).limit(5),
   ])
 
-  // Sales
+  // Sales. salesRows may reach back before the month (see fetchFrom above),
+  // so every MONTH figure filters to monthStart; only the sparkline and the
+  // today figure read the full window.
   const salesRows = (salesRes.data || []) as any[]
-  const cash = salesRows.filter(v => v.type === 'cash_sale').reduce((s, v) => s + (v.total_amount || 0), 0)
-  const credit = salesRows.filter(v => v.type === 'sales_invoice').reduce((s, v) => s + (v.total_amount || 0), 0)
+  const monthRows = salesRows.filter(v => (v.posting_date || '') >= b.monthStart)
+  const cash = monthRows.filter(v => v.type === 'cash_sale').reduce((s, v) => s + (v.total_amount || 0), 0)
+  const credit = monthRows.filter(v => v.type === 'sales_invoice').reduce((s, v) => s + (v.total_amount || 0), 0)
+
+  // Seven buckets, oldest first, ending today. Days before the ledger
+  // cutover legitimately read zero because nothing was fetched for them.
+  const sales7d: number[] = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i)
+    const iso = localIso(d)
+    sales7d.push(salesRows.filter(v => v.posting_date === iso)
+      .reduce((s, v) => s + (v.total_amount || 0), 0))
+  }
+  const salesToday = sales7d[6]
 
   // Inventory counts + category breakdown
   const prods = (prodRes.data || []) as any[]
@@ -144,7 +166,9 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
     .map(p => ({ name: p.name || p.category || 'Product', qty_on_hand: p.qty_on_hand || 0, reorder_point: p.reorder_point || 0 }))
 
   return {
-    sales: { count: salesRows.length, total: cash + credit, cash, credit },
+    sales: { count: monthRows.length, total: cash + credit, cash, credit },
+    salesToday,
+    sales7d,
     inventory: { products: prods.length, lowStock, outOfStock },
     hrm: { headcount, onLeave },
     crm: {
@@ -205,6 +229,14 @@ async function loadFinancial(b: ReturnType<typeof monthBounds>): Promise<Financi
   const accts = (acctRes.data || []) as { code: string; name: string; category: string; balance: number }[]
   const bal = (code: string) => accts.find(a => a.code === code)?.balance || 0
   const cashPosition = accts.filter(a => a.category === 'Cash & Bank').reduce((s, a) => s + (a.balance || 0), 0)
+  // Top three cash homes for the Banks tile body, from the SAME rows that
+  // sum cashPosition, so list and total cannot disagree. Zero balances are
+  // noise on a tile this small and are dropped.
+  const bankTop = accts
+    .filter(a => a.category === 'Cash & Bank' && (a.balance || 0) !== 0)
+    .sort((x, y) => (y.balance || 0) - (x.balance || 0))
+    .slice(0, 3)
+    .map(a => ({ n: a.name, b: a.balance || 0 }))
   const inventoryValue = bal('1110')
   const loans = accts.filter(a => a.category === 'Loans').reduce((s, a) => s + Math.abs(a.balance || 0), 0)
 
@@ -245,6 +277,7 @@ async function loadFinancial(b: ReturnType<typeof monthBounds>): Promise<Financi
     netProfit: delta(netCur, netPrev),
     pnlBreakdown,
     cashPosition,
+    bankTop,
     inventoryValue,
     payrollCost,
     ar: { total: arTotal, customerCount: Object.keys(byCustomer).length, aging, top },
