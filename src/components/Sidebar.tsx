@@ -548,10 +548,16 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 position: 'relative', cursor: navItem.coming ? 'default' : 'pointer'
               }}>
               <span style={{ fontSize: 18, display: 'flex', flexShrink: 0 }}><SideIcon name={navItem.icon || 'home'} active={active} /></span>
+              {/* Typography ported from the Tarakimu rail: the expanded
+                  labels wear the same voice as the collapsed ones — small,
+                  uppercase, letterspaced, text3 at rest — instead of the
+                  larger title-case rows. Big bold labels compete with the
+                  page; a quiet index does not. Active still reads accent. */}
               <span className="sb-label" style={expanded ? {
-                fontSize: 11, fontWeight: 600,
-                color: active ? 'var(--accent)' : 'var(--text2)',
-                letterSpacing: '.2px', whiteSpace: 'nowrap',
+                fontSize: 10.5, fontWeight: 600,
+                color: active ? 'var(--accent)' : 'var(--text3)',
+                textTransform: 'uppercase', letterSpacing: '.6px',
+                whiteSpace: 'nowrap',
                 overflow: 'hidden', textOverflow: 'ellipsis',
               } : {
                 fontSize: 8, fontWeight: 600,
@@ -601,7 +607,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                       {subBadge > 0 && (
                         <span style={{ position:'absolute', top:2, right:8, minWidth:14, height:14, padding:'0 3px', borderRadius:7, background:'var(--accent)', color:'#fff', fontSize:8, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{subBadge}</span>
                       )}
@@ -626,7 +632,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -648,7 +654,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -673,7 +679,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -698,7 +704,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -720,7 +726,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -742,7 +748,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -764,7 +770,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                       <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:10, fontWeight:600, color:subActive?'var(--accent)':'var(--text2)', letterSpacing:'.2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
