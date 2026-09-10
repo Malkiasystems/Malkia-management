@@ -14,12 +14,16 @@ import { getActiveCompany, supabase } from '../lib/supabase'
 const SB_CSS = (
   <style>{`
     .sb-key { transition: all .15s cubic-bezier(.2,.8,.3,1); will-change: transform; }
-    .sb-key:hover { transform: translateY(-2px) scale(1.05); background: var(--surface2) !important; box-shadow: 0 6px 16px rgba(0,0,0,.45), 0 0 14px var(--accent-dim); }
+    /* Hover reads unmistakably as the accent. The old var(--accent-dim) halo
+       sat at 12% opacity and vanished on the light themes entirely. A hairline
+       accent ring plus a stronger bloom survives every theme, because it is
+       mixed from --accent-rgb which the theme defines. */
+    .sb-key:hover { transform: translateY(-2px) scale(1.05); background: var(--surface2) !important; box-shadow: 0 0 0 1px rgba(var(--accent-rgb),.55), 0 6px 16px rgba(0,0,0,.35), 0 0 14px rgba(var(--accent-rgb),.45); }
     .sb-key:active { transform: translateY(0) scale(.96); }
     .sb-key:hover svg { stroke: var(--accent); filter: drop-shadow(0 0 5px var(--accent-dim)); }
-    .sb-key:hover .sb-label { color: var(--text2) !important; }
+    .sb-key:hover .sb-label { color: var(--accent) !important; }
     .sb-sub { transition: all .13s ease; }
-    .sb-sub:hover { transform: translateY(-1px); background: var(--surface3) !important; box-shadow: inset 2px 0 0 var(--accent); }
+    .sb-sub:hover { transform: translateY(-1px); background: var(--surface3) !important; box-shadow: inset 2px 0 0 var(--accent), 0 0 10px rgba(var(--accent-rgb),.35); }
     .sb-sub:hover svg { stroke: var(--accent); }
     .sb-rail { transition: width .2s ease; }
     /* Submenus slide open instead of popping in. Mount-only by design. */

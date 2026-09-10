@@ -19,6 +19,18 @@
   --accent: #d4874a;
   --accent2: #b86d32;
   --accent-dim: rgba(212,135,74,0.12);
+  /* Channels only, so inline styles can mix their own alpha and still follow
+     the theme: rgba(var(--accent-rgb), .22). Seven files already reference
+     this (GuideMode pulse, Banks banner, the four loan vouchers) and were
+     silently resolving to nothing because it was never defined. */
+  --accent-rgb: 212,135,74;
+  /* --accent-solid is for FILLED surfaces carrying white text. White on
+     #d4874a is 2.85:1, which fails AA at any size; on #96551f it is 5.81:1
+     and passes. Never put white text on --accent. ShortcutTiles already
+     falls back through var(--accent-solid, var(--accent)). */
+  --accent-solid: #96551f;
+  --accent-solid-hover: #8a4d1c;
+  --card-raised: var(--surface3);
   --green: #00e5a0;
   --green-dim: rgba(0,229,160,0.10);
   --red: #ff4757;
@@ -44,8 +56,16 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 14px; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { background: var(--bg); color: var(--text); font-family: var(--sans); height: 100vh; overflow: hidden; }
-#root { height: 100vh; display: flex; flex-direction: column; }
+/* 100vh on a phone is the viewport height with the URL bar HIDDEN. The bar is
+   visible when the page loads and hides as you scroll, so a 100vh layout is
+   taller than the screen on open and then resizes mid-scroll. That is the
+   whole app shifting under your thumb.
+
+   100dvh is the DYNAMIC viewport height: it tracks the bar and the layout
+   stays still. The 100vh line above it is the fallback for anything that does
+   not understand dvh, which will simply ignore the second declaration. */
+body { background: var(--bg); color: var(--text); font-family: var(--sans); height: 100vh; height: 100dvh; overflow: hidden; }
+#root { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -85,8 +105,11 @@ a { text-decoration: none; color: inherit; }
 .stat-change.down { color: var(--red); }
 
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--r); font-family: var(--sans); font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all .15s; text-decoration: none; }
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent2); }
+/* Filled buttons carry white text, so they sit on --accent-solid, the darker
+   AA-compliant member of each theme's accent family. --accent stays the color
+   for text, icons, borders and glows. */
+.btn-primary { background: var(--accent-solid, var(--accent)); color: #fff; }
+.btn-primary:hover { background: var(--accent-solid-hover, var(--accent2)); }
 .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text2); }
 .btn-ghost:hover { border-color: var(--border2); color: var(--text); background: var(--surface2); }
 .btn-success { background: var(--green-dim); border: 1px solid rgba(0,229,160,.25); color: var(--green); }

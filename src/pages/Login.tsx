@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase, getActiveCompany } from '../lib/supabase'
 import OtpGate from '../components/OtpGate'
 import { markMfaVerified } from '../lib/useLoginOtp'
+import BrandRain from '../components/BrandRain'
 
 interface Props { onLogin: () => void }
 
@@ -79,11 +80,28 @@ export default function Login({ onLogin }: Props) {
 
   return (
     <div style={st.container}>
+      {/* Card entrance, ported from the Tarakimu login. Renders once per
+          mount; prefers-reduced-motion turns it off. */}
+      <style>{`
+        @keyframes lgRise { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+        .lg-card { animation: lgRise .5s cubic-bezier(.2,.8,.3,1) both; }
+        @media (prefers-reduced-motion: reduce) { .lg-card { animation: none; } }
+      `}</style>
+
+      {/* Falling-digit field, behind everything. Dark mode: this page is a
+          fixed dark surface regardless of the in-app theme, so 'dark' is
+          correct here, not a shortcut. */}
+      <BrandRain mode="dark" intensity={0.6} />
+
+      {/* Vignette between the rain and the card, so the field fades where the
+          form needs quiet and breathes at the edges. */}
+      <div style={st.vignette} />
+
       {/* ambient brand glow */}
       <div style={st.glowTeal} />
       <div style={st.glowMaroon} />
 
-      <div style={st.card}>
+      <div style={st.card} className="lg-card">
         <div style={st.logoWrap}>
           {logo ? (
             <img src={logo} alt={company.name} style={st.logoImg} />
@@ -134,9 +152,13 @@ export default function Login({ onLogin }: Props) {
 
 const st: Record<string, React.CSSProperties> = {
   container: {
-    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'radial-gradient(1200px 700px at 70% -10%, #10201f 0%, #0a0f10 45%, #070a0b 100%)',
     padding: 20, position: 'relative', overflow: 'hidden',
+  },
+  vignette: {
+    position: 'absolute', inset: 0, pointerEvents: 'none',
+    background: 'radial-gradient(ellipse at center, rgba(10,15,16,.72) 0%, rgba(10,15,16,.30) 45%, rgba(10,15,16,.85) 100%)',
   },
   glowTeal: {
     position: 'absolute', width: 480, height: 480, borderRadius: '50%',

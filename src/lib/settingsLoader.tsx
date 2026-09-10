@@ -23,29 +23,40 @@ import {
 // Keeping them here too means we can apply the theme BEFORE DisplaySettings
 // is ever rendered — fixes the "refresh drops back to default" bug.
 
+// Every theme must define EVERY key, including the three newer ones below.
+// applyTheme only overwrites the keys a theme carries, so a theme missing
+// --accent-solid would keep the PREVIOUS theme's button colour on screen.
+//   --accent-rgb          channels only, for rgba(var(--accent-rgb), .x)
+//   --accent-solid        darker accent for FILLED surfaces with white text
+//                         (every value below is >=4.5:1 against white, AA)
+//   --accent-solid-hover  its hover state
 export const THEME_VARS: Record<string, Record<string, string>> = {
   midnight: {
     '--bg': '#0a0b0f', '--surface': '#111318', '--surface2': '#181b22', '--surface3': '#1e2129',
     '--border': 'rgba(255,255,255,0.07)', '--border2': 'rgba(255,255,255,0.13)',
     '--accent': '#d4874a', '--accent2': '#b86d32', '--accent-dim': 'rgba(212,135,74,0.12)',
+    '--accent-rgb': '212,135,74', '--accent-solid': '#96551f', '--accent-solid-hover': '#8a4d1c',
     '--text': '#e8eaf0', '--text2': '#9aa0b0', '--text3': '#5a6070',
   },
   malkia: {
     '--bg': '#0f1419', '--surface': '#1a2027', '--surface2': '#232b33', '--surface3': '#2c353f',
     '--border': 'rgba(133,194,190,0.12)', '--border2': 'rgba(133,194,190,0.22)',
     '--accent': '#85c2be', '--accent2': '#6ba8a4', '--accent-dim': 'rgba(133,194,190,0.12)',
+    '--accent-rgb': '133,194,190', '--accent-solid': '#3f746f', '--accent-solid-hover': '#35625e',
     '--text': '#e8eaf0', '--text2': '#9aa0b0', '--text3': '#5a6070',
   },
   accountant: {
     '--bg': '#0d1117', '--surface': '#161b22', '--surface2': '#1c2128', '--surface3': '#22272e',
     '--border': 'rgba(48,54,61,0.8)', '--border2': 'rgba(48,54,61,1)',
     '--accent': '#58a6ff', '--accent2': '#388bfd', '--accent-dim': 'rgba(88,166,255,0.12)',
+    '--accent-rgb': '88,166,255', '--accent-solid': '#1f6feb', '--accent-solid-hover': '#1a5fd0',
     '--text': '#c9d1d9', '--text2': '#8b949e', '--text3': '#6e7681',
   },
   obsidian: {
     '--bg': '#000000', '--surface': '#0d0d0d', '--surface2': '#171717', '--surface3': '#1f1f1f',
     '--border': 'rgba(255,255,255,0.06)', '--border2': 'rgba(255,255,255,0.12)',
     '--accent': '#a855f7', '--accent2': '#9333ea', '--accent-dim': 'rgba(168,85,247,0.12)',
+    '--accent-rgb': '168,85,247', '--accent-solid': '#7e22ce', '--accent-solid-hover': '#6b1fae',
     '--text': '#fafafa', '--text2': '#a1a1aa', '--text3': '#71717a',
   },
   // These four were offered in the Display Settings picker but were missing
@@ -55,24 +66,28 @@ export const THEME_VARS: Record<string, Record<string, string>> = {
     '--bg': '#0c1210', '--surface': '#121a17', '--surface2': '#1a2520', '--surface3': '#223029',
     '--border': 'rgba(16,185,129,0.12)', '--border2': 'rgba(16,185,129,0.22)',
     '--accent': '#10b981', '--accent2': '#059669', '--accent-dim': 'rgba(16,185,129,0.12)',
+    '--accent-rgb': '16,185,129', '--accent-solid': '#047857', '--accent-solid-hover': '#065f46',
     '--text': '#e8f0ec', '--text2': '#9aaca2', '--text3': '#5a706a',
   },
   light: {
     '--bg': '#f8fafc', '--surface': '#ffffff', '--surface2': '#f1f5f9', '--surface3': '#e2e8f0',
     '--border': 'rgba(0,0,0,0.08)', '--border2': 'rgba(0,0,0,0.15)',
     '--accent': '#0ea5e9', '--accent2': '#0284c7', '--accent-dim': 'rgba(14,165,233,0.12)',
+    '--accent-rgb': '14,165,233', '--accent-solid': '#0369a1', '--accent-solid-hover': '#075985',
     '--text': '#0f172a', '--text2': '#475569', '--text3': '#94a3b8',
   },
   sepia: {
     '--bg': '#f5f1e8', '--surface': '#fffbf5', '--surface2': '#ebe5d8', '--surface3': '#ddd6c8',
     '--border': 'rgba(0,0,0,0.08)', '--border2': 'rgba(0,0,0,0.15)',
     '--accent': '#b45309', '--accent2': '#92400e', '--accent-dim': 'rgba(180,83,9,0.12)',
+    '--accent-rgb': '180,83,9', '--accent-solid': '#92400e', '--accent-solid-hover': '#7c3609',
     '--text': '#292524', '--text2': '#57534e', '--text3': '#a8a29e',
   },
   nord: {
     '--bg': '#2e3440', '--surface': '#3b4252', '--surface2': '#434c5e', '--surface3': '#4c566a',
     '--border': 'rgba(216,222,233,0.1)', '--border2': 'rgba(216,222,233,0.2)',
     '--accent': '#88c0d0', '--accent2': '#81a1c1', '--accent-dim': 'rgba(136,192,208,0.15)',
+    '--accent-rgb': '136,192,208', '--accent-solid': '#3b6478', '--accent-solid-hover': '#325565',
     '--text': '#eceff4', '--text2': '#d8dee9', '--text3': '#7b88a1',
   },
   // Daylight: the light theme carrying the Malkia teal rather than a generic
@@ -81,6 +96,7 @@ export const THEME_VARS: Record<string, Record<string, string>> = {
     '--bg': '#f7faf9', '--surface': '#ffffff', '--surface2': '#eef4f3', '--surface3': '#dfe9e8',
     '--border': 'rgba(15,42,40,0.10)', '--border2': 'rgba(15,42,40,0.18)',
     '--accent': '#3f8a84', '--accent2': '#2f6f6a', '--accent-dim': 'rgba(63,138,132,0.14)',
+    '--accent-rgb': '63,138,132', '--accent-solid': '#2f6f6a', '--accent-solid-hover': '#275c58',
     '--text': '#12211f', '--text2': '#4a5c5a', '--text3': '#849694',
   },
 }
