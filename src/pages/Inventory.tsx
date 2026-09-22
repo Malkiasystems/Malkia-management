@@ -11,6 +11,7 @@ import { makeCategoryPredicate } from '../components/CategoryFilter'
 import { useUserLocation } from '../lib/useUserLocation'
 import { useAuth } from '../lib/useAuth'
 import { exportStockReportPDF } from '../lib/stockReportExport'
+import { exportStockCountSheet } from '../lib/stockCountSheetExport'
 import { createProduct, updateProduct } from '../lib/productPost'
 import type { Page } from '../lib/types'
 
@@ -47,6 +48,7 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   if (n === 'filter')  return <svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
   if (n === 'loc')     return <svg {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
   if (n === 'printer') return <svg {...p}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+  if (n === 'sheet')   return <svg {...p}><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
   return <svg {...p}><circle cx="12" cy="12" r="10"/></svg>
 }
 
@@ -77,6 +79,52 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
   const vis = useCostVisibility()
   const userLoc = useUserLocation()
   const { user, can } = useAuth()
+  const canAdjust = can('inventory.adjust')
+
+  // Rebuild one product's product_locations rows from item ledger sums per
+  // location — the repair behind the SYNC badge. The item ledger is the
+  // record the inventory views trust ("this is what the inventory views
+  // read", ImportOrder step 3), so it is the only defensible source to
+  // rebuild from. Refuses to run when the ledger itself disagrees with the
+  // global quantity, because then the drift is upstream of locations and
+  // rebuilding would only launder a deeper error.
+  const syncLocations = async (p: DBProduct) => {
+    try {
+      const { data: entries, error: ledErr } = await supabase
+        .from('item_ledger_entries')
+        .select('qty, location_id, stock_locations(code)')
+        .eq('product_id', p.id)
+      if (ledErr) { showToast(`Sync failed reading ledger: ${ledErr.message}`, 'error'); return }
+      const rows = (entries || []) as any[]
+      const ledgerTotal = rows.reduce((s, e) => s + (e.qty || 0), 0)
+      if (Math.abs(ledgerTotal - (p.qty_on_hand || 0)) > 0.01) {
+        showToast(`Cannot sync ${p.sku}: ledger total (${ledgerTotal}) disagrees with global qty (${p.qty_on_hand}). This needs a stock count, not a sync.`, 'error')
+        return
+      }
+      const perLoc = new Map<string, { code: string; qty: number }>()
+      for (const e of rows) {
+        if (!e.location_id) continue
+        const cur = perLoc.get(e.location_id) || { code: e.stock_locations?.code || '', qty: 0 }
+        cur.qty += e.qty || 0
+        if (!cur.code && e.stock_locations?.code) cur.code = e.stock_locations.code
+        perLoc.set(e.location_id, cur)
+      }
+      for (const [locId, v] of perLoc) {
+        const { error: upErr } = await supabase.from('product_locations').upsert(
+          { product_id: p.id, location_id: locId, location_code: v.code, qty_on_hand: v.qty, last_updated: new Date().toISOString() },
+          { onConflict: 'product_id,location_id' }
+        )
+        if (upErr) { showToast(`Sync failed writing ${v.code || locId}: ${upErr.message}`, 'error'); return }
+      }
+      // Location rows the ledger never touched (created at 0 by opening
+      // flows) are left alone: absent from the ledger means zero, which is
+      // what they already say.
+      showToast(`${p.sku} location balances rebuilt from ledger (${[...perLoc.values()].map(v => `${v.code}: ${v.qty}`).join(' · ')})`)
+      loadProducts()
+    } catch (e: any) {
+      showToast(`Sync failed: ${e?.message || e}`, 'error')
+    }
+  }
   const [products, setProducts] = useState<DBProduct[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [search, setSearch] = useState('')
@@ -679,6 +727,26 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
           >
             <Ic n="printer" /> Print Stock Summary
           </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ display:'flex',alignItems:'center',gap:6 }}
+            onClick={() => {
+              // ALL active products, deliberately ignoring the on-screen
+              // filters: a physical count sheet that silently reflected a
+              // category filter would look complete and be missing half
+              // the store. The Print Stock Summary button above is the
+              // one that follows filters.
+              exportStockCountSheet(
+                products.map(p => ({ sku: p.sku, name: p.name, category: p.category, unit: p.unit })),
+                locations.map(l => ({ code: l.code, name: l.name })),
+                { generatedBy: user?.full_name || user?.email || undefined },
+              )
+            }}
+            disabled={products.length === 0}
+            title="Print a blank physical count sheet — every active item, one write-in box per location"
+          >
+            <Ic n="sheet" /> Count Sheet
+          </button>
           <button className="btn btn-primary btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={openAdd}><Ic n="plus" s={13} /> Add Product</button>
         </div>
       </div>
@@ -787,7 +855,21 @@ export default function Inventory({ onNav }: { onNav?: (p: Page) => void }) {
                       <td className="td-bold">
                         {p.name}
                         {syncMismatch && (
-                          <span title={`Data mismatch — Global qty: ${p.qty_on_hand}, Sum at locations: ${locSum}. Stock movement may have updated one record but not the other.`} style={{ marginLeft: 6, fontSize: 9, color: 'var(--yellow)', fontFamily: 'var(--mono)', cursor: 'help' }}>⚠ SYNC</span>
+                          // Was a help-cursor tooltip only: it could name the
+                          // drift but not heal it, so a wedged location write
+                          // (the 22 Sep import receive) stayed wrong until
+                          // someone opened SQL. Now clicking it rebuilds this
+                          // product's per-location balances from the item
+                          // ledger, the source of truth the views read.
+                          // Guarded by the same permission as stock
+                          // adjustments, since it rewrites location balances.
+                          <span
+                            onClick={e => { e.stopPropagation(); if (canAdjust) syncLocations(p) }}
+                            title={canAdjust
+                              ? `Data mismatch — Global qty: ${p.qty_on_hand}, Sum at locations: ${locSum}. Click to rebuild location balances from the item ledger.`
+                              : `Data mismatch — Global qty: ${p.qty_on_hand}, Sum at locations: ${locSum}. Ask someone with inventory.adjust permission to click this badge.`}
+                            style={{ marginLeft: 6, fontSize: 9, color: 'var(--yellow)', fontFamily: 'var(--mono)', cursor: canAdjust ? 'pointer' : 'help', textDecoration: canAdjust ? 'underline dotted' : 'none' }}
+                          >⚠ SYNC</span>
                         )}
                       </td>
                       <td style={{ fontSize: 12, color: 'var(--text3)' }}>{p.category}</td>

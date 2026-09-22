@@ -613,6 +613,8 @@ export default function ImportOrder({ onNav }: Props) {
       const absorbedRcv = (activeOrder as any).other_costs_absorbed_tzs || 0
       const freight = Math.max(0, otherCostsPaidRcv - absorbedRcv)
       const receivedAt = today()
+      // Location-balance write failures collected per line; see step 4.
+      const locWriteErrors: string[] = []
       for (const rl of rLines) {
         if (rl.qtyReceive <= 0) continue
         const ol = orderLines.find(l => l.id === rl.orderLineId)
@@ -659,14 +661,30 @@ export default function ImportOrder({ onNav }: Props) {
             location: selectedLoc,
           })
 
-          // 4. Update product_locations so per-warehouse balances reflect this receive
-          const { data: pl } = await supabase.from('product_locations')
+          // 4. Update product_locations so per-warehouse balances reflect this receive.
+          //
+          // HARDENED after the 22 Sep silent-drift incident (SKN-004): this
+          // upsert failed without a word, so the ledger and global qty said
+          // 180 while both locations said 0, and the journal below never ran
+          // because the throw aborted the whole receive mid-way. Two changes:
+          //   a) The result is CHECKED and any failure is remembered and
+          //      toasted with the real error text, never swallowed.
+          //   b) A failure here no longer kills the journal: the GL and the
+          //      item ledger must stay consistent with each other; the
+          //      location split is repairable afterwards with the Sync
+          //      action on the Inventory page, a missing journal is not.
+          const { data: pl, error: plReadErr } = await supabase.from('product_locations')
             .select('qty_on_hand').eq('product_id', rl.productId).eq('location_id', selectedLoc.id).maybeSingle()
-          const newLocQty = (pl?.qty_on_hand ?? 0) + rl.qtyReceive
-          await supabase.from('product_locations').upsert(
-            { product_id: rl.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
-            { onConflict: 'product_id,location_id' }
-          )
+          if (plReadErr) {
+            locWriteErrors.push(`${ol.description || rl.productId}: could not read location balance (${plReadErr.message})`)
+          } else {
+            const newLocQty = (pl?.qty_on_hand ?? 0) + rl.qtyReceive
+            const { error: plWriteErr } = await supabase.from('product_locations').upsert(
+              { product_id: rl.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+              { onConflict: 'product_id,location_id' }
+            )
+            if (plWriteErr) locWriteErrors.push(`${ol.description || rl.productId}: location balance not updated (${plWriteErr.message})`)
+          }
         }
       }
 
@@ -736,7 +754,14 @@ export default function ImportOrder({ onNav }: Props) {
           .update({ other_costs_absorbed_tzs: absorbedRcv + freight })
           .eq('id', activeOrder.id)
       }
-      showToast(`Received at ${selectedLoc.code}: ${rLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
+      if (locWriteErrors.length > 0) {
+        // The receive itself posted (ledger + GL + order lines). Only the
+        // per-location split failed, and hiding that is how SKN-004 sat at
+        // 1001:0 for a day. Say it plainly and point at the fix.
+        showToast(`Received, BUT location balances failed: ${locWriteErrors.join(' · ')} — open Inventory and press the SYNC badge on the product to repair.`, 'error')
+      } else {
+        showToast(`Received at ${selectedLoc.code}: ${rLines.filter(r => r.qtyReceive > 0).map(r => `${r.desc}: ${r.qtyReceive} pcs`).join(', ')}. Stock updated.`)
+      }
       setShowReceiveModal(false); await loadAll()
       const rf = (await supabase.from('import_orders').select('*, suppliers(name, code)').eq('id', activeOrder.id).single()).data
       if (rf) await loadOrderDetail(rf as ImportOrder)
