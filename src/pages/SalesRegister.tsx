@@ -411,14 +411,29 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
   const loadCompareSales = useCallback(async () => {
     setCompareLoading(true)
-    const { data } = await supabase
+    // Two defects fixed here (22 Sep audit): this loader had NO status
+    // filter, so drafts and cancelled vouchers inflated the comparison
+    // period while the current period (loadSales) counted posted only;
+    // and it had no pagination, so a comparison window with more than
+    // 1,000 vouchers silently truncated. Both now match loadSales.
+    const PAGE = 1000
+    const all: Sale[] = []
+    for (let pageStart = 0; ; pageStart += PAGE) {
+      const { data, error } = await supabase
       .from('vouchers')
       .select(`id, ref, total_amount, posting_date, status, type,
         voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category))`)
       .in('type', ['cash_sale', 'sales_invoice'])
+      .eq('status', 'posted')
       .gte('posting_date', compareFrom).lte('posting_date', compareTo)
       .order('posting_date', { ascending: false })
-    if (data) setCompareSales(data as any)
+      .order('id', { ascending: false })
+      .range(pageStart, pageStart + PAGE - 1)
+      if (error) { console.warn('[register] compare load failed:', error.message); break }
+      all.push(...((data as any) || []))
+      if (!data || data.length < PAGE) break
+    }
+    setCompareSales(all)
     setCompareLoading(false)
   }, [compareFrom, compareTo])
 
@@ -603,14 +618,18 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   // transactions DID include the product — but every shilling figure is
   // now the filtered lines' own value.
   const lineScoped = filterProduct !== 'all' || filterCat !== 'all'
+  const scopedLines = (v: Sale): VoucherLine[] => {
+    if (!lineScoped) return v.voucher_lines || []
+    return (v.voucher_lines || []).filter(l => {
+      if (!l.products) return false
+      if (filterCat !== 'all' && !catPredicate(l.products.category)) return false
+      if (filterProduct !== 'all' && l.products.id !== filterProduct) return false
+      return true
+    })
+  }
   const scopedAmount = (v: Sale): number => {
     if (!lineScoped) return v.total_amount || 0
-    return (v.voucher_lines || []).reduce((s, l) => {
-      if (!l.products) return s
-      if (filterCat !== 'all' && !catPredicate(l.products.category)) return s
-      if (filterProduct !== 'all' && l.products.id !== filterProduct) return s
-      return s + (l.total || (l.qty * l.unit_price) || 0)
-    }, 0)
+    return scopedLines(v).reduce((s, l) => s + (l.total || (l.qty * l.unit_price) || 0), 0)
   }
 
   // Options for the entity filters, derived from the loaded window
@@ -700,8 +719,14 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     const map: Record<string, CustomerRow> = {}
     filtered.forEach(s => {
       const key = s.customer_id || `__walkin_${s.customers?.name || 'Unknown'}`
-      const units = (s.voucher_lines || []).reduce((a, l) => a + (l.qty || 0), 0)
-      const cost = (s.voucher_lines || []).reduce((a, l) => a + (l.qty || 0) * (l.unit_cost || 0), 0)
+      // Line-scoped: with a product/category filter, a customer's units,
+      // cost and revenue count only the matching lines, so the tab agrees
+      // with the scoped Revenue card instead of showing full baskets whose
+      // shares divide to more than 100%.
+      const sl = scopedLines(s)
+      const amt = scopedAmount(s)
+      const units = sl.reduce((a, l) => a + (l.qty || 0), 0)
+      const cost = sl.reduce((a, l) => a + (l.qty || 0) * (l.unit_cost || 0), 0)
       if (!map[key]) {
         map[key] = {
           customerId: key,
@@ -715,10 +740,10 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       const c = map[key]
       c.txCount++
       c.unitsSold += units
-      c.revenue += s.total_amount || 0
-      if (!regIsWholesale(s)) c.cashRevenue += s.total_amount || 0 // retail
-      else c.creditRevenue += s.total_amount || 0
-      c.margin += (s.total_amount || 0) - cost
+      c.revenue += amt
+      if (!regIsWholesale(s)) c.cashRevenue += amt // retail
+      else c.creditRevenue += amt
+      c.margin += amt - cost
       if (!c.lastPurchase || s.posting_date > c.lastPurchase) c.lastPurchase = s.posting_date
     })
     return Object.values(map).map(c => {
@@ -727,7 +752,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     }).sort((a, b) => custSortDir === 'desc'
       ? ((b[custSortCol] as any) > (a[custSortCol] as any) ? 1 : -1)
       : ((a[custSortCol] as any) > (b[custSortCol] as any) ? 1 : -1))
-  }, [filtered, custSortCol, custSortDir])
+  }, [filtered, custSortCol, custSortDir, filterProduct, filterCat])
 
   const filteredCustomerRows = custSearch
     ? customerRows.filter(c => c.name.toLowerCase().includes(custSearch.toLowerCase()) || c.whatsapp.includes(custSearch))
@@ -765,9 +790,10 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       if (!map[key]) map[key] = { name: key, txCount: 0, revenue: 0, cashRevenue: 0, creditRevenue: 0, avgTicket: 0 }
       const p = map[key]
       p.txCount++
-      p.revenue += s.total_amount || 0
-      if (!regIsWholesale(s)) p.cashRevenue += s.total_amount || 0 // retail
-      else p.creditRevenue += s.total_amount || 0
+      const amt = scopedAmount(s)  // line-scoped under product/category filter
+      p.revenue += amt
+      if (!regIsWholesale(s)) p.cashRevenue += amt // retail
+      else p.creditRevenue += amt
     })
     return Object.values(map).map(p => {
       p.avgTicket = p.txCount > 0 ? Math.round(p.revenue / p.txCount) : 0
@@ -775,7 +801,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     }).sort((a, b) => spSortDir === 'desc'
       ? ((b[spSortCol] as any) > (a[spSortCol] as any) ? 1 : -1)
       : ((a[spSortCol] as any) > (b[spSortCol] as any) ? 1 : -1))
-  }, [filtered, spSortCol, spSortDir, spName])
+  }, [filtered, spSortCol, spSortDir, spName, filterProduct, filterCat])
 
   // Compare product rows
   const compareProductRows = useMemo(() => {
