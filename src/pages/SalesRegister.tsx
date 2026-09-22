@@ -591,6 +591,28 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     (filterSalesperson === 'all' || spName(s) === filterSalesperson)
   )
 
+  // ── Line scoping ──────────────────────────────────────────
+  // A product or category filter keeps every voucher CONTAINING a match
+  // (correct for the transactions list), but the money on those vouchers
+  // must then be counted from the MATCHING LINES ONLY. Before this, the
+  // cards summed full voucher totals, so filtering to one product answered
+  // "value of baskets containing X" while the Product Sales tab answered
+  // "sales of X", and the two tabs disagreed on the same filter (found
+  // 22 Sep: Disposable Breast Pad showed 8.4M of baskets as if it were
+  // the product's own revenue). Counts stay voucher counts — 58
+  // transactions DID include the product — but every shilling figure is
+  // now the filtered lines' own value.
+  const lineScoped = filterProduct !== 'all' || filterCat !== 'all'
+  const scopedAmount = (v: Sale): number => {
+    if (!lineScoped) return v.total_amount || 0
+    return (v.voucher_lines || []).reduce((s, l) => {
+      if (!l.products) return s
+      if (filterCat !== 'all' && !catPredicate(l.products.category)) return s
+      if (filterProduct !== 'all' && l.products.id !== filterProduct) return s
+      return s + (l.total || (l.qty * l.unit_price) || 0)
+    }, 0)
+  }
+
   // Options for the entity filters, derived from the loaded window
   const productOptions = useMemo(() => {
     const m = new Map<string, string>()
@@ -607,13 +629,13 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     sales.forEach(s => set.add(spName(s)))
     return [...set].sort()
   }, [sales, spName])
-  const totalRevenue = filtered.reduce((s, v) => s + (v.total_amount || 0), 0)
+  const totalRevenue = filtered.reduce((s, v) => s + scopedAmount(v), 0)
 
   // Cash / Credit totals (always computed off full typeFiltered-agnostic set, so UI can always show split)
   const cashSales = filtered.filter(s => !regIsWholesale(s))   // retail
   const creditSales = filtered.filter(s => regIsWholesale(s))  // wholesale
-  const cashTotal = cashSales.reduce((s, v) => s + (v.total_amount || 0), 0)
-  const creditTotal = creditSales.reduce((s, v) => s + (v.total_amount || 0), 0)
+  const cashTotal = cashSales.reduce((s, v) => s + scopedAmount(v), 0)
+  const creditTotal = creditSales.reduce((s, v) => s + scopedAmount(v), 0)
   const cashPct = totalRevenue > 0 ? Math.round((cashTotal / totalRevenue) * 100) : 0
   const creditPct = totalRevenue > 0 ? Math.round((creditTotal / totalRevenue) * 100) : 0
 
@@ -1004,7 +1026,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
           <div className="grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 20 }}>
             <div className="stat-card green"><div className="stat-label">Total Sales</div><div className="stat-value">{filtered.length}</div><div className="stat-change up">Transactions</div></div>
-            <div className="stat-card amber"><div className="stat-label">Revenue</div><div className="stat-value">{tzs(totalRevenue)}</div><div className="stat-change up">Total</div></div>
+            <div className="stat-card amber"><div className="stat-label">Revenue</div><div className="stat-value">{tzs(totalRevenue)}</div><div className="stat-change up">{lineScoped ? 'Matching lines only' : 'Total'}</div></div>
             <div className="stat-card green"><div className="stat-label">Retail Sales</div><div className="stat-value">{tzs(cashTotal)}</div><div className="stat-change up">{cashSales.length} txns · {cashPct}%</div></div>
             <div className="stat-card blue"><div className="stat-label">Wholesale Sales</div><div className="stat-value">{tzs(creditTotal)}</div><div className="stat-change up">{creditSales.length} txns · {creditPct}%</div></div>
             <div className="stat-card yellow"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : 'TZS 0'}</div><div className="stat-change up">Per transaction</div></div>
@@ -1048,7 +1070,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
             <table>
               <thead><tr>
                 <th>Date</th><th>Ref</th><th>Type</th><th>Customer</th><th>WhatsApp</th>
-                <th>Payment</th><th className="td-right">Total (TZS)</th><th>Status</th>
+                <th>Payment</th><th className="td-right">{lineScoped ? 'Matching (TZS)' : 'Total (TZS)'}</th><th>Status</th>
               </tr></thead>
               <tbody>
                 {loading ? (
@@ -1064,7 +1086,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                       <td className="td-bold">{s.customers?.name || s.description}</td>
                       <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{s.customers?.whatsapp || '—'}</td>
                       <td><span className={`pill ${s.payment_method === 'cash' || s.payment_method?.includes('Cash') ? 'pill-green' : s.payment_method?.includes('Pesa') ? 'pill-blue' : 'pill-amber'}`}>{s.payment_method}</span></td>
-                      <td className="td-right td-mono td-green">{(s.total_amount || 0).toLocaleString()}</td>
+                      <td className="td-right td-mono td-green">{scopedAmount(s).toLocaleString()}</td>
                       <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`}>{s.status}</span></td>
                     </tr>
                   ))
