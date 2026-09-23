@@ -42,6 +42,70 @@ function methodFromAccount(a?: { code: string; name: string } | null): string {
   return a.name
 }
 
+// ── Searchable product picker ────────────────────────────────────────────
+// Replaces the raw <select> on purchase lines (Joe, 23 Sep): with 60+ SKUs
+// a dropdown is scrolling homework. Type any part of the SKU, name or
+// category and pick from the shrinking list. Self-contained: input +
+// absolute list, closes on pick, Escape, or clicking elsewhere.
+function ProductPicker({ products, value, onChange }: {
+  products: { id: string; sku: string; name: string; category?: string; qty_on_hand?: number }[]
+  value: string
+  onChange: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const sel = products.find(p => p.id === value)
+  const needle = q.trim().toLowerCase()
+  const hits = needle
+    ? products.filter(p =>
+        p.name.toLowerCase().includes(needle) ||
+        p.sku.toLowerCase().includes(needle) ||
+        (p.category || '').toLowerCase().includes(needle)).slice(0, 40)
+    : products.slice(0, 40)
+  const pick = (id: string) => { onChange(id); setOpen(false); setQ('') }
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        className="form-input"
+        style={{ fontSize: 12, padding: '6px 8px' }}
+        placeholder="Type to search product…"
+        value={open ? q : (sel ? `${sel.sku} — ${sel.name}` : '')}
+        onFocus={() => { setOpen(true); setQ('') }}
+        onChange={e => { setQ(e.target.value); setOpen(true) }}
+        onKeyDown={e => {
+          if (e.key === 'Escape') { setOpen(false); setQ('') }
+          if (e.key === 'Enter' && open && hits.length > 0) { e.preventDefault(); pick(hits[0].id) }
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40,
+          maxHeight: 240, overflowY: 'auto', marginTop: 2,
+          background: 'var(--surface)', border: '1px solid var(--border2)',
+          borderRadius: 8, boxShadow: '0 10px 28px rgba(0,0,0,.4)',
+        }}>
+          {hits.length === 0 && (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text3)' }}>No product matches "{q}"</div>
+          )}
+          {hits.map(p => (
+            <div key={p.id}
+              onMouseDown={e => { e.preventDefault(); pick(p.id) }}
+              style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid var(--border)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{p.sku}</span> {p.name}
+              </span>
+              <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', flexShrink: 0 }}>{p.qty_on_hand ?? 0} in stock</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Purchase({ onNav }: Props) {
   const { user, can } = useAuth()
 
@@ -59,6 +123,14 @@ export default function Purchase({ onNav }: Props) {
   const [posting, setPosting] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
   const [suppliers, setSuppliers] = useState<DBSupplier[]>([])
+  // Quick-add supplier, inline (Joe's request, 23 Sep): same insert shape
+  // and SUP-XXX code sequence as the Suppliers page, so rows created here
+  // are indistinguishable from ones created there.
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
+  const [qaName, setQaName] = useState('')
+  const [qaPhone, setQaPhone] = useState('')
+  const [qaContact, setQaContact] = useState('')
+  const [qaSaving, setQaSaving] = useState(false)
   const [accounts, setAccounts] = useState<DBAccount[]>([])
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
 
@@ -127,6 +199,36 @@ export default function Purchase({ onNav }: Props) {
   const loadSuppliers = async () => {
     const { data } = await supabase.from('suppliers').select('id, name, balance_tzs').eq('is_active', true).order('name')
     if (data) setSuppliers(data)
+  }
+
+  const quickAddSupplier = async () => {
+    if (!qaName.trim()) return
+    setQaSaving(true)
+    try {
+      // Same SUP-XXX sequence the Suppliers page uses; a code collision on
+      // simultaneous adds is caught by the insert and just needs a retry.
+      const { data: lastRow } = await supabase.from('suppliers')
+        .select('code').order('code', { ascending: false }).limit(1)
+      const lastNum = lastRow?.[0]?.code ? parseInt(String(lastRow[0].code).replace('SUP-', '')) || 0 : 0
+      const code = `SUP-${String(lastNum + 1).padStart(3, '0')}`
+      const { data: created, error } = await supabase.from('suppliers').insert({
+        code, name: qaName.trim(),
+        contact_person: qaContact.trim() || null,
+        phone: qaPhone.trim() || null,
+        email: null, address: null,
+        payment_terms: 'COD',
+        is_supplier: true, is_vendor: false,
+        is_active: true,
+      }).select('id, name, balance_tzs').single()
+      if (error || !created) throw new Error(error?.message || 'Insert failed')
+      setSuppliers(prev => [...prev, { ...created, balance_tzs: created.balance_tzs ?? 0 }].sort((a, b) => a.name.localeCompare(b.name)))
+      set('supplier', created.id)
+      setShowQuickAdd(false); setQaName(''); setQaPhone(''); setQaContact('')
+    } catch (err: any) {
+      alert('Could not add supplier: ' + (err?.message || err))
+    } finally {
+      setQaSaving(false)
+    }
   }
   const loadAccounts = async () => {
     const { data } = await supabase.from('accounts').select('id, code, name, type, category, balance').eq('is_active', true).order('code')
@@ -438,14 +540,44 @@ export default function Purchase({ onNav }: Props) {
 
       <div className="form-row">
         <FG label="Supplier" req>
-          <select className="form-input" value={form.supplier} onChange={e => set('supplier', e.target.value)}>
+          <select className="form-input" value={form.supplier}
+            onChange={e => {
+              // The last option is the quick-add door: picking it opens the
+              // inline mini-form instead of selecting, so nobody abandons a
+              // half-typed purchase to go register a supplier first.
+              if (e.target.value === '__add_new__') { setShowQuickAdd(true); return }
+              set('supplier', e.target.value)
+            }}>
             <option value="">— Select supplier —</option>
             {suppliers.map(s => (
               <option key={s.id} value={s.id}>
                 {s.name}{s.balance_tzs > 0 ? ` (owes TZS ${s.balance_tzs.toLocaleString()})` : ''}
               </option>
             ))}
+            <option value="__add_new__">＋ Add new supplier…</option>
           </select>
+          {showQuickAdd && (
+            <div style={{ marginTop: 8, padding: '12px 14px', border: '1px solid var(--accent)', borderRadius: 10, background: 'var(--surface2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--accent)' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                Quick-add supplier
+              </div>
+              <input className="form-input" placeholder="Supplier name *" value={qaName} onChange={e => setQaName(e.target.value)} autoFocus />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="form-input" placeholder="Phone / WhatsApp" value={qaPhone} onChange={e => setQaPhone(e.target.value)} style={{ flex: 1 }} />
+                <input className="form-input" placeholder="Contact person" value={qaContact} onChange={e => setQaContact(e.target.value)} style={{ flex: 1 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setShowQuickAdd(false); setQaName(''); setQaPhone(''); setQaContact('') }}>Cancel</button>
+                <button type="button" className="btn btn-primary btn-sm" disabled={qaSaving || !qaName.trim()} onClick={quickAddSupplier}>
+                  {qaSaving ? 'Adding…' : 'Add & select'}
+                </button>
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--text3)' }}>
+                Registered active with default terms — complete the full profile on the Suppliers page later.
+              </div>
+            </div>
+          )}
         </FG>
         <FG label="Supplier Invoice #">
           <input className="form-input" value={form.invoiceRef} onChange={e => set('invoiceRef', e.target.value)} placeholder="Optional" />
@@ -542,12 +674,7 @@ export default function Purchase({ onNav }: Props) {
               {lines.map((line, i) => (
                 <tr key={i}>
                   <td>
-                    <select className="form-input" style={{ fontSize: 12, padding: '6px 8px' }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
-                      <option value="">— Select —</option>
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>{p.sku} — {p.name} (in stock: {p.qty_on_hand})</option>
-                      ))}
-                    </select>
+                    <ProductPicker products={products} value={line.productId} onChange={id => updateLine(i, 'productId', id)} />
                   </td>
                   <td>
                     <input className="form-input" style={{ fontSize: 12, padding: '6px 8px' }} value={line.description} onChange={e => updateLine(i, 'description', e.target.value)} placeholder="Item description" />
@@ -578,6 +705,15 @@ export default function Purchase({ onNav }: Props) {
             </tfoot>
           </table>
         </div>
+        {/* The natural place to reach after filling the last row is right
+            HERE, not back up at the section header. The header button
+            stays for muscle memory; this one is where the hand already is. */}
+        <button type="button" onClick={addLine}
+          style={{ width: '100%', marginTop: 8, padding: '9px 0', borderRadius: 8,
+                   border: '1px dashed var(--border2)', background: 'transparent',
+                   color: 'var(--text3)', fontSize: 12, cursor: 'pointer' }}>
+          ＋ Add line
+        </button>
       </div>
 
       <FG label="Notes">
@@ -592,6 +728,28 @@ export default function Purchase({ onNav }: Props) {
           ? <div>Supplier balance increases by the total — settle later via Payment Voucher or Bank Transfer.</div>
           : <div>Money leaves the selected account at posting — no separate payment voucher needed.</div>
         }
+      </div>
+
+      {/* Floating action bar: on a form this tall the Post button at the
+          top is a scroll away exactly when you are done. Sticky at the
+          bottom of the scroll, it is always one thumb away, with the
+          total beside it so what you are committing to is in view. */}
+      <div style={{
+        position: 'sticky', bottom: 0, zIndex: 30, marginTop: 18,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        padding: '12px 16px', borderRadius: 12,
+        background: 'var(--surface)', border: '1px solid var(--border2)',
+        boxShadow: '0 -8px 24px rgba(0,0,0,.35)',
+      }}>
+        <div>
+          <div style={{ fontSize: 9.5, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--text3)' }}>Total purchase value</div>
+          <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{tzs(totalCost)}</div>
+        </div>
+        <button type="button" className="btn btn-primary" disabled={posting} onClick={post}
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          {posting ? 'Posting…' : (form.paymentMode === 'credit' ? 'Post on Account' : 'Post & Pay')}
+        </button>
       </div>
 
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
