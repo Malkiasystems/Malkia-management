@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { tzs, getPostedBy } from '../../lib/utils'
+import { checkReference, learnRefShape } from '../../lib/refGuard'
 import {
   postCustomerReceiptLedger,
   buildCustomerReceiptJournalLines,
@@ -342,6 +343,23 @@ export default function CustomerReceiptBatchInner({
         if (!rowAcc) throw new Error('Deposit account not found in chart of accounts')
         const method = deriveMethod(rowAcc.code, rowAcc.name)
 
+        // Reference guard, per row, before ANY side effect: a denied row
+        // must fail whole. Batch rows have no override path on purpose —
+        // an audited bypass belongs on the single-receipt screen where a
+        // manager is actually looking at the slip, not in a bulk loop.
+        if (r.transactionId.trim() && method.value !== 'cash') {
+          const g = await checkReference({
+            depositAccountId: r.depositAccountId,
+            paymentRef: r.transactionId.trim(),
+            amount, postingDate, customerId: cust.id,
+          })
+          if (g.verdict === 'deny') throw new Error(g.reasons[0])
+          // Warnings surface in the row error slot without blocking the
+          // rest of the batch only if the operator re-posts; first pass
+          // treats a warn as a stop for THIS row so it gets human eyes.
+          if (g.verdict === 'warn') throw new Error(`NEEDS REVIEW: ${g.reasons[0]} Post this one from the single-receipt screen if it is genuine.`)
+        }
+
         const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
           ref: 'JV-' + ref, posting_date: postingDate,
           description: `Customer Receipt — ${custName} — ${ref} (batch)`,
@@ -381,8 +399,12 @@ export default function CustomerReceiptBatchInner({
           // being just notes.
           notes: r.narration || 'Batch receipt',
           payment_ref: r.transactionId.trim() || null,
+          deposit_account_id: r.depositAccountId || null,  // ref guard
           posted_by: getPostedBy(), customer_id: cust.id,
         })
+        if (r.transactionId.trim() && method.value !== 'cash') {
+          learnRefShape(r.depositAccountId, r.transactionId.trim())
+        }
 
         setRows(prev => prev.map(x => x.id === r.id
           ? { ...x, status: 'posted', postedRef: ref, error: undefined, expanded: false }

@@ -24,6 +24,7 @@ import { PAYMENT_METHODS } from './cashSaleTypes'
 import type { DBProduct, SaleLine, SplitLine, PaymentMethod } from './cashSaleTypes'
 import { logBundleSale } from './useBundles'
 import type { Bundle } from './useBundles'
+import { checkReference, learnRefShape } from './refGuard'
 
 // ─── Shared helpers (single source of truth for create + edit) ─────────────
 
@@ -315,8 +316,28 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     return { success: false, error: `Please enter the ${currentMethod.label} transaction reference number` }
   }
 
-  const ref = await nextRef('cash_sale')
   const postingDate = today()
+
+  // Reference guard on the money-in side of a cash sale (M-Pesa / bank /
+  // POS references). No override path here — a flagged reference on a sale
+  // gets receipted the slow, human way. The DB trigger backstops this.
+  if (!isPOD && !isSplit && currentMethod.showRef && paymentRef.trim()) {
+    const guardAcctId = accountMap[currentMethod.accountCode]
+    if (guardAcctId) {
+      const g = await checkReference({
+        depositAccountId: guardAcctId, paymentRef: paymentRef.trim(),
+        amount: total, postingDate,
+        // The customer row is upserted later in this function, so the
+        // same-customer-same-day twin check is skipped here; the ref
+        // checks themselves don't need it.
+        customerId: selectedCust?.id || null,
+      })
+      if (g.verdict === 'deny') return { success: false, error: g.reasons[0] }
+      if (g.verdict === 'warn') return { success: false, error: `NEEDS REVIEW: ${g.reasons[0]}` }
+    }
+  }
+
+  const ref = await nextRef('cash_sale')
 
   try {
     // Upsert customer
@@ -529,6 +550,10 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       subtotal, total_amount: total,
       status: isPOD ? 'draft' : 'posted', branch: 'DSM HQ',
       customer_id: customerId, journal_id: journal.id,
+      // Ref guard: the primary receiving account keys the duplicate
+      // index and format profile. Split payments key on the primary
+      // method's account; per-split-line guarding is a future step.
+      deposit_account_id: (!isPOD && currentMethod.showRef) ? (accountMap[currentMethod.accountCode] || null) : null,
       payment_method: paymentLabel,
       payment_split: paymentSplitData,
       notes: [
@@ -539,6 +564,10 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       posted_by: userName,
     }).select('id').single()
     if (vErr) throw new Error('Voucher: ' + vErr.message)
+    if (!isPOD && !isSplit && currentMethod.showRef && paymentRef.trim()) {
+      const learnAcct = accountMap[currentMethod.accountCode]
+      if (learnAcct) learnRefShape(learnAcct, paymentRef.trim())
+    }
 
     // Voucher lines + stock (atomic deduction prevents overselling)
     for (let i = 0; i < lines.length; i++) {

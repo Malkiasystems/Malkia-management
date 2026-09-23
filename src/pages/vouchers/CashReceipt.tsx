@@ -7,6 +7,7 @@ import { nextRef, insertJournalWithRetry } from '../../lib/refs'
 import { today, getPostedBy } from '../../lib/utils'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
+import { checkReference, learnRefShape, recordRefGuardOverride } from '../../lib/refGuard'
 import type { Page } from '../../lib/types'
 import {
   CustomerPaymentFlow, postCustomerReceiptLedger, buildCustomerReceiptJournalLines,
@@ -288,6 +289,40 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
       showToast(`${refLabel(form.method)} is required for ${methodLabel(form.method)} receipts`, 'error'); return
     }
 
+    // ── Reference guard ──────────────────────────────────────────────
+    // Exact duplicate: dead stop. Fraud signature (similar ref, near
+    // amount, in window): deny, super-admin override with an audited
+    // reason. Format mismatch / near-sequential: warn and let the
+    // cashier decide. The DB trigger enforces all of this again at
+    // insert, so this pre-check exists to explain, not to be the wall.
+    let refGuardOverridden = false
+    if (form.transactionId.trim() && form.method !== 'cash') {
+      const g = await checkReference({
+        depositAccountId: form.depositAccountId,
+        paymentRef: form.transactionId.trim(),
+        amount, postingDate: form.date,
+        customerId: receiptType === 'customer' ? paymentState.selectedCustomer?.id : null,
+      })
+      if (g.verdict === 'deny') {
+        if (g.overridable && isSuperAdmin()) {
+          const reason = window.prompt(`${g.reasons[0]}\n\nPost anyway? Type the override reason (this is audited), or Cancel to stop:`)
+          if (!reason || !reason.trim()) { showToast(g.reasons[0], 'error'); return }
+          await recordRefGuardOverride({
+            voucherRef: form.ref, paymentRef: form.transactionId.trim(),
+            depositAccountId: form.depositAccountId, match: g.match,
+            reason: reason.trim(), overriddenBy: getPostedBy(),
+          })
+          refGuardOverridden = true
+        } else {
+          showToast(g.reasons[0], 'error'); return
+        }
+      } else if (g.verdict === 'warn') {
+        const ok = window.confirm(`${g.reasons[0]}\n\nPost anyway?`)
+        if (!ok) return
+      }
+    }
+
+
     if (receiptType === 'customer') {
       if (!paymentState.selectedCustomer) { showToast('Select a customer first', 'error'); return }
       if (!arAccount) { showToast('Accounts Receivable (1050) not found — check Chart of Accounts', 'error'); return }
@@ -299,15 +334,15 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
         const ok = window.confirm(`This receipt is TZS ${Math.round(paymentState.unallocatedCredit).toLocaleString()} more than ${nm} currently owes.\n\nThe extra will sit as a credit on their account (they will show as in credit). Post anyway?`)
         if (!ok) return
       }
-      await postCustomerReceipt(amount)
+      await postCustomerReceipt(amount, refGuardOverridden)
     } else {
       if (!form.otherReceivedFrom.trim()) { showToast('Enter who paid', 'error'); return }
       if (!form.otherIncomeAccountId) { showToast('Select income / credit account', 'error'); return }
-      await postOtherIncome(amount)
+      await postOtherIncome(amount, refGuardOverridden)
     }
   }
 
-  const postCustomerReceipt = async (amount: number) => {
+  const postCustomerReceipt = async (amount: number, refGuardOverridden = false) => {
     if (!paymentState.selectedCustomer || !arAccount) return
     setPosting(true)
     const cust = paymentState.selectedCustomer
@@ -357,8 +392,16 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
         // Migration 027. NULL on cash (nothing to reconcile), always set on
         // every other method because post() blocks the void case above.
         payment_ref: form.transactionId.trim() || null,
+        // Ref guard (migration_receipt_ref_guard): the deposit account keys
+        // the duplicate index and the per-bank format profile; the override
+        // flag lets an audited super-admin bypass pass the DB trigger.
+        deposit_account_id: form.depositAccountId || null,
+        ref_guard_override: refGuardOverridden,
         posted_by: getPostedBy(), customer_id: cust.id,
       })
+      if (form.transactionId.trim() && form.method !== 'cash') {
+        learnRefShape(form.depositAccountId, form.transactionId.trim())
+      }
 
       const allocCount = paymentState.allocations.filter(a => a.allocation > 0).length
       showToast(
@@ -374,7 +417,7 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
     }
   }
 
-  const postOtherIncome = async (amount: number) => {
+  const postOtherIncome = async (amount: number, refGuardOverridden = false) => {
     setPosting(true)
     try {
       const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
@@ -403,8 +446,13 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
         total_amount: amount, status: 'posted', journal_id: journal.id,
         payment_method: form.method, notes: form.narration,
         payment_ref: form.transactionId.trim() || null,   // migration 027
+        deposit_account_id: form.depositAccountId || null,  // ref guard
+        ref_guard_override: refGuardOverridden,
         posted_by: getPostedBy(),
       })
+      if (form.transactionId.trim() && form.method !== 'cash') {
+        learnRefShape(form.depositAccountId, form.transactionId.trim())
+      }
 
       // Describe the actual posting using the chosen deposit account so
       // the toast still tells the user where the money went. The old
