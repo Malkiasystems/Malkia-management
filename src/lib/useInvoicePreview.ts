@@ -17,6 +17,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { localIso } from './utils'
 import { supabase } from './supabase'
+import { salespersonCodeFor } from './salespersonCode'
 
 export const FALLBACK_INVOICE_SETTINGS = {
   company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
@@ -63,6 +64,31 @@ export function useInvoicePreview() {
       setError(vErr?.message || `Invoice ${ref} could not be found.`)
       setLoading(false)
       return
+    }
+
+    // Resolve salesperson_id to the seller's name and house code, the same
+    // way SalesInvoicesList does. This hook never did, so the template's
+    // fallback chain (code, name, posted_by) reached posted_by and every
+    // preview opened from Customers printed the person who TYPED the
+    // invoice as the salesperson (found 22 Sep: SI-10-0300 sold by KS,
+    // typed by Joe, printed "Joe Gembe"). The vouchers row stores an
+    // hrm_employees id; the code is computed against the FULL roster so a
+    // reprint carries the same code as the original. Resolution failure is
+    // non-fatal: worse a blank line than a blocked preview, and the
+    // template hides the line when nothing resolves... except posted_by,
+    // which is exactly the wrong-name fallback, so it is cleared here
+    // whenever a salesperson_id exists but could not be resolved.
+    if (v.salesperson_id) {
+      const { data: roster } = await supabase.from('hrm_employees').select('id, emp_code, full_name')
+      const sp = (roster || []).find(r => r.id === v.salesperson_id)
+      if (sp?.full_name) {
+        ;(v as any).salesperson = sp.full_name
+        ;(v as any).salesperson_code = salespersonCodeFor(roster || [], sp.full_name)
+      } else {
+        // A seller was recorded but the roster lookup failed: never let the
+        // template print the typist instead.
+        ;(v as any).posted_by = undefined
+      }
     }
 
     // What is still owed on THIS invoice specifically — not the customer's
