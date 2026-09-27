@@ -130,7 +130,11 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   // to a ledger or receipt and pressing Back returns you to the SAME tab rather
   // than snapping to 'cash'.
   const [tab, setTabState] = useState<'cash'|'wholesale'>(initialTab || 'cash')
-  const setTab = (t: 'cash'|'wholesale') => { setTabState(t); onTabChange?.(t) }
+  const setTab = (t: 'cash'|'wholesale') => {
+    setTabState(t); onTabChange?.(t)
+    // Refresh-proof: App seeds its state from this key on boot.
+    try { localStorage.setItem('malkia.customers.tab', t) } catch { /* private mode */ }
+  }
 
   // Wholesale customer management is locked to permission holders (super admin
   // or the matching customers.create / edit / delete permission). Cash walk-in
@@ -1099,7 +1103,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       <div className="page-header">
         <div>
           <div className="page-title">Customers</div>
-          <div className="page-sub">AR · Cash contacts · Wholesale contacts · <span className="sync-dot"></span> Live</div>
+          <div className="page-sub">AR · Retail contacts · Wholesale contacts · <span className="sync-dot"></span> Live</div>
         </div>
         <div className="page-actions">
           {/* Refresh means refresh: bypass the cache, not re-serve it. Also
@@ -1171,7 +1175,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
 
       {/* Tabs */}
       <div style={{ display:'flex',gap:4,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:4,marginBottom:20,width:'fit-content' }}>
-        {[{ id:'cash',label:'Cash Contacts (DAR502)' },{ id:'wholesale',label:'Wholesale Contacts' }].map(t => (
+        {[{ id:'cash',label:'Retail Contacts (DAR502)' },{ id:'wholesale',label:'Wholesale Contacts' }].map(t => (
           <button key={t.id} onClick={() => { setTab(t.id as any); setSegFilter('all'); setSearch(''); setStageFilter('all'); setShowPausedOnly(false); setShowHidden(false) }}
             style={{ padding:'8px 20px',fontSize:12,fontWeight:600,background:tab===t.id?'var(--accent)':'transparent',color:tab===t.id?'#fff':'var(--text3)',border:'none',cursor:'pointer',borderRadius:'var(--r)',transition:'all .15s' }}>
             {t.label}

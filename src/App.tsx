@@ -437,7 +437,12 @@ function AppContent() {
   const [statementCustomerId, setStatementCustomerId] = useState<string | null>(null)
   // Remembered Customers tab, so leaving for a ledger/receipt and pressing Back
   // returns to the tab you were on (wholesale) rather than resetting to cash.
-  const [customersTab, setCustomersTab] = useState<'cash'|'wholesale'>('cash')
+  const [customersTab, setCustomersTab] = useState<'cash'|'wholesale'>(() => {
+    // Survive a full page refresh on the tab you were using (Joe, 27 Sep):
+    // wholesale users kept landing back on the retail list.
+    try { return localStorage.getItem('malkia.customers.tab') === 'wholesale' ? 'wholesale' : 'cash' }
+    catch { return 'cash' }
+  })
   // Which customer's ledger is open on the Customers page, so leaving to take a
   // receipt and pressing Back reopens that ledger rather than the bare list.
   const [openLedgerId, setOpenLedgerId] = useState<string | null>(null)
