@@ -460,6 +460,9 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
         company: form.company.trim() || null,
         contact_person: (form as any).contact_person?.trim() || null,
         customer_type: form.customer_type,
+        // Credit policy: new wholesale customers start Tier A / 7 days
+        // until the quarterly re-grade upgrades them on real volume.
+        ...(form.customer_type === 'wholesale' && !selected ? { credit_tier: 'A', credit_days: 7 } : {}),
         segment: form.segment.toLowerCase(),
         whatsapp: form.whatsapp.trim() || null,
         email: form.email.trim() || null,

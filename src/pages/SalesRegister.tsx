@@ -219,6 +219,12 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   // Shared date range
   const [fromDate, setFromDate] = useState(monthStart())
   const [toDate, setToDate] = useState(todayStr())
+  // Invalid typed dates (31/09) reach us as EMPTY strings from the date
+  // input, which used to become an impossible filter and render zeros as
+  // if September had no sales. Now: named error, no query. Same honesty
+  // for query failures — an error banner, never silent zeros.
+  const [dateError, setDateError] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   // Core sales data
   const [sales, setSales] = useState<Sale[]>([])
@@ -284,8 +290,14 @@ export default function SalesRegister({ onEdit }: Props = {}) {
 
   // ── Data Loading ──────────────────────────────────────────
   const loadSales = useCallback(async (from?: string, to?: string) => {
-    setLoading(true)
     const f = from || fromDate, t = to || toDate
+    const dErr = (!f || !t)
+      ? 'That date does not exist — check the day against the month (e.g. September has 30 days).'
+      : (f > t ? 'The From date is after the To date — swap them.' : '')
+    setDateError(dErr)
+    if (dErr) return
+    setLoadError('')
+    setLoading(true)
     // Paged fetch: Supabase caps a response at 1000 rows. One query over a
     // wide range silently truncated the register (2k+ vouchers in prod), so
     // totals were wrong with no error. Page until a short page comes back.
@@ -303,7 +315,12 @@ export default function SalesRegister({ onEdit }: Props = {}) {
         .order('posting_date', { ascending: false })
         .order('id', { ascending: false })
         .range(pageStart, pageStart + PAGE - 1)
-      if (error) { console.warn('[register] load failed:', error.message); break }
+      if (error) {
+        // Loud failure: zeros must only ever mean zero.
+        setLoadError('Could not load sales: ' + error.message)
+        setSales([]); setLoading(false)
+        return
+      }
       all.push(...((data as any) || []))
       if (!data || data.length < PAGE) break
     }
@@ -1000,6 +1017,16 @@ export default function SalesRegister({ onEdit }: Props = {}) {
               {salespersonOptions.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
             <button className="btn btn-primary btn-sm" onClick={() => { loadSales(); refreshBundles() }}>Load</button>
+          </div>
+        )}
+        {dateError && (
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(214,84,60,.12)', border: '1px solid var(--red)', color: 'var(--red)', fontSize: 12 }}>
+            {dateError}
+          </div>
+        )}
+        {loadError && (
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(214,84,60,.12)', border: '1px solid var(--red)', color: 'var(--red)', fontSize: 12 }}>
+            {loadError} — the figures below are NOT current. Fix and press Load again.
           </div>
         )}
       </div>

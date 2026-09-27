@@ -35,6 +35,7 @@ interface DBCustomer {
   id: string; name: string; company: string; contact_person: string
   whatsapp: string; balance: number; credit_limit: number
   credit_period: number; payment_terms: string; customer_number: string
+  credit_days?: number | null; credit_tier?: string | null
   tin_number?: string
   assigned_salesperson_id?: string | null
 }
@@ -130,6 +131,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   // block. Loaded once on mount; same source as Cash Receipt's deposit picker.
   const [cashAccounts, setCashAccounts] = useState<{ id: string; code: string; name: string }[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
+  const [pastDueWarn, setPastDueWarn] = useState('')
   const [showDrop, setShowDrop] = useState(false)
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
   const [locationCode, setLocationCode] = useState('1001')
@@ -437,10 +439,31 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     set('customer', c.company || c.name)
     set('wa', c.whatsapp || '')
     if (c.payment_terms) set('paymentTerms', c.payment_terms)
-    if (c.credit_period > 0) {
-      const due = new Date(); due.setDate(due.getDate() + c.credit_period)
+    // Credit policy (24 Sep 2026): the tier's credit_days drives the due
+    // date; legacy credit_period is the fallback for anyone the policy
+    // has not graded. Based on the invoice date, not today's clock.
+    const policyDays = c.credit_days || c.credit_period || 0
+    if (policyDays > 0) {
+      const base = form.date ? new Date(form.date + 'T00:00:00') : new Date()
+      const due = new Date(base); due.setDate(due.getDate() + policyDays)
       set('dueDate', localIso(due))
     }
+    // Past-due check, warn never block ("former invoices collected
+    // slowly"): post-policy invoices already past due for this customer.
+    setPastDueWarn('')
+    ;(async () => {
+      try {
+        const { data: pd } = await supabase.from('vouchers')
+          .select('ref').eq('type', 'sales_invoice').eq('status', 'posted')
+          .eq('customer_id', c.id)
+          .gte('posting_date', '2026-09-24')
+          .lt('due_date', localIso(new Date()))
+          .limit(3)
+        if (pd && pd.length > 0 && (c.balance || 0) > 0) {
+          setPastDueWarn(`${c.company || c.name} has ${pd.length === 3 ? '3+' : pd.length} post-policy invoice${pd.length === 1 ? '' : 's'} past due (balance TZS ${(c.balance || 0).toLocaleString()}). Posting is allowed — send them a nudge from Payment Reminders.`)
+        }
+      } catch { /* warning is best-effort */ }
+    })()
     setShowDrop(false); setCustResults([])
   }
 
@@ -906,7 +929,14 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       {/* ── CUSTOMER SELECTION (full width hero) ─────────────────────────── */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div className="card-title">Bill To</div>
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            Bill To
+            {selectedCust?.credit_tier && (
+              <span style={{ fontSize: 9.5, fontFamily: 'var(--mono)', padding: '2px 7px', borderRadius: 5, background: 'var(--accent-dim)', color: 'var(--accent)' }}>
+                Tier {selectedCust.credit_tier} · {selectedCust.credit_days || selectedCust.credit_period || '?'} days
+              </span>
+            )}
+          </div>
           {selectedCust && (
             <button onClick={() => { setSelectedCust(null); set('customer', ''); set('wa', '') }}
               style={{ fontSize: 11, color: 'var(--text3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
@@ -914,6 +944,13 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             </button>
           )}
         </div>
+
+        {pastDueWarn && (
+          <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(230,180,60,.12)', border: '1px solid var(--yellow)', color: 'var(--yellow)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            {pastDueWarn}
+          </div>
+        )}
 
         {!selectedCust ? (
           /* Customer search */
