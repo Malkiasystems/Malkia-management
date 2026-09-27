@@ -10,6 +10,7 @@ import type { Page, LifeStage } from '../lib/types'
 import { LIFE_STAGE_LABELS } from '../lib/types'
 import { useTableSort } from '../lib/useTableSort'
 import { useAuth } from '../lib/useAuth'
+import { waNumber, buildReminderMessage } from '../lib/reminderTemplates'
 import CashCustomerDetail from './customers/CashCustomerDetail'  // cash-customer profile: purchase history, top products, stage migration, notes
 
 interface Customer {
@@ -223,6 +224,43 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   // Single-row WhatsApp button — opens the templates page with this
   // customer pre-loaded via the sessionStorage shuttle (same pattern as
   // the "Send template" button on the customer detail page).
+  // Remind shortcut (Joe, 27 Sep): same template, same phone rules, same
+  // ar_reminders log as the Payment Reminders workqueue — via the shared
+  // lib, so the two can never drift. Targets the most overdue open
+  // invoice, else the next one falling due.
+  const sendReminderShortcut = async () => {
+    if (!selected) return
+    const phone = waNumber(selected.whatsapp || selected.phone)
+    if (!phone) { setToast('No WhatsApp or phone number on file for this customer.'); setToastType('error'); return }
+    const today = new Date().toISOString().slice(0, 10)
+    const openInv = ledger.filter(e =>
+      e.is_open && e.due_date && (e.document_type || '').toLowerCase().includes('invoice'))
+    if (openInv.length === 0) { setToast('No open invoices to remind about.'); setToastType('error'); return }
+    const overdue = openInv.filter(e => e.due_date < today).sort((a, b) => a.due_date.localeCompare(b.due_date))
+    const upcoming = openInv.filter(e => e.due_date >= today).sort((a, b) => a.due_date.localeCompare(b.due_date))
+    const target = overdue[0] || upcoming[0]
+    const isOverdue = !!overdue[0]
+    const msg = buildReminderMessage({
+      customerName: selected.company || selected.name,
+      contactPerson: selected.contact_person,
+      invoiceRef: target.document_ref,
+      amount: target.remaining_amount || target.amount,
+      dueDateIso: target.due_date,
+      balance: selected.balance || 0,
+      overdue: isOverdue,
+    })
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener')
+    const dtd = Math.round((new Date(target.due_date + 'T00:00:00').getTime() - new Date(today + 'T00:00:00').getTime()) / 86400000)
+    const stage = isOverdue ? 'overdue' : (dtd <= 1 ? 'pre1' : dtd <= 2 ? 'pre2' : dtd <= 3 ? 'pre3' : dtd <= 4 ? 'pre4' : 'pre7')
+    const { error } = await supabase.from('ar_reminders').insert({
+      customer_id: selected.id, invoice_ref: target.document_ref,
+      due_date: target.due_date, amount: target.remaining_amount || target.amount,
+      stage, channel: 'whatsapp_web', sent_by: null,
+    })
+    if (error) { setToast(`Opened WhatsApp but the log failed: ${error.message}`); setToastType('error') }
+    else { setToast(`Reminder for ${target.document_ref} opened in WhatsApp and logged.`); setToastType('success') }
+  }
+
   const openWhatsAppForCustomer = (c: Customer) => {
     if (!onNav) return
     if (c.customer_type !== 'cash') {
@@ -757,6 +795,16 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                 className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6,color:'#25D366' }}>
                 <Ic n="wa" s={13} c="#25D366" /> WhatsApp
               </a>
+            )}
+            {selected.customer_type === 'wholesale' && (selected.balance || 0) > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={sendReminderShortcut}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--yellow)' }}
+                title="Open WhatsApp with a payment reminder for this customer's most pressing open invoice (logged like the Reminders page)">
+                <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                Remind
+              </button>
             )}
           </div>
         </div>

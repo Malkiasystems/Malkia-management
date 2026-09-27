@@ -28,6 +28,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/useAuth'
 import Toast from '../components/Toast'
+import { waNumber, buildReminderMessage, fmtTzsReminder as fmtTzs, fmtDateReminder as fmtDate } from '../lib/reminderTemplates'
 
 interface Cust {
   id: string; name: string; phone: string | null
@@ -42,21 +43,7 @@ interface Sent { invoice_ref: string; stage: string; sent_at: string }
 
 type Stage = 'pre7' | 'pre4' | 'pre3' | 'pre2' | 'pre1' | 'overdue'
 
-const fmtTzs = (n: number) => 'TZS ' + Math.round(n).toLocaleString()
-const fmtDate = (iso: string) => {
-  const d = new Date(iso + 'T00:00:00')
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-}
 
-/** 0715... -> 255715..., keeps 255..., strips separators. */
-function waNumber(raw: string | null): string | null {
-  if (!raw) return null
-  const d = raw.replace(/\D/g, '')
-  if (!d) return null
-  if (d.startsWith('255')) return d
-  if (d.startsWith('0')) return '255' + d.slice(1)
-  return d
-}
 
 function daysToDue(due: string): number {
   const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -83,26 +70,11 @@ const STAGE_LABEL: Record<Stage, string> = {
 }
 
 function buildMessage(c: Cust, inv: Inv, due: string, stage: Stage): string {
-  const who = c.contact_person || c.name
-  if (stage === 'overdue') {
-    return (
-      `Hello ${who},\n\n` +
-      `This is a payment follow-up from Malkia Wellness Group Ltd.\n\n` +
-      `Invoice ${inv.ref} of ${fmtTzs(inv.total_amount)} was due on ${fmtDate(due)} and remains unsettled. ` +
-      `Your account balance stands at ${fmtTzs(c.balance)}.\n\n` +
-      `Kindly arrange payment today, or reply with your payment plan so we keep your account in good standing.\n\n` +
-      `Payment: M-Pesa / bank as per your invoice. Please use the invoice number as reference.\n\n` +
-      `Asante,\nAccounts — Malkia Wellness Group Ltd`
-    )
-  }
-  return (
-    `Hello ${who},\n\n` +
-    `A friendly reminder from Malkia Wellness Group Ltd.\n\n` +
-    `Invoice ${inv.ref} of ${fmtTzs(inv.total_amount)} falls due on ${fmtDate(due)}. ` +
-    `Kindly plan the payment so your account stays in good standing.\n\n` +
-    `Payment: M-Pesa / bank as per your invoice. Please use the invoice number as reference.\n\n` +
-    `Asante kwa ushirikiano,\nAccounts — Malkia Wellness Group Ltd`
-  )
+  return buildReminderMessage({
+    customerName: c.name, contactPerson: c.contact_person,
+    invoiceRef: inv.ref, amount: inv.total_amount,
+    dueDateIso: due, balance: c.balance, overdue: stage === 'overdue',
+  })
 }
 
 const Ic = ({ n }: { n: string }) => {
