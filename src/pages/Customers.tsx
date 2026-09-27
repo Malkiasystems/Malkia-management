@@ -130,6 +130,12 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   // to a ledger or receipt and pressing Back returns you to the SAME tab rather
   // than snapping to 'cash'.
   const [tab, setTabState] = useState<'cash'|'wholesale'>(initialTab || 'cash')
+  // Total Past Due (Joe, 28 Sep): EXACT figure from open-item accounting —
+  // customer_ledger_entries keeps remaining_amount per invoice, so this is
+  // the sum of open invoice remainders whose due_date has passed, no FIFO
+  // guessing. byCust powers the click-to-filter on the header button.
+  const [pastDue, setPastDue] = useState<{ total: number; byCust: Record<string, number> }>({ total: 0, byCust: {} })
+  const [overdueOnly, setOverdueOnly] = useState(false)
   const setTab = (t: 'cash'|'wholesale') => {
     setTabState(t); onTabChange?.(t)
     // Refresh-proof: App seeds its state from this key on boot.
@@ -596,9 +602,37 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   // Assigned-salesperson filter (wholesale tab). 'none' = unassigned.
   const [spFilter, setSpFilter] = useState('all')
   const deferredSearch = useDeferredValue(search)
+  useEffect(() => {
+    if (tab !== 'wholesale' || customers.length === 0) { setPastDue({ total: 0, byCust: {} }); setOverdueOnly(false); return }
+    ;(async () => {
+      try {
+        const today = new Date().toISOString().slice(0, 10)
+        const ids = customers.map(c => c.id)
+        const byCust: Record<string, number> = {}
+        // .in() caps around 200 ids comfortably; chunk to stay safe as the
+        // wholesale roster grows.
+        for (let i = 0; i < ids.length; i += 150) {
+          const { data } = await supabase.from('customer_ledger_entries')
+            .select('customer_id, remaining_amount')
+            .eq('is_open', true).eq('document_type', 'invoice')
+            .lt('due_date', today)
+            .in('customer_id', ids.slice(i, i + 150))
+          for (const e of (data || []) as any[]) {
+            byCust[e.customer_id] = (byCust[e.customer_id] || 0) + (e.remaining_amount || 0)
+          }
+        }
+        const total = Object.values(byCust).reduce((a, b) => a + b, 0)
+        setPastDue({ total, byCust })
+      } catch { setPastDue({ total: 0, byCust: {} }) }
+    })()
+  }, [customers, tab])
+
   const filtered = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
     return customers.filter(c => {
+      // Past-due filter: active when the Total Past Due header button is
+      // toggled on (wholesale only).
+      if (tab === 'wholesale' && overdueOnly && !(pastDue.byCust[c.id] > 0)) return false
       // On the wholesale tab, hide soft-hidden contacts unless the toggle
       // is on. The cash tab ignores this flag (no hide UI on cash side).
       if (tab === 'wholesale' && !showHidden && c.is_hidden) return false
@@ -615,7 +649,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       }
       return true
     })
-  }, [customers, tab, showHidden, segFilter, spFilter, deferredSearch, stageFilter, showPausedOnly])
+  }, [customers, tab, showHidden, segFilter, spFilter, deferredSearch, stageFilter, showPausedOnly, overdueOnly, pastDue])
 
   // ── Sort wiring ────────────────────────────────────────────────────────
   // Uses useTableSort: click to sort, shift-click for multi-column.
@@ -1159,7 +1193,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
             </span>
           </div>
         </div>
-        <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:20,textAlign:'right' }}>
+        <div style={{ display:'grid',gridTemplateColumns:`repeat(${tab==='wholesale'?4:3},1fr)`,gap:20,textAlign:'right' }}>
           {[
             { label:'Total Customers', val: customers.length },
             { label:'Total AR Balance', val: tzs(totalBalance), color: totalBalance>0?'var(--red)':'var(--green)' },
@@ -1171,8 +1205,20 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
               // must never be read as exposure.
               ? { label:'Sum of Credit Limits', val: tzs(totalCredit), color:'var(--text3)' }
               : { label:'With Balance', val: customers.filter(c=>(c.balance||0)>0).length },
+            ...(tab==='wholesale' ? [{
+              // Exact past-due money from open-item entries; click filters
+              // the list to only customers carrying it.
+              label: overdueOnly ? 'Past Due · filtering' : 'Total Past Due',
+              val: tzs(pastDue.total),
+              color: pastDue.total > 0 ? 'var(--red)' : 'var(--green)',
+              onClick: () => setOverdueOnly(o => !o),
+              active: overdueOnly,
+            }] : []),
           ].map((item,i) => (
-            <div key={i}>
+            <div key={i}
+              onClick={(item as any).onClick}
+              title={(item as any).onClick ? 'Click to show only customers with past-due invoices' : undefined}
+              style={(item as any).onClick ? { cursor:'pointer', padding:'4px 8px', margin:'-4px -8px', borderRadius:8, background:(item as any).active ? 'rgba(214,84,60,.12)' : 'transparent', border:(item as any).active ? '1px solid var(--red)' : '1px solid transparent' } : undefined}>
               <div style={{ fontSize:9,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',marginBottom:4 }}>{item.label}</div>
               <div style={{ fontFamily:'var(--mono)',fontSize:15,fontWeight:700,color:(item as any).color||'var(--text)' }}>{item.val}</div>
             </div>
