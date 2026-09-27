@@ -274,6 +274,8 @@ export default function ArReminders() {
           </div>
         ))}
       </div>
+
+      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
     </div>
   )
 }
