@@ -1163,7 +1163,14 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
           {[
             { label:'Total Customers', val: customers.length },
             { label:'Total AR Balance', val: tzs(totalBalance), color: totalBalance>0?'var(--red)':'var(--green)' },
-            tab==='wholesale' ? { label:'Total Credit Extended', val: tzs(totalCredit), color:'var(--accent)' } : { label:'With Balance', val: customers.filter(c=>(c.balance||0)>0).length },
+            tab==='wholesale'
+              // Honest label (Joe, 28 Sep): this is the SUM OF CREDIT LIMITS,
+              // the theoretical ceiling, not credit actually out with
+              // customers — that is the AR Balance beside it. Many limits
+              // are 1M defaults on wholesalers who pay cash, so this number
+              // must never be read as exposure.
+              ? { label:'Sum of Credit Limits', val: tzs(totalCredit), color:'var(--text3)' }
+              : { label:'With Balance', val: customers.filter(c=>(c.balance||0)>0).length },
           ].map((item,i) => (
             <div key={i}>
               <div style={{ fontSize:9,fontFamily:'var(--mono)',color:'var(--text3)',textTransform:'uppercase',marginBottom:4 }}>{item.label}</div>
