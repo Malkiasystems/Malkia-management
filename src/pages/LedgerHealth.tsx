@@ -15,8 +15,34 @@ export default function LedgerHealth() {
   const run = async () => {
     setLoading(true); setError('')
     const { data, error } = await supabase.rpc('ledger_health_check')
-    if (error) setError(error.message)
-    else { setChecks((data || []) as Check[]); setRanAt(new Date().toLocaleTimeString()) }
+    if (error) { setError(error.message); setLoading(false); return }
+    const rows = (data || []) as Check[]
+
+    // ── Float accounts must never sit negative (Joe's rule, 28 Sep) ──
+    // Delivery float 2085 and customer deposits 2086 are pass-through
+    // money: the customer funds them, the rider or the order consumes
+    // them. A NEGATIVE float means Malkia quietly paid the difference —
+    // a real expense hiding on the balance sheet, flattering the P&L.
+    // Stored balances are debits minus credits, so for these liability
+    // accounts a POSITIVE stored balance is the alarm.
+    try {
+      const { data: floats } = await supabase.from('accounts')
+        .select('code, name, balance')
+        .in('code', ['2085', '2086'])
+      for (const f of (floats || []) as { code: string; name: string; balance: number }[]) {
+        const neg = (f.balance || 0) > 0
+        rows.push({
+          check_name: `Float ${f.code} non-negative`,
+          status: neg ? 'FAIL' : 'OK',
+          detail: neg
+            ? `${f.name} is NEGATIVE by TZS ${fmt(f.balance)} — Malkia has paid out more than customers funded. Reclass the shortfall to a Delivery Subsidy expense (with the accountant) so the P&L tells the truth; the float itself must return to zero or above.`
+            : `${f.name} holds TZS ${fmt(-(f.balance || 0))} of customer money — healthy pass-through.`,
+          amount: Math.abs(f.balance || 0),
+        })
+      }
+    } catch { /* the core checks still render if this query fails */ }
+
+    setChecks(rows); setRanAt(new Date().toLocaleTimeString())
     setLoading(false)
   }
   useEffect(() => { run() }, [])
