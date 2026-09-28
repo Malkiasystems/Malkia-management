@@ -350,7 +350,9 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { sep: true },
     { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page, hasSub: true },
     { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page, hasSub: true },
-    { icon: 'expense',   label: 'Expenses',  page: 'expense-register' as Page, hasSub: true },
+    // Landing changed to New Expense (Joe, 28 Sep): the common action is
+    // recording an expense; the Register is one click below for review.
+    { icon: 'expense',   label: 'Expenses',  page: 'new-expense' as Page, hasSub: true },
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
     { icon: 'customers', label: 'Customers', page: 'customers' as Page },
     { icon: 'suppliers', label: 'Suppliers', page: 'suppliers' as Page },
@@ -443,8 +445,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           if (navItem.page === 'hrm' && visibleHrmSub.length === 0) return null
           if (navItem.page === 'inventory' && visibleInventorySub.length === 0) return null
           // For non-parent items, just skip
-          if (navItem.page === 'expense-register' && visibleExpenseSub.length === 0) return null
-          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'expense-register'].includes(navItem.page as string)) return null
+          if (navItem.page === 'new-expense' && visibleExpenseSub.length === 0) return null
+          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'new-expense'].includes(navItem.page as string)) return null
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
@@ -454,7 +456,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           current === navItem.page ||
           (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive && !isHrmActive) ||
           (navItem.page === 'sales' && isSalesActive) ||
-          (navItem.page === 'expense-register' && isExpenseActive) ||
+          (navItem.page === 'new-expense' && isExpenseActive) ||
           (navItem.page === 'import-register' && isImportActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
           (navItem.page === 'settings' && isSettingsActive) ||
@@ -462,7 +464,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           (navItem.page === 'chart-of-accounts' && isAccountsActive)
 
         const isSalesItem = navItem.page === 'sales'
-        const isExpenseItem = navItem.page === 'expense-register'
+        const isExpenseItem = navItem.page === 'new-expense'
         const isCrmItem = navItem.page === 'crm-hub'
         const isSettingsItem = navItem.page === 'settings'
         const isHrmItem = navItem.page === 'hrm'

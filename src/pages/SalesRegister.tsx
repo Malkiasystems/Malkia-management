@@ -94,7 +94,7 @@ interface Props {
   onEdit?: (p: Page, voucherId: string) => void
 }
 
-type Tab = 'transactions' | 'products' | 'customers' | 'salespeople' | 'bundles' | 'compare' | 'targets'
+type Tab = 'transactions' | 'products' | 'customers' | 'salespeople' | 'bundles' | 'monthly' | 'compare' | 'targets'
 type TypeFilter = 'all' | 'cash' | 'credit'
 
 const monthStart = () => localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
@@ -225,6 +225,18 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   // for query failures — an error banner, never silent zeros.
   const [dateError, setDateError] = useState('')
   const [loadError, setLoadError] = useState('')
+  // ── Monthly view (Joe, 28 Sep) ──
+  // Independent of the From/To range: always the last N calendar months,
+  // default 3, extendable by 3 up to 24. RESPECTS the product/category
+  // filter (line-scoped, like everything since the 22 Sep audit) and the
+  // All/Retail/Wholesale toggle, so "Peacetouch Belt, monthly" is exactly
+  // what it shows. Fetches its own window; the Load button's range does
+  // not constrain it.
+  const [monthlyMonths, setMonthlyMonths] = useState(3)
+  const [monthlySales, setMonthlySales] = useState<Sale[]>([])
+  const [monthlyLoading, setMonthlyLoading] = useState(false)
+  const [monthlyError, setMonthlyError] = useState('')
+  const [monthlyLoadedMonths, setMonthlyLoadedMonths] = useState(0)
 
   // Core sales data
   const [sales, setSales] = useState<Sale[]>([])
@@ -961,6 +973,70 @@ export default function SalesRegister({ onEdit }: Props = {}) {
   const sortIcon = (col: keyof ProductRow) => sortCol === col ? (sortDir === 'desc' ? ' ▼' : ' ▲') : ''
 
   // Tab definitions
+  useEffect(() => {
+    if (tab !== 'monthly' || monthlyLoadedMonths >= monthlyMonths) return
+    ;(async () => {
+      setMonthlyLoading(true); setMonthlyError('')
+      try {
+        const start = new Date(); start.setDate(1); start.setMonth(start.getMonth() - (monthlyMonths - 1))
+        const startIso = start.toISOString().slice(0, 10)
+        const PAGE = 1000
+        const all: Sale[] = []
+        for (let pageStart = 0; ; pageStart += PAGE) {
+          const { data, error } = await supabase
+            .from('vouchers')
+            .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by, salesperson_id,
+              customers(id, name, whatsapp, segment, crown_points, customer_type),
+              voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category, units_per_carton))`)
+            .in('type', ['cash_sale', 'sales_invoice'])
+            .eq('status', 'posted')
+            .gte('posting_date', startIso)
+            .order('posting_date', { ascending: false })
+            .order('id', { ascending: false })
+            .range(pageStart, pageStart + PAGE - 1)
+          if (error) { setMonthlyError('Could not load monthly sales: ' + error.message); setMonthlyLoading(false); return }
+          all.push(...((data as any) || []))
+          if (!data || data.length < PAGE) break
+        }
+        setMonthlySales(all)
+        setMonthlyLoadedMonths(monthlyMonths)
+      } finally { setMonthlyLoading(false) }
+    })()
+  }, [tab, monthlyMonths, monthlyLoadedMonths])
+
+  const monthlyRows = useMemo(() => {
+    if (tab !== 'monthly') return []
+    // Same channel + line scoping as the cards above.
+    const chanOk = (s: Sale) =>
+      typeFilter === 'all' ? true : typeFilter === 'cash' ? !regIsWholesale(s) : regIsWholesale(s)
+    const byMonth = new Map<string, { txns: number; revenue: number; retail: number; wholesale: number }>()
+    // Seed every month in the window so quiet months show as zero rather
+    // than vanishing.
+    const seed = new Date(); seed.setDate(1)
+    for (let i = 0; i < monthlyMonths; i++) {
+      const d = new Date(seed); d.setMonth(d.getMonth() - i)
+      byMonth.set(d.toISOString().slice(0, 7), { txns: 0, revenue: 0, retail: 0, wholesale: 0 })
+    }
+    for (const s of monthlySales) {
+      if (!chanOk(s)) continue
+      const key = (s.posting_date || '').slice(0, 7)
+      const m = byMonth.get(key)
+      if (!m) continue
+      const amt = scopedAmount(s)
+      if (lineScoped && amt === 0) continue   // basket without a matching line
+      m.txns++; m.revenue += amt
+      if (regIsWholesale(s)) m.wholesale += amt; else m.retail += amt
+    }
+    return [...byMonth.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, v]) => ({
+        key,
+        label: new Date(key + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+        ...v,
+        avg: v.txns > 0 ? v.revenue / v.txns : 0,
+      }))
+  }, [tab, monthlySales, monthlyMonths, typeFilter, filterProduct, filterCat])
+
   const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: 'transactions', label: 'Transactions', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { key: 'products', label: 'Product Sales', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
@@ -968,6 +1044,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     { key: 'salespeople', label: 'Salespeople', icon: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 11l-3-3m0 0l-3 3m3-3v12' },
     { key: 'bundles', label: 'Bundles', icon: 'M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z' },
     { key: 'compare', label: 'Compare', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
+    { key: 'monthly', label: 'Monthly', icon: 'M8 7V3m8 4V3M3 11h18M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z' },
     { key: 'targets', label: 'Targets', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
   ]
 
@@ -1518,6 +1595,65 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       {/* ═══════════════════════════════════════════════════
           TAB 4: COMPARE PERIODS
          ═══════════════════════════════════════════════════ */}
+      {tab === 'monthly' && (
+        <div className="card" style={{ padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <div className="card-title">Monthly Sales · last {monthlyMonths} months</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+              {lineScoped ? 'Matching lines only · ' : ''}{typeFilter === 'all' ? 'All channels' : typeFilter === 'cash' ? 'Retail only' : 'Wholesale only'}
+            </div>
+          </div>
+          {monthlyError && (
+            <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(214,84,60,.12)', border: '1px solid var(--red)', color: 'var(--red)', fontSize: 12 }}>
+              {monthlyError} — the table below is NOT current.
+            </div>
+          )}
+          {monthlyLoading && monthlyRows.every(r => r.txns === 0) ? (
+            <div style={{ color: 'var(--text3)', fontSize: 13, padding: '18px 0' }}>Loading monthly sales…</div>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead><tr>
+                  <th>Month</th>
+                  <th className="td-right">Txns</th>
+                  <th className="td-right">Revenue (TZS)</th>
+                  <th style={{ width: '26%' }}></th>
+                  <th className="td-right">Retail</th>
+                  <th className="td-right">Wholesale</th>
+                  <th className="td-right">Avg / txn</th>
+                </tr></thead>
+                <tbody>
+                  {(() => {
+                    const max = Math.max(1, ...monthlyRows.map(r => r.revenue))
+                    return monthlyRows.map(r => (
+                      <tr key={r.key}>
+                        <td style={{ fontWeight: 600 }}>{r.label}</td>
+                        <td className="td-right td-mono">{r.txns}</td>
+                        <td className="td-right td-mono td-green" style={{ fontWeight: 700 }}>{r.revenue.toLocaleString()}</td>
+                        <td>
+                          <div style={{ height: 8, borderRadius: 4, background: 'var(--surface2)', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${(r.revenue / max) * 100}%`, background: 'var(--accent)', borderRadius: 4 }} />
+                          </div>
+                        </td>
+                        <td className="td-right td-mono dim">{r.retail.toLocaleString()}</td>
+                        <td className="td-right td-mono dim">{r.wholesale.toLocaleString()}</td>
+                        <td className="td-right td-mono dim">{Math.round(r.avg).toLocaleString()}</td>
+                      </tr>
+                    ))
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {monthlyMonths < 24 && (
+            <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} disabled={monthlyLoading}
+              onClick={() => setMonthlyMonths(m => Math.min(24, m + 3))}>
+              {monthlyLoading ? 'Loading…' : 'Show 3 more months'}
+            </button>
+          )}
+        </div>
+      )}
+
       {tab === 'compare' && (
         <>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 16, marginBottom: 20 }}>
