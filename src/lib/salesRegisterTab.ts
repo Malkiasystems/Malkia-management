@@ -11,11 +11,11 @@
 
 export type SalesRegisterTab =
   | 'transactions' | 'products' | 'customers' | 'salespeople'
-  | 'bundles' | 'compare' | 'targets'
+  | 'bundles' | 'monthly' | 'compare' | 'targets'
 
 const EVT = 'malkia:sales-register-tab'
 const LS_KEY = 'malkia.salesRegisterTab'
-const VALID: SalesRegisterTab[] = ['transactions', 'products', 'customers', 'salespeople', 'bundles', 'compare', 'targets']
+const VALID: SalesRegisterTab[] = ['transactions', 'products', 'customers', 'salespeople', 'bundles', 'monthly', 'compare', 'targets']
 
 let pending: SalesRegisterTab | null = null
 
