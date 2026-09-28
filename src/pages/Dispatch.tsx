@@ -116,6 +116,58 @@ export default function Dispatch({ onNav: _onNav }: Props) {
     loadAllRiders(); loadRiders()
   }
 
+  // Rider history (Joe, 28 Sep): click a rider in the registry to see
+  // their book — customers delivered to, where, fees earned, POD cash
+  // handled and still open. Cash sales matched by rider_id OR name (old
+  // rows may be name-only); wholesale dispatches by name.
+  const [openRiderId, setOpenRiderId] = useState<string | null>(null)
+  const [riderHistory, setRiderHistory] = useState<{
+    date: string; kind: 'sale' | 'dispatch'; ref: string; customer: string
+    where: string; fee: number; pod_open: number; pod_total: number
+  }[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  const openRiderBook = async (r: Rider & { is_active: boolean }) => {
+    if (openRiderId === r.id) { setOpenRiderId(null); return }
+    setOpenRiderId(r.id); setHistoryLoading(true); setRiderHistory([])
+    try {
+      const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)
+      const [sales, disp] = await Promise.all([
+        supabase.from('vouchers')
+          .select('ref, posting_date, status, total_amount, delivery_fee, delivery_destination, upcountry_bus, description, rider_id, rider_name, customers(name)')
+          .eq('type', 'cash_sale')
+          .or(`rider_id.eq.${r.id},rider_name.eq.${JSON.stringify(r.name)}`)
+          .gte('posting_date', since)
+          .in('status', ['posted', 'draft'])
+          .order('posting_date', { ascending: false }).limit(200),
+        supabase.from('invoice_dispatches')
+          .select('ref, rider_name, dispatched_at, delivery_address, voucher_id')
+          .eq('rider_name', r.name)
+          .gte('dispatched_at', since)
+          .order('dispatched_at', { ascending: false }).limit(200),
+      ])
+      const rows: typeof riderHistory = []
+      for (const v of ((sales.data as any) || [])) {
+        rows.push({
+          date: v.posting_date, kind: 'sale', ref: v.ref,
+          customer: v.customers?.name || (v.description || '').replace('Cash Sale — ', ''),
+          where: v.delivery_destination || v.upcountry_bus || '',
+          fee: v.delivery_fee || 0,
+          pod_total: v.status === 'draft' || v.status === 'posted' ? (v.total_amount || 0) : 0,
+          pod_open: v.status === 'draft' ? (v.total_amount || 0) : 0,
+        })
+      }
+      for (const d of ((disp.data as any) || [])) {
+        rows.push({
+          date: (d.dispatched_at || '').slice(0, 10), kind: 'dispatch', ref: d.ref,
+          customer: '', where: d.delivery_address || '', fee: 0, pod_total: 0, pod_open: 0,
+        })
+      }
+      rows.sort((a, b) => b.date.localeCompare(a.date))
+      setRiderHistory(rows)
+    } finally { setHistoryLoading(false) }
+  }
+
   const addRider = async () => {
     const n = newRiderName.trim(); if (!n) return
     if (allRiders.some(r => r.name.toLowerCase() === n.toLowerCase())) {
@@ -299,7 +351,9 @@ export default function Dispatch({ onNav: _onNav }: Props) {
                     </>
                   ) : (
                     <>
-                      <span style={{ flex: 2, minWidth: 140, fontWeight: 600, fontSize: 13 }}>{r.name}</span>
+                      <span onClick={() => openRiderBook(r)}
+                        title="Click to open this rider's delivery book"
+                        style={{ flex: 2, minWidth: 140, fontWeight: 600, fontSize: 13, cursor: 'pointer', color: openRiderId === r.id ? 'var(--accent)' : undefined, textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}>{r.name}</span>
                       <span style={{ flex: 1, minWidth: 110, fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>{r.phone || 'no phone'}</span>
                       {!r.is_active && <span style={{ fontSize: 9.5, fontFamily: 'var(--mono)', padding: '2px 7px', borderRadius: 5, background: 'var(--surface2)', color: 'var(--text3)' }}>RETIRED</span>}
                       <button className="btn btn-ghost btn-sm" onClick={() => setEditRider(prev => ({ ...prev, [r.id]: { name: r.name, phone: r.phone || '' } }))}>Edit</button>
@@ -309,6 +363,45 @@ export default function Dispatch({ onNav: _onNav }: Props) {
                         {r.is_active ? 'Retire' : 'Reactivate'}
                       </button>
                     </>
+                  )}
+                  {openRiderId === r.id && (
+                    <div style={{ width: '100%', marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border2)' }}>
+                      {historyLoading ? (
+                        <div style={{ fontSize: 12, color: 'var(--text3)' }}>Loading {r.name}'s deliveries…</div>
+                      ) : riderHistory.length === 0 ? (
+                        <div style={{ fontSize: 12, color: 'var(--text3)' }}>No deliveries recorded for {r.name} in the last 90 days. (Sales before the rider feature carry no rider data.)</div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8, fontSize: 11.5, fontFamily: 'var(--mono)' }}>
+                            <span>Deliveries: <b>{riderHistory.length}</b></span>
+                            <span style={{ color: 'var(--red)' }}>Fees earned: <b>TZS {riderHistory.reduce((t, x) => t + x.fee, 0).toLocaleString()}</b></span>
+                            <span style={{ color: 'var(--yellow)' }}>POD handled: <b>TZS {riderHistory.reduce((t, x) => t + (x.kind === 'sale' ? x.pod_total : 0), 0).toLocaleString()}</b></span>
+                            <span style={{ color: riderHistory.some(x => x.pod_open > 0) ? 'var(--red)' : 'var(--green)' }}>POD still held: <b>TZS {riderHistory.reduce((t, x) => t + x.pod_open, 0).toLocaleString()}</b></span>
+                            <span style={{ color: 'var(--text3)' }}>last 90 days</span>
+                          </div>
+                          <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
+                            <table className="data-table" style={{ width: '100%', fontSize: 12 }}>
+                              <thead><tr>
+                                <th>Date</th><th>Ref</th><th>Customer</th><th>Where</th>
+                                <th className="td-right">Fee</th><th className="td-right">POD open</th>
+                              </tr></thead>
+                              <tbody>
+                                {riderHistory.map((h, i) => (
+                                  <tr key={h.ref + i}>
+                                    <td className="td-mono">{h.date}</td>
+                                    <td className="td-mono">{h.ref}{h.kind === 'dispatch' ? ' · WHL' : ''}</td>
+                                    <td>{h.customer || (h.kind === 'dispatch' ? 'Wholesale dispatch' : '—')}</td>
+                                    <td style={{ color: 'var(--text3)' }}>{h.where || '—'}</td>
+                                    <td className="td-right td-mono">{h.fee > 0 ? h.fee.toLocaleString() : '—'}</td>
+                                    <td className="td-right td-mono" style={{ color: h.pod_open > 0 ? 'var(--yellow)' : undefined }}>{h.pod_open > 0 ? h.pod_open.toLocaleString() : '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               )
