@@ -62,6 +62,8 @@ const TYPE_COLOR: Record<string, string> = {
 }
 
 interface Props {
+  /** Navigate to the entry forms — the register is the Expenses hub. */
+  onNav?: (page: any) => void
   onEdit?: (p: Page, voucherId: string) => void
   // Variant of this register:
   //  - 'all'     → full payment register (payments + receipts + transfers + contra)
@@ -75,7 +77,7 @@ interface Props {
   mode?: 'all' | 'expense'
 }
 
-export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
+export default function PaymentRegister({ onEdit, mode = 'all', onNav }: Props = {}) {
   // Which voucher types this register cares about. Expense mode shows only
   // outgoing-money vouchers; payment mode shows everything.
   // ──────────────────────────────────────────────────────────────────────
@@ -470,6 +472,23 @@ export default function PaymentRegister({ onEdit, mode = 'all' }: Props = {}) {
             <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
             <span style={{ color: 'var(--text3)', fontSize: 12 }}>to</span>
             <input type="date" className="form-input" style={{ width: 140, padding: '6px 10px', fontSize: 12 }} value={toDate} onChange={e => setToDate(e.target.value)} />
+            {mode === 'expense' && onNav && (
+              // The register IS the Expenses hub (Joe, 28 Sep): the New
+              // Expense chooser page is merged in here as two direct entry
+              // buttons, same split and colours the chooser used.
+              <>
+                <button className="btn btn-sm" onClick={() => onNav('petty-cash')}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,211,42,.14)', border: '1px solid rgba(230,184,0,.5)', color: '#b38f00' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  ＋ Petty Cash
+                </button>
+                <button className="btn btn-sm" onClick={() => onNav('cash-payment')}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,71,87,.12)', border: '1px solid rgba(255,71,87,.5)', color: '#ff4757' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+                  ＋ Payment
+                </button>
+              </>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={() => loadPayments()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="refresh" /> Refresh</button>
             <button className="btn btn-primary btn-sm" onClick={() => loadPayments()}>Load</button>
             {tab === 'transactions' && <button className="btn btn-ghost btn-sm" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Ic n="csv" /> CSV</button>}

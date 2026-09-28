@@ -139,7 +139,6 @@ const SALES_SUB: { label: string; page: Page; icon: string; tab?: 'targets' }[] 
 ]
 
 const EXPENSE_SUB: { label: string; page: Page; icon: string; tab?: 'budget' | 'recurring' }[] = [
-  { label: 'New Expense', page: 'new-expense',      icon: 'M12 5v14 M5 12h14' },
   { label: 'Register',    page: 'expense-register', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
   { label: 'Budget',      page: 'expense-register', icon: 'M18 20V10M12 20V4M6 20v-6', tab: 'budget' },
   { label: 'Recurring',   page: 'expense-register', icon: 'M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15', tab: 'recurring' },
@@ -350,9 +349,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { sep: true },
     { icon: 'vouchers',  label: 'Vouchers',  page: 'vouchers' as Page, hasSub: true },
     { icon: 'accounts',  label: 'Accounts',  page: 'chart-of-accounts' as Page, hasSub: true },
-    // Landing changed to New Expense (Joe, 28 Sep): the common action is
-    // recording an expense; the Register is one click below for review.
-    { icon: 'expense',   label: 'Expenses',  page: 'new-expense' as Page, hasSub: true },
+    { icon: 'expense',   label: 'Expenses',  page: 'expense-register' as Page, hasSub: true },
     { icon: 'sales',     label: 'Sales',     page: 'sales' as Page,     hasSub: true },
     { icon: 'customers', label: 'Customers', page: 'customers' as Page },
     { icon: 'suppliers', label: 'Suppliers', page: 'suppliers' as Page },
@@ -445,8 +442,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           if (navItem.page === 'hrm' && visibleHrmSub.length === 0) return null
           if (navItem.page === 'inventory' && visibleInventorySub.length === 0) return null
           // For non-parent items, just skip
-          if (navItem.page === 'new-expense' && visibleExpenseSub.length === 0) return null
-          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'new-expense'].includes(navItem.page as string)) return null
+          if (navItem.page === 'expense-register' && visibleExpenseSub.length === 0) return null
+          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'expense-register'].includes(navItem.page as string)) return null
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
@@ -456,7 +453,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           current === navItem.page ||
           (navItem.page === 'vouchers' && isVoucherActive && !isSalesActive && !isCrmActive && !isSettingsActive && !isHrmActive) ||
           (navItem.page === 'sales' && isSalesActive) ||
-          (navItem.page === 'new-expense' && isExpenseActive) ||
+          (navItem.page === 'expense-register' && isExpenseActive) ||
           (navItem.page === 'import-register' && isImportActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
           (navItem.page === 'settings' && isSettingsActive) ||
@@ -464,7 +461,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           (navItem.page === 'chart-of-accounts' && isAccountsActive)
 
         const isSalesItem = navItem.page === 'sales'
-        const isExpenseItem = navItem.page === 'new-expense'
+        const isExpenseItem = navItem.page === 'expense-register'
         const isCrmItem = navItem.page === 'crm-hub'
         const isSettingsItem = navItem.page === 'settings'
         const isHrmItem = navItem.page === 'hrm'
@@ -481,12 +478,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   if (expensesOpen) { setExpensesOpen(false) } else {
                     setExpensesOpen(true)
                     setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
-                    // Land on New Expense (Joe, 28 Sep): recording money out
-                    // is the everyday action; the Register stays one click
-                    // below. This handler hardcodes the destination — the
-                    // navItem.page property is ignored here, which is why
-                    // changing it alone did nothing.
-                    onNav('new-expense')
+                    requestExpenseRegisterTab('transactions')
+                    onNav('expense-register')
                   }
                 } else if (isSalesItem) {
                   if (salesOpen) { setSalesOpen(false) } else {
