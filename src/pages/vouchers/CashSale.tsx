@@ -108,15 +108,43 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
   // Payment
   const [isPOD, setIsPOD] = useState(false)
-  // Rider on the delivery (28 Sep): typed with datalist suggestions from
-  // the shared riders table (same list Dispatch uses). A new name is
-  // quick-saved to riders at post, so recurring riders accumulate.
+  // Rider + destination on the delivery (28 Sep, upgraded same day):
+  // rider is PICKED from the registered list (shared with Dispatch and
+  // manageable there), with inline registration for a new one. The
+  // destination (town) or bus (upcountry) binds WHERE to the sale, so a
+  // reorder or exchange call starts from the voucher, not from memory.
+  const [riderId, setRiderId] = useState('')
   const [riderName, setRiderName] = useState('')
-  const [riders, setRiders] = useState<{ id: string; name: string }[]>([])
+  const [riders, setRiders] = useState<{ id: string; name: string; phone: string | null }[]>([])
+  const [showNewRider, setShowNewRider] = useState(false)
+  const [newRiderName, setNewRiderName] = useState('')
+  const [newRiderPhone, setNewRiderPhone] = useState('')
+  const [riderSaving, setRiderSaving] = useState(false)
+  const [deliveryDestination, setDeliveryDestination] = useState('')
+  const [upcountryBus, setUpcountryBus] = useState('')
   useEffect(() => {
-    supabase.from('riders').select('id, name').eq('is_active', true).order('name')
+    supabase.from('riders').select('id, name, phone').eq('is_active', true).order('name')
       .then(({ data }) => { if (data) setRiders(data) })
   }, [])
+  const registerRider = async () => {
+    const n = newRiderName.trim(); if (!n) return
+    setRiderSaving(true)
+    try {
+      const dup = riders.find(r => r.name.toLowerCase() === n.toLowerCase())
+      if (dup) { setRiderId(dup.id); setRiderName(dup.name) }
+      else {
+        const { data: created, error } = await supabase.from('riders')
+          .insert({ name: n, phone: newRiderPhone.trim() || null, is_active: true })
+          .select('id, name, phone').single()
+        if (error || !created) throw new Error(error?.message || 'insert failed')
+        setRiders(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+        setRiderId(created.id); setRiderName(created.name)
+      }
+      setShowNewRider(false); setNewRiderName(''); setNewRiderPhone('')
+    } catch (err: any) {
+      alert('Could not register rider: ' + (err?.message || err))
+    } finally { setRiderSaving(false) }
+  }
   const [selectedMethod, setSelectedMethod] = useState<string>('cash')
   const [isSplit, setIsSplit] = useState(false)
   const [splitLines, setSplitLines] = useState<SplitLine[]>([])
@@ -655,27 +683,14 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     }
 
     setPosting(true)
-    // Quick-save an unknown rider so recurring riders accumulate (same
-    // behaviour Dispatch has). Failure is non-fatal: the name still rides
-    // on the voucher.
-    let postRiderId: string | null = null
-    const rn = riderName.trim()
-    if (rn) {
-      const existing = riders.find(r => r.name.toLowerCase() === rn.toLowerCase())
-      if (existing) postRiderId = existing.id
-      else {
-        try {
-          const { data: created } = await supabase.from('riders').insert({ name: rn }).select('id').single()
-          if (created) { postRiderId = created.id; setRiders(prev => [...prev, { id: created.id, name: rn }]) }
-        } catch { /* name-only fallback */ }
-      }
-    }
     const result = await postCashSale({
       salespersonId: salespersonId || null,
       newCustName, waInput, lines, dbProducts, selectedCust,
       isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
       townDelivery, upcountryShipping, deliveryAccountId,
-      riderId: postRiderId, riderName: riderName.trim() || null,
+      riderId: riderId || null, riderName: riderName.trim() || null,
+      deliveryDestination: deliveryDestination.trim() || null,
+      upcountryBus: upcountryBus.trim() || null,
       locationCode, locations, invSettings,
       userName: user?.full_name || 'Unknown',
       userId: user?.id,
@@ -1259,17 +1274,52 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                           <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)', fontWeight: 700 }}>{tzs(deliveryTotal)}</span>
                         </div>
                       )}
+                      {(parseFloat(townDelivery) || 0) > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <FG label="Deliver to (area / street / landmark)">
+                            <input className="form-input" placeholder="e.g. Kariakoo, Msimbazi St, near mosque"
+                              value={deliveryDestination} onChange={e => setDeliveryDestination(e.target.value)} />
+                          </FG>
+                        </div>
+                      )}
+                      {(parseFloat(upcountryShipping) || 0) > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <FG label="Upcountry bus / carrier & destination">
+                            <input className="form-input" placeholder="e.g. Abood Bus — Morogoro, parcel office"
+                              value={upcountryBus} onChange={e => setUpcountryBus(e.target.value)} />
+                          </FG>
+                        </div>
+                      )}
                       {(deliveryTotal > 0 || isPOD) && (
                         <div style={{ marginTop: 10 }}>
                           <FG label="Rider (who carries this delivery)">
-                            <input className="form-input" list="cash-sale-riders" placeholder="Type or pick a rider…"
-                              value={riderName} onChange={e => setRiderName(e.target.value)} />
+                            <select className="form-input" value={riderId}
+                              onChange={e => {
+                                if (e.target.value === '__new__') { setShowNewRider(true); return }
+                                setRiderId(e.target.value)
+                                setRiderName(riders.find(r => r.id === e.target.value)?.name || '')
+                              }}>
+                              <option value="">— Select rider —</option>
+                              {riders.map(r => (
+                                <option key={r.id} value={r.id}>{r.name}{r.phone ? ` · ${r.phone}` : ''}</option>
+                              ))}
+                              <option value="__new__">＋ Register new rider…</option>
+                            </select>
                           </FG>
-                          <datalist id="cash-sale-riders">
-                            {riders.map(r => <option key={r.id} value={r.name} />)}
-                          </datalist>
+                          {showNewRider && (
+                            <div style={{ marginTop: 8, padding: '10px 12px', border: '1px solid var(--accent)', borderRadius: 10, background: 'var(--surface2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              <input className="form-input" placeholder="Rider name *" value={newRiderName} onChange={e => setNewRiderName(e.target.value)} autoFocus />
+                              <input className="form-input" placeholder="Phone / WhatsApp" value={newRiderPhone} onChange={e => setNewRiderPhone(e.target.value)} />
+                              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setShowNewRider(false); setNewRiderName(''); setNewRiderPhone('') }}>Cancel</button>
+                                <button type="button" className="btn btn-primary btn-sm" disabled={riderSaving || !newRiderName.trim()} onClick={registerRider}>
+                                  {riderSaving ? 'Saving…' : 'Register & select'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                           <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
-                            New names are saved for next time. The Day Book sums fees and POD cash per rider for settlement.
+                            Binds the rider to this sale — the Day Book sums fees and POD cash per rider for settlement. Full registry lives in Dispatch.
                           </div>
                         </div>
                       )}

@@ -194,6 +194,8 @@ export interface PostParams {
   deliveryTotal: number
   riderId?: string | null
   riderName?: string | null
+  deliveryDestination?: string | null
+  upcountryBus?: string | null
   totalSplitPaid: number
   // Optional customer context (TTC / pregnancy / postpartum) captured at till.
   // Skipped fields are not written; not provided = no change to existing.
@@ -242,7 +244,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
     deliveryAccountId,
     locationCode, locations, invSettings, userName, userId, appliedBundle,
-    subtotal, total, crownPoints, deliveryTotal, totalSplitPaid, riderId, riderName,
+    subtotal, total, crownPoints, deliveryTotal, totalSplitPaid, riderId, riderName, deliveryDestination, upcountryBus,
     customerContext,
     referralCode, referralBenefit,
   } = params
@@ -556,10 +558,21 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       // index and format profile. Split payments key on the primary
       // method's account; per-split-line guarding is a future step.
       deposit_account_id: (!isPOD && currentMethod.showRef) ? (accountMap[currentMethod.accountCode] || null) : null,
+      // Rider settlement + reorder trail (28 Sep): who carries it, the fee
+      // collected for them, and WHERE it goes (town destination or
+      // upcountry bus) — all queryable columns, not notes prose.
+      rider_id: riderId || null,
+      rider_name: (riderName || '').trim() || null,
+      delivery_fee: deliveryTotal || 0,
+      delivery_destination: (deliveryDestination || '').trim() || null,
+      upcountry_bus: (upcountryBus || '').trim() || null,
       payment_method: paymentLabel,
       payment_split: paymentSplitData,
       notes: [
         deliveryTotal > 0 ? `Delivery: TZS ${deliveryTotal.toLocaleString()}` : '',
+        (deliveryDestination || '').trim() ? `To: ${(deliveryDestination || '').trim()}` : '',
+        (upcountryBus || '').trim() ? `Bus: ${(upcountryBus || '').trim()}` : '',
+        (riderName || '').trim() ? `Rider: ${(riderName || '').trim()}` : '',
         currentMethod.id === 'pos' ? 'POS Card payment' : '',
         paymentRef ? `Ref: ${paymentRef}` : ''
       ].filter(Boolean).join(' · ') || null,

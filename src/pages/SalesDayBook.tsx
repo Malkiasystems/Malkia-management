@@ -38,7 +38,7 @@ export default function SalesDayBook({ onEdit }: Props) {
   // owes back (a POD sale sits as draft until its receipt is posted, so
   // draft status IS the "rider still holds the cash" signal).
   const [riderRows, setRiderRows] = useState<{
-    ref: string; rider_name: string; customer: string
+    ref: string; rider_name: string; customer: string; where: string
     delivery_fee: number; pod_open: number
   }[]>([])
   const [creditNotes, setCreditNotes] = useState<SDBCreditNote[]>([])
@@ -126,7 +126,7 @@ export default function SalesDayBook({ onEdit }: Props) {
     // Both posted and draft on purpose: a draft cash sale here is a POD
     // still out with the rider — exactly what settlement needs to see.
     const { data } = await supabase.from('vouchers')
-      .select('ref, rider_name, delivery_fee, total_amount, status, description, customers(name)')
+      .select('ref, rider_name, delivery_fee, total_amount, status, description, delivery_destination, upcountry_bus, customers(name)')
       .eq('type', 'cash_sale')
       .not('rider_name', 'is', null)
       .gte('posting_date', from).lte('posting_date', to)
@@ -136,6 +136,7 @@ export default function SalesDayBook({ onEdit }: Props) {
       ref: v.ref,
       rider_name: v.rider_name,
       customer: v.customers?.name || (v.description || '').replace('Cash Sale — ', ''),
+      where: v.delivery_destination || v.upcountry_bus || '',
       delivery_fee: v.delivery_fee || 0,
       pod_open: v.status === 'draft' ? (v.total_amount || 0) : 0,
     })))
@@ -475,7 +476,7 @@ export default function SalesDayBook({ onEdit }: Props) {
           <div className="table-wrap">
             <table className="data-table" style={{ width: '100%' }}>
               <thead><tr>
-                <th>Rider</th><th>Sale</th><th>Customer</th>
+                <th>Rider</th><th>Sale</th><th>Customer</th><th>Where</th>
                 <th className="td-right">Fee to pay (TZS)</th>
                 <th className="td-right">POD to collect (TZS)</th>
               </tr></thead>
@@ -493,12 +494,13 @@ export default function SalesDayBook({ onEdit }: Props) {
                             <td style={{ fontWeight: i === 0 ? 700 : 400, color: i === 0 ? 'var(--text)' : 'var(--text3)' }}>{i === 0 ? name : ''}</td>
                             <td className="td-mono">{r.ref}</td>
                             <td>{r.customer}</td>
+                            <td style={{ fontSize: 12, color: 'var(--text3)' }}>{r.where || '—'}</td>
                             <td className="td-right td-mono">{r.delivery_fee > 0 ? r.delivery_fee.toLocaleString() : '—'}</td>
                             <td className="td-right td-mono" style={{ color: r.pod_open > 0 ? 'var(--yellow)' : undefined }}>{r.pod_open > 0 ? r.pod_open.toLocaleString() : '—'}</td>
                           </tr>
                         ))}
                         <tr key={name + '-total'} style={{ background: 'var(--surface2)' }}>
-                          <td colSpan={3} style={{ fontSize: 11, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{name} — settle</td>
+                          <td colSpan={4} style={{ fontSize: 11, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{name} — settle</td>
                           <td className="td-right td-mono" style={{ fontWeight: 800, color: 'var(--red)' }}>{feeSum > 0 ? feeSum.toLocaleString() : '—'}</td>
                           <td className="td-right td-mono" style={{ fontWeight: 800, color: 'var(--green)' }}>{podSum > 0 ? podSum.toLocaleString() : '—'}</td>
                         </tr>

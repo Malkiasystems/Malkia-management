@@ -75,6 +75,61 @@ export default function Dispatch({ onNav: _onNav }: Props) {
     setRiders((data || []) as Rider[])
   }, [])
 
+  // ── Manage Riders (Joe, 28 Sep) ──
+  // The riders table existed with phone and is_active that no screen
+  // could touch: riders were born by first use and lived forever. This
+  // panel is the registry: full list including retired, rename (history
+  // safe — sales store id AND name), phone, deactivate/reactivate, add.
+  const [showManage, setShowManage] = useState(false)
+  const [allRiders, setAllRiders] = useState<(Rider & { is_active: boolean })[]>([])
+  const [editRider, setEditRider] = useState<Record<string, { name: string; phone: string }>>({})
+  const [newRiderName, setNewRiderName] = useState('')
+  const [newRiderPhone, setNewRiderPhone] = useState('')
+  const [riderBusy, setRiderBusy] = useState(false)
+
+  const loadAllRiders = useCallback(async () => {
+    const { data } = await supabase.from('riders')
+      .select('id, name, phone, is_active')
+      .order('is_active', { ascending: false }).order('name')
+    setAllRiders((data || []) as any)
+  }, [])
+
+  useEffect(() => { if (showManage) loadAllRiders() }, [showManage, loadAllRiders])
+
+  const saveRiderEdit = async (id: string) => {
+    const e = editRider[id]; if (!e || !e.name.trim()) return
+    setRiderBusy(true)
+    const { error } = await supabase.from('riders')
+      .update({ name: e.name.trim(), phone: e.phone.trim() || null }).eq('id', id)
+    setRiderBusy(false)
+    if (error) { flash('Could not save rider: ' + error.message, 'err'); return }
+    setEditRider(prev => { const n = { ...prev }; delete n[id]; return n })
+    flash('Rider updated'); loadAllRiders(); loadRiders()
+  }
+
+  const toggleRiderActive = async (id: string, active: boolean) => {
+    setRiderBusy(true)
+    const { error } = await supabase.from('riders').update({ is_active: !active }).eq('id', id)
+    setRiderBusy(false)
+    if (error) { flash('Could not update rider: ' + error.message, 'err'); return }
+    flash(!active ? 'Rider reactivated' : 'Rider retired — kept on old records, hidden from pickers')
+    loadAllRiders(); loadRiders()
+  }
+
+  const addRider = async () => {
+    const n = newRiderName.trim(); if (!n) return
+    if (allRiders.some(r => r.name.toLowerCase() === n.toLowerCase())) {
+      flash('A rider with this name already exists', 'err'); return
+    }
+    setRiderBusy(true)
+    const { error } = await supabase.from('riders')
+      .insert({ name: n, phone: newRiderPhone.trim() || null, is_active: true })
+    setRiderBusy(false)
+    if (error) { flash('Could not add rider: ' + error.message, 'err'); return }
+    setNewRiderName(''); setNewRiderPhone('')
+    flash(`${n} registered`); loadAllRiders(); loadRiders()
+  }
+
   const loadAwaiting = useCallback(async () => {
     setLoading(true)
     let q = supabase.from('vouchers')
@@ -201,6 +256,67 @@ export default function Dispatch({ onNav: _onNav }: Props) {
       <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
         Posted sales invoices waiting to be sent out. Confirming records who sent it, when, and the rider. It does not move stock.
       </p>
+
+      <button onClick={() => setShowManage(v => !v)}
+        style={{ marginTop: 8, padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', gap: 7,
+          border: `1px solid ${showManage ? 'var(--accent)' : 'var(--border2)'}`,
+          background: showManage ? 'var(--accent-dim)' : 'transparent',
+          color: showManage ? 'var(--accent)' : 'var(--text2)' }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 17.5h-4l-3-9h3l4 6h3.5"/><path d="M12 8.5h3l1.5 3"/></svg>
+        {showManage ? 'Close rider registry' : 'Manage riders'}
+      </button>
+
+      {showManage && (
+        <div className="card" style={{ marginTop: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 11, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--text3)', marginBottom: 10 }}>
+            Rider registry · {allRiders.filter(r => r.is_active).length} active · {allRiders.filter(r => !r.is_active).length} retired
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <input className="form-input" placeholder="New rider name *" value={newRiderName}
+              onChange={e => setNewRiderName(e.target.value)} style={{ flex: 2, minWidth: 160 }} />
+            <input className="form-input" placeholder="Phone / WhatsApp" value={newRiderPhone}
+              onChange={e => setNewRiderPhone(e.target.value)} style={{ flex: 1, minWidth: 130 }} />
+            <button className="btn btn-primary btn-sm" disabled={riderBusy || !newRiderName.trim()} onClick={addRider}>
+              ＋ Register rider
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {allRiders.map(r => {
+              const e = editRider[r.id]
+              return (
+                <div key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+                  padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)',
+                  opacity: r.is_active ? 1 : 0.55 }}>
+                  {e ? (
+                    <>
+                      <input className="form-input" value={e.name} style={{ flex: 2, minWidth: 140, padding: '5px 8px', fontSize: 12.5 }}
+                        onChange={ev => setEditRider(prev => ({ ...prev, [r.id]: { ...e, name: ev.target.value } }))} />
+                      <input className="form-input" value={e.phone} placeholder="Phone" style={{ flex: 1, minWidth: 110, padding: '5px 8px', fontSize: 12.5 }}
+                        onChange={ev => setEditRider(prev => ({ ...prev, [r.id]: { ...e, phone: ev.target.value } }))} />
+                      <button className="btn btn-primary btn-sm" disabled={riderBusy} onClick={() => saveRiderEdit(r.id)}>Save</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setEditRider(prev => { const n = { ...prev }; delete n[r.id]; return n })}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 2, minWidth: 140, fontWeight: 600, fontSize: 13 }}>{r.name}</span>
+                      <span style={{ flex: 1, minWidth: 110, fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>{r.phone || 'no phone'}</span>
+                      {!r.is_active && <span style={{ fontSize: 9.5, fontFamily: 'var(--mono)', padding: '2px 7px', borderRadius: 5, background: 'var(--surface2)', color: 'var(--text3)' }}>RETIRED</span>}
+                      <button className="btn btn-ghost btn-sm" onClick={() => setEditRider(prev => ({ ...prev, [r.id]: { name: r.name, phone: r.phone || '' } }))}>Edit</button>
+                      <button className="btn btn-ghost btn-sm" disabled={riderBusy}
+                        style={{ color: r.is_active ? 'var(--red)' : 'var(--green)' }}
+                        onClick={() => toggleRiderActive(r.id, r.is_active)}>
+                        {r.is_active ? 'Retire' : 'Reactivate'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
+            })}
+            {allRiders.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No riders yet — register the first one above.</div>}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 6, margin: '12px 0', alignItems: 'center', flexWrap: 'wrap' }}>
         {([['awaiting', `Awaiting Dispatch${visible.length ? ` (${visible.length})` : ''}`], ['dispatched', 'Dispatched']] as const).map(([k, label]) => (
