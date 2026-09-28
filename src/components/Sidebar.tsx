@@ -481,8 +481,12 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   if (expensesOpen) { setExpensesOpen(false) } else {
                     setExpensesOpen(true)
                     setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
-                    requestExpenseRegisterTab('transactions')
-                    onNav('expense-register')
+                    // Land on New Expense (Joe, 28 Sep): recording money out
+                    // is the everyday action; the Register stays one click
+                    // below. This handler hardcodes the destination — the
+                    // navItem.page property is ignored here, which is why
+                    // changing it alone did nothing.
+                    onNav('new-expense')
                   }
                 } else if (isSalesItem) {
                   if (salesOpen) { setSalesOpen(false) } else {
