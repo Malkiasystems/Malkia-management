@@ -108,6 +108,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
   // Payment
   const [isPOD, setIsPOD] = useState(false)
+  // Rider on the delivery (28 Sep): typed with datalist suggestions from
+  // the shared riders table (same list Dispatch uses). A new name is
+  // quick-saved to riders at post, so recurring riders accumulate.
+  const [riderName, setRiderName] = useState('')
+  const [riders, setRiders] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    supabase.from('riders').select('id, name').eq('is_active', true).order('name')
+      .then(({ data }) => { if (data) setRiders(data) })
+  }, [])
   const [selectedMethod, setSelectedMethod] = useState<string>('cash')
   const [isSplit, setIsSplit] = useState(false)
   const [splitLines, setSplitLines] = useState<SplitLine[]>([])
@@ -646,11 +655,27 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     }
 
     setPosting(true)
+    // Quick-save an unknown rider so recurring riders accumulate (same
+    // behaviour Dispatch has). Failure is non-fatal: the name still rides
+    // on the voucher.
+    let postRiderId: string | null = null
+    const rn = riderName.trim()
+    if (rn) {
+      const existing = riders.find(r => r.name.toLowerCase() === rn.toLowerCase())
+      if (existing) postRiderId = existing.id
+      else {
+        try {
+          const { data: created } = await supabase.from('riders').insert({ name: rn }).select('id').single()
+          if (created) { postRiderId = created.id; setRiders(prev => [...prev, { id: created.id, name: rn }]) }
+        } catch { /* name-only fallback */ }
+      }
+    }
     const result = await postCashSale({
       salespersonId: salespersonId || null,
       newCustName, waInput, lines, dbProducts, selectedCust,
       isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
       townDelivery, upcountryShipping, deliveryAccountId,
+      riderId: postRiderId, riderName: riderName.trim() || null,
       locationCode, locations, invSettings,
       userName: user?.full_name || 'Unknown',
       userId: user?.id,
@@ -1232,6 +1257,20 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                         <div style={{ background: 'var(--blue-dim)', border: '1px solid rgba(61,139,255,.2)', borderRadius: 'var(--r)', padding: '8px 12px', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: 'var(--text3)' }}>Total delivery/shipping</span>
                           <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)', fontWeight: 700 }}>{tzs(deliveryTotal)}</span>
+                        </div>
+                      )}
+                      {(deliveryTotal > 0 || isPOD) && (
+                        <div style={{ marginTop: 10 }}>
+                          <FG label="Rider (who carries this delivery)">
+                            <input className="form-input" list="cash-sale-riders" placeholder="Type or pick a rider…"
+                              value={riderName} onChange={e => setRiderName(e.target.value)} />
+                          </FG>
+                          <datalist id="cash-sale-riders">
+                            {riders.map(r => <option key={r.id} value={r.name} />)}
+                          </datalist>
+                          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
+                            New names are saved for next time. The Day Book sums fees and POD cash per rider for settlement.
+                          </div>
                         </div>
                       )}
                     </div>

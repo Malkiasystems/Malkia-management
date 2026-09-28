@@ -33,6 +33,14 @@ export default function SalesDayBook({ onEdit }: Props) {
 
   // Expenses + Credit Notes for PDF
   const [expenses, setExpenses] = useState<SDBExpense[]>([])
+  // Rider settlement rows for the period (28 Sep): cash sales carrying a
+  // rider. Fee = what the cashier pays the rider; POD = what the rider
+  // owes back (a POD sale sits as draft until its receipt is posted, so
+  // draft status IS the "rider still holds the cash" signal).
+  const [riderRows, setRiderRows] = useState<{
+    ref: string; rider_name: string; customer: string
+    delivery_fee: number; pod_open: number
+  }[]>([])
   const [creditNotes, setCreditNotes] = useState<SDBCreditNote[]>([])
 
   // PDF template settings
@@ -110,7 +118,27 @@ export default function SalesDayBook({ onEdit }: Props) {
     if (!error && data) setSales(data as any)
     // Also load expenses for this period
     loadExpenses(f, t)
+    loadRiderDay(f, t)
     setLoading(false)
+  }
+
+  const loadRiderDay = async (from: string, to: string) => {
+    // Both posted and draft on purpose: a draft cash sale here is a POD
+    // still out with the rider — exactly what settlement needs to see.
+    const { data } = await supabase.from('vouchers')
+      .select('ref, rider_name, delivery_fee, total_amount, status, description, customers(name)')
+      .eq('type', 'cash_sale')
+      .not('rider_name', 'is', null)
+      .gte('posting_date', from).lte('posting_date', to)
+      .in('status', ['posted', 'draft'])
+      .order('rider_name')
+    setRiderRows(((data as any) || []).map((v: any) => ({
+      ref: v.ref,
+      rider_name: v.rider_name,
+      customer: v.customers?.name || (v.description || '').replace('Cash Sale — ', ''),
+      delivery_fee: v.delivery_fee || 0,
+      pod_open: v.status === 'draft' ? (v.total_amount || 0) : 0,
+    })))
   }
 
   const loadExpenses = async (from: string, to: string) => {
@@ -431,6 +459,58 @@ export default function SalesDayBook({ onEdit }: Props) {
         <div className="stat-card amber"><div className="stat-label">Avg Sale</div><div className="stat-value">{filtered.length > 0 ? tzs(Math.round(totalRevenue / filtered.length)) : '—'}</div><div className="stat-change up">Per transaction</div></div>
         <div className="stat-card yellow"><div className="stat-label">Gross Margin</div><div className="stat-value">{vis.margin(marginPct)}</div><div className="stat-change up">{vis.canViewMargin ? tzs(totalMargin) : HIDDEN}</div></div>
       </div>
+
+      {/* RIDER SETTLEMENT — who carries deliveries today, what to pay
+          them (fees) and what to collect back (open PODs). Forward-only:
+          sales from before 28 Sep carry no rider data. */}
+      {riderRows.length > 0 && (
+        <div className="card card-sm" style={{ marginBottom: 20 }}>
+          <div className="card-title" style={{ marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 17.5h-4l-3-9h3l4 6h3.5"/><path d="M12 8.5h3l1.5 3"/></svg>
+            Rider Settlement
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--text3)', marginBottom: 10 }}>
+            Pay each rider their delivery fees; collect open POD cash they still hold. PODs clear from this list the moment their receipt is posted.
+          </div>
+          <div className="table-wrap">
+            <table className="data-table" style={{ width: '100%' }}>
+              <thead><tr>
+                <th>Rider</th><th>Sale</th><th>Customer</th>
+                <th className="td-right">Fee to pay (TZS)</th>
+                <th className="td-right">POD to collect (TZS)</th>
+              </tr></thead>
+              <tbody>
+                {(() => {
+                  const riders = [...new Set(riderRows.map(r => r.rider_name))]
+                  return riders.map(name => {
+                    const rows = riderRows.filter(r => r.rider_name === name)
+                    const feeSum = rows.reduce((s, r) => s + r.delivery_fee, 0)
+                    const podSum = rows.reduce((s, r) => s + r.pod_open, 0)
+                    return (
+                      <>
+                        {rows.map((r, i) => (
+                          <tr key={r.ref}>
+                            <td style={{ fontWeight: i === 0 ? 700 : 400, color: i === 0 ? 'var(--text)' : 'var(--text3)' }}>{i === 0 ? name : ''}</td>
+                            <td className="td-mono">{r.ref}</td>
+                            <td>{r.customer}</td>
+                            <td className="td-right td-mono">{r.delivery_fee > 0 ? r.delivery_fee.toLocaleString() : '—'}</td>
+                            <td className="td-right td-mono" style={{ color: r.pod_open > 0 ? 'var(--yellow)' : undefined }}>{r.pod_open > 0 ? r.pod_open.toLocaleString() : '—'}</td>
+                          </tr>
+                        ))}
+                        <tr key={name + '-total'} style={{ background: 'var(--surface2)' }}>
+                          <td colSpan={3} style={{ fontSize: 11, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{name} — settle</td>
+                          <td className="td-right td-mono" style={{ fontWeight: 800, color: 'var(--red)' }}>{feeSum > 0 ? feeSum.toLocaleString() : '—'}</td>
+                          <td className="td-right td-mono" style={{ fontWeight: 800, color: 'var(--green)' }}>{podSum > 0 ? podSum.toLocaleString() : '—'}</td>
+                        </tr>
+                      </>
+                    )
+                  })
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* PAYMENT SPLIT (Retail + Wholesale) + STATUS */}
       <div className="grid g2" style={{ marginBottom: 20 }}>

@@ -192,6 +192,8 @@ export interface PostParams {
   total: number
   crownPoints: number
   deliveryTotal: number
+  riderId?: string | null
+  riderName?: string | null
   totalSplitPaid: number
   // Optional customer context (TTC / pregnancy / postpartum) captured at till.
   // Skipped fields are not written; not provided = no change to existing.
@@ -240,7 +242,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
     deliveryAccountId,
     locationCode, locations, invSettings, userName, userId, appliedBundle,
-    subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
+    subtotal, total, crownPoints, deliveryTotal, totalSplitPaid, riderId, riderName,
     customerContext,
     referralCode, referralBenefit,
   } = params
