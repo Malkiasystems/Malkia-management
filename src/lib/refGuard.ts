@@ -177,7 +177,28 @@ export async function checkReference(args: {
       }
     }
 
-    // Layer 3: format profile. Multiple shapes per account by design.
+    // Layer 3a: STRUCTURAL mode (30 Sep). Mobile-money transaction IDs
+    // (M-Pesa etc.) are 10 alphanumerics whose letter/digit POSITIONS
+    // legitimately vary — the live data showed 12+ shapes with no
+    // dominant one, so shape-matching there cries wolf on honest slips
+    // while teaching it every shape would approve anything 10 chars
+    // long anyway. Structural mode checks what actually holds: exactly
+    // 10 characters, letters and digits only, at least one of each.
+    // Duplicate and twin detection (layers 1-2) still run in full —
+    // they are the checks that catch thieves.
+    if (acct.ref_guard_mode === 'mpesa_structural') {
+      const clean = args.paymentRef.replace(/\s+/g, '').toUpperCase()
+      const structOk = /^[A-Z0-9]{10}$/.test(clean) && /[0-9]/.test(clean) && /[A-Z]/.test(clean)
+      if (!structOk) {
+        return {
+          verdict: 'warn', overridable: false,
+          reasons: [`"${args.paymentRef}" does not look like a real ${acct.name} transaction ID (expected exactly 10 letters and digits, e.g. CJI4XSJ2Q0). Check the slip — or the customer's SMS — before accepting.`],
+        }
+      }
+      return OK
+    }
+
+    // Layer 3b: format profile. Multiple shapes per account by design.
     const { data: fmts } = await supabase.from('ref_formats')
       .select('shape, sample_count, status')
       .eq('account_id', args.depositAccountId)
