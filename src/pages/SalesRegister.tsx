@@ -209,6 +209,15 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     return s.posted_by || 'Unassigned'
   }, [salespeople])
   const [filterProduct, setFilterProduct] = useState('all')
+  // The search filter offers the FULL active catalogue (1 Oct fix): the
+  // old list was derived from loaded sales lines, so a one-day window
+  // showed only that day's sold products — useless for searching. Picking
+  // a product with no sales in the window now honestly shows zeros.
+  const [allProducts, setAllProducts] = useState<{ id: string; name: string; sku?: string; category?: string }[]>([])
+  useEffect(() => {
+    supabase.from('products').select('id, name, sku, category').eq('is_active', true).order('name')
+      .then(({ data }) => { if (data) setAllProducts(data as any) })
+  }, [])
   const [filterCustomer, setFilterCustomer] = useState('all')
   const [filterSalesperson, setFilterSalesperson] = useState('all')
 
@@ -1089,7 +1098,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
               width={190}
               allLabel="All Products"
               placeholder="Product — type to search…"
-              products={productOptions.map(([id, name]) => ({ id, name }))}
+              products={allProducts.length > 0 ? allProducts : productOptions.map(([id, name]) => ({ id, name }))}
               value={filterProduct}
               onChange={setFilterProduct}
             />
