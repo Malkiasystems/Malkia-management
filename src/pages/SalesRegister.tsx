@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../lib/useAuth'
 import { useSalespeople } from '../lib/useSalespeople'
 import { supabase } from '../lib/supabase'
+import ProductSearchSelect from '../components/ProductSearchSelect'
 import { useCategories } from '../lib/useCategories'
 import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFilter'
 import { useBundleSales } from '../lib/useBundles'
@@ -1081,10 +1082,17 @@ export default function SalesRegister({ onEdit }: Props = {}) {
               <button title="Retail — walk-ins and cash-type customers" onClick={() => setTypeFilter('cash')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'cash' ? 'var(--green)' : 'transparent', color: typeFilter === 'cash' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Retail</button>
               <button title="Credit sales (invoices)" onClick={() => setTypeFilter('credit')} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: typeFilter === 'credit' ? 'var(--blue)' : 'transparent', color: typeFilter === 'credit' ? '#fff' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: '1px solid var(--border)' }}>Wholesale</button>
             </div>
-            <select className="form-input" style={{ width: 160, padding: '6px 10px', fontSize: 12 }} value={filterProduct} onChange={e => setFilterProduct(e.target.value)}>
-              <option value="all">All Products</option>
-              {productOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-            </select>
+            {/* Type-to-search (Joe, 1 Oct): with a growing catalogue the
+                dropdown was scrolling homework. Shared component with the
+                Purchase voucher's line picker. */}
+            <ProductSearchSelect
+              width={190}
+              allLabel="All Products"
+              placeholder="Product — type to search…"
+              products={productOptions.map(([id, name]) => ({ id, name }))}
+              value={filterProduct}
+              onChange={setFilterProduct}
+            />
             <select className="form-input" style={{ width: 160, padding: '6px 10px', fontSize: 12 }} value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)}>
               <option value="all">All Customers</option>
               {customerOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}

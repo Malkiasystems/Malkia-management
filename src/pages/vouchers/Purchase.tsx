@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import ProductSearchSelect from '../../components/ProductSearchSelect'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -42,69 +43,6 @@ function methodFromAccount(a?: { code: string; name: string } | null): string {
   return a.name
 }
 
-// ── Searchable product picker ────────────────────────────────────────────
-// Replaces the raw <select> on purchase lines (Joe, 23 Sep): with 60+ SKUs
-// a dropdown is scrolling homework. Type any part of the SKU, name or
-// category and pick from the shrinking list. Self-contained: input +
-// absolute list, closes on pick, Escape, or clicking elsewhere.
-function ProductPicker({ products, value, onChange }: {
-  products: { id: string; sku: string; name: string; category?: string; qty_on_hand?: number }[]
-  value: string
-  onChange: (id: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [q, setQ] = useState('')
-  const sel = products.find(p => p.id === value)
-  const needle = q.trim().toLowerCase()
-  const hits = needle
-    ? products.filter(p =>
-        p.name.toLowerCase().includes(needle) ||
-        p.sku.toLowerCase().includes(needle) ||
-        (p.category || '').toLowerCase().includes(needle)).slice(0, 40)
-    : products.slice(0, 40)
-  const pick = (id: string) => { onChange(id); setOpen(false); setQ('') }
-  return (
-    <div style={{ position: 'relative' }}>
-      <input
-        className="form-input"
-        style={{ fontSize: 12, padding: '6px 8px' }}
-        placeholder="Type to search product…"
-        value={open ? q : (sel ? `${sel.sku} — ${sel.name}` : '')}
-        onFocus={() => { setOpen(true); setQ('') }}
-        onChange={e => { setQ(e.target.value); setOpen(true) }}
-        onKeyDown={e => {
-          if (e.key === 'Escape') { setOpen(false); setQ('') }
-          if (e.key === 'Enter' && open && hits.length > 0) { e.preventDefault(); pick(hits[0].id) }
-        }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-      />
-      {open && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40,
-          maxHeight: 240, overflowY: 'auto', marginTop: 2,
-          background: 'var(--surface)', border: '1px solid var(--border2)',
-          borderRadius: 8, boxShadow: '0 10px 28px rgba(0,0,0,.4)',
-        }}>
-          {hits.length === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text3)' }}>No product matches "{q}"</div>
-          )}
-          {hits.map(p => (
-            <div key={p.id}
-              onMouseDown={e => { e.preventDefault(); pick(p.id) }}
-              style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12, display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid var(--border)' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{p.sku}</span> {p.name}
-              </span>
-              <span style={{ fontFamily: 'var(--mono)', color: 'var(--text3)', flexShrink: 0 }}>{p.qty_on_hand ?? 0} in stock</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 export default function Purchase({ onNav }: Props) {
   const { user, can } = useAuth()
@@ -674,7 +612,7 @@ export default function Purchase({ onNav }: Props) {
               {lines.map((line, i) => (
                 <tr key={i}>
                   <td>
-                    <ProductPicker products={products} value={line.productId} onChange={id => updateLine(i, 'productId', id)} />
+                    <ProductSearchSelect showStock products={products} value={line.productId} onChange={id => updateLine(i, 'productId', id)} />
                   </td>
                   <td>
                     <input className="form-input" style={{ fontSize: 12, padding: '6px 8px' }} value={line.description} onChange={e => updateLine(i, 'description', e.target.value)} placeholder="Item description" />
