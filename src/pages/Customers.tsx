@@ -170,7 +170,11 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   const [toastType, setToastType] = useState<'success'|'error'>('success')
 
   // Views: list | ledger | form
-  const [view, setView] = useState<'list'|'ledger'|'form'>('list')
+  const [view, setView] = useState<'list'|'ledger'|'form'|'restoring'>(
+    // A saved open-profile id means we are on our way back to that
+    // profile after a refresh — don't flash the list first (Joe, 5 Oct).
+    openLedgerId ? 'restoring' : 'list'
+  )
   const [selected, setSelected] = useState<Customer | null>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   // Invoice drill-down: click an invoice row in the ledger to view the document.
@@ -324,6 +328,11 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     if (restored || !openLedgerId || customers.length === 0) return
     const c = customers.find(x => x.id === openLedgerId)
     if (c) { setRestored(true); openLedger(c) }
+    else {
+      // Saved id no longer matches a customer (hidden/deleted): back to
+      // the list and forget the key, otherwise 'restoring' would strand.
+      setRestored(true); setView('list'); onLedgerChange?.(null)
+    }
   }, [openLedgerId, customers, restored])
 
   const load = async (opts: { force?: boolean } = {}) => {
@@ -768,6 +777,17 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   // Cash customers (B2C / moms) get the loyalty-and-marketing CRM view
   // (purchase history, top products, life-stage migration, notes).
   // Debtors (wholesale / resellers) keep the credit-focused ledger view below.
+  if (view === 'restoring') {
+    return (
+      <div className="page" style={{ padding: '80px 0', textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          Reopening profile…
+        </div>
+      </div>
+    )
+  }
+
   if (view === 'ledger' && selected && selected.customer_type === 'cash') {
     return (
       <CashCustomerDetail
