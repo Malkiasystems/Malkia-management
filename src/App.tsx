@@ -440,7 +440,19 @@ function AppContent() {
   const [customersTab, setCustomersTab] = useState<'cash'|'wholesale'>('cash')
   // Which customer's ledger is open on the Customers page, so leaving to take a
   // receipt and pressing Back reopens that ledger rather than the bare list.
-  const [openLedgerId, setOpenLedgerId] = useState<string | null>(null)
+  // Which customer profile is open survives a refresh (Joe, 4 Oct):
+  // same localStorage pattern as the customers tab. Customers.tsx already
+  // restores the profile from this id once its list loads.
+  const [openLedgerId, setOpenLedgerIdState] = useState<string | null>(() => {
+    try { return localStorage.getItem('malkia.customers.openLedger') || null } catch { return null }
+  })
+  const setOpenLedgerId = (id: string | null) => {
+    setOpenLedgerIdState(id)
+    try {
+      if (id) localStorage.setItem('malkia.customers.openLedger', id)
+      else localStorage.removeItem('malkia.customers.openLedger')
+    } catch { /* private mode */ }
+  }
   const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string } | null>(null)
   const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, isSuperAdmin } = useAuth()
   useInactivityLogout()
