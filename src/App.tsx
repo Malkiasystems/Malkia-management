@@ -437,12 +437,17 @@ function AppContent() {
   const [statementCustomerId, setStatementCustomerId] = useState<string | null>(null)
   // Remembered Customers tab, so leaving for a ledger/receipt and pressing Back
   // returns to the tab you were on (wholesale) rather than resetting to cash.
-  const [customersTab, setCustomersTab] = useState<'cash'|'wholesale'>('cash')
+  const [customersTab, setCustomersTab] = useState<'cash'|'wholesale'>(() => {
+    // Survive a full page refresh on the tab you were using. (Originally
+    // shipped 27 Sep; silently lost on 28 Sep when a bundle carried a
+    // stale App.tsx — restored 5 Oct.)
+    try { return localStorage.getItem('malkia.customers.tab') === 'wholesale' ? 'wholesale' : 'cash' }
+    catch { return 'cash' }
+  })
   // Which customer's ledger is open on the Customers page, so leaving to take a
   // receipt and pressing Back reopens that ledger rather than the bare list.
-  // Which customer profile is open survives a refresh (Joe, 4 Oct):
-  // same localStorage pattern as the customers tab. Customers.tsx already
-  // restores the profile from this id once its list loads.
+  // Which customer profile is open survives a refresh (Joe, 4 Oct).
+  // Customers.tsx already restores the profile from this id on load.
   const [openLedgerId, setOpenLedgerIdState] = useState<string | null>(() => {
     try { return localStorage.getItem('malkia.customers.openLedger') || null } catch { return null }
   })
@@ -676,7 +681,7 @@ function AppContent() {
       case 'stock-transfer-approvals': return <IncomingTransfers onNav={navigate} />
       case 'stock-transfer-outgoing': return <IncomingTransfers onNav={navigate} initialTab="outgoing" />
       case 'stock-transfer-register': return <StockTransferRegister />
-      case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} initialTab={customersTab} onTabChange={setCustomersTab} openLedgerId={openLedgerId} onLedgerChange={setOpenLedgerId} />
+      case 'customers':         return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} initialTab={customersTab} onTabChange={(t) => { setCustomersTab(t); try { localStorage.setItem('malkia.customers.tab', t) } catch { /* */ } }} openLedgerId={openLedgerId} onLedgerChange={setOpenLedgerId} />
       case 'customer-statement':
         if (!statementCustomerId) { navigate('customers'); return null }
         return <CustomerStatement customerId={statementCustomerId} onNav={navigate} />
