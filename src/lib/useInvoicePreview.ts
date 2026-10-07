@@ -26,6 +26,9 @@ export const FALLBACK_INVOICE_SETTINGS = {
   tin: '—', vrn: '—', primary_color: '#85c2be',
   bank_name: 'NMB Bank', bank_account_name: 'Malkia Wellness Group Ltd',
   bank_account_number: '22510074972', bank_branch: 'Dar es Salaam Branch',
+  // Second account (Joe, 5 Oct): same name, same branch — rendered as a
+  // second compact row in the one payment card, not a second card.
+  bank2_name: 'CRDB Bank', bank2_account_number: '015C874857300',
   show_bank_details: true, show_salesperson: true, show_vat_breakdown: true,
   show_outstanding_balance: true, show_payment_terms: true, show_notes: true,
   footer_note: 'Thank you for your business. Payment is due by the date shown above.',
@@ -114,7 +117,11 @@ export function useInvoicePreview() {
 
   return {
     voucher,
-    settings: settings || FALLBACK_INVOICE_SETTINGS,
+    // Merge, not either/or (5 Oct): a saved settings row used to shadow
+    // the fallback completely, so any NEW default field (like the second
+    // bank account) would never reach the template. DB values still win
+    // for every key they actually carry.
+    settings: { ...FALLBACK_INVOICE_SETTINGS, ...(settings || {}) },
     loading,
     error,
     openByRef,

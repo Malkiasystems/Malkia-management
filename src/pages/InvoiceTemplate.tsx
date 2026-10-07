@@ -342,10 +342,14 @@ export function MalkiaInvoice({ voucher, settings }: { voucher: Voucher; setting
           <div style={{ paddingRight: 24 }}>
             <div style={{ fontSize: 9, fontFamily: mono, color: '#aaa', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 10, fontWeight: 600 }}>{s.label_payment_details}</div>
             <div style={{ background: `${p}12`, border: `1px solid ${p}30`, borderRadius: 8, padding: '14px 16px' }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: '#1a1a1a', marginBottom: 8 }}>{s.bank_name}</div>
+              {/* Two accounts, one compact card (Joe, 5 Oct): shared
+                  name and branch stated once, each bank one bold row. */}
               <div style={{ fontSize: 11, color: '#555', lineHeight: 2, fontFamily: mono }}>
                 <div>A/C Name: <span style={{ color: '#1a1a1a', fontWeight: 600 }}>{s.bank_account_name}</span></div>
-                <div>A/C No: <span style={{ color: '#1a1a1a', fontWeight: 800, fontSize: 13 }}>{s.bank_account_number}</span></div>
+                <div>{s.bank_name}: <span style={{ color: '#1a1a1a', fontWeight: 800, fontSize: 13 }}>{s.bank_account_number}</span></div>
+                {(s as any).bank2_name && (s as any).bank2_account_number && (
+                  <div>{(s as any).bank2_name}: <span style={{ color: '#1a1a1a', fontWeight: 800, fontSize: 13 }}>{(s as any).bank2_account_number}</span></div>
+                )}
                 <div>Branch: {s.bank_branch}</div>
               </div>
               {s.payment_note && <div style={{ fontSize: 10, color: p, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${p}30`, fontStyle: 'italic' }}>{s.payment_note}</div>}

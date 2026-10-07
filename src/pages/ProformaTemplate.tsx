@@ -623,7 +623,10 @@ export function MalkiaProforma({ voucher, settings }: {
               <div style={{ fontWeight: 700, fontSize: 12, color: '#1a1a1a', marginBottom: 8 }}>{s.bank_name}</div>
               <div style={{ fontSize: 11, color: '#555', lineHeight: 1.9, fontFamily: mono }}>
                 <div>A/C Name: <span style={{ color: '#1a1a1a', fontWeight: 600 }}>{s.bank_account_name}</span></div>
-                <div>A/C No: <span style={{ color: '#1a1a1a', fontWeight: 800, fontSize: 13 }}>{s.bank_account_number}</span></div>
+                <div>{s.bank_name}: <span style={{ color: '#1a1a1a', fontWeight: 800, fontSize: 13 }}>{s.bank_account_number}</span></div>
+                {(s as any).bank2_name && (s as any).bank2_account_number && (
+                  <div>{(s as any).bank2_name}: <span style={{ color: '#1a1a1a', fontWeight: 800, fontSize: 13 }}>{(s as any).bank2_account_number}</span></div>
+                )}
                 <div>Branch: {s.bank_branch}</div>
                 {s.bank_swift && <div>SWIFT: {s.bank_swift}</div>}
               </div>
