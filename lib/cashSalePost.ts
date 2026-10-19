@@ -196,6 +196,10 @@ export interface PostParams {
   riderName?: string | null
   deliveryDestination?: string | null
   upcountryBus?: string | null
+  // 19 Oct: when the ref guard says 'warn', posting stops with
+  // needsRefReview so the UI can ask the cashier; a retry with
+  // refWarnAccepted=true posts and records the override on the voucher.
+  refWarnAccepted?: boolean
   totalSplitPaid: number
   // Optional customer context (TTC / pregnancy / postpartum) captured at till.
   // Skipped fields are not written; not provided = no change to existing.
@@ -244,7 +248,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
     deliveryAccountId,
     locationCode, locations, invSettings, userName, userId, appliedBundle,
-    subtotal, total, crownPoints, deliveryTotal, totalSplitPaid, riderId, riderName, deliveryDestination, upcountryBus,
+    subtotal, total, crownPoints, deliveryTotal, totalSplitPaid, riderId, riderName, deliveryDestination, upcountryBus, refWarnAccepted,
     customerContext,
     referralCode, referralBenefit,
   } = params
@@ -327,6 +331,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
   // gets receipted the slow, human way. The DB trigger backstops this.
   if (!isPOD && !isSplit && currentMethod.showRef && paymentRef.trim()) {
     const guardAcctId = accountMap[currentMethod.accountCode]
+    let refOverrideNote = ''
     if (guardAcctId) {
       const g = await checkReference({
         depositAccountId: guardAcctId, paymentRef: paymentRef.trim(),
@@ -337,7 +342,13 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         customerId: selectedCust?.id || null,
       })
       if (g.verdict === 'deny') return { success: false, error: g.reasons[0] }
-      if (g.verdict === 'warn') return { success: false, error: `NEEDS REVIEW: ${g.reasons[0]}` }
+      if (g.verdict === 'warn' && !refWarnAccepted) {
+        // Warn means "a human must decide", not "the sale is impossible".
+        return { success: false, needsRefReview: true, error: `NEEDS REVIEW: ${g.reasons[0]}` } as any
+      }
+      if (g.verdict === 'warn' && refWarnAccepted) {
+        refOverrideNote = `Ref accepted by cashier despite review: ${g.reasons[0]}`
+      }
     }
   }
 
@@ -573,6 +584,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         (deliveryDestination || '').trim() ? `To: ${(deliveryDestination || '').trim()}` : '',
         (upcountryBus || '').trim() ? `Bus: ${(upcountryBus || '').trim()}` : '',
         (riderName || '').trim() ? `Rider: ${(riderName || '').trim()}` : '',
+        refOverrideNote,
         currentMethod.id === 'pos' ? 'POS Card payment' : '',
         paymentRef ? `Ref: ${paymentRef}` : ''
       ].filter(Boolean).join(' · ') || null,
