@@ -327,11 +327,12 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
   const postingDate = today()
 
   // Reference guard on the money-in side of a cash sale (M-Pesa / bank /
-  // POS references). No override path here — a flagged reference on a sale
-  // gets receipted the slow, human way. The DB trigger backstops this.
+  // POS references). Since 19 Oct a 'warn' is a question, not a wall: the
+  // UI asks the cashier, and an accepted override is stamped into the
+  // voucher notes below. 'deny' (true duplicates) still blocks absolutely.
+  let refOverrideNote = ''
   if (!isPOD && !isSplit && currentMethod.showRef && paymentRef.trim()) {
     const guardAcctId = accountMap[currentMethod.accountCode]
-    let refOverrideNote = ''
     if (guardAcctId) {
       const g = await checkReference({
         depositAccountId: guardAcctId, paymentRef: paymentRef.trim(),
