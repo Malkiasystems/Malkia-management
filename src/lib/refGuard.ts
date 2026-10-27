@@ -43,7 +43,13 @@ export function refFingerprint(raw: string | null | undefined): string {
 /** Shape of a reference: letters -> A, digits -> 9, everything else kept.
  *  'FT26123ABC45' -> 'AA99999AAA99'; 'SFH8K2M9Q1' -> 'AAA9A9A9A9'. */
 export function refShape(raw: string): string {
+  // Fold look-alikes BEFORE shaping (19 Oct): cashiers read refs off
+  // bank SMS, and O-for-0 / I-or-l-for-1 are the standard human typos.
+  // The fingerprint already forgives them for duplicate detection; the
+  // format layer must forgive them too, or an honest ref like
+  // 101TPFT26292AOOE (O typed for 0) fails its own bank's shape.
   return raw.trim().toUpperCase()
+    .replace(/O/g, '0').replace(/[IL]/g, '1')
     .replace(/[A-Z]/g, 'A').replace(/[0-9]/g, '9')
 }
 
@@ -187,7 +193,11 @@ export async function checkReference(args: {
     // Duplicate and twin detection (layers 1-2) still run in full —
     // they are the checks that catch thieves.
     if (acct.ref_guard_mode === 'mpesa_structural') {
+      // Fold look-alikes BEFORE the structural tests (27 Oct): cashiers
+      // type I for 1 and O for 0 when reading SMS. DJRNIAIBXH (real ID
+      // DJRN1A1BXH) failed the needs-a-digit rule for exactly this.
       const clean = args.paymentRef.replace(/\s+/g, '').toUpperCase()
+        .replace(/O/g, '0').replace(/[IL]/g, '1')
       const structOk = /^[A-Z0-9]{10}$/.test(clean) && /[0-9]/.test(clean) && /[A-Z]/.test(clean)
       if (!structOk) {
         return {

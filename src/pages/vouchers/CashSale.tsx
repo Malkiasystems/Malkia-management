@@ -683,7 +683,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     }
 
     setPosting(true)
-    const result = await postCashSale({
+    const saleArgs = {
       salespersonId: salespersonId || null,
       newCustName, waInput, lines, dbProducts, selectedCust,
       isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
@@ -700,7 +700,19 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       // a preview is currently active. cashSalePost re-validates at post time.
       referralCode:   referralPreview ? referralCodeInput.trim().toUpperCase() : null,
       referralBenefit: referralPreview,
-    })
+    }
+
+    let result = await postCashSale(saleArgs as any)
+
+    if (!result.success && (result as any).needsRefReview) {
+      // The guard warned. The cashier, looking at the slip and the bank
+      // SMS, decides — and the decision is stamped on the voucher (19 Oct).
+      const ok = window.confirm(
+        (result.error || 'Payment reference needs review.') +
+        '\n\nPost anyway? The override and this warning will be recorded on the voucher for audit.'
+      )
+      if (ok) result = await postCashSale({ ...saleArgs, refWarnAccepted: true } as any)
+    }
 
     if (!result.success) {
       showToast(result.error || 'Something went wrong', 'error')
