@@ -65,7 +65,7 @@ const EXPENSE_PAGES: Page[] = ['expense-register', 'new-expense']
 
 const IMPORT_PAGES: Page[] = ['import-register', 'import-order']
 
-const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers', 'circle-moderation']
+const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers', 'circle-moderation', 'whatsapp-centre']
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'audit-trail', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
@@ -155,6 +155,7 @@ const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Feedback',    page: 'crm-feedback',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
   { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
   { label: 'Circle Maoni', page: 'circle-moderation', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM8 12l3 3 5-6' },
+  { label: 'WhatsApp', page: 'whatsapp-centre', icon: 'M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z' },
 ]
 
 interface SidebarProps { current: Page; onNav: (p: Page) => void; stockMode?: boolean }

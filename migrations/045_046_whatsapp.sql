@@ -1,0 +1,4 @@
+-- 045 whatsapp_core + 046 wa_centre_rpcs: ALREADY APPLIED LIVE 2026-10-29
+-- via MCP. wa_contacts / wa_messages tables (RLS, service-role only),
+-- staff RPCs wa_contacts_list / wa_messages_list / wa_contact_set_consent /
+-- wa_contact_set_tags, edge functions wa-send + wa-webhook deployed.

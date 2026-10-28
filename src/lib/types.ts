@@ -35,6 +35,7 @@ export type Page =
   | 'users' | 'approvals' | 'approvals-settings' | 'audit-trail' | 'posted-vouchers' | 'stock-transfer-outgoing' | 'dispatch' | 'stock-movements'
   // Circle (public site) moderation
   | 'circle-moderation'
+  | 'whatsapp-centre'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles
