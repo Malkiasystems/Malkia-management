@@ -33,6 +33,8 @@ export type Page =
   | 'company-branding'
   // User Management & Approvals
   | 'users' | 'approvals' | 'approvals-settings' | 'audit-trail' | 'posted-vouchers' | 'stock-transfer-outgoing' | 'dispatch' | 'stock-movements'
+  // Circle (public site) moderation
+  | 'circle-moderation'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles

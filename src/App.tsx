@@ -35,6 +35,7 @@ const StockMovements = lazy(() => import('./pages/StockMovements'))
 const StockAsOf = lazy(() => import('./pages/StockAsOf'))
 const InterimRecon = lazy(() => import('./pages/InterimRecon'))
 const PaymentApprovals = lazy(() => import('./pages/PaymentApprovals'))
+const CircleModeration = lazy(() => import('./pages/CircleModeration'))
 const StockMovementReport = lazy(() => import('./pages/StockMovementReport'))
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
@@ -725,6 +726,7 @@ function AppContent() {
       // CRM Module Routes
       case 'crm':
       case 'crm-hub':           return <CRMHub onNav={navigate} />
+      case 'circle-moderation':  return <CircleModeration />
       case 'crm-command-center': return <CRMCommandCenter onNav={navigate} />
       case 'crm-inbox':         return <CRMInbox />
       case 'crm-automations':   return <CRMAutomations onNav={navigate} />

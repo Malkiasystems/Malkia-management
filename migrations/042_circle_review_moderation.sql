@@ -1,0 +1,5 @@
+-- 042: Circle review moderation backend (ALREADY APPLIED LIVE 2026-10-28 via MCP)
+-- Staff-only RPCs for moderating registry_reviews from MalkiaOS; approve or
+-- reject recomputes registry_places.rating_avg / rating_count. See
+-- circle_mod_assert_staff / circle_mod_counts / circle_mod_reviews_list /
+-- circle_mod_review_set in the live DB for the canonical definitions.
