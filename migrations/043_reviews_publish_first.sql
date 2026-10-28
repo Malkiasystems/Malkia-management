@@ -1,0 +1,6 @@
+-- 043: Publish-first reviews (ALREADY APPLIED LIVE 2026-10-28 via MCP)
+-- registry_review_add publishes instantly unless circle_review_screen holds
+-- it (blocked words table circle_blocked_words + phone-number pattern);
+-- registry_review_report lets members report, 3 distinct reports auto-hide;
+-- circle_mod_* reshaped to reported/held/live/removed patrol filters.
+-- Canonical definitions live in the DB.

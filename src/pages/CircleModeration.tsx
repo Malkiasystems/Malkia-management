@@ -10,13 +10,14 @@ import { supabase } from '../lib/supabase'
    Approving or rejecting also recomputes the hospital's stored star
    aggregates, so the public card updates the moment you click. */
 
-type Status = 'pending' | 'approved' | 'rejected'
+type Filter = 'reported' | 'held' | 'live' | 'removed'
 interface Row {
   id: string; place_id: string; place_name: string; author_name: string
-  rating: number; comment: string; status: Status; created_at: string
+  rating: number; comment: string; status: string; hold_reason: string | null
+  report_count: number; created_at: string
   moderated_at: string | null; moderator: string | null
 }
-interface Counts { pending: number; approved: number; rejected: number }
+interface Counts { live: number; reported: number; held: number; removed: number }
 
 const fmtAgo = (iso: string) => {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -35,24 +36,25 @@ const Stars = ({ n }: { n: number }) => (
   </span>
 )
 
-const TABS: { v: Status; label: string }[] = [
-  { v: 'pending', label: 'Zinasubiri' },
-  { v: 'approved', label: 'Zimekubaliwa' },
-  { v: 'rejected', label: 'Zimekataliwa' },
+const TABS: { v: Filter; label: string }[] = [
+  { v: 'reported', label: 'Zilizoripotiwa' },
+  { v: 'held', label: 'Zimezuiliwa' },
+  { v: 'live', label: 'Hewani' },
+  { v: 'removed', label: 'Zimeondolewa' },
 ]
 
 export default function CircleModeration() {
-  const [tab, setTab] = useState<Status>('pending')
+  const [tab, setTab] = useState<Filter>('reported')
   const [rows, setRows] = useState<Row[]>([])
-  const [counts, setCounts] = useState<Counts>({ pending: 0, approved: 0, rejected: 0 })
+  const [counts, setCounts] = useState<Counts>({ live: 0, reported: 0, held: 0, removed: 0 })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState('')
 
-  const load = useCallback(async (t: Status) => {
+  const load = useCallback(async (t: Filter) => {
     setLoading(true); setErr('')
     const [l, c] = await Promise.all([
-      supabase.rpc('circle_mod_reviews_list', { p_status: t }),
+      supabase.rpc('circle_mod_reviews_list', { p_filter: t }),
       supabase.rpc('circle_mod_counts'),
     ])
     if (l.error) setErr(l.error.message)
@@ -63,7 +65,7 @@ export default function CircleModeration() {
 
   useEffect(() => { load(tab) }, [tab, load])
 
-  const act = async (id: string, status: Status) => {
+  const act = async (id: string, status: 'approved' | 'rejected' | 'pending') => {
     setBusy(id); setErr('')
     const { error } = await supabase.rpc('circle_mod_review_set', { p_id: id, p_status: status })
     if (error) setErr(error.message)
@@ -80,8 +82,9 @@ export default function CircleModeration() {
     <div style={{ padding: 20, maxWidth: 900, margin: '0 auto' }}>
       <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Circle: Maoni ya Hospitali</h1>
       <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
-        Maoni kutoka malkia.co.tz/circle. Hayaonekani kwa umma hadi yakubaliwe hapa.
-        Kila uamuzi unarekodiwa kwa jina lako.
+        Maoni yanaonekana hewani papo hapo yanapotumwa. Hapa ni doria:
+        yaliyoripotiwa na akina mama, yaliyozuiliwa na kichujio (matusi, namba za
+        simu), na historia. Kila uamuzi unarekodiwa kwa jina lako.
       </p>
 
       <div style={{ display: 'flex', gap: 6, margin: '14px 0' }}>
@@ -110,7 +113,7 @@ export default function CircleModeration() {
       {loading && <div style={{ color: 'var(--text3)', fontSize: 13, padding: 20 }}>Inapakia...</div>}
       {!loading && !rows.length && (
         <div style={{ padding: 28, borderRadius: 10, border: '1px dashed var(--border)', color: 'var(--text3)', fontSize: 13, textAlign: 'center' }}>
-          {tab === 'pending' ? 'Hakuna maoni yanayosubiri. Kazi safi.' : 'Hakuna kitu hapa bado.'}
+          {tab === 'reported' ? 'Hakuna ripoti. Kazi safi.' : tab === 'held' ? 'Hakuna maoni yaliyozuiliwa.' : 'Hakuna kitu hapa bado.'}
         </div>
       )}
 
@@ -123,24 +126,36 @@ export default function CircleModeration() {
             </div>
             <span style={{ fontSize: 12, color: 'var(--text3)' }}>{fmtAgo(r.created_at)}</span>
           </div>
-          <div style={{ margin: '6px 0 8px' }}><Stars n={r.rating} /></div>
+          <div style={{ margin: '6px 0 8px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Stars n={r.rating} />
+            {r.report_count > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#8A1F1F', background: '#FDECEC', border: '1px solid #F5B5B5', borderRadius: 999, padding: '2px 8px' }}>
+                Ripoti {r.report_count}
+              </span>
+            )}
+            {r.hold_reason && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#7A5A1F', background: '#FBF3E2', border: '1px solid #E8D5A8', borderRadius: 999, padding: '2px 8px' }}>
+                {r.hold_reason}
+              </span>
+            )}
+          </div>
           {r.comment
             ? <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.5, color: 'var(--text2)', whiteSpace: 'pre-wrap' }}>{r.comment}</p>
             : <p style={{ margin: '0 0 10px', fontSize: 12.5, fontStyle: 'italic', color: 'var(--text3)' }}>Nyota tu, hakuna maneno.</p>}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {tab !== 'approved' && (
+            {tab === 'reported' && (
+              <button disabled={busy === r.id} onClick={() => act(r.id, 'approved')} style={btn('#1F7A3D', '#fff')} title="Futa ripoti, maoni yabaki hewani">
+                {busy === r.id ? '...' : 'Ripoti si ya kweli, baki hewani'}
+              </button>
+            )}
+            {(tab === 'held' || tab === 'removed') && (
               <button disabled={busy === r.id} onClick={() => act(r.id, 'approved')} style={btn('#1F7A3D', '#fff')}>
-                {busy === r.id ? '...' : 'Kubali'}
+                {busy === r.id ? '...' : 'Rudisha hewani'}
               </button>
             )}
-            {tab === 'pending' && (
+            {tab !== 'removed' && (
               <button disabled={busy === r.id} onClick={() => act(r.id, 'rejected')} style={btn('#A32626', '#fff')}>
-                {busy === r.id ? '...' : 'Kataa'}
-              </button>
-            )}
-            {tab !== 'pending' && (
-              <button disabled={busy === r.id} onClick={() => act(r.id, 'pending')} style={btn('var(--surface2)', 'var(--text2)')}>
-                Rudisha subiri
+                {busy === r.id ? '...' : 'Ondoa'}
               </button>
             )}
             {r.moderator && (
@@ -153,8 +168,9 @@ export default function CircleModeration() {
       ))}
 
       <p style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 18 }}>
-        Kukubali au kukataa kunabadilisha nyota za hospitali kwenye tovuti papo hapo.
-        Kataa maoni yenye majina ya watu binafsi, lugha ya matusi, au madai ya kimatibabu hatari.
+        Kuondoa au kurudisha kunabadilisha nyota za hospitali kwenye tovuti papo hapo.
+        Ondoa maoni yenye majina ya watu binafsi, lugha ya matusi, au madai ya kimatibabu hatari.
+        Maoni yakiripotiwa na akina mama 3 yanajiondoa hewani yenyewe na kusubiri hapa.
       </p>
     </div>
   )
