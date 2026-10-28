@@ -445,6 +445,76 @@ export async function getPendingCountForUser(userId: string): Promise<number> {
   return count ?? 0
 }
 
+// ─── checkPendingLimit ─────────────────────────────────────────────────────
+/**
+ * Requester discipline (migration 041): some approval types carry a
+ * max_pending_per_requester limit. Once a requester has that many requests
+ * sitting in 'pending', they may not submit another one of the same type —
+ * they must chase the approver (or cancel) first.
+ *
+ * This is the UI-side check so the voucher page can show WHO to follow up
+ * with before anything is created. The hard wall is the DB trigger
+ * enforce_pending_request_limit, which refuses the insert regardless of
+ * which page attempts it.
+ *
+ * Fail-open on error (consistent with checkApprovalRequired): a broken
+ * settings read must never block posting — the trigger still protects.
+ */
+export interface OutstandingRequest {
+  id: string
+  reference_number: string
+  request_summary: string
+  requested_at: string
+  assigned_to_name: string | null
+}
+
+export interface PendingLimitResult {
+  limit: number | null
+  outstanding: OutstandingRequest[]
+  blocked: boolean
+}
+
+export async function checkPendingLimit(
+  typeCode: ApprovalTypeCode,
+  userId: string
+): Promise<PendingLimitResult> {
+  const open: PendingLimitResult = { limit: null, outstanding: [], blocked: false }
+  try {
+    const { data: typeRow, error } = await supabase
+      .from('approval_types')
+      .select('id, approval_settings!inner(max_pending_per_requester, is_active)')
+      .eq('code', typeCode)
+      .maybeSingle()
+    if (error || !typeRow) return open
+
+    const setting = Array.isArray(typeRow.approval_settings)
+      ? typeRow.approval_settings[0]
+      : (typeRow.approval_settings as any)
+    const limit: number | null = setting?.max_pending_per_requester ?? null
+    if (limit === null || !setting?.is_active) return open
+
+    const { data: reqs } = await supabase
+      .from('approval_requests')
+      .select('id, reference_number, request_summary, requested_at, approver:assigned_to (full_name)')
+      .eq('approval_type_id', typeRow.id)
+      .eq('requested_by', userId)
+      .eq('status', 'pending')
+      .order('requested_at', { ascending: true })
+
+    const outstanding: OutstandingRequest[] = (reqs || []).map((r: any) => ({
+      id: r.id,
+      reference_number: r.reference_number,
+      request_summary: r.request_summary,
+      requested_at: r.requested_at,
+      assigned_to_name: r.approver?.full_name ?? null,
+    }))
+
+    return { limit, outstanding, blocked: outstanding.length >= limit }
+  } catch {
+    return open
+  }
+}
+
 // ─── formatApprovalNotice ──────────────────────────────────────────────────
 /**
  * Produces a short, friendly message explaining WHY an action needs approval

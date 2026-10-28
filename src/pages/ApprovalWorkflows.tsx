@@ -59,6 +59,10 @@ interface ApprovalRequest {
   escalated: boolean
   resolution_comment?: string
   resolved_at?: string
+  /** Full snapshot stored at submit time — for voucher types this carries
+   *  form context and the product lines, so the approver can see exactly
+   *  WHAT they are approving, not just a one-line summary. */
+  payload?: any
 }
 
 interface ApprovalSetting {
@@ -73,6 +77,9 @@ interface ApprovalSetting {
 }
 
 const TYPE_ICONS: Record<string, string> = {
+  internal_use: 'package',
+  internal_use_own: 'user',
+  internal_use_damage: 'alertTriangle',
   discount: 'percent',
   refund: 'rotateCcw',
   stock_adjustment: 'package',
@@ -84,6 +91,9 @@ const TYPE_ICONS: Record<string, string> = {
 }
 
 const TYPE_COLORS: Record<string, string> = {
+  internal_use: '#00e5a0',
+  internal_use_own: '#d4874a',
+  internal_use_damage: '#ef4444',
   discount: '#f59e0b',
   refund: '#ef4444',
   stock_adjustment: '#3b82f6',
@@ -116,7 +126,23 @@ export default function ApprovalWorkflows({ onNav }: Props) {
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [busy, setBusy] = useState(false)
 
+  // Product-name lookup for payload lines that carry only a productId —
+  // internal use snapshots store the name, stock adjustment snapshots don't.
+  const [lineNames, setLineNames] = useState<Record<string, string>>({})
+
   useEffect(() => { loadData() }, [activeTab])
+
+  useEffect(() => {
+    const pl: any[] | undefined = (selectedRequest as any)?.payload?.lines
+    if (!Array.isArray(pl)) return
+    const missing = pl.filter(l => l.productId && !l.name && !lineNames[l.productId]).map(l => l.productId)
+    if (missing.length === 0) return
+    supabase.from('products').select('id, name').in('id', missing)
+      .then(({ data }) => {
+        if (data) setLineNames(prev => ({ ...prev, ...Object.fromEntries(data.map((pr: any) => [pr.id, pr.name])) }))
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRequest])
 
   const loadData = async () => {
     setLoading(true)
@@ -302,7 +328,7 @@ export default function ApprovalWorkflows({ onNav }: Props) {
       return { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 4, background: config.bg, color: config.color, fontSize: 10, fontWeight: 500 } as React.CSSProperties
     },
     modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 } as React.CSSProperties,
-    modalContent: { background: 'var(--surface)', borderRadius: 16, padding: 24, width: '100%', maxWidth: 500 } as React.CSSProperties,
+    modalContent: { background: 'var(--surface)', borderRadius: 16, padding: 24, width: '100%', maxWidth: 580, maxHeight: '88vh', overflowY: 'auto' } as React.CSSProperties,
     modalTitle: { fontFamily: 'var(--display)', fontSize: 18, fontWeight: 700, marginBottom: 16 } as React.CSSProperties,
     detailRow: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border)', fontSize: 13 } as React.CSSProperties,
     detailLabel: { color: 'var(--text3)' } as React.CSSProperties,
@@ -428,6 +454,9 @@ export default function ApprovalWorkflows({ onNav }: Props) {
           <div style={s.toolbar}>
             <select style={s.select} value={filterType} onChange={e => setFilterType(e.target.value)}>
               <option value="all">All Types</option>
+              <option value="internal_use">Internal Use</option>
+              <option value="internal_use_own">Internal Use — Own Use</option>
+              <option value="internal_use_damage">Internal Use — Damage/Expired</option>
               <option value="discount">Discounts</option>
               <option value="refund">Refunds</option>
               <option value="stock_adjustment">Stock Adjustments</option>
@@ -505,6 +534,69 @@ export default function ApprovalWorkflows({ onNav }: Props) {
               <span style={s.detailLabel}>Summary</span>
               <span style={s.detailValue}>{selectedRequest.request_summary}</span>
             </div>
+
+            {/* ── Snapshot context: what / who / where this request is about ── */}
+            {(() => {
+              const p: any = selectedRequest.payload
+              if (!p) return null
+              const f: any = p.form || {}
+              const ctx: [string, string][] = []
+              if (p.categoryLabel) ctx.push(['Category', p.categoryLabel])
+              if (f.type) ctx.push(['Adjustment', String(f.type)])
+              if (f.reason) ctx.push(['Reason', String(f.reason)])
+              const taken = f.takenBy === 'Other' ? (f.takenByOther || 'Other') : f.takenBy
+              if (taken) ctx.push(['Taken By', taken])
+              if (f.recipient) ctx.push(['Recipient / Purpose', f.recipient])
+              if (f.locationCode) ctx.push(['Stock Location', f.locationCode])
+              if (f.date) ctx.push(['Voucher Date', f.date])
+              if (f.notes) ctx.push(['Notes', f.notes])
+              return ctx.map(([label, value]) => (
+                <div key={label} style={s.detailRow}>
+                  <span style={s.detailLabel}>{label}</span>
+                  <span style={{ ...s.detailValue, textAlign: 'right', maxWidth: '70%' }}>{value}</span>
+                </div>
+              ))
+            })()}
+
+            {/* ── Product lines: the approver must see WHAT is leaving stock ── */}
+            {Array.isArray(selectedRequest.payload?.lines) && selectedRequest.payload.lines.length > 0 && (() => {
+              const pl: any[] = selectedRequest.payload.lines
+              const totalAmt = pl.reduce((sum, l) => sum + (Number(l.amount) || 0), 0)
+              const cell = { padding: '6px 8px', borderBottom: '1px solid var(--border)' } as React.CSSProperties
+              const num = { ...cell, textAlign: 'right' as const, fontFamily: 'var(--mono)' }
+              return (
+                <div style={{ margin: '14px 0 4px' }}>
+                  <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                    Products in this request
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ color: 'var(--text3)', textAlign: 'left' }}>
+                        <th style={cell}>Product</th>
+                        <th style={{ ...cell, textAlign: 'right' }}>Qty</th>
+                        <th style={{ ...cell, textAlign: 'right' }}>Unit Cost</th>
+                        <th style={{ ...cell, textAlign: 'right' }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pl.map((l, i) => (
+                        <tr key={i}>
+                          <td style={cell}>{l.name || lineNames[l.productId] || '(unknown product)'}</td>
+                          <td style={num}>{l.qty}</td>
+                          <td style={num}>{tzs(Number(l.unitCost) || 0)}</td>
+                          <td style={num}>{tzs(Number(l.amount) || 0)}</td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td colSpan={3} style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>Total</td>
+                        <td style={{ padding: 8, textAlign: 'right', fontWeight: 700, fontFamily: 'var(--mono)' }}>{tzs(totalAmt)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+
             {selectedRequest.original_value !== undefined && selectedRequest.requested_value !== undefined && (
               <div style={s.detailRow}>
                 <span style={s.detailLabel}>Value Change</span>

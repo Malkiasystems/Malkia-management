@@ -47,6 +47,10 @@ interface ApprovalSettingRow {
   approver_rule: 'any_approver' | 'specific_users' | 'super_admin_only'
   super_admin_bypass: boolean
   is_active: boolean
+  /** Migration 041: max 'pending' requests one requester may have of this
+   *  type before new submissions are refused (DB trigger enforced).
+   *  NULL = no limit. Forces the requester to chase the approver. */
+  max_pending_per_requester: number | null
 }
 
 interface UserRow {
@@ -166,6 +170,7 @@ export default function ApprovalsSettings({ onNav }: Props) {
         approver_rule: s.approver_rule,
         super_admin_bypass: s.super_admin_bypass,
         is_active: s.is_active,
+        max_pending_per_requester: s.max_pending_per_requester ?? null,
       }, { onConflict: 'approval_type_id' })
 
     setSaving(null)
@@ -292,7 +297,7 @@ export default function ApprovalsSettings({ onNav }: Props) {
                     </div>
                     <div style={st.cardTitle}>
                       <div style={st.cardName}>{type.name}</div>
-                      <div style={st.cardMeta}>{formatThresholdDisplay(s)}</div>
+                      <div style={st.cardMeta}>{formatThresholdDisplay(s)}{s.max_pending_per_requester ? ` · max ${s.max_pending_per_requester} pending/requester` : ''}</div>
                     </div>
                     <div
                       style={st.toggle(s.is_active)}
@@ -373,6 +378,20 @@ export default function ApprovalsSettings({ onNav }: Props) {
                             <option value="block">Block until approved</option>
                             <option value="post">Post then review</option>
                           </select>
+                        </div>
+
+                        <div style={st.field}>
+                          <label style={st.label}>Max Pending Per Requester</label>
+                          <input type="number" min={1} style={st.input}
+                            value={s.max_pending_per_requester ?? ''}
+                            placeholder="No limit"
+                            onChange={e => updateSetting(type.id, {
+                              max_pending_per_requester: e.target.value === '' ? null : Math.max(1, parseInt(e.target.value) || 1),
+                            })} />
+                          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, lineHeight: 1.4 }}>
+                            At this many unapproved requests, the requester cannot submit more of this
+                            type until they are approved, rejected, or cancelled. Leave empty for no limit.
+                          </div>
                         </div>
                       </div>
 

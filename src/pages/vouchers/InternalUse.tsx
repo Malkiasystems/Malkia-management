@@ -29,7 +29,7 @@ import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import { useCategories } from '../../lib/useCategories'
 import { validatePostingDate } from '../../lib/dateValidation'
 import { useAuth } from '../../lib/useAuth'
-import { checkApprovalRequired, submitForApproval, type ApprovalTypeCode } from '../../lib/useApproval'
+import { checkApprovalRequired, submitForApproval, checkPendingLimit, type ApprovalTypeCode, type PendingLimitResult } from '../../lib/useApproval'
 import type { Page } from '../../lib/types'
 
 interface Props {
@@ -91,6 +91,13 @@ const CATEGORIES = [
 
 type CategoryKey = typeof CATEGORIES[number]['key']
 
+// Which approval type governs each category. Used by the posting gate AND
+// the pending-limit check, so the two can never disagree.
+const approvalTypeForCategory = (category: CategoryKey): ApprovalTypeCode =>
+  category === 'own_use' ? 'internal_use_own' :
+  category === 'damage'  ? 'internal_use_damage' :
+  'internal_use'
+
 // ─── Staff list ──────────────────────────────────────────────────────────────
 // Hardcoded to the current team. Extend here when new staff join; moving to a
 // DB-backed list is a future enhancement (would read from the users table).
@@ -114,6 +121,10 @@ export default function InternalUse({ onNav }: Props) {
   const [products, setProducts] = useState<DBProduct[]>([])
   const [locations, setLocations] = useState<{ id: string; code: string; name: string }[]>([])
   const [invSettings, setInvSettings] = useState<any>(null)
+  // Pending-limit discipline (migration 041): while the requester has
+  // unapproved internal use requests at the configured limit, posting more
+  // of the same category is locked until they are approved/rejected/cancelled.
+  const [pendingLimit, setPendingLimit] = useState<PendingLimitResult>({ limit: null, outstanding: [], blocked: false })
   const [productSearch, setProductSearch] = useState<Record<number, string | null>>({})
   const { groups, catsByGroup } = useCategories()
   const [filterCat, setFilterCat] = useState('all')
@@ -172,6 +183,15 @@ export default function InternalUse({ onNav }: Props) {
     saveDraft({ form, lines })
   }, [form, lines, saveDraft])
 
+  // Re-check the pending limit whenever the category (→ approval type) or
+  // user changes. Super admins are exempt in the UI, mirroring the
+  // super_admin_bypass spirit — they skip the approval queue entirely.
+  useEffect(() => {
+    if (!user?.id || isSuperAdmin()) return
+    checkPendingLimit(approvalTypeForCategory(form.category), user.id).then(setPendingLimit)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.category, user?.id])
+
   const loadProducts = () => {
     supabase.from('products')
       .select('id, sku, name, category, cost_price, selling_price, qty_on_hand')
@@ -217,6 +237,7 @@ export default function InternalUse({ onNav }: Props) {
   // ─── Validation ────────────────────────────────────────────────────────
 
   const postDisabledReason = (() => {
+    if (pendingLimit.blocked && !isSuperAdmin()) return 'Unapproved internal use outstanding — follow up first (see banner above)'
     if (filledLines.length === 0) return 'Add at least one product'
     if (total <= 0) return 'Total must be greater than zero'
     if (form.category === 'other' && !form.notes.trim()) return 'Notes required when category is Other'
@@ -289,6 +310,11 @@ export default function InternalUse({ onNav }: Props) {
 
       clearDraft()
       showToast(`Submitted for approval · ${reason}`, 'success')
+      // The just-submitted request now counts toward the pending limit —
+      // refresh so the lock banner appears immediately.
+      if (user?.id && !isSuperAdmin()) {
+        checkPendingLimit(approvalTypeCode, user.id).then(setPendingLimit)
+      }
       setTimeout(() => resetForm(), 1200)
     } catch (e: any) {
       showToast(e.message || 'Submission failed', 'error')
@@ -304,6 +330,23 @@ export default function InternalUse({ onNav }: Props) {
 
     const dateCheck = await validatePostingDate(form.date, isSuperAdmin())
     if (!dateCheck.allowed) { showToast(dateCheck.error || 'Date not allowed', 'error'); return }
+
+    // ─── Pending-limit gate ────────────────────────────────────────────
+    // Fresh check (not the cached banner state): if the requester is at
+    // their max_pending_per_requester for this category's approval type,
+    // nothing posts — not even direct posts below the approval threshold.
+    // Products must not keep leaving the shelf while earlier takings sit
+    // unapproved. The DB trigger (migration 041) backs this up server-side.
+    if (user?.id && !isSuperAdmin()) {
+      const fresh = await checkPendingLimit(approvalTypeForCategory(form.category), user.id)
+      setPendingLimit(fresh)
+      if (fresh.blocked) {
+        const refs = fresh.outstanding.map(o => o.reference_number).join(', ')
+        const who = fresh.outstanding[0]?.assigned_to_name || 'your approver'
+        showToast(`Blocked — ${refs} still unapproved. Follow up with ${who} first.`, 'error')
+        return
+      }
+    }
 
     // Block if negative stock disallowed and any line exceeds available
     if (invSettings?.block_negative_stock) {
@@ -322,10 +365,7 @@ export default function InternalUse({ onNav }: Props) {
     //   - 'damage'   → approval_type 'internal_use_damage' (amount threshold)
     //   - other      → approval_type 'internal_use'        (off by default unless Joe turns on)
     // Super admin can bypass per setting.
-    const approvalTypeCode: ApprovalTypeCode =
-      form.category === 'own_use'  ? 'internal_use_own' :
-      form.category === 'damage'   ? 'internal_use_damage' :
-      'internal_use'
+    const approvalTypeCode: ApprovalTypeCode = approvalTypeForCategory(form.category)
 
     const check = await checkApprovalRequired(approvalTypeCode, {
       value: total,
@@ -511,6 +551,45 @@ export default function InternalUse({ onNav }: Props) {
       {/* Draft resume */}
       {availableDraft && draftAgeMs !== null && (
         <DraftBanner draftAgeMs={draftAgeMs} onResume={resumeDraft} onDiscard={discardDraft} />
+      )}
+
+      {/* ═══ Pending-limit lock ═══════════════════════════════════════════
+          The requester has hit max_pending_per_requester for this category.
+          Nothing else posts until the listed requests are approved, rejected,
+          or cancelled — the banner names exactly who to chase. */}
+      {pendingLimit.blocked && !isSuperAdmin() && (
+        <div className="card" style={{ marginBottom: 14, border: '1px solid var(--red)', background: 'rgba(220,80,60,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <svg width="20" height="20" fill="none" stroke="var(--red)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--red)' }}>
+              Posting locked — unapproved internal use outstanding
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10, lineHeight: 1.5 }}>
+            You are at the limit of {pendingLimit.limit} pending request{(pendingLimit.limit || 0) > 1 ? 's' : ''} for this category.
+            No more products may be issued until the request{pendingLimit.outstanding.length > 1 ? 's' : ''} below
+            {pendingLimit.outstanding.length > 1 ? ' are' : ' is'} approved or rejected.
+          </div>
+          {pendingLimit.outstanding.map(o => {
+            const days = Math.floor((Date.now() - new Date(o.requested_at).getTime()) / 86400000)
+            return (
+              <div key={o.id} style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 8, background: 'var(--surface2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <strong style={{ fontFamily: 'var(--mono)' }}>{o.reference_number}</strong>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: days >= 1 ? 'var(--red)' : 'var(--text3)' }}>
+                    {days === 0 ? 'submitted today' : `${days} day${days > 1 ? 's' : ''} waiting`}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, marginTop: 3 }}>{o.request_summary}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
+                  Waiting with <strong style={{ color: 'var(--text)' }}>{o.assigned_to_name || 'your approver'}</strong> — follow up with them directly to get a decision.
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
 
       {/* ═══ 1. Category picker ═══════════════════════════════════════════ */}
