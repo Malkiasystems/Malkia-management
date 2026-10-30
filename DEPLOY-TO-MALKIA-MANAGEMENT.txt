@@ -1,26 +1,32 @@
-This bundle deploys to Malkia-management (MalkiaOS) ONLY.
-Do not copy any file in here into AtlasOS / Tarakimu.
+This bundle is for the MALKIA-MANAGEMENT repo ONLY (MalkiaOS). Cumulative:
+it CONTAINS and SUPERSEDES this morning's approval-visibility bundle.
 
-SESSION BUNDLE 1 Oct 2026 - searchable product filter, shared picker.
-THREE files, base: LATEST repo zip (30 Sep). No migration.
+NEW: Circle review moderation (PUBLISH-FIRST model)
+- Reviews go live on the site instantly. CRM sidebar > "Circle Maoni" is the
+  patrol desk: Zilizoripotiwa (mama reports, priority), Zimezuiliwa (auto-held
+  matusi / phone numbers), Hewani (all live), Zimeondolewa (takedowns).
+- 3 mama reports auto-hide a review until staff decide here.
+- Backend migrations 042 + 043 ALREADY LIVE in Supabase (applied + tested via
+  MCP today). RPCs refuse anyone who is not an active MalkiaOS staff user.
+  Every takedown / restore recomputes the hospital's public stars instantly
+  and is stamped with the staff member's name.
+- Any active staff member can moderate. If you want it restricted to
+  specific roles later, say so and we gate it.
 
-  src/components/ProductSearchSelect.tsx (NEW)
-      THE shared type-to-search product picker: filters on name, SKU
-      and category as you type, Enter picks the top hit, Escape or
-      clicking away closes. Props switch its modes: an "All Products"
-      choice for filter use, "N in stock" per row for voucher use.
+ALSO NEW: WhatsApp Command Centre (CRM sidebar > "WhatsApp")
+- All contacts across shop / OS / Circle keyed by phone, search, full
+  conversation history with delivery status, 24h-window indicator, consent
+  toggle (with confirmation), staff compose with purpose selector.
+- Backend: migrations 045 + 046 and edge functions wa-send / wa-webhook are
+  ALREADY LIVE. Until the Twilio secrets are set (tomorrow), sends will log
+  as failed in the conversation view; that is expected, not a bug.
+- src/lib/wa.ts exposes sendWhatsApp() for the coming receipt / order hooks.
 
-  src/pages/SalesRegister.tsx
-      the product filter dropdown is replaced by the searchable
-      picker (keeps "All Products"). Works with every tab including
-      Monthly - pick a product by typing three letters and the whole
-      register scopes to it as before.
+STILL INCLUDED from this morning (deploy everything together):
+- Approval modal shows product lines; IU pending-limit lock banner;
+  Max Pending Per Requester setting (migration 041, also already live).
 
-  src/pages/vouchers/Purchase.tsx
-      its local picker copy is DELETED and the page now imports the
-      shared component (stock counts shown as before). One picker,
-      two call sites, zero drift.
-
-The register's filter list (productOptions) is built from loaded
-sales lines as before - products with no sales in the loaded window
-don't appear there, same behaviour as the old dropdown.
+Files: src/App.tsx, src/lib/{types.ts, useApproval.ts},
+src/components/Sidebar.tsx, src/pages/{CircleModeration.tsx,
+ApprovalWorkflows.tsx, ApprovalsSettings.tsx}, src/pages/vouchers/InternalUse.tsx,
+migrations/042 (record only, already applied). Whole repo tsc clean.

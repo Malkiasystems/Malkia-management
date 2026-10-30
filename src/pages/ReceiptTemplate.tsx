@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import QRCode from 'qrcode'
 import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { printHtmlDocument } from '../lib/printDocument'
@@ -26,6 +27,9 @@ export interface ReceiptSettings {
   show_crown_points: boolean; show_cashier: boolean
   show_care_tip: boolean; show_stage_message: boolean; konnect_enabled: boolean
   konnect_utm_tracking: boolean; community_enabled: boolean; community_qr_enabled: boolean
+  // WhatsApp bridge (2026-10-30): QR opens the Malkia WA chat with the
+  // receipt ref pre-typed, so the paper receipt recruits into the ecosystem.
+  wa_number: string; wa_qr_enabled: boolean; show_efd_note: boolean
 }
 
 export interface ReceiptVoucher {
@@ -36,41 +40,69 @@ export interface ReceiptVoucher {
   voucher_lines: { qty: number; unit_price: number; subtotal?: number; total: number; products: { name: string; sku: string; category: string } | null }[]
 }
 
+// Defaults are Swahili-first (the counter speaks Swahili) and Circle-era:
+// Konnect is retired, the CTA now recruits into Malkia Circle, and the
+// receipt carries a WhatsApp QR tied to the live business number.
+// Setting keys keep their konnect_* names so stored settings stay valid.
 const DEFAULT: ReceiptSettings = {
   company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
-  address: 'Dar es Salaam, Tanzania', phone: '+255 700 000 000',
+  address: 'Igesa Road, Sinza · Dar es Salaam', phone: '+255 750 333 111',
   email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
   tin: '—', vrn: '—',
   primary_color: '#85c2be', accent_color: '#f7a6ad',
   logo_url: '', logo_width: 60, logo_x: 0, logo_y: 0, show_logo: true,
-  label_receipt: 'Receipt', label_billed_to: 'Billed To',
-  label_items: 'Items Purchased', label_crown_points: 'Crown Points',
-  label_midwife_tip: 'Midwife Tip', label_konnect: 'Join Malkia Konnect',
-  label_cashier: 'Served by', label_total_paid: 'Total Paid',
-  footer_message: 'Share your Malkia moment — tag us on Instagram',
-  msg_pregnant: 'You are doing something extraordinary. Every choice you make matters, Mama.',
-  msg_postpartum: 'The hardest work is invisible. We see you, and we are with you.',
-  msg_general: 'Motherhood deserves better. That is why we exist.',
-  konnect_cta_text: 'Join Konnect →', konnect_sub_text: 'Weekly guidance · Expert Q&A · Birth prep · Postpartum support',
+  label_receipt: 'Risiti', label_billed_to: 'Mteja',
+  label_items: 'Bidhaa Ulizonunua', label_crown_points: 'Pointi za Crown',
+  label_midwife_tip: 'Kidokezo cha Mkunga', label_konnect: 'Jiunge na Malkia Circle',
+  label_cashier: 'Amehudumiwa na', label_total_paid: 'Jumla Imelipwa',
+  footer_message: 'Piga picha Malkia moment yako — tutambue Instagram',
+  msg_pregnant: 'Unafanya jambo kubwa, Mama. Kila hatua yako ina maana.',
+  msg_postpartum: 'Kazi ngumu zaidi haionekani. Tunakuona, na tupo pamoja nawe.',
+  msg_general: 'Umama unastahili bora zaidi. Ndiyo maana Malkia ipo.',
+  konnect_cta_text: 'Jiunge Sasa →', konnect_sub_text: 'Maswali kwa wakunga · Linganisha hospitali · Vidokezo kila wiki',
   konnect_url: 'https://www.malkia.co.tz/join',
   community_url: '', community_name: 'Mama Community',
   show_crown_points: true, show_cashier: true,
   show_care_tip: true, show_stage_message: true, konnect_enabled: true,
   konnect_utm_tracking: true, community_enabled: false, community_qr_enabled: false,
+  wa_number: '+255750333111', wa_qr_enabled: true, show_efd_note: true,
 }
 
 const CARE_TIPS: Record<string, string> = {
-  Feeding: 'Hold your baby skin-to-skin for the first hour after birth to support natural breastfeeding.',
-  Postpartum: 'Wear your belly binder 8–12 hours daily for best results. Start from day 3 postpartum.',
-  Comfort: 'Use your pregnancy pillow in a C-shape — one end between your knees, one supporting your belly.',
-  Supplements: 'Take your prenatal supplement with food to reduce nausea. Consistency matters most.',
-  Skincare: 'Apply twice daily — morning after shower and evening before bed — for best results.',
-  default: 'Questions about your purchase? WhatsApp our midwife team anytime. We are here for you.',
+  Feeding: 'Mbebe mtoto ngozi-kwa-ngozi saa ya kwanza baada ya kuzaliwa; husaidia kunyonyesha kuanza vizuri.',
+  Postpartum: 'Vaa belly binder saa 8 hadi 12 kwa siku kwa matokeo bora. Anza siku ya 3 baada ya kujifungua.',
+  Comfort: 'Tumia mto wako wa ujauzito umbo la C: upande mmoja katikati ya magoti, mwingine ukishikilia tumbo.',
+  Supplements: 'Meza supplement yako ya ujauzito pamoja na chakula kupunguza kichefuchefu. Uthabiti ndiyo muhimu zaidi.',
+  Skincare: 'Paka mara mbili kwa siku: asubuhi baada ya kuoga na jioni kabla ya kulala, kwa matokeo bora.',
+  default: 'Swali kuhusu ununuzi wako? Tuandikie WhatsApp wakati wowote. Tupo hapa kwa ajili yako.',
+}
+
+// Dates arrive as ISO (2026-10-30); mamas read 30/10/2026.
+function fmtDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '')
+}
+
+// QR rendered as a data URL <img>, so it survives the print path
+// (printHtmlDocument copies outerHTML; a canvas would copy as blank).
+function WaQr({ payload, size = 84 }: { payload: string; size?: number }) {
+  const [src, setSrc] = useState('')
+  useEffect(() => {
+    let alive = true
+    QRCode.toDataURL(payload, { margin: 1, width: size * 3 })
+      .then(u => { if (alive) setSrc(u) })
+      .catch(() => { /* QR is decorative; never block the receipt */ })
+    return () => { alive = false }
+  }, [payload, size])
+  if (!src) return <div style={{ width: size, height: size, background: '#f4f0f0', borderRadius: 8, flexShrink: 0 }} />
+  return <img src={src} width={size} height={size} alt="WhatsApp QR" style={{ borderRadius: 8, display: 'block', flexShrink: 0 }} />
 }
 
 // ── Receipt Component ─────────────────────────────────────────────────────────
-export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; settings: ReceiptSettings }) {
-  const s = settings
+export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; settings: Partial<ReceiptSettings> }) {
+  // Stored settings may predate newer keys (wa_number, show_efd_note…), so
+  // merge over DEFAULT instead of trusting the saved blob to be complete.
+  const s: ReceiptSettings = { ...DEFAULT, ...settings }
   const p = s.primary_color
   const a = s.accent_color
   const cust = voucher.customers
@@ -89,6 +121,10 @@ export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; 
   const konnectHref = s.konnect_utm_tracking
     ? `${s.konnect_url}?ref=${voucher.ref}&utm_source=receipt&utm_medium=pdf`
     : s.konnect_url
+  // Scanning the QR opens the Malkia WhatsApp chat with "RISITI <ref>"
+  // pre-typed — a paper receipt that recruits into the WhatsApp ecosystem.
+  const waDigits = (s.wa_number || '').replace(/\D/g, '')
+  const waHref = `https://wa.me/${waDigits}?text=${encodeURIComponent('RISITI ' + voucher.ref)}`
 
   const mono = "'DM Mono', 'Courier New', monospace"
   const display = "'Syne', 'Georgia', serif"
@@ -125,7 +161,7 @@ export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; 
 
         {/* Date + payment strip */}
         <div style={{ marginTop: 14, background: 'rgba(255,255,255,.14)', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontFamily: mono, fontSize: 11, color: 'rgba(255,255,255,.85)' }}>{voucher.posting_date}</div>
+          <div style={{ fontFamily: mono, fontSize: 11, color: 'rgba(255,255,255,.85)' }}>{fmtDate(voucher.posting_date)}</div>
           <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 600, color: '#fff', background: 'rgba(255,255,255,.15)', padding: '2px 10px', borderRadius: 20 }}>
             {voucher.payment_method}
           </div>
@@ -236,7 +272,7 @@ export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; 
       {/* ── KONNECT CTA ──────────────────────────────────────────────────────── */}
       {s.konnect_enabled && (
         <div style={{ padding: '16px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 9, color: '#ccc', fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Your Personal Midwife, On Demand</div>
+          <div style={{ fontSize: 9, color: '#ccc', fontFamily: mono, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Mkunga wako, hatua moja tu</div>
           <div style={{ fontFamily: display, fontSize: 15, fontWeight: 800, color: '#1a1a1a', marginBottom: 4 }}>{s.label_konnect}</div>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 14, lineHeight: 1.6 }}>{s.konnect_sub_text}</div>
           <a href={konnectHref} style={{ display: 'inline-block', background: a, color: '#fff', padding: '10px 28px', borderRadius: 50, fontSize: 12, fontWeight: 700, textDecoration: 'none', letterSpacing: 0.3 }}>
@@ -255,6 +291,27 @@ export function MalkiaReceipt({ voucher, settings }: { voucher: ReceiptVoucher; 
             <div style={{ fontSize: 10, color: '#888', lineHeight: 1.4, marginBottom: 6 }}>Connect with mothers at every stage of the journey</div>
             <a href={s.community_url} style={{ fontSize: 10, color: p, fontFamily: mono }}>{s.community_url}</a>
           </div>
+        </div>
+      )}
+
+      {/* ── WHATSAPP QR ──────────────────────────────────────────────────────── */}
+      {s.wa_qr_enabled && (
+        <div style={{ margin: '0 20px 14px', display: 'flex', gap: 14, alignItems: 'center', background: '#fdf7f8', border: `1px solid ${a}40`, borderRadius: 10, padding: '12px 14px' }}>
+          <WaQr payload={waHref} />
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a1a', marginBottom: 3 }}>Swali kuhusu oda yako?</div>
+            <div style={{ fontSize: 10.5, color: '#8a7a7a', lineHeight: 1.55 }}>
+              Scan QR hii au tuandikie WhatsApp<br />
+              <span style={{ fontFamily: mono, color: p, fontWeight: 700 }}>{s.wa_number}</span> — tutakujibu haraka.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EFD COURTESY NOTE ────────────────────────────────────────────────── */}
+      {s.show_efd_note && (
+        <div style={{ padding: '0 20px 12px', fontSize: 8.5, color: '#c4bcbc', fontFamily: mono, lineHeight: 1.5 }}>
+          Hii ni nakala ya hisani. Risiti rasmi ya kodi (EFD) inapatikana dukani.
         </div>
       )}
 
@@ -337,7 +394,7 @@ export function ReceiptTemplateSettings({ settings, onChange }: { settings: Rece
   const tabs = [
     { id: 'identity', label: 'Identity' }, { id: 'labels', label: 'Labels' },
     { id: 'messages', label: 'Messages' }, { id: 'display', label: 'Display' },
-    { id: 'logo', label: 'Logo' }, { id: 'konnect', label: 'Konnect' },
+    { id: 'logo', label: 'Logo' }, { id: 'konnect', label: 'Circle & WA' },
   ] as const
 
   return (
@@ -395,7 +452,7 @@ export function ReceiptTemplateSettings({ settings, onChange }: { settings: Rece
           <Fld label='"Total Paid" label' k="label_total_paid" s={settings} set={setStr} placeholder="Total Paid" />
           <Fld label='"Crown Points" header' k="label_crown_points" s={settings} set={setStr} placeholder="Crown Points" />
           <Fld label='"Midwife Tip" header' k="label_midwife_tip" s={settings} set={setStr} placeholder="Midwife Tip" />
-          <Fld label='"Join Konnect" heading' k="label_konnect" s={settings} set={setStr} placeholder="Join Malkia Konnect" />
+          <Fld label='"Join Circle" heading' k="label_konnect" s={settings} set={setStr} placeholder="Jiunge na Malkia Circle" />
           <Fld label='"Served by" prefix' k="label_cashier" s={settings} set={setStr} placeholder="Served by" />
         </div>
       )}
@@ -416,8 +473,9 @@ export function ReceiptTemplateSettings({ settings, onChange }: { settings: Rece
           <Tog label="Crown Points" desc="Show loyalty points earned and balance" k="show_crown_points" s={settings} set={setBool} />
           <Tog label="Midwife Tip" desc="Product care tip relevant to purchase category" k="show_care_tip" s={settings} set={setBool} />
           <Tog label="Cashier Name" desc="Show name of who served the customer" k="show_cashier" s={settings} set={setBool} />
-          <Tog label="Konnect CTA" desc="Show Join Malkia Konnect section" k="konnect_enabled" s={settings} set={setBool} />
+          <Tog label="Circle CTA" desc="Show Jiunge na Malkia Circle section" k="konnect_enabled" s={settings} set={setBool} />
           <Tog label="Community Section" desc="Show Mama Community link" k="community_enabled" s={settings} set={setBool} />
+          <Tog label="EFD Courtesy Note" desc="Small line clarifying the official tax receipt is issued in-store" k="show_efd_note" s={settings} set={setBool} />
         </div>
       )}
 
@@ -488,13 +546,15 @@ export function ReceiptTemplateSettings({ settings, onChange }: { settings: Rece
 
       {tab === 'konnect' && (
         <div>
-          <Tog label="Enable Konnect CTA" desc="Show Join Malkia Konnect on receipts" k="konnect_enabled" s={settings} set={setBool} />
-          <Tog label="UTM Tracking" desc="Add campaign tracking to Konnect link" k="konnect_utm_tracking" s={settings} set={setBool} />
+          <Tog label="Enable Circle CTA" desc="Show Jiunge na Malkia Circle on receipts" k="konnect_enabled" s={settings} set={setBool} />
+          <Tog label="UTM Tracking" desc="Add campaign tracking to the Circle link" k="konnect_utm_tracking" s={settings} set={setBool} />
+          <Tog label="WhatsApp QR" desc="QR opens the Malkia WhatsApp chat with the receipt ref pre-typed" k="wa_qr_enabled" s={settings} set={setBool} />
           <Tog label="Community Section" desc="Show Mama Community link when ready" k="community_enabled" s={settings} set={setBool} />
           <div style={{ marginTop: 12 }}>
-            <Fld label="Konnect URL" k="konnect_url" s={settings} set={setStr} placeholder="https://www.malkia.co.tz/join" />
-            <Fld label="Konnect CTA Button Text" k="konnect_cta_text" s={settings} set={setStr} placeholder="Join Konnect →" />
-            <Fld label="Konnect Sub-text" k="konnect_sub_text" s={settings} set={setStr} textarea placeholder="Weekly guidance · Expert Q&A · Birth prep..." />
+            <Fld label="Circle URL" k="konnect_url" s={settings} set={setStr} placeholder="https://www.malkia.co.tz/join" />
+            <Fld label="Circle CTA Button Text" k="konnect_cta_text" s={settings} set={setStr} placeholder="Jiunge Sasa →" />
+            <Fld label="Circle Sub-text" k="konnect_sub_text" s={settings} set={setStr} textarea placeholder="Maswali kwa wakunga · Linganisha hospitali..." />
+            <Fld label="WhatsApp Number (QR target)" k="wa_number" s={settings} set={setStr} placeholder="+255750333111" />
             <Fld label="Community Name" k="community_name" s={settings} set={setStr} placeholder="Mama Community" />
             <Fld label="Community URL" k="community_url" s={settings} set={setStr} placeholder="https://community.malkia.co.tz" />
           </div>
