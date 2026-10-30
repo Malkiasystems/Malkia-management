@@ -7,7 +7,7 @@ import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { MalkiaReceipt } from '../ReceiptTemplate'
 import type { ReceiptSettings } from '../ReceiptTemplate'
-import { sendWhatsApp as waApiSend } from '../../lib/wa'
+import { sendWhatsApp as waApiSend, sendWhatsAppReceiptPdf } from '../../lib/wa'
 
 // Receipt hook (30 Oct): text receipt through wa-send, the one audited door.
 // Matches the Meta template draft so the free-form (in-window) version and
@@ -738,14 +738,18 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       setShowModal(false)
       setShowReceipt(true)
       // Auto WhatsApp receipt: fire-and-forget, NEVER blocks posting.
-      // Outside a 24h window Twilio will reject the free-form body; that
-      // lands as a 'failed' row in wa_messages, visible in the command
-      // centre, and disappears once the receipt template is approved.
+      // Branded PDF first (wa-receipt renders + ships it); if that fails for
+      // any reason, fall back to the plain text receipt so the mama is never
+      // left with nothing. Outside a 24h window both are rejected by Twilio
+      // until the Meta template is approved — logged as 'failed', by design.
       const waPhone = result.receiptData.customers?.whatsapp
       if (waPhone) {
-        waApiSend({ phone: waPhone, purpose: 'receipt', name: result.receiptData.customers?.name, body: buildReceiptText(result.receiptData) })
+        const rd = result.receiptData
+        sendWhatsAppReceiptPdf(result.ref || rd.ref)
           .then(() => setWaSent(true))
-          .catch(err => console.warn('WA receipt not delivered:', err?.message || err))
+          .catch(() => waApiSend({ phone: waPhone, purpose: 'receipt', name: rd.customers?.name, body: buildReceiptText(rd) })
+            .then(() => setWaSent(true))
+            .catch(err => console.warn('WA receipt not delivered:', err?.message || err)))
       }
     } else {
       setShowModal(false); resetForm()
@@ -1556,10 +1560,15 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   if (!phone) { alert('No WhatsApp number for this customer'); return }
                   setSending(true)
                   try {
-                    await waApiSend({ phone, purpose: 'receipt', name: lastVoucher.customers?.name, body: buildReceiptText(lastVoucher) })
+                    await sendWhatsAppReceiptPdf(lastVoucher.ref)
                     setWaSent(true)
-                  } catch (err: any) {
-                    alert('Send failed: ' + (err?.message || err))
+                  } catch (pdfErr: any) {
+                    try {
+                      await waApiSend({ phone, purpose: 'receipt', name: lastVoucher.customers?.name, body: buildReceiptText(lastVoucher) })
+                      setWaSent(true)
+                    } catch (err: any) {
+                      alert('Send failed: ' + (err?.message || pdfErr?.message || err))
+                    }
                   }
                   setSending(false)
                 }}>
