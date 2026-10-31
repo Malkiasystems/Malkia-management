@@ -3,6 +3,7 @@ import type { Page } from '../lib/types'
 import { useAuth } from '../lib/useAuth'
 import { supabase } from '../lib/supabase'
 import { matchPages } from '../lib/pageDirectory'
+import ApprovalBell from './ApprovalBell'
 
 interface Props {
   breadcrumb: string
@@ -393,6 +394,7 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
       </div>
 
       <div style={styles.right} className="tb-right">
+        <ApprovalBell onNav={onNav} />
         <div style={styles.fyBadge} className="tb-fy">FY 2025-26</div>
         
         <div style={styles.userSection}>
