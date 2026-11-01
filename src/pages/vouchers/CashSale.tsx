@@ -1055,7 +1055,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                           if (data) { setSelectedCust(data as any); setNewCustName(data.name); setWaInput(''); setShowDropdown(false); setCustResults([]); setExistingContext(null); setPendingContext({}); setNoContactChk(false) }
                           else alert('WALKIN customer not found. Run migration 051.')
                         }}>
-                        Mteja wa Kupita (bila taarifa)
+                        Guest Customer (no details)
                       </button>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text3)', cursor: 'pointer', userSelect: 'none' }}>
                         <input type="checkbox" checked={noContactChk} onChange={e => setNoContactChk(e.target.checked)} />
