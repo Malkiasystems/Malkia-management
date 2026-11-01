@@ -7,6 +7,7 @@ import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFil
 import type { Page } from '../lib/types'
 import { exportCSV as doExportCSV, exportPDF as doExportPDF, exportDetailPDF as doExportDetailPDF } from '../lib/salesDayBookExport'
 import type { SDBSale, SDBExpense, SDBCreditNote, SDBTemplateSettings } from '../lib/salesDayBookExport'
+import { sendWhatsAppReceiptPdf } from '../lib/wa'
 
 interface Props {
   onNav?: (p: Page) => void
@@ -27,6 +28,10 @@ export default function SalesDayBook({ onEdit }: Props) {
   }, [])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'detail' | 'summary'>('summary')
+  const [waConfirm, setWaConfirm] = useState<any>(null)
+  const [waSending, setWaSending] = useState(false)
+  const [waErr, setWaErr] = useState<string | null>(null)
+  const [waSentRefs, setWaSentRefs] = useState<Set<string>>(new Set())
 
   // 30-day trend
   const [trend30, setTrend30] = useState<{ date: string; total: number }[]>([])
@@ -636,8 +641,20 @@ export default function SalesDayBook({ onEdit }: Props) {
                       <td style={{ fontSize: 11, color: 'var(--text3)' }}>{s.posted_by || '—'}</td>
                       <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted ✓'}</span></td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
-                      <td style={{ width: 30 }}>
-                        <svg width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      <td style={{ width: 64 }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {s.type !== 'sales_invoice' && s.status === 'posted' && (s.customers as any)?.whatsapp && (
+                            waSentRefs.has(s.ref) ? (
+                              <span title="Risiti imetumwa" style={{ color: '#25D366', fontSize: 13, fontWeight: 700 }}>✓</span>
+                            ) : (
+                              <button title="Tuma risiti WhatsApp" onClick={() => { setWaErr(null); setWaConfirm(s) }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
+                                <svg width="15" height="15" fill="none" stroke="#25D366" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                              </button>
+                            )
+                          )}
+                          <svg onClick={() => onEdit?.(s.type === 'sales_invoice' ? 'sales-invoice' : 'cash-sale', s.id)} style={{ cursor: 'pointer' }} width="14" height="14" fill="none" stroke="var(--text3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -672,6 +689,39 @@ export default function SalesDayBook({ onEdit }: Props) {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {waConfirm && (
+        <div onClick={() => { if (!waSending) setWaConfirm(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 22, width: 340, boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <svg width="18" height="18" fill="none" stroke="#25D366" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Tuma Risiti WhatsApp</div>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text2)', marginBottom: 6 }}>
+              <div><span style={{ fontFamily: 'var(--mono)', color: 'var(--amber)' }}>{waConfirm.ref}</span> · TZS <b>{Number(waConfirm.total_amount || 0).toLocaleString()}</b></div>
+              <div style={{ fontWeight: 700, color: 'var(--text)' }}>{(waConfirm.customers as any)?.name || '—'}</div>
+              <div style={{ fontFamily: 'var(--mono)', color: '#25D366' }}>{(waConfirm.customers as any)?.whatsapp}</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginBottom: 14 }}>Risiti ya PDF itatumwa kwa namba hii. Hakikisha ni mteja sahihi.</div>
+            {waErr && <div style={{ fontSize: 12, color: 'var(--red)', background: 'rgba(220,60,60,.08)', border: '1px solid rgba(220,60,60,.25)', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>{waErr}</div>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost btn-sm" disabled={waSending} onClick={() => setWaConfirm(null)}>Ghairi</button>
+              <button className="btn btn-sm" disabled={waSending} style={{ background: '#25D366', color: '#fff', border: 'none', fontWeight: 700, opacity: waSending ? .6 : 1 }}
+                onClick={async () => {
+                  setWaSending(true); setWaErr(null)
+                  try {
+                    await sendWhatsAppReceiptPdf(waConfirm.ref)
+                    setWaSentRefs(prev => new Set(prev).add(waConfirm.ref))
+                    setWaConfirm(null)
+                  } catch (err: any) {
+                    setWaErr(err?.message || 'Imeshindikana kutuma. Jaribu tena.')
+                  }
+                  setWaSending(false)
+                }}>{waSending ? 'Inatuma…' : 'Tuma Sasa'}</button>
+            </div>
+          </div>
         </div>
       )}
 
