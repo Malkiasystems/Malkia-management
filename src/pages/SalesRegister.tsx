@@ -65,7 +65,7 @@ interface Sale {
   id: string; ref: string; description: string; total_amount: number; subtotal: number
   payment_method: string; posting_date: string; status: string; type: string
   customer_id: string | null; posted_by: string | null; salesperson_id: string | null
-  customers: { id: string; name: string; whatsapp: string; segment: string; crown_points: number } | null
+  customers: { id: string; name: string; whatsapp: string; segment: string; crown_points: number; code?: string | null } | null
   voucher_lines: VoucherLine[]
 }
 interface ProductRow {
@@ -74,7 +74,7 @@ interface ProductRow {
   avgPrice: number; txCount: number; unitsPerCarton: number | null
 }
 interface CustomerRow {
-  customerId: string; name: string; whatsapp: string; segment: string
+  customerId: string; name: string; whatsapp: string; segment: string; isGuest?: boolean
   txCount: number; unitsSold: number; revenue: number
   cashRevenue: number; creditRevenue: number
   margin: number; marginPct: number; lastPurchase: string; crownPoints: number
@@ -329,7 +329,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       const { data, error } = await supabase
         .from('vouchers')
         .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by, salesperson_id,
-          customers(id, name, whatsapp, segment, crown_points, customer_type),
+          customers(id, name, whatsapp, segment, crown_points, customer_type, code),
           voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category, units_per_carton))`)
         .in('type', ['cash_sale', 'sales_invoice'])
         .eq('status', 'posted')
@@ -519,7 +519,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
     const { data } = await supabase
       .from('vouchers')
       .select(`id, ref, type, posting_date, total_amount, salesperson_id, customer_id, description,
-        customers(id, name, whatsapp, customer_type),
+        customers(id, name, whatsapp, customer_type, code),
         voucher_lines(qty, total, unit_cost, product_id, products(id, category))`)
       .in('type', ['cash_sale', 'sales_invoice'])
       .eq('status', 'posted')
@@ -542,7 +542,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
       tx++; units += vUnits; revenue += vRev; margin += vMargin
       if ((v as any).customers?.customer_type === 'wholesale') invoiced += vRev; else retail += vRev
       const ck = v.customer_id || `__walkin_${v.customers?.name || v.description || 'Walk-in'}`
-      if (!custMap[ck]) custMap[ck] = { name: v.customers?.name || v.description || 'Walk-in', whatsapp: v.customers?.whatsapp || '', tx: 0, units: 0, revenue: 0, margin: 0, last: '' }
+      if (!custMap[ck]) custMap[ck] = { name: (v.customers?.code === 'WALKIN' ? 'Guest (anonymous)' : (v.customers?.name || v.description || 'Walk-in')), whatsapp: v.customers?.whatsapp || '', tx: 0, units: 0, revenue: 0, margin: 0, last: '' }
       const c = custMap[ck]; c.tx++; c.units += vUnits; c.revenue += vRev; c.margin += vMargin
       if (!c.last || v.posting_date > c.last) c.last = v.posting_date
       const emp = salespeople.find(s => s.id === v.salesperson_id)
@@ -774,6 +774,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
           segment: s.customers?.segment || (regIsWholesale(s) ? 'Wholesale' : 'Retail'),
           txCount: 0, unitsSold: 0, revenue: 0, cashRevenue: 0, creditRevenue: 0,
           margin: 0, marginPct: 0, lastPurchase: '', crownPoints: s.customers?.crown_points || 0,
+          isGuest: s.customers?.code === 'WALKIN',
         }
       }
       const c = map[key]
@@ -996,7 +997,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
           const { data, error } = await supabase
             .from('vouchers')
             .select(`id, ref, description, total_amount, subtotal, payment_method, posting_date, status, type, customer_id, posted_by, salesperson_id,
-              customers(id, name, whatsapp, segment, crown_points, customer_type),
+              customers(id, name, whatsapp, segment, crown_points, customer_type, code),
               voucher_lines(id, qty, unit_price, unit_cost, total, products(id, name, sku, category, units_per_carton))`)
             .in('type', ['cash_sale', 'sales_invoice'])
             .eq('status', 'posted')
@@ -1422,7 +1423,7 @@ export default function SalesRegister({ onEdit }: Props = {}) {
                   <tr><td colSpan={10} style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text3)' }}>No customers found for this period.</td></tr>
                 ) : filteredCustomerRows.map((c, i) => (
                   <tr key={i} onClick={() => openCustomerLedger(c)} style={{ cursor: 'pointer' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                    <td className="td-bold">{c.name}{c.txCount > 1 && <span style={{ fontSize: 9, color: 'var(--green)', marginLeft: 6, fontWeight: 600 }}>● REPEAT</span>}{c.customerId.startsWith('__walkin_') && <span style={{ fontSize: 9, color: 'var(--text3)', marginLeft: 6, fontWeight: 500 }}>Walk-in</span>}</td>
+                    <td className="td-bold">{c.name}{c.txCount > 1 && !c.isGuest && <span style={{ fontSize: 9, color: 'var(--green)', marginLeft: 6, fontWeight: 600 }}>● REPEAT</span>}{c.isGuest && <span style={{ fontSize: 9, color: 'var(--blush, #e8a0a8)', marginLeft: 6, fontWeight: 600 }}>● GUEST · ANONYMOUS</span>}{c.customerId.startsWith('__walkin_') && <span style={{ fontSize: 9, color: 'var(--text3)', marginLeft: 6, fontWeight: 500 }}>Walk-in</span>}</td>
                     <td className="td-mono" style={{ color: 'var(--wa)', fontSize: 11 }}>{c.whatsapp || '—'}</td>
                     <td><span className="pill pill-gray" style={{ fontSize: 10 }}>{c.segment}</span></td>
                     <td className="td-right td-mono">{c.txCount}</td>
