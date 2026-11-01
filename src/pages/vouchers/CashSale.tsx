@@ -902,7 +902,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
               <div className="card-title">Today's Sales — {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
               <div className="card-sub">{todayStats.count} transactions · {tzs(todayStats.total)} total</div>
             </div>
-            <button className="btn btn-ghost btn-sm">Full Register →</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => onNav?.('sales-day-book')}>Full Register →</button>
           </div>
           {recentSales.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>
