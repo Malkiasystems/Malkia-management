@@ -32,6 +32,7 @@ export default function SalesDayBook({ onEdit }: Props) {
   const [waSending, setWaSending] = useState(false)
   const [waErr, setWaErr] = useState<string | null>(null)
   const [waSentRefs, setWaSentRefs] = useState<Set<string>>(new Set())
+  const [waStatus, setWaStatus] = useState<Record<string, string>>({})
 
   // 30-day trend
   const [trend30, setTrend30] = useState<{ date: string; total: number }[]>([])
@@ -121,6 +122,21 @@ export default function SalesDayBook({ onEdit }: Props) {
 
     const { data, error } = await query
     if (!error && data) setSales(data as any)
+    // Mirror pipeline truth: map each ref to its latest receipt status so
+    // auto-sends show in the register, not only this session's resends.
+    if (!error && data?.length) {
+      const refs = new Set((data as any[]).map(s => s.ref))
+      const { data: msgs } = await supabase.from('wa_messages')
+        .select('body, status, created_at')
+        .eq('purpose', 'receipt').eq('direction', 'out')
+        .order('created_at', { ascending: true }).limit(500)
+      const m: Record<string, string> = {}
+      for (const row of (msgs || [])) {
+        const hit = (row.body || '').match(/CS-\d+-\d+/)
+        if (hit && refs.has(hit[0])) m[hit[0]] = row.status || 'sent'
+      }
+      setWaStatus(m)
+    }
     // Also load expenses for this period
     loadExpenses(f, t)
     loadRiderDay(f, t)
@@ -644,8 +660,16 @@ export default function SalesDayBook({ onEdit }: Props) {
                       <td style={{ width: 64 }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           {s.type !== 'sales_invoice' && s.status === 'posted' && (s.customers as any)?.whatsapp && (
-                            waSentRefs.has(s.ref) ? (
-                              <span title="Risiti imetumwa" style={{ color: '#25D366', fontSize: 13, fontWeight: 700 }}>✓</span>
+                            (waSentRefs.has(s.ref) || ['delivered','read','sent','queued','accepted'].includes(waStatus[s.ref] || '')) ? (
+                              <span
+                                title={waStatus[s.ref] === 'read' ? 'Risiti imesomwa' : waStatus[s.ref] === 'delivered' ? 'Risiti imefika' : 'Risiti imetumwa'}
+                                onClick={() => { setWaErr(null); setWaConfirm(s) }}
+                                style={{ color: waStatus[s.ref] === 'read' ? '#0a84ff' : '#25D366', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                                {['delivered','read'].includes(waStatus[s.ref] || '') ? '✓✓' : '✓'}
+                              </span>
+                            ) : waStatus[s.ref] === 'failed' ? (
+                              <button title="Imeshindikana — jaribu tena" onClick={() => { setWaErr(null); setWaConfirm(s) }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#ef4444', fontSize: 12, fontWeight: 800 }}>!</button>
                             ) : (
                               <button title="Tuma risiti WhatsApp" onClick={() => { setWaErr(null); setWaConfirm(s) }}
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, lineHeight: 0 }}>
