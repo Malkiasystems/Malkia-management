@@ -128,11 +128,11 @@ export default function SalesDayBook({ onEdit }: Props) {
       const refs = new Set((data as any[]).map(s => s.ref))
       const { data: msgs } = await supabase.from('wa_messages')
         .select('body, status, created_at')
-        .eq('purpose', 'receipt').eq('direction', 'out')
+        .in('purpose', ['receipt', 'invoice']).eq('direction', 'out')
         .order('created_at', { ascending: true }).limit(500)
       const m: Record<string, string> = {}
       for (const row of (msgs || [])) {
-        const hit = (row.body || '').match(/CS-\d+-\d+/)
+        const hit = (row.body || '').match(/[A-Z]{2}-\d+-\d+/)
         if (hit && refs.has(hit[0])) m[hit[0]] = row.status || 'sent'
       }
       setWaStatus(m)
@@ -659,7 +659,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
                       <td style={{ width: 64 }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {s.type !== 'sales_invoice' && s.status === 'posted' && (s.customers as any)?.whatsapp && (
+                          {s.status === 'posted' && (s.customers as any)?.whatsapp && (
                             (waSentRefs.has(s.ref) || ['delivered','read','sent','queued','accepted'].includes(waStatus[s.ref] || '')) ? (
                               <span
                                 title={waStatus[s.ref] === 'read' ? 'Risiti imesomwa' : waStatus[s.ref] === 'delivered' ? 'Risiti imefika' : 'Risiti imetumwa'}
@@ -743,7 +743,7 @@ export default function SalesDayBook({ onEdit }: Props) {
               <div style={{ fontWeight: 700, color: 'var(--text)' }}>{(waConfirm.customers as any)?.name || '—'}</div>
               <div style={{ fontFamily: 'var(--mono)', color: '#25D366' }}>{(waConfirm.customers as any)?.whatsapp}</div>
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginBottom: 14 }}>Risiti ya PDF itatumwa kwa namba hii. Hakikisha ni mteja sahihi.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginBottom: 14 }}>{waConfirm?.type === 'sales_invoice' ? 'Ankara' : 'Risiti'} ya PDF itatumwa kwa namba hii. Hakikisha ni mteja sahihi.</div>
             {waErr && <div style={{ fontSize: 12, color: 'var(--red)', background: 'rgba(220,60,60,.08)', border: '1px solid rgba(220,60,60,.25)', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>{waErr}</div>}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost btn-sm" disabled={waSending} onClick={() => setWaConfirm(null)}>Ghairi</button>

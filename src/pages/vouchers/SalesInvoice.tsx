@@ -13,8 +13,7 @@ import { postLedgerEntry } from '../../lib/itemLedger'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
-import { loadWAConfig, sendWhatsApp, formatInvoiceMessage } from '../../lib/whatsapp'
-import type { WAConfig } from '../../lib/whatsapp'
+import { sendWhatsAppReceiptPdf } from '../../lib/wa'
 import { useCategories } from '../../lib/useCategories'
 import { useUserLocation } from '../../lib/useUserLocation'
 import { useAuth } from '../../lib/useAuth'
@@ -119,7 +118,6 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
   const [showInvoice, setShowInvoice] = useState(false)
   const [lastInvoice, setLastInvoice] = useState<any>(null)
   const [invoiceSettings, setInvoiceSettings] = useState<any>(null)
-  const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
   const [sending, setSending] = useState(false)
   const [waSent, setWaSent] = useState(false)
   const [products, setProducts] = useState<DBProduct[]>([])
@@ -360,7 +358,6 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       .then(({ data }) => { if (data?.value) try { setInvoiceSettings(JSON.parse(data.value)) } catch {} })
     supabase.from('system_settings').select('value').eq('key', 'inventory_settings').single()
       .then(({ data }) => { if (data?.value) try { setInvSettings(JSON.parse(data.value)) } catch {} })
-    loadWAConfig().then(setWaConfig)
   }
 
   const loadProducts = () => {
@@ -890,6 +887,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           ? ` · Paid TZS ${paidNow.toLocaleString()} (balance ${(subtotal - paidNow).toLocaleString()})`
           : ''
       showToast(`${finalRef} posted · TZS ${subtotal.toLocaleString()}${paidLabel}`)
+      // Branded Ankara PDF via the Twilio pipeline; fire-and-forget so a
+      // messaging hiccup never blocks or scares the posting flow.
+      if (selectedCust?.whatsapp) sendWhatsAppReceiptPdf(finalRef).catch(() => {})
       clearDraft()  // posted successfully — no draft to recover
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
@@ -1927,24 +1927,15 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
               </svg>
               Save PNG
             </button>
-            {waConfig?.enabled && waConfig?.api_key && lastInvoice.customers?.whatsapp && (
+            {lastInvoice.customers?.whatsapp && (
               <button className="btn btn-ghost btn-sm" disabled={sending || waSent}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#25D366', border: '1px solid rgba(37,211,102,.3)' }}
                 onClick={async () => {
-                  if (!lastInvoice || !waConfig) return
+                  if (!lastInvoice) return
                   setSending(true)
-                  const msg = formatInvoiceMessage(waConfig.template_invoice || '', {
-                    customer_name: lastInvoice.customers?.name || 'Customer',
-                    ref: lastInvoice.ref, date: lastInvoice.posting_date,
-                    due_date: lastInvoice.due_date || '', payment_terms: lastInvoice.payment_terms || '',
-                    items: lastInvoice.voucher_lines?.map((l: any) => ({ name: l.products?.name || l.description || '—', qty: l.qty, amount: l.total })) || [],
-                    total: lastInvoice.total_amount,
-                    outstanding: lastInvoice.customers?.balance || 0,
-                    bank_account: waConfig ? '22510074972 (NMB)' : '—',
-                  })
-                  const result = await sendWhatsApp(waConfig, { to: lastInvoice.customers.whatsapp, message: msg, type: 'invoice', ref: lastInvoice.ref, customer_name: lastInvoice.customers?.name, customer_id: lastInvoice.customer_id, is_transactional: true })
-                  setSending(false)
-                  if (result.success) setWaSent(true)
+                  try { await sendWhatsAppReceiptPdf(lastInvoice.ref); setWaSent(true) }
+                  catch (e: any) { showToast(e?.message || 'WhatsApp send failed', 'error') }
+                  finally { setSending(false) }
                 }}>
                 <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
                 {sending ? 'Sending…' : waSent ? 'Sent ✓' : 'WhatsApp'}
