@@ -408,8 +408,9 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       // Existing customer with no number (e.g. the anonymous WALKIN row).
       // A null-whatsapp upsert would INSERT a duplicate (NULLs never conflict),
       // so update by id instead.
+      const isGuest = (selectedCust as any)?.code === 'WALKIN'
       const { data: custData } = await supabase.from('customers').update({
-        crown_points: (selectedCust?.crown_points || 0) + crownPoints,
+        crown_points: isGuest ? (selectedCust?.crown_points || 0) : (selectedCust?.crown_points || 0) + crownPoints,
         last_purchase_date: postingDate,
         last_purchase_amount: subtotal,
         balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
