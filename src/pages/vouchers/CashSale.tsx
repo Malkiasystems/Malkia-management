@@ -1075,7 +1075,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
                   {/* Customer Context — optional pregnancy/baby/TTC capture.
                       Skipping is fine; missing customers flow to the back-office queue. */}
-                  {(newCustName.trim() || selectedCust) && (
+                  {(newCustName.trim() || selectedCust) && (selectedCust as any)?.code !== 'WALKIN' && (
                     <CustomerContextSection
                       existing={existingContext}
                       onChange={setPendingContext}
@@ -1085,7 +1085,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   {/* Referral code — optional. Cashier types the code from
                       the new mama's friend; the system validates against
                       apply_referral_code and shows a benefit preview. */}
-                  {(newCustName.trim() || selectedCust) && (
+                  {(newCustName.trim() || selectedCust) && (selectedCust as any)?.code !== 'WALKIN' && (
                     <div style={{ marginTop: 10 }}>
                       <label style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>
                         Referral code (optional)

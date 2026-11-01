@@ -102,7 +102,7 @@ export default function SalesDayBook({ onEdit }: Props) {
       .select(`
         id, ref, type, posting_date, description, total_amount, subtotal,
         payment_method, payment_split, status, notes, posted_by,
-        customers (name, whatsapp, pregnancy_stage, crown_points, customer_type),
+        customers (name, whatsapp, pregnancy_stage, crown_points, customer_type, code),
         voucher_lines (
           id, qty, unit_price, unit_cost, total,
           products (name, sku, category)
@@ -683,6 +683,21 @@ export default function SalesDayBook({ onEdit }: Props) {
                         <td className="td-right td-mono" style={{ color: 'var(--blue)', fontWeight: 700, padding: '8px 14px' }}>{creditTotal.toLocaleString()}</td>
                         <td></td>
                       </tr>
+                      {(() => {
+                        const guest = filtered.filter(s => (s.customers as any)?.code === 'WALKIN')
+                        if (!guest.length) return null
+                        const gTotal = guest.reduce((a, s) => a + (s.total_amount || 0), 0)
+                        return (
+                          <tr style={{ background: 'var(--surface)', fontSize: 12 }}>
+                            <td colSpan={7} style={{ padding: '8px 14px 8px 30px', color: 'var(--text3)' }}>
+                              <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--text3)', borderRadius: 2, marginRight: 8, verticalAlign: 'middle' }}></span>
+                              Guest (anonymous) Sales ({guest.length} txns · included in retail)
+                            </td>
+                            <td className="td-right td-mono" style={{ color: 'var(--text2)', fontWeight: 700, padding: '8px 14px' }}>{gTotal.toLocaleString()}</td>
+                            <td></td>
+                          </tr>
+                        )
+                      })()}
                     </>
                   )}
                 </tfoot>

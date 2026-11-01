@@ -414,8 +414,8 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
         last_purchase_date: postingDate,
         last_purchase_amount: subtotal,
         balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
-        ...(noContact ? { no_contact: true } : {}),
-        ...ctxPayload,
+        ...(noContact && !isGuest ? { no_contact: true } : {}),
+        ...(isGuest ? {} : ctxPayload),
       }).eq('id', selectedCust.id).select('id').single()
       if (custData) customerId = custData.id
     } else {
