@@ -1035,6 +1035,13 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   {selectedCust ? (
                     <div style={{ background: 'var(--surface2)', border: '1px solid var(--green)', borderRadius: 'var(--r)', padding: 12, marginTop: 8 }}>
                       <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{(selectedCust as any)?.code === 'WALKIN' ? ' Guest Sale · No Details Saved' : ' Existing Customer Found'}</div>
+                      {(selectedCust as any)?.code === 'WALKIN' ? (
+                        <div style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.6 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Guest Customer</div>
+                          No details recorded. No Crown points, receipts or follow-ups for this sale.
+                        </div>
+                      ) : (
+                      <>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                         <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>NAME</div><div style={{ fontSize: 13, fontWeight: 600 }}>{selectedCust.name}</div></div>
                         <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>STAGE</div><div style={{ fontSize: 12 }}>{selectedCust.pregnancy_stage || '—'}</div></div>
@@ -1045,6 +1052,8 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                         <span style={{ fontSize: 11, color: 'var(--text3)' }}>Crown Points Balance</span>
                         <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--yellow)', fontSize: 13 }}>{(selectedCust.crown_points || 0).toLocaleString()} pts</span>
                       </div>
+                      </>
+                      )}
                     </div>
                   ) : (
                     <><input className="form-input" style={{ marginTop: 8 }} placeholder="Customer name (new customer)" value={newCustName} onChange={e => setNewCustName(e.target.value)} />
