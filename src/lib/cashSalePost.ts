@@ -165,6 +165,9 @@ export interface PostParams {
   lines: SaleLine[]
   dbProducts: DBProduct[]
   selectedCust: { id: string; crown_points: number; balance: number; whatsapp: string; pregnancy_stage: string; name: string } | null
+  // Cashier ticked "mteja hataki ujumbe": sets customers.no_contact=true.
+  // Undefined leaves the column untouched; it is never un-set from the till.
+  noContact?: boolean
   // Payment
   isPOD: boolean
   autoReceipt: boolean
@@ -244,7 +247,7 @@ export interface PostResult {
 export async function postCashSale(params: PostParams): Promise<PostResult> {
   const {
     salespersonId,
-    newCustName, waInput, lines, dbProducts, selectedCust,
+    newCustName, waInput, lines, dbProducts, selectedCust, noContact,
     isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
     deliveryAccountId,
     locationCode, locations, invSettings, userName, userId, appliedBundle,
@@ -401,17 +404,33 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
       }
     }
 
-    const { data: custData } = await supabase.from('customers').upsert({
-      ...(customerCode ? { code: customerCode } : {}),
-      name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
-      segment: 'retail',
-      crown_points: (selectedCust?.crown_points || 0) + crownPoints,
-      last_purchase_date: postingDate,
-      last_purchase_amount: subtotal,
-      balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
-      ...ctxPayload,
-    }, { onConflict: 'whatsapp' }).select('id').single()
-    if (custData) customerId = custData.id
+    if (selectedCust && !cleaned) {
+      // Existing customer with no number (e.g. the anonymous WALKIN row).
+      // A null-whatsapp upsert would INSERT a duplicate (NULLs never conflict),
+      // so update by id instead.
+      const { data: custData } = await supabase.from('customers').update({
+        crown_points: (selectedCust?.crown_points || 0) + crownPoints,
+        last_purchase_date: postingDate,
+        last_purchase_amount: subtotal,
+        balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
+        ...(noContact ? { no_contact: true } : {}),
+        ...ctxPayload,
+      }).eq('id', selectedCust.id).select('id').single()
+      if (custData) customerId = custData.id
+    } else {
+      const { data: custData } = await supabase.from('customers').upsert({
+        ...(customerCode ? { code: customerCode } : {}),
+        name: newCustName.trim(), whatsapp: cleaned || null, customer_type: 'cash',
+        segment: 'retail',
+        crown_points: (selectedCust?.crown_points || 0) + crownPoints,
+        last_purchase_date: postingDate,
+        last_purchase_amount: subtotal,
+        balance: isPOD ? (selectedCust?.balance || 0) + total : (selectedCust?.balance || 0),
+        ...(noContact ? { no_contact: true } : {}),
+        ...ctxPayload,
+      }, { onConflict: 'whatsapp' }).select('id').single()
+      if (custData) customerId = custData.id
+    }
 
     // Get accounts
     const neededCodes = ['4010', '5010', '1110', '1050', '2085', '4040', '5081']
@@ -831,6 +850,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
 // ─── UPDATE (reverse + repost) ─────────────────────────────────────────────
 
 export interface UpdateParams {
+  noContact?: boolean // accepted for arg parity with PostParams; edit flow ignores it
   editVoucherData: any
   newCustName: string
   waInput: string

@@ -69,6 +69,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [newCustName, setNewCustName] = useState('')
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
+  const [noContactChk, setNoContactChk] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
 
@@ -578,7 +579,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
   const resetForm = () => {
-    setWaInput(''); setNewCustName(''); setSelectedCust(null)
+    setWaInput(''); setNewCustName(''); setSelectedCust(null); setNoContactChk(false)
     setLines([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])
     setSelectedMethod('cash'); setIsSplit(false); setSplitLines([])
     setTendered(''); setPaymentRef(''); setIsPOD(false)
@@ -596,6 +597,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     setPosting(true)
     const result = await updateCashSale({
       editVoucherData, newCustName, waInput, lines, dbProducts, selectedCust,
+      noContact: noContactChk || undefined,
       isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef,
       townDelivery, upcountryShipping, currentMethod,
       accountMap, deliveryAccountId, totalSplitPaid,
@@ -1045,7 +1047,21 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                       </div>
                     </div>
                   ) : (
-                    <input className="form-input" style={{ marginTop: 8 }} placeholder="Customer name (new customer)" value={newCustName} onChange={e => setNewCustName(e.target.value)} />
+                    <><input className="form-input" style={{ marginTop: 8 }} placeholder="Customer name (new customer)" value={newCustName} onChange={e => setNewCustName(e.target.value)} />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 11.5 }}
+                        onClick={async () => {
+                          const { data } = await supabase.from('customers').select('*').eq('code', 'WALKIN').maybeSingle()
+                          if (data) { setSelectedCust(data as any); setNewCustName(data.name); setWaInput(''); setShowDropdown(false); setCustResults([]); setExistingContext(null); setPendingContext({}); setNoContactChk(false) }
+                          else alert('WALKIN customer not found. Run migration 051.')
+                        }}>
+                        Mteja wa Kupita (bila taarifa)
+                      </button>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text3)', cursor: 'pointer', userSelect: 'none' }}>
+                        <input type="checkbox" checked={noContactChk} onChange={e => setNoContactChk(e.target.checked)} />
+                        Mteja hataki ujumbe wa WhatsApp
+                      </label>
+                    </div></>
                   )}
 
                   {/* Customer Context — optional pregnancy/baby/TTC capture.
