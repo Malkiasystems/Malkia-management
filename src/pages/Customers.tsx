@@ -24,6 +24,7 @@ interface Customer {
   address: string                  // physical / postal address
   tin_number: string | null        // Tanzanian TIN, raw entry, format NNN-NNN-NNN
   credit_limit: number; credit_days?: number | null; payment_terms: string
+  credit_hold?: boolean; credit_hold_reason?: string | null; credit_hold_at?: string | null
   balance: number; crown_points: number; is_active: boolean
   is_hidden?: boolean              // soft hide flag — excluded from pickers, kept in reports
   last_purchase_date: string; last_purchase_amount: number; notes: string
@@ -804,6 +805,28 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     const rows = ledgerWithBalance()
     const creditUsedPct = selected.credit_limit > 0 ? Math.min(100, Math.round((selected.balance / selected.credit_limit) * 100)) : 0
 
+    // Release a credit hold (super admin only). Records the balance and worst
+    // overdue days at release time so the gate (flavor 2b) only re-arms if the
+    // account materially worsens past these markers.
+    const releaseHold = async () => {
+      try {
+        const { data: csRows } = await supabase.rpc('credit_status', { p_customer: selected.id })
+        const cs = Array.isArray(csRows) ? csRows[0] : csRows
+        const { error } = await supabase.from('customers').update({
+          credit_hold: false,
+          credit_hold_reason: null,
+          credit_hold_released_balance: selected.balance || 0,
+          credit_hold_released_overdue_days: cs ? Number(cs.worst_overdue_days || 0) : 0,
+          credit_hold_released_at: new Date().toISOString(),
+        }).eq('id', selected.id)
+        if (error) { showToast('Could not release hold: ' + error.message, 'error'); return }
+        showToast('Credit hold released. This customer can be invoiced until their balance or overdue worsens.', 'success')
+        setSelected({ ...selected, credit_hold: false, credit_hold_reason: null })
+      } catch (e: any) {
+        showToast('Could not release hold: ' + (e?.message || 'unknown'), 'error')
+      }
+    }
+
     return (
       <div className="page">
         <div className="page-header">
@@ -866,6 +889,31 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
             )}
           </div>
         </div>
+
+        {/* Credit hold banner (migration 056). Shows when a customer is held;
+            a super admin releases it here, which is the only way to unblock
+            invoicing for this customer. */}
+        {selected.credit_hold && (
+          <div style={{ marginBottom:16, padding:'14px 18px', background:'rgba(239,68,68,.10)', border:'1px solid var(--red)', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
+            <div>
+              <div style={{ fontWeight:800, color:'var(--red)', fontSize:14, marginBottom:4 }}>⛔ Credit Hold — invoicing blocked</div>
+              <div style={{ color:'var(--text2)', fontSize:12.5 }}>
+                {selected.credit_hold_reason || 'This customer is on credit hold.'}
+                {selected.credit_hold_at && <span style={{ color:'var(--text3)' }}> · held {new Date(selected.credit_hold_at).toLocaleDateString()}</span>}
+              </div>
+              <div style={{ color:'var(--text3)', fontSize:11, marginTop:4 }}>
+                No one can post a sales invoice to this customer until a manager releases the hold.
+              </div>
+            </div>
+            {isSuper ? (
+              <button className="btn btn-sm" style={{ background:'var(--red)', color:'#fff', fontWeight:700, whiteSpace:'nowrap' }} onClick={releaseHold}>
+                Release hold
+              </button>
+            ) : (
+              <span style={{ fontSize:11, color:'var(--text3)', fontStyle:'italic', whiteSpace:'nowrap' }}>Manager approval required</span>
+            )}
+          </div>
+        )}
 
         {/* Customer summary */}
         <div style={{ background:'linear-gradient(135deg,rgba(10,10,10,1) 0%,rgba(25,25,25,1) 100%)',border:'1px solid rgba(255,255,255,.06)',borderRadius:14,padding:'18px 24px',marginBottom:20,display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:16 }}>

@@ -517,6 +517,58 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     if (lines.every(l => !l.productId)) { showToast('Add at least one product', 'error'); return }
     if (subtotal <= 0) { showToast('Invoice total must be greater than zero', 'error'); return }
 
+    // ─── CREDIT GATE (migration 056, option B / flavor 2b) ──────────────────
+    // Block posting when the customer is over limit or holds an overdue invoice.
+    // A super admin posts through freely. For everyone else: evaluate live
+    // status, respect a prior release unless the situation has materially
+    // worsened past the release markers, and if still blocked, set the hold on
+    // the customer and refuse. Only a super admin clears it from Customers.
+    // editVoucherId => view/reprint of an existing invoice, never re-gate.
+    if (!editVoucherId && !isSuperAdmin) {
+      try {
+        const { data: gateRow } = await supabase.from('system_settings').select('value').eq('key', 'credit_gate').single()
+        const g = gateRow ? (typeof gateRow.value === 'string' ? JSON.parse(gateRow.value) : gateRow.value) : { block_over_limit: true, block_overdue: true, overdue_days: 1, rearm_amount_margin: 0, rearm_days_margin: 0 }
+        const { data: csRows } = await supabase.rpc('credit_status', { p_customer: selectedCust.id })
+        const cs = Array.isArray(csRows) ? csRows[0] : csRows
+        if (cs) {
+          const overLimitNow = (g.block_over_limit !== false) && Number(cs.over_limit_amount || 0) > 0
+          const overdueNow = (g.block_overdue !== false) && Number(cs.worst_overdue_days || 0) >= Number(g.overdue_days ?? 1)
+          // This invoice would push them further over limit — count it too.
+          const projectedOver = (g.block_over_limit !== false) && Number(selectedCust.credit_limit || 0) > 0 &&
+            ((Number(selectedCust.balance || 0) + subtotal) - Number(selectedCust.credit_limit || 0)) > 0
+          let blocked = overLimitNow || overdueNow || projectedOver
+          // 2b: a prior release stands UNLESS things got materially worse.
+          if (blocked && (selectedCust as any).credit_hold_released_at) {
+            const relBal = Number((selectedCust as any).credit_hold_released_balance || 0)
+            const relDays = Number((selectedCust as any).credit_hold_released_overdue_days || 0)
+            const worseByAmount = (Number(selectedCust.balance || 0) + subtotal) > (relBal + Number(g.rearm_amount_margin || 0))
+            const worseByDays = Number(cs.worst_overdue_days || 0) > (relDays + Number(g.rearm_days_margin || 0))
+            if (!worseByAmount && !worseByDays) blocked = false   // release still covers them
+          }
+          if (blocked) {
+            const reasons: string[] = []
+            if (overLimitNow) reasons.push(`over credit limit by ${tzs(Number(cs.over_limit_amount))}`)
+            else if (projectedOver) reasons.push(`this invoice exceeds available credit`)
+            if (overdueNow) reasons.push(`invoice overdue ${cs.worst_overdue_days} day${cs.worst_overdue_days === 1 ? '' : 's'}`)
+            const reasonText = reasons.join(' · ')
+            // Set/refresh the hold on the customer so it surfaces on their page.
+            await supabase.from('customers').update({
+              credit_hold: true,
+              credit_hold_reason: reasonText,
+              credit_hold_at: new Date().toISOString(),
+            }).eq('id', selectedCust.id)
+            showToast(`Posting blocked — ${selectedCust.company || selectedCust.name} is on credit hold (${reasonText}). A manager must release it on the customer's page before invoicing.`, 'error')
+            return
+          }
+        }
+      } catch (e: any) {
+        // Fail safe: if the gate itself errors, do NOT silently let a risky
+        // invoice through — block and ask for a manager.
+        showToast(`Credit check could not complete (${e?.message || 'unknown'}). Ask a manager to post this invoice.`, 'error')
+        return
+      }
+    }
+
     // Ceiling check at post time too: updateLine clamps live typing, but a
     // restored draft can carry a price saved before this rule existed.
     const overCap = lines.filter(l => l.productId).find(l => {
