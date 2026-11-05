@@ -57,7 +57,7 @@ export function useInvoicePreview() {
       .from('vouchers')
       .select(`
         *,
-        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_period, payment_terms, customer_number),
+        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_days, payment_terms, customer_number),
         voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category))
       `)
       .eq('ref', ref)

@@ -27,7 +27,7 @@ interface DBCustomer {
   id: string; name: string; company: string | null
   contact_person: string | null; customer_number: string
   whatsapp: string | null; address: string | null
-  balance: number; credit_limit: number; credit_period: number
+  balance: number; credit_limit: number; credit_days: number
   payment_terms: string | null
 }
 
@@ -198,7 +198,7 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
   const loadCustomer = async () => {
     setLoading(true)
     const { data, error } = await supabase.from('customers')
-      .select('id, name, company, contact_person, customer_number, whatsapp, address, balance, credit_limit, credit_period, payment_terms')
+      .select('id, name, company, contact_person, customer_number, whatsapp, address, balance, credit_limit, credit_days, payment_terms')
       .eq('id', customerId)
       .single()
     if (error || !data) {
@@ -670,7 +670,7 @@ export default function CustomerStatement({ customerId, onNav }: Props) {
             {[
               { label: 'Current Balance', val: tzs(customer.balance || 0), color: (customer.balance || 0) > 0 ? 'var(--red)' : 'var(--green)' },
               { label: 'Credit Limit', val: customer.credit_limit > 0 ? tzs(customer.credit_limit) : 'Unlimited' },
-              { label: 'Payment Terms', val: customer.payment_terms || (customer.credit_period > 0 ? `${customer.credit_period} days` : 'COD') },
+              { label: 'Payment Terms', val: customer.payment_terms || (customer.credit_days > 0 ? ` days` : 'COD') },
               { label: 'Transactions', val: rows.length.toString() },
             ].map(s => (
               <div key={s.label} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 9px' }}>

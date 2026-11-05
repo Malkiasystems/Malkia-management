@@ -23,7 +23,7 @@ interface Customer {
   whatsapp: string; email: string; phone: string
   address: string                  // physical / postal address
   tin_number: string | null        // Tanzanian TIN, raw entry, format NNN-NNN-NNN
-  credit_limit: number; credit_period: number; payment_terms: string
+  credit_limit: number; credit_days?: number | null; payment_terms: string
   balance: number; crown_points: number; is_active: boolean
   is_hidden?: boolean              // soft hide flag — excluded from pickers, kept in reports
   last_purchase_date: string; last_purchase_amount: number; notes: string
@@ -65,7 +65,7 @@ const PAYMENT_TERMS = ['COD', 'NET7', 'NET14', 'NET30', 'NET60', 'NET90']
 const LIST_COLUMNS = [
   'id', 'customer_number', 'name', 'company', 'contact_person',
   'customer_type', 'segment', 'whatsapp', 'email', 'phone', 'address',
-  'tin_number', 'credit_limit', 'credit_period', 'payment_terms', 'assigned_salesperson_id',
+  'tin_number', 'credit_limit', 'payment_terms', 'assigned_salesperson_id',
   'balance', 'crown_points', 'is_active', 'is_hidden',
   'last_purchase_date', 'notes', 'stage_paused', 'life_stage',
 ].join(', ')
@@ -120,7 +120,7 @@ const EMPTY_FORM = {
   segment: 'Retail',
   whatsapp: '', email: '', phone: '', address: '',
   tin_number: '',
-  credit_limit: '0', credit_period: '0', payment_terms: 'COD', notes: '', assigned_salesperson_id: ''
+  credit_limit: '0', payment_terms: 'COD', notes: '', assigned_salesperson_id: ''
 }
 
 export default function Customers({ onNav, onViewStatement, onReceipt, initialTab, onTabChange, openLedgerId, onLedgerChange }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string) => void; initialTab?: 'cash'|'wholesale'; onTabChange?: (t: 'cash'|'wholesale') => void; openLedgerId?: string | null; onLedgerChange?: (id: string | null) => void }) {
@@ -471,7 +471,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       segment: c.segment, whatsapp: c.whatsapp || '', email: c.email || '',
       phone: (c as any).phone || '', address: (c as any).address || '',
       tin_number: (c as any).tin_number || '',
-      credit_limit: String(c.credit_limit || 0), credit_period: String(c.credit_period || 0),
+      credit_limit: String(c.credit_limit || 0),
       payment_terms: c.payment_terms || 'COD', notes: c.notes || '',
       assigned_salesperson_id: (c as any).assigned_salesperson_id || ''
     })
@@ -527,7 +527,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
         address: (form as any).address?.trim() || null,
         tin_number: (form as any).tin_number?.trim() || null,
         credit_limit: parseFloat(form.credit_limit) || 0,
-        credit_period: parseInt(form.credit_period) || 0,
+
         payment_terms: form.payment_terms, notes: form.notes.trim() || null,
         // Optional hard lock: sales to this customer must carry exactly this
         // salesperson (enforced by DB trigger). Empty = no lock.
@@ -872,7 +872,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
           {[
             { label:'Outstanding Balance', val: tzs(selected.balance || 0), color: (selected.balance||0) > 0 ? 'var(--red)' : 'var(--green)' },
             { label:'Credit Limit', val: selected.credit_limit > 0 ? tzs(selected.credit_limit) : 'Unlimited', color:'var(--text)' },
-            { label:'Credit Period', val: selected.credit_period > 0 ? `${selected.credit_period} days` : 'COD', color:'var(--text)' },
+            { label:'Credit Period', val: (() => { const d = parseInt(String(selected.payment_terms||'').replace(/D/g,'')) || 0; return d > 0 ? ` days` : 'COD'; })(), color:'var(--text)' },
             { label:'Crown Points', val: (selected.crown_points||0).toLocaleString(), color:'var(--yellow)' },
             { label:'Last Purchase', val: selected.last_purchase_date || '—', color:'var(--text3)' },
           ].map(item => (
@@ -1096,15 +1096,15 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                   <FG label="Credit Limit (TZS)">
                     <input type="number" className="form-input" style={{ fontFamily:'var(--mono)' }} value={form.credit_limit} onChange={e => setF('credit_limit', e.target.value)} placeholder="0 = unlimited" />
                   </FG>
-                  <FG label="Credit Period (days)">
-                    <input type="number" className="form-input" style={{ fontFamily:'var(--mono)' }} value={form.credit_period} onChange={e => setF('credit_period', e.target.value)} />
+                  <FG label="Payment Terms">
+                    <select className="form-input" value={form.payment_terms} onChange={e => setF('payment_terms', e.target.value)}>
+                      {PAYMENT_TERMS.map(t => <option key={t}>{t}</option>)}
+                    </select>
                   </FG>
                 </div>
-                <FG label="Payment Terms">
-                  <select className="form-input" value={form.payment_terms} onChange={e => setF('payment_terms', e.target.value)}>
-                    {PAYMENT_TERMS.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </FG>
+                <div style={{ fontSize:11, color:'var(--text3)', marginTop:-6 }}>
+                  Due date is set automatically from the payment terms{(() => { const d = parseInt(String(form.payment_terms||'').replace(/\D/g,'')) || 0; return d > 0 ? ` (${d} days)` : ' (due on delivery)'; })()}.
+                </div>
                 <FG label="Assigned Salesperson (optional)">
                   <select className="form-input" value={form.assigned_salesperson_id} onChange={e => setF('assigned_salesperson_id', e.target.value)}>
                     <option value="">— No lock: pick freely on each invoice —</option>

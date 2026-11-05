@@ -141,7 +141,7 @@ export interface CustomerRecord {
   address?: string | null
   tin_number?: string | null            // Tanzanian TIN, format NNN-NNN-NNN; nullable
   credit_limit: number
-  credit_period: number
+  credit_days?: number | null
   payment_terms?: string | null
   balance: number
   crown_points: number

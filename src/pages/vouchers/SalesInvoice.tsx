@@ -33,7 +33,7 @@ interface Props {
 interface DBCustomer {
   id: string; name: string; company: string; contact_person: string
   whatsapp: string; balance: number; credit_limit: number
-  credit_period: number; payment_terms: string; customer_number: string
+  payment_terms: string; customer_number: string
   credit_days?: number | null; credit_tier?: string | null
   tin_number?: string
   assigned_salesperson_id?: string | null
@@ -319,7 +319,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       .from('vouchers')
       .select(`
         *,
-        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_period, payment_terms, customer_number, tin_number),
+        customers (id, name, company, contact_person, whatsapp, address, balance, credit_limit, credit_days, payment_terms, customer_number, tin_number),
         voucher_lines (id, product_id, qty, unit_price, unit_cost, total, products (id, sku, name, category))
       `)
       .eq('id', voucherId)
@@ -437,9 +437,9 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     set('wa', c.whatsapp || '')
     if (c.payment_terms) set('paymentTerms', c.payment_terms)
     // Credit policy (24 Sep 2026): the tier's credit_days drives the due
-    // date; legacy credit_period is the fallback for anyone the policy
+    // date; derive from payment_terms as the fallback for anyone the policy
     // has not graded. Based on the invoice date, not today's clock.
-    const policyDays = c.credit_days || c.credit_period || 0
+    const policyDays = c.credit_days || parseInt(String(c.payment_terms||'').replace(/D/g,'')) || 0
     if (policyDays > 0) {
       const base = form.date ? new Date(form.date + 'T00:00:00') : new Date()
       const due = new Date(base); due.setDate(due.getDate() + policyDays)
@@ -933,7 +933,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
             Bill To
             {selectedCust?.credit_tier && (
               <span style={{ fontSize: 9.5, fontFamily: 'var(--mono)', padding: '2px 7px', borderRadius: 5, background: 'var(--accent-dim)', color: 'var(--accent)' }}>
-                Tier {selectedCust.credit_tier} · {selectedCust.credit_days || selectedCust.credit_period || '?'} days
+                Tier {selectedCust.credit_tier} · {selectedCust.credit_days ?? '?'} days
               </span>
             )}
           </div>
@@ -1118,7 +1118,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                   {[
                     { label: 'Outstanding AR', val: tzs(selectedCust.balance || 0), color: (selectedCust.balance||0) > 0 ? 'var(--red)' : 'var(--green)' },
                     { label: 'Credit Limit', val: selectedCust.credit_limit > 0 ? tzs(selectedCust.credit_limit) : 'Unlimited' },
-                    { label: 'Credit Period', val: selectedCust.credit_period > 0 ? `${selectedCust.credit_period} days` : 'COD' },
+                    { label: 'Credit Period', val: (selectedCust.credit_days||0) > 0 ? ` days` : 'COD' },
                     { label: 'Available', val: availableCredit !== null ? tzs(availableCredit) : 'Unlimited', color: 'var(--green)' },
                   ].map(item => (
                     <div key={item.label} style={{ padding: '4px 0' }}>

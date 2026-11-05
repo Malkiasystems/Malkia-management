@@ -25,7 +25,7 @@ interface Props {
 interface DBCustomer {
   id: string; name: string; company: string; contact_person: string
   whatsapp: string; balance: number; credit_limit: number
-  credit_period: number; payment_terms: string; customer_number: string
+  credit_days?: number | null; payment_terms: string; customer_number: string
   email?: string; address?: string
 }
 
@@ -221,7 +221,7 @@ export default function ProformaInvoice({ onNav, editVoucherId, onClearEdit }: P
           total_amount, status, notes, payment_terms, customer_id, posted_by,
           customers (
             id, name, company, contact_person, whatsapp, address, email, customer_number,
-            balance, credit_limit, credit_period, payment_terms
+            balance, credit_limit, credit_days, payment_terms
           ),
           voucher_lines (
             line_number, product_id, description, qty, unit_price, discount_pct,
