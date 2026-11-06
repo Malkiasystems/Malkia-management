@@ -27,7 +27,7 @@ export interface InvoiceSettings {
 const DEFAULT: InvoiceSettings = {
   company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
   address: 'Dar es Salaam, Tanzania', city: 'Dar es Salaam',
-  phone: '+255 700 000 000', email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz',
+  phone: '+255 745 555999', email: 'support@malkia.co.tz', website: 'www.malkia.co.tz',
   tin: '—', vrn: '—', primary_color: '#85c2be',
   logo_url: '', logo_width: 80, logo_x: 0, logo_y: 0,
   bank_name: 'NMB Bank', bank_account_name: 'Malkia Wellness Group Ltd',

@@ -47,7 +47,7 @@ export interface ReceiptVoucher {
 const DEFAULT: ReceiptSettings = {
   company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
   address: 'Igesa Road, Sinza · Dar es Salaam', phone: '+255 750 333 111',
-  email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
+  email: 'support@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
   tin: '—', vrn: '—',
   primary_color: '#85c2be', accent_color: '#f7a6ad',
   logo_url: '', logo_width: 60, logo_x: 0, logo_y: 0, show_logo: true,

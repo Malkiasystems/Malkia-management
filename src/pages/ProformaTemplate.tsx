@@ -74,8 +74,8 @@ export const DEFAULT_PROFORMA: ProformaSettings = {
   tagline: 'Your Partner in Motherhood',
   address: 'Dar es Salaam, Tanzania',
   city: 'Dar es Salaam',
-  phone: '+255 700 000 000',
-  email: 'hello@malkia.co.tz',
+  phone: '+255 745 555999',
+  email: 'support@malkia.co.tz',
   website: 'www.malkia.co.tz',
   tin: '—', vrn: '—',
 

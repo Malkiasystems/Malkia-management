@@ -1608,8 +1608,8 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
             <div id="malkia-receipt-modal">
               <MalkiaReceipt voucher={lastVoucher} settings={receiptSettings || {
                 company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
-                address: 'Dar es Salaam, Tanzania', phone: '+255 700 000 000',
-                email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
+                address: 'Dar es Salaam, Tanzania', phone: '+255 745 555999',
+                email: 'support@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
                 tin: '—', vrn: '—', primary_color: '#85c2be', accent_color: '#f7a6ad',
                 logo_url: '', logo_width: 60, logo_x: 0, logo_y: 0, show_logo: true,
                 label_receipt: 'Receipt', label_billed_to: 'Billed To',

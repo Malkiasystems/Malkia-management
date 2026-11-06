@@ -22,8 +22,8 @@ import { salespersonCodeFor } from './salespersonCode'
 export const FALLBACK_INVOICE_SETTINGS = {
   company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
   address: 'Dar es Salaam, Tanzania', city: 'Dar es Salaam',
-  phone: '+255 700 000 000', email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz',
-  tin: '—', vrn: '—', primary_color: '#85c2be',
+  phone: '+255 745 555999', email: 'support@malkia.co.tz', website: 'www.malkia.co.tz',
+  tin: '174-205-078', vrn: '—', primary_color: '#85c2be',
   bank_name: 'NMB Bank', bank_account_name: 'Malkia Wellness Group Ltd',
   bank_account_number: '22510074972', bank_branch: 'Dar es Salaam Branch',
   // Second account (Joe, 5 Oct): same name, same branch — rendered as a
@@ -45,7 +45,17 @@ export function useInvoicePreview() {
   // fallback above keeps the invoice renderable.
   useEffect(() => {
     supabase.from('system_settings').select('value').eq('key', 'invoice_template').single()
-      .then(({ data }) => { if (data?.value) { try { setSettings(JSON.parse(data.value)) } catch { /* keep fallback */ } } })
+      .then(({ data }) => {
+        if (!data?.value) return
+        // value is a JSONB column: supabase returns an object already. Only
+        // parse when it actually came back as a string. Parsing an object
+        // throws, which previously got swallowed and left the placeholder
+        // defaults (fake phone, blank TIN) on the printed invoice.
+        try {
+          const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value
+          if (parsed && typeof parsed === 'object') setSettings(parsed)
+        } catch { /* keep fallback */ }
+      })
   }, [])
 
   const close = useCallback(() => { setVoucher(null); setError('') }, [])

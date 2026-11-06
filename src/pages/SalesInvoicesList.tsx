@@ -560,7 +560,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
               <MalkiaInvoice voucher={previewVoucher} settings={invoiceSettings || {
                 company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
                 address: 'Dar es Salaam, Tanzania', city: 'Dar es Salaam',
-                phone: '+255 700 000 000', email: 'hello@malkia.co.tz', website: 'www.malkia.co.tz',
+                phone: '+255 745 555999', email: 'support@malkia.co.tz', website: 'www.malkia.co.tz',
                 tin: '—', vrn: '—', primary_color: '#85c2be',
                 bank_name: 'NMB Bank', bank_account_name: 'Malkia Wellness Group Ltd',
                 bank_account_number: '22510074972', bank_branch: 'Dar es Salaam Branch',
