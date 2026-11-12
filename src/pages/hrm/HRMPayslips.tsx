@@ -91,6 +91,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
   const [generating, setGenerating] = useState<string | null>(null)
   // YTD by employee id, computed once per period change.
   const [ytdByEmp, setYtdByEmp] = useState<Record<string, YTD>>({})
+  const [leaveByEmp, setLeaveByEmp] = useState<Record<string, any>>({})
   // Notes draft state — a tiny edit buffer keyed by line.id.
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({})
   const [savingNote, setSavingNote] = useState<string | null>(null)
@@ -159,12 +160,28 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
         acc[id].net += r.net_pay || 0
       })
       setYtdByEmp(acc)
+
+      // Leave balances for the leave strip (current fiscal year).
+      const fy = new Date(period + '-01').getFullYear()
+      const { data: lvRows } = await supabase
+        .from('hrm_leave_balances')
+        .select('employee_id, annual_entitlement, annual_taken, annual_pending, sick_entitlement, sick_taken')
+        .in('employee_id', empIds)
+        .eq('fiscal_year', fy)
+      const lv: Record<string, any> = {}
+      ;(lvRows || []).forEach((r: any) => { lv[r.employee_id] = r })
+      setLeaveByEmp(lv)
     }
     setLoading(false)
   }
 
   const fmt = (n: number) => (n || 0).toLocaleString()
-  const company = getActiveCompany()
+  // Payslips always carry the group trademark, never a legal entity name.
+  // Salaries are paid by Malkia Wellness Group Ltd and some staff are hired by
+  // Malkia Brands Ltd (refunded later); to spare employees that confusion the
+  // payslip shows only the "Malkia Maternity Group" trademark. Invoices and
+  // receipts are unaffected — they keep their legal entity name.
+  const company = { ...getActiveCompany(), name: 'Malkia Maternity Group' }
 
   // ─── Notes editing ────────────────────────────────────────────────
   const saveNote = async (lineId: string) => {
@@ -204,81 +221,60 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     ]
 
     // ── HEADER ───────────────────────────────────────────────────────
-    // A soft 32mm header with the logo on the left/center/right per template,
-    // company name + tagline beside it, and a subtle bottom rule. Background
-    // is a tinted version of the accent — feels human, not corporate.
-    const headerH = 36
-    doc.setFillColor(...accentSoft)
+    // Solid teal band with the white brand mark on the left and white text,
+    // matching the sales-invoice identity so documents read as one set.
+    const white: [number, number, number] = [255, 255, 255]
+    const accentLightText: [number, number, number] = [
+      Math.round(accent[0] + (255 - accent[0]) * 0.7),
+      Math.round(accent[1] + (255 - accent[1]) * 0.7),
+      Math.round(accent[2] + (255 - accent[2]) * 0.7),
+    ]
+    const headerH = 40
+    doc.setFillColor(...accent)
     doc.rect(0, 0, w, headerH, 'F')
-    // Hairline rule at bottom of header in deep accent
-    doc.setDrawColor(...accent); doc.setLineWidth(0.4)
-    doc.line(0, headerH, w, headerH)
 
-    // Logo — render it if we have one, else fall back to a small text mark
+    // White mark on the left, sized to the band. The logo stored in the
+    // payslip template is the white mark on transparent, so it reads on teal.
     let textStartX = 15
     if (logoData) {
       const logoW = template.logoWidthMm
       const logoH = (logoData.height / logoData.width) * logoW
-      // Center vertically inside header with logoPaddingMm honoured at top/bottom
       const logoY = Math.max(template.logoPaddingMm, (headerH - logoH) / 2)
-      let logoX: number
-      if (template.logoPosition === 'center') {
-        logoX = (w - logoW) / 2
-      } else if (template.logoPosition === 'right') {
-        logoX = w - logoW - 15
-      } else {
-        logoX = 15
-      }
       try {
-        doc.addImage(logoData.dataUrl, 'PNG', logoX, logoY, logoW, logoH)
-      } catch {
-        // bad data URL — silently fall back to text-only
-      }
-      // If logo is on the LEFT, push the text right of it
-      if (template.logoPosition === 'left') textStartX = 15 + logoW + 6
+        doc.addImage(logoData.dataUrl, 'PNG', 15, logoY, logoW, logoH)
+      } catch { /* bad data URL — text-only fallback */ }
+      textStartX = 15 + logoW + 8
     }
 
-    // Company name + tagline
-    // We position text differently depending on logo placement so nothing
-    // overlaps. With a center logo we put text below it; with left we put
-    // text to the right; with right we put text on the left.
-    if (template.logoPosition === 'center' && logoData) {
-      // Suppress big company name when a logo is centered — the logo IS
-      // the brand mark. Just print the tagline below.
-      doc.setTextColor(...accent)
-      doc.setFontSize(9)
-      doc.setFont('helvetica', 'bold')
-      const tagline = template.headerTagline || company.name
-      doc.text(tagline, w / 2, headerH - 4, { align: 'center' })
-    } else {
-      doc.setTextColor(...accent)
+    // Company name + tagline in white
+    {
+      doc.setTextColor(...white)
       doc.setFontSize(16)
       doc.setFont('helvetica', 'bold')
-      doc.text(company.name, textStartX, 16)
+      doc.text(company.name, textStartX, 18)
       if (template.headerTagline) {
         doc.setFontSize(8.5)
         doc.setFont('helvetica', 'normal')
-        doc.setTextColor(...secondary)
-        doc.text(template.headerTagline, textStartX, 22)
+        doc.setTextColor(...accentLightText)
+        doc.text(template.headerTagline, textStartX, 24)
       }
     }
 
-    // Right-side meta (PAYSLIP / period / ref). Skip when right-side logo
-    // is in the way.
-    if (template.logoPosition !== 'right') {
-      doc.setTextColor(...gray)
+    // Right-side meta (PAYSLIP / period / ref) in white on the teal band.
+    {
+      doc.setTextColor(...accentLightText)
       doc.setFontSize(8)
       doc.setFont('helvetica', 'normal')
-      doc.text('PAYSLIP', w - 15, 13, { align: 'right' })
+      doc.text('PAYSLIP', w - 15, 15, { align: 'right' })
       doc.setFont('helvetica', 'bold')
-      doc.setTextColor(...dark)
+      doc.setTextColor(...white)
       doc.setFontSize(11)
-      doc.text(periodLabel.toUpperCase(), w - 15, 19, { align: 'right' })
+      doc.text(periodLabel.toUpperCase(), w - 15, 21, { align: 'right' })
       doc.setFont('helvetica', 'normal')
-      doc.setTextColor(...gray)
+      doc.setTextColor(...accentLightText)
       doc.setFontSize(7.5)
-      doc.text(`Ref: PAY-${period.replace('-', '')}`, w - 15, 24, { align: 'right' })
-      doc.text(`Issued: ${new Date().toLocaleDateString('en-GB')}`, w - 15, 28, { align: 'right' })
+      doc.text(`Ref: PAY-${period.replace('-', '')}`, w - 15, 26, { align: 'right' })
+      doc.text(`Issued: ${new Date().toLocaleDateString('en-GB')}`, w - 15, 30, { align: 'right' })
     }
 
     // ── EMPLOYEE CARD ────────────────────────────────────────────────
@@ -396,37 +392,78 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     doc.setFontSize(7.5); doc.setFont('helvetica', 'normal')
     doc.text(`for ${periodLabel}`, 22, y + 16)
 
-    y += 28
+    y += 26
 
-    // ── YEAR-TO-DATE STRIP ──────────────────────────────────────────
-    // Soft-tinted strip showing FY-to-date totals. Conditional via template.
-    if (template.showYTD) {
-      const ytd = ytdByEmp[emp.id] || { gross: slip.gross, paye: slip.paye, nssf: slip.nssf_ee, net: slip.net_pay }
-      doc.setFillColor(...accentSoft)
-      doc.roundedRect(15, y, w - 30, 18, 3, 3, 'F')
-      doc.setTextColor(...accent); doc.setFontSize(8); doc.setFont('helvetica', 'bold')
-      doc.text('YEAR-TO-DATE', 22, y + 6)
-      const fyStart = fyStartFromPeriod(period).replace('-', '/')
-      doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
-      doc.text(`Since ${fyStart}`, 22, y + 11)
-      // Four columns: Gross / PAYE / NSSF / Net — equally distributed
-      const ytdCols: [string, number][] = [
-        ['Gross', ytd.gross],
-        ['PAYE', ytd.paye],
-        ['NSSF', ytd.nssf],
-        ['Net', ytd.net],
-      ]
-      const colStartX = 65
-      const colSpan = (w - 15 - colStartX) / 4
-      for (let i = 0; i < ytdCols.length; i++) {
-        const cx = colStartX + colSpan * i + colSpan / 2
-        const [label, val] = ytdCols[i]
-        doc.setTextColor(...gray); doc.setFontSize(7); doc.setFont('helvetica', 'normal')
-        doc.text(label, cx, y + 6, { align: 'center' })
-        doc.setTextColor(...accent); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
-        doc.text(val.toLocaleString(), cx, y + 13, { align: 'center' })
+    // ── TAKE-HOME BREAKDOWN BAR ─────────────────────────────────────
+    // Stacked proportion bar over total earnings (incl. bonus): what the
+    // employee keeps vs what was deducted, at a glance.
+    {
+      const barTotal = slip.gross + slip.allowances + (slip.bonus || 0)
+      if (barTotal > 0) {
+        const segs: [string, number, [number, number, number]][] = [
+          ['Net', slip.net_pay, accent],
+          ['PAYE', slip.paye, [220, 38, 38]],
+          ['NSSF', slip.nssf_ee, [245, 158, 11]],
+          ['Other', slip.deductions + slip.advance_deduction, [120, 120, 120]],
+        ].filter(s => (s[1] as number) > 0) as [string, number, [number, number, number]][]
+        const barX = 15, barW = w - 30, barH = 5
+        let sx = barX
+        for (const [, val, col] of segs) {
+          const sw = barW * (val / barTotal)
+          doc.setFillColor(...col)
+          doc.roundedRect(sx, y, Math.max(sw, 1), barH, 1, 1, 'F')
+          sx += sw
+        }
+        y += barH + 4
+        doc.setFontSize(6.5); doc.setFont('helvetica', 'normal')
+        let lx = barX
+        for (const [label, val, col] of segs) {
+          doc.setFillColor(...col); doc.circle(lx + 1, y - 0.8, 1, 'F')
+          doc.setTextColor(...gray)
+          const txt = `${label} ${Math.round((val / barTotal) * 100)}%`
+          doc.text(txt, lx + 3.5, y)
+          lx += doc.getTextWidth(txt) + 10
+        }
+        y += 6
       }
-      y += 24
+    }
+
+    // ── YTD + LEAVE: side-by-side strips ────────────────────────────
+    {
+      const stripW = (w - 30 - 6) / 2
+      const stripH = 22
+      // YTD (left)
+      if (template.showYTD) {
+        const ytd = ytdByEmp[emp.id] || { gross: slip.gross, paye: slip.paye, nssf: slip.nssf_ee, net: slip.net_pay }
+        doc.setFillColor(...accentSoft)
+        doc.roundedRect(15, y, stripW, stripH, 3, 3, 'F')
+        doc.setTextColor(...accent); doc.setFontSize(7.5); doc.setFont('helvetica', 'bold')
+        doc.text('YEAR-TO-DATE', 20, y + 5)
+        doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(6)
+        doc.text(`Since ${fyStartFromPeriod(period).replace('-', '/')}`, 20, y + 9)
+        doc.setFontSize(7); doc.setTextColor(...gray); doc.text('Gross', 20, y + 15)
+        doc.setTextColor(...accent); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(ytd.gross.toLocaleString(), 20, y + 20)
+        doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.text('Net', 20 + stripW / 2, y + 15)
+        doc.setTextColor(...accent); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(ytd.net.toLocaleString(), 20 + stripW / 2, y + 20)
+      }
+      // Leave (right) — only if we have a balance row
+      const lv = leaveByEmp[emp.id]
+      if (lv) {
+        const lvX = 15 + stripW + 6
+        const annualLeft = (lv.annual_entitlement || 0) - (lv.annual_taken || 0) - (lv.annual_pending || 0)
+        const sickLeft = (lv.sick_entitlement || 0) - (lv.sick_taken || 0)
+        doc.setFillColor(...veryLight)
+        doc.roundedRect(lvX, y, stripW, stripH, 3, 3, 'F')
+        doc.setTextColor(...secondary); doc.setFontSize(7.5); doc.setFont('helvetica', 'bold')
+        doc.text('LEAVE BALANCE', lvX + 5, y + 5)
+        doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(6)
+        doc.text(`FY ${new Date(period + '-01').getFullYear()}`, lvX + 5, y + 9)
+        doc.setFontSize(7); doc.setTextColor(...gray); doc.text('Annual', lvX + 5, y + 15)
+        doc.setTextColor(...dark); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(`${annualLeft} / ${lv.annual_entitlement || 0} days`, lvX + 5, y + 20)
+        doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.text('Sick', lvX + stripW / 2, y + 15)
+        doc.setTextColor(...dark); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(`${sickLeft} / ${lv.sick_entitlement || 0} days`, lvX + stripW / 2, y + 20)
+      }
+      if (template.showYTD || lv) y += stripH + 6
     }
 
     // ── EMPLOYER COSTS (info) ───────────────────────────────────────
@@ -496,7 +533,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     doc.text(`${company.name} · Generated by MalkiaOS · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`, w / 2, footerY + 14, { align: 'center' })
 
     return doc
-  }, [period, company, template, logoData, ytdByEmp])
+  }, [period, company, template, logoData, ytdByEmp, leaveByEmp])
 
   const downloadOne = async (slip: PayslipData) => {
     setGenerating(slip.id)
