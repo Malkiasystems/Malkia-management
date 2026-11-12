@@ -1,42 +1,50 @@
-import { useState, useEffect, useRef } from 'react'
-import { useSalespeople } from '../../lib/useSalespeople'
-import { supabase } from '../../lib/supabase'
+import { useState, useEffect, useRef, useMemo , Fragment} from 'react'
+import { supabase, getActiveCompanyId } from '../../lib/supabase'
+import VatBreakdown from '../../components/VatBreakdown'
+import { computeCartVat, taxSnapshotFromSettings } from '../../lib/vatEngine'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
+import { useScannerWedge, findByBarcode, attachBarcode } from '../../lib/barcodes'
+import EmptyState from '../../components/EmptyState'
 import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
-import { MalkiaReceipt } from '../ReceiptTemplate'
+// Bare module import ON PURPOSE: loading the template page registers
+// the classic renderer with the docTemplates dispatcher. Removing this
+// import silently breaks classic rendering for tenants on that template.
+import { resolveReceiptSettings } from '../ReceiptTemplate'
+import { ReceiptDoc } from '../../components/docTemplates'
 import type { ReceiptSettings } from '../ReceiptTemplate'
-import { sendWhatsApp as waApiSend, sendWhatsAppReceiptPdf } from '../../lib/wa'
-
-// Receipt hook (30 Oct): text receipt through wa-send, the one audited door.
-// Matches the Meta template draft so the free-form (in-window) version and
-// the approved-template version read identically to the mama.
-function buildReceiptText(v: any): string {
-  const first = (v.customers?.name || 'Mama').split(' ')[0]
-  const items = (v.voucher_lines || [])
-    .map((l: any) => `${l.products?.name || 'Bidhaa'} x${l.qty}`)
-    .join(', ')
-  const d = /^(\d{4})-(\d{2})-(\d{2})/.exec(v.posting_date || '')
-  const date = d ? `${d[3]}/${d[2]}/${d[1]}` : (v.posting_date || '')
-  return `Habari ${first} 🌸\n\nAsante kwa ununuzi wako Malkia Wellness.\n\n🧾 Risiti: ${v.ref}\n📅 Tarehe: ${date}\n💳 Malipo: ${v.payment_method}\n🛍️ Bidhaa: ${items}\n💰 Jumla: TZS ${Number(v.total_amount || 0).toLocaleString()}\n\nHifadhi ujumbe huu kama risiti yako. Swali lolote kuhusu oda yako, jibu hapa tu.\n\nAsante kwa kuwa sehemu ya familia ya Malkia 💕`
-}
+import { loadWAConfig, sendWhatsApp, formatReceiptMessage } from '../../lib/whatsapp'
+import { autoPrintVoucher } from '../../lib/documentPrint'
+import type { WAConfig } from '../../lib/whatsapp'
 import { useCategories } from '../../lib/useCategories'
 import { useAuth } from '../../lib/useAuth'
 import { useUserLocation } from '../../lib/useUserLocation'
+import { useSettings } from '../../lib/settingsLoader'
 import { useDataCache } from '../../App'
 import BundlePicker from '../../components/BundlePicker'
+import ProductPicker from '../../components/ProductPicker'
+import ProductThumb from '../../components/ProductThumb'
+import { snapQuarter } from '../../lib/fractionalQty'
+import ProductBrowseModal from '../../components/ProductBrowseModal'
 import CustomerContextSection from '../../components/CustomerContextSection'
 import type { CustomerContext } from '../../components/CustomerContextSection'
 import type { Bundle } from '../../lib/useBundles'
-import { PAYMENT_METHODS } from '../../lib/cashSaleTypes'
-import { useCostVisibility } from '../../lib/costVisibility'
-import type { DBProduct, DBCustomer, SaleLine, SplitLine, PaymentMethod } from '../../lib/cashSaleTypes'
+import { buildPaymentMethods } from '../../lib/cashSaleTypes'
+import type { DBProduct, DBCustomer, SaleLine, SplitLine, CashBankAccountRow } from '../../lib/cashSaleTypes'
 import type { Page } from '../../lib/types'
 import { postCashSale, updateCashSale } from '../../lib/cashSalePost'
+import { consumeTabPrefill } from '../../lib/tabPrefill'
+import StockOverrideDialog from '../../components/StockOverrideDialog'
+import { GuideTip, GuideToggle } from '../../components/GuideMode'
+import FirstRunSpotlight from '../../components/FirstRunSpotlight'
+import { loadBranchesAndLocations, groupLocsByBranch, branchNameOf } from '../../lib/branchLocations'
+import type { BranchLite, BranchedLocation } from '../../lib/branchLocations'
+import { resolveNegativeStockPolicy, NEGATIVE_STOCK_PERMISSION } from '../../lib/stockPolicy'
+import { isOnline } from '../../lib/postingError'
+import { useCompanyFeatures } from '../../lib/useCompanyFeatures'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import DraftBanner from '../../components/DraftBanner'
-import { printHtmlDocument } from '../../lib/printDocument'
 
 interface Props {
   editVoucherId?: string | null
@@ -46,14 +54,15 @@ interface Props {
 
 
 export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
-  const vis = useCostVisibility()
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [autoRef, setAutoRef] = useState('CS-10-????')
   const [posting, setPosting] = useState(false)
-  // Salesperson (required to post; may differ from the logged-in cashier)
-  const { salespeople, label: spLabel } = useSalespeople()
-  const [salespersonId, setSalespersonId] = useState('')
+  const [postProg, setPostProg] = useState<{ pct: number; label: string } | null>(null)
+  // ── Negative stock policy (stockPolicy.ts) ─────────────────────────────
+  const [stockGuard, setStockGuard] = useState<null | { mode: 'override' | 'blocked'; shortages: string[] }>(null)
+  // Ref, not state: the dialog confirm re-enters post() in the same tick.
+  const stockOverrideRef = useRef<{ reason: string; by: string } | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [autoReceipt] = useState(true)
   
@@ -61,15 +70,24 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [isEditMode, setIsEditMode] = useState(false)
   const [editVoucherData, setEditVoucherData] = useState<any>(null)
   const [appliedBundle, setAppliedBundle] = useState<Bundle | null>(null)
-  const { user } = useAuth()
+  const { user, can, isSuperAdmin } = useAuth()
+  const canEditCustomers = isSuperAdmin() || can('customers.edit')
   const userLoc = useUserLocation()
+  // Per-tenant feature flags. Drives:
+  //   features.industry === 'maternal_wellness'  → show TTC/Pregnant/Postpartum
+  //                                                stage picker and referral
+  //                                                code field.
+  //   features.pos.requireCustomerPhone           → whether phone is required.
+  // Default is 'generic' + phone optional, so new tenants get a clean till.
+  const { features } = useCompanyFeatures()
+  const showMaternalUI = features.industry === 'maternal_wellness'
+  const phoneRequired = features.pos.requireCustomerPhone
 
   // Customer
   const [waInput, setWaInput] = useState('')
   const [newCustName, setNewCustName] = useState('')
   const [custResults, setCustResults] = useState<DBCustomer[]>([])
   const [selectedCust, setSelectedCust] = useState<DBCustomer | null>(null)
-  const [noContactChk, setNoContactChk] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
 
@@ -85,7 +103,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   } | null>(null)
   const [pendingContext, setPendingContext] = useState<CustomerContext>({})
 
-  // Referral code (Malkia Ambassador). Cashier types the code from the new
+  // Referral code (Ambassador). Cashier types the code from the new
   // mama's friend; we call apply_referral_code to validate and preview the
   // benefit. State flow:
   //   referralCodeInput  = what the cashier has typed
@@ -109,8 +127,22 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
   // Products
   const [dbProducts, setDbProducts] = useState<DBProduct[]>([])
+  const [productsChecked, setProductsChecked] = useState(false)
   const [filterCat, setFilterCat] = useState('all')
+  // Cash Sale uses a native <select> for products, and <option> cannot hold an
+  // image. Rather than replace it (and lose the OS-native picker on phones,
+  // free keyboard handling, and accessibility), a Browse button opens a
+  // picture grid beside it. If that modal breaks, sale entry still works.
+  const activeCompanyId = getActiveCompanyId()
+  const [browseLine, setBrowseLine] = useState<number | null>(null)
+
   const [lines, setLines] = useState<SaleLine[]>([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])
+  // Tables & Tabs settlement: when the till was opened from a tab, this holds
+  // its id + label so a successful post can close the tab and stamp the ref.
+  const [settlingTab, setSettlingTab] = useState<{ tabId: string; label: string; returnTo?: 'service' } | null>(null)
+  // Proforma conversion linkage — mirror of settlingTab: the proforma is
+  // marked converted only after this sale posts, with the real ref.
+  const [convertingPf, setConvertingPf] = useState<{ pfId?: string; pfRef: string } | null>(null)
   const { groups, catsByGroup } = useCategories()
 
   // Delivery
@@ -121,62 +153,67 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
   // Payment
   const [isPOD, setIsPOD] = useState(false)
-  // Rider + destination on the delivery (28 Sep, upgraded same day):
-  // rider is PICKED from the registered list (shared with Dispatch and
-  // manageable there), with inline registration for a new one. The
-  // destination (town) or bus (upcountry) binds WHERE to the sale, so a
-  // reorder or exchange call starts from the voucher, not from memory.
-  const [riderId, setRiderId] = useState('')
-  const [riderName, setRiderName] = useState('')
-  const [riders, setRiders] = useState<{ id: string; name: string; phone: string | null }[]>([])
-  const [showNewRider, setShowNewRider] = useState(false)
-  const [newRiderName, setNewRiderName] = useState('')
-  const [newRiderPhone, setNewRiderPhone] = useState('')
-  const [riderSaving, setRiderSaving] = useState(false)
-  const [deliveryDestination, setDeliveryDestination] = useState('')
-  const [upcountryBus, setUpcountryBus] = useState('')
-  useEffect(() => {
-    supabase.from('riders').select('id, name, phone').eq('is_active', true).order('name')
-      .then(({ data }) => { if (data) setRiders(data) })
-  }, [])
-  const registerRider = async () => {
-    const n = newRiderName.trim(); if (!n) return
-    setRiderSaving(true)
-    try {
-      const dup = riders.find(r => r.name.toLowerCase() === n.toLowerCase())
-      if (dup) { setRiderId(dup.id); setRiderName(dup.name) }
-      else {
-        const { data: created, error } = await supabase.from('riders')
-          .insert({ name: n, phone: newRiderPhone.trim() || null, is_active: true })
-          .select('id, name, phone').single()
-        if (error || !created) throw new Error(error?.message || 'insert failed')
-        setRiders(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
-        setRiderId(created.id); setRiderName(created.name)
-      }
-      setShowNewRider(false); setNewRiderName(''); setNewRiderPhone('')
-    } catch (err: any) {
-      alert('Could not register rider: ' + (err?.message || err))
-    } finally { setRiderSaving(false) }
-  }
   const [selectedMethod, setSelectedMethod] = useState<string>('cash')
   const [isSplit, setIsSplit] = useState(false)
   const [splitLines, setSplitLines] = useState<SplitLine[]>([])
   const [tendered, setTendered] = useState('')
   const [paymentRef, setPaymentRef] = useState('')
   const [accountMap, setAccountMap] = useState<Record<string, string>>({})
+  // Extra detail per Cash & Bank account used by the payment tile: display
+  // name and account_number. When a preset code has a matching account row,
+  // the tile shows "Active · <account_number>" in small mono. Separate from
+  // accountMap so cashSalePost keeps its simple { code -> id } lookup.
+  const [accountInfo, setAccountInfo] = useState<Record<string, { name: string; account_number: string | null; show?: boolean }>>({})
+  // Raw active Cash & Bank rows for this tenant — feeds buildPaymentMethods
+  // so every extra account (an Equity Bank on 1035, a second till) gets its
+  // own payment tile without a code change.
+  const [acctRows, setAcctRows] = useState<CashBankAccountRow[]>([])
+  // The tile list: five stable presets + one synthetic acct_<code> tile per
+  // additional active Cash & Bank account (Petty Cash excluded). With no
+  // rows loaded yet this is exactly the presets, so nothing downstream can
+  // hit an undefined method during the initial async window.
+  const paymentMethods = useMemo(() => buildPaymentMethods(acctRows), [acctRows])
+  // Display name for a payment method: the tenant's real account name (from
+  // Banks) wins over the hardcoded preset label — same precedence fix as the
+  // Banks page, so a renamed till shows its new name here too.
+  const mLabel = (m: { accountCode: string; label: string }) => accountInfo[m.accountCode]?.name || m.label
+  // Tiles the cashier actually sees: accounts toggled off in Banks are hidden
+  // entirely; presets with no account yet ("Not set up") sink to the bottom.
+  const visibleMethods = paymentMethods
+    .filter(m => accountInfo[m.accountCode]?.show !== false)
+    .sort((a, b) => Number(!!accountMap[b.accountCode]) - Number(!!accountMap[a.accountCode]))
+  // Collapse (12 Nov, Joe): a sale screen should offer ways to TAKE money.
+  // Tiles with no account behind them are setup adverts, so they hide
+  // behind one quiet row until asked for — or until a tenant has no
+  // active method at all, when showing setup paths is the only honest UI.
+  const [showAllMethods, setShowAllMethods] = useState(false)
+  const readyMethods = visibleMethods.filter(m => !!accountMap[m.accountCode])
+  const unsetMethods = visibleMethods.filter(m => !accountMap[m.accountCode])
+  const methodsToShow = (showAllMethods || readyMethods.length === 0) ? visibleMethods : readyMethods
 
   // Dashboard
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0, avgSale: 0, crownPts: 0 })
   const [recentSales, setRecentSales] = useState<any[]>([])
   const [paymentSplit, setPaymentSplit] = useState<Record<string, number>>({})
   const [invSettings, setInvSettings] = useState<any>(null)
+  const { settings } = useSettings()
   const [showReceipt, setShowReceipt] = useState(false)
+  const [waConfig, setWaConfig] = useState<WAConfig | null>(null)
   const [locations, setLocations] = useState<{id:string;code:string;name:string}[]>([])
+  const [branchList, setBranchList] = useState<BranchLite[]>([])
   const [locationCode, setLocationCode] = useState('1001')
   const [sending, setSending] = useState(false)
   const [waSent, setWaSent] = useState(false)
   const [lastVoucher, setLastVoucher] = useState<any>(null)
   const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null)
+  // Settings → Sales & Inventory → "Show receipt after posting". Default on.
+  // Default OFF, same asymmetry as auto-print: a cash sale should end in a
+  // toast and an empty form, not a takeover. `=== true` below means absence
+  // of the setting keeps it off; the toggle in Sales settings turns it on
+  // for counters that want the WhatsApp/print bar after every sale. Any
+  // receipt is one tap away in Recent Sales either way (openReceiptFor).
+  const [showReceiptAfterPost, setShowReceiptAfterPost] = useState(false)
+  const [autoPrintCashSale, setAutoPrintCashSale] = useState(false)
   const [pageLoading, setPageLoading] = useState(true)
   const { getCache, setCache, isStale } = useDataCache()
 
@@ -196,6 +233,10 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     townDelivery: string
     upcountryShipping: string
     locationCode: string
+    /** Tables & Tabs linkage — survives failures and reloads so the tab is
+     *  closed by whichever attempt finally posts. */
+    settlingTab?: { tabId: string; label: string } | null
+    convertingPf?: { pfId?: string; pfRef: string } | null
   }
   const {
     availableDraft, draftAgeMs,
@@ -204,42 +245,90 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
   const resumeDraft = () => {
     if (!availableDraft) return
-    setWaInput(availableDraft.waInput)
-    setNewCustName(availableDraft.newCustName)
+    // Coerce any nullable string field back to '' when resuming. Drafts
+    // saved by earlier builds could have landed null into the store —
+    // e.g. `waInput` when picking a customer with no whatsapp on file —
+    // and restoring null would blow up any downstream `.replace` or
+    // `.trim` in the post pipeline. This is the pinch-point where every
+    // stale-draft null gets flattened.
+    setWaInput(availableDraft.waInput || '')
+    setNewCustName(availableDraft.newCustName || '')
     setSelectedCust(availableDraft.selectedCust)
     setLines(availableDraft.lines)
     setSelectedMethod(availableDraft.selectedMethod)
     setIsSplit(availableDraft.isSplit)
     setSplitLines(availableDraft.splitLines)
-    setTendered(availableDraft.tendered)
-    setPaymentRef(availableDraft.paymentRef)
+    setTendered(availableDraft.tendered || '')
+    setPaymentRef(availableDraft.paymentRef || '')
     setIsPOD(availableDraft.isPOD)
     setShowDelivery(availableDraft.showDelivery)
-    setTownDelivery(availableDraft.townDelivery)
-    setUpcountryShipping(availableDraft.upcountryShipping)
+    setTownDelivery(availableDraft.townDelivery || '')
+    setUpcountryShipping(availableDraft.upcountryShipping || '')
     setLocationCode(availableDraft.locationCode)
+    setSettlingTab(availableDraft.settlingTab || null)
+    setConvertingPf(availableDraft.convertingPf || null)
     acknowledgeResume()
     setShowModal(true)  // auto-open the modal so the user sees the restored form
   }
+
+  // Arriving from Tables & Tabs: load the tab's order into the till and open
+  // the modal — the cashier just picks the payment method. One-shot consume.
+  useEffect(() => {
+    const pre = consumeTabPrefill()
+    if (!pre) return
+    setSettlingTab({ tabId: pre.tabId, label: pre.label, returnTo: pre.returnTo })
+    setIsPOD(false)  // tabs settle now, always — POD is never an option here
+    setLines(pre.lines.map(l => ({
+      productId: l.productId, name: l.name, qty: l.qty, price: l.price,
+      discountPct: 0, amount: l.qty * l.price,
+    })))
+    setNewCustName(pre.customerName || pre.label)
+    setShowModal(true)
+  }, [])
+
+  // Arriving from a proforma (Convert → Cash Sale): one-shot consume.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('prefill_cash_sale')
+      if (!raw) return
+      localStorage.removeItem('prefill_cash_sale')
+      const pre = JSON.parse(raw) as {
+        customer?: string; wa?: string; pfId?: string; pfRef?: string
+        lines?: { productId?: string; desc?: string; qty: number; price: number; discount?: number; amount: number }[]
+      }
+      if (pre.pfRef) setConvertingPf({ pfId: pre.pfId, pfRef: pre.pfRef })
+      if (pre.lines?.length) {
+        setLines(pre.lines.map(l => ({
+          productId: l.productId || '', name: l.desc || '',
+          qty: l.qty || 1, price: l.price || 0,
+          discountPct: l.discount || 0,
+          amount: l.amount ?? ((l.qty || 1) * (l.price || 0)),
+        })))
+      }
+      if (pre.customer) setNewCustName(pre.customer)
+      if (pre.wa) setWaInput(pre.wa)
+      setShowModal(true)
+    } catch { /* malformed stash — fresh till is fine */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const loadInitialData = async () => {
       setPageLoading(true)
 
       // Use cached products/accounts/settings if fresh (< 60s old)
-      const cachedProducts = !isStale('cs_products') ? getCache('cs_products') : null
+      const cachedRaw = !isStale('cs_products') ? getCache('cs_products') : null
+      const cachedProducts = cachedRaw ? (cachedRaw as any[]).filter(p => !p.is_raw_material) : null
       const cachedAcctMap = !isStale('cs_acctmap') ? getCache('cs_acctmap') : null
-      const cachedLocations = !isStale('cs_locations') ? getCache('cs_locations') : null
+      const cachedLocations = !isStale('cs_locations_v2') ? getCache('cs_locations_v2') : null
 
       if (cachedProducts) setDbProducts(cachedProducts as DBProduct[])
-      if (cachedAcctMap) {
-        const map: Record<string, string> = {}
-        ;(cachedAcctMap as any[]).forEach(a => { map[a.code] = a.id })
-        setAccountMap(map)
-      }
+      if (cachedAcctMap) applyAccountRows(cachedAcctMap as any[])
       if (cachedLocations) {
-        const locs = cachedLocations as {id:string;code:string;name:string}[]
-        setLocations(locs)
+        const cached = cachedLocations as unknown as { branches: BranchLite[]; locations: BranchedLocation[] }
+        const locs = cached.locations
+        setBranchList(cached.branches)
+        setLocations(locs as any)
         // Prefer the user's assigned default location over the first one in
         // the list. Previously this hardcoded locs[0], which meant cashiers
         // logged in from a satellite branch were silently defaulted to the
@@ -256,10 +345,12 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
         loadDeliveryAccount(),
         cachedAcctMap ? Promise.resolve() : loadAccountMap(),
         loadReceiptSettings(),
-        cachedLocations ? Promise.resolve() : supabase.from('stock_locations').select('id,code,name').eq('is_active',true).order('code').then(({data})=>{
-          if(data) {
-            setLocations(data); setCache('cs_locations', data)
-            const preferred = userLoc.defaultLocationCode && data.find((l: any) => l.code === userLoc.defaultLocationCode)
+        loadWAConfig().then(setWaConfig),
+        cachedLocations ? Promise.resolve() : loadBranchesAndLocations('allow_cash_sale').then(({ branches, locations: data }) => {
+          setBranchList(branches)
+          if (data.length) {
+            setLocations(data as any); setCache('cs_locations_v2', { branches, locations: data } as any)
+            const preferred = userLoc.defaultLocationCode && data.find(l => l.code === userLoc.defaultLocationCode)
               ? userLoc.defaultLocationCode
               : data[0]?.code
             if (preferred) setLocationCode(preferred)
@@ -284,6 +375,20 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [editVoucherId])
 
+  // Snap the pre-selected location to one the user may actually post from.
+  // The initial preselect runs before useUserLocation resolves, and branch-
+  // scoped users (060) have no defaultLocationCode at all, so locs[0] can be
+  // an out-of-branch location that the picker disables. Once scope is known,
+  // move the selection to the first postable location instead of leaving a
+  // disabled tile selected. Never runs in edit mode: an existing voucher's
+  // location must not be silently rewritten.
+  useEffect(() => {
+    if (editVoucherId || userLoc.loading || userLoc.isUnrestricted || !locations.length) return
+    if (locationCode && userLoc.canPostFrom(locationCode)) return
+    const firstPostable = locations.find(l => userLoc.canPostFrom(l.code))
+    if (firstPostable) setLocationCode(firstPostable.code)
+  }, [editVoucherId, userLoc.loading, userLoc.isUnrestricted, locations, locationCode])
+
   // Auto-save draft. Debounced internally by the hook. Skip while loading
   // or in edit mode, and skip when form is truly empty (no customer, no
   // meaningful lines).
@@ -292,19 +397,20 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     if (pageLoading) return
     const hasAnything =
       !!selectedCust ||
-      waInput.trim().length > 0 ||
-      newCustName.trim().length > 0 ||
+      (waInput || '').trim().length > 0 ||
+      (newCustName || '').trim().length > 0 ||
       lines.some(l => l.productId || l.qty !== 1 || l.price > 0)
     if (!hasAnything) return
     saveDraft({
       waInput, newCustName, selectedCust, lines,
       selectedMethod, isSplit, splitLines, tendered, paymentRef, isPOD,
       showDelivery, townDelivery, upcountryShipping, locationCode,
+      settlingTab, convertingPf,
     })
   }, [
     waInput, newCustName, selectedCust, lines,
     selectedMethod, isSplit, splitLines, tendered, paymentRef, isPOD,
-    showDelivery, townDelivery, upcountryShipping, locationCode,
+    showDelivery, townDelivery, upcountryShipping, locationCode, settlingTab,
     editVoucherId, pageLoading, saveDraft,
   ])
 
@@ -352,21 +458,26 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       })
       if (editLines.length > 0) setLines(editLines)
       
-      // Set payment method
+      // Set payment method. First try an exact match against the live tile
+      // list (covers synthetic acct_<code> tiles and renamed presets, whose
+      // stored labels are the tenant's account names, not the preset words
+      // the fallback chain below looks for), then fall back to the historic
+      // keyword chain for old vouchers.
       const pm = voucher.payment_method || 'Cash'
-      // 'pos' is checked before 'crdb' on purpose: the POS tile's own label
-      // and old 'POS Card' drafts both resume on the POS tile (account 1032),
-      // not on the main CRDB tile.
-      const methodId = pm.toLowerCase().includes('pos') ? 'pos' :
+      const tileMatch = paymentMethods.find(m => mLabel(m) === pm || m.label === pm)
+      const methodId = tileMatch ? tileMatch.id :
                        pm.toLowerCase().includes('cash') ? 'cash' :
                        pm.toLowerCase().includes('m-pesa') ? 'mpesa' :
                        pm.toLowerCase().includes('mixx') ? 'mixx' :
                        pm.toLowerCase().includes('nmb') ? 'nmb' :
-                       pm.toLowerCase().includes('crdb') ? 'crdb' : 'cash'
+                       pm.toLowerCase().includes('crdb') ? 'crdb' :
+                       pm.toLowerCase().includes('pos') ? 'pos' : 'cash'
       setSelectedMethod(methodId)
       
-      // Set POD status
-      setIsPOD(voucher.status === 'draft')
+      // POD-ness comes from payment_status, not from status (119). A POD sale
+      // is posted like any other; 'draft' never meant draft here, it meant
+      // unpaid, and that conflation is what dropped POD out of the VAT return.
+      setIsPOD(voucher.payment_status === 'unpaid' || voucher.payment_status === 'part_paid')
       
       // Auto-open modal
       setShowModal(true)
@@ -378,26 +489,71 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   }
 
   const loadAccountMap = async () => {
-    const codes = PAYMENT_METHODS.map(m => m.accountCode)
-    const { data } = await supabase.from('accounts').select('id, code').in('code', [...new Set(codes)])
+    // Fetch by CATEGORY, not by the preset code list — same reasoning as
+    // the Banks page: any active Cash & Bank account on this tenant should
+    // be payable at the till, whatever code it landed on. nature and
+    // display_color feed the tile builder's classification.
+    const { data } = await supabase
+      .from('accounts')
+      .select('id, code, name, account_number, show_in_cash_sale, nature, display_color')
+      .eq('category', 'Cash & Bank')
+      .eq('is_active', true)
+      .order('code')
     if (data) {
-      const map: Record<string, string> = {}
-      data.forEach(a => { map[a.code] = a.id })
-      setAccountMap(map)
+      applyAccountRows(data)
       setCache('cs_acctmap', data)
     }
   }
 
+  // Single hydration path for account rows — used by both the live fetch
+  // and the 60s cache restore, so the cache path can never again restore
+  // ids-only and leave tile names/rows behind (the old bug: a fast page
+  // revisit showed preset labels instead of the tenant's account names).
+  const applyAccountRows = (rows: any[]) => {
+    const map: Record<string, string> = {}
+    const info: Record<string, { name: string; account_number: string | null; show?: boolean }> = {}
+    rows.forEach(a => {
+      map[a.code] = a.id
+      info[a.code] = { name: a.name, account_number: a.account_number, show: a.show_in_cash_sale !== false }
+    })
+    setAccountMap(map)
+    setAccountInfo(info)
+    setAcctRows(rows as CashBankAccountRow[])
+  }
+
   const loadProducts = async () => {
-    const { data } = await supabase.from('products').select('id, sku, name, category, cost_price, selling_price, qty_on_hand').eq('is_active', true).order('name')
-    if (data) { setDbProducts(data); setCache('cs_products', data) }
+    const { data } = await supabase.from('products').select('id, sku, name, category, cost_price, selling_price, retail_min_price, pricing_negotiable, retail_max_price, qty_on_hand, is_service, tax_code, vat_rate, price_includes_vat, image_updated_at, fractional_qty, is_raw_material, pour_of, pour_ratio').eq('is_active', true).order('name')
+    // Materials sweep: raw materials are made-with, never sold. They live in Production > Materials.
+    const sellable = (data || []).filter((p: any) => !p.is_raw_material)
+    if (data) { setDbProducts(sellable); setCache('cs_products', sellable) }
+    setProductsChecked(true)
   }
 
   const loadReceiptSettings = async () => {
-    const { data } = await supabase.from('system_settings').select('value').eq('key', 'receipt_template').single()
-    if (data?.value) {
-      try { setReceiptSettings(JSON.parse(data.value)) } catch {}
-    }
+    supabase.from('system_settings').select('value').eq('key', 'sales_features').maybeSingle()
+      .then(({ data: f }) => {
+        if (f?.value) {
+          try {
+            const cfg = JSON.parse(f.value)
+            setShowReceiptAfterPost(cfg.showReceipt === true)
+            // `=== true` so absence means OFF, unlike showReceipt above.
+            setAutoPrintCashSale(cfg.autoPrintCashSale === true)
+          } catch { /* keep defaults */ }
+        }
+      })
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'receipt_template').maybeSingle()
+    let saved: Partial<ReceiptSettings> | null = null
+    if (data?.value) { try { saved = JSON.parse(data.value) } catch { saved = null } }
+    const cid = getActiveCompanyId()
+    const { data: co } = cid
+      ? await supabase.from('companies').select('name, tagline, logo_url, phone, website, tin_number').eq('id', cid).maybeSingle()
+      : { data: null }
+    // Always resolves — a tenant with no saved template still gets a receipt
+    // headed with THEIR company name and logo, never "Your Company".
+    setReceiptSettings(resolveReceiptSettings(saved, co ? {
+      company_name: co.name, tagline: co.tagline, logo_url: co.logo_url,
+      phone: co.phone, website: co.website, tin: co.tin_number,
+    } : null))
   }
 
   const loadDeliveryAccount = async () => {
@@ -405,8 +561,28 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     if (data) setDeliveryAccountId(data.id)
   }
 
+  // 0 used to render as "0K" because the compact branch divided by 1000 and
+  // appended the suffix unconditionally. Zero is zero in every currency.
+  const fmtCompact = (n: number): string => {
+    if (!n) return '0'
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M'
+    if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
+    return String(Math.round(n))
+  }
+
   const loadTodayStats = async () => {
     const { data } = await supabase.from('vouchers').select('total_amount, payment_method').eq('type', 'cash_sale').eq('posting_date', today())
+
+    // Reset FIRST. This used to only write state when rows came back, so a day
+    // with no sales left yesterday's figures sitting on the tiles, and a
+    // deleted last-sale-of-the-day never cleared. Silence is a real answer and
+    // has to be rendered as zero, not as the last number we happened to see.
+    if (!data || data.length === 0) {
+      setTodayStats({ count: 0, total: 0, avgSale: 0, crownPts: 0 })
+      setPaymentSplit({})
+      return
+    }
+
     if (data && data.length > 0) {
       const total = data.reduce((s, v) => s + (v.total_amount || 0), 0)
       const split: Record<string, number> = {}
@@ -420,10 +596,24 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   }
 
   const loadRecentSales = async () => {
+    // Includes payment_split (JSONB) and voucher_lines so a row click can
+    // open the receipt with the full per-method breakdown, no extra fetch.
     const { data } = await supabase.from('vouchers')
-      .select('ref, description, total_amount, payment_method, posting_date, status, customers(name, whatsapp)')
+      .select(`
+        ref, description, total_amount, subtotal, payment_method, payment_split,
+        posting_date, status, payment_status, notes, posted_by,
+        customers(name, whatsapp),
+        voucher_lines(qty, unit_price, subtotal, total, products(name, sku, category))
+      `)
       .eq('type', 'cash_sale').order('created_at', { ascending: false }).limit(10)
     if (data) setRecentSales(data)
+  }
+
+  // Open the receipt for a sale already in recentSales. The row was fetched
+  // with everything the receipt template needs, so no extra round trip.
+  const openReceiptFor = (sale: any) => {
+    setLastVoucher(sale)
+    setShowReceipt(true)
   }
 
   const loadNextRef = async () => {
@@ -431,18 +621,35 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     setAutoRef(ref)
   }
 
-  const searchCustomer = async (val: string) => {
-    setWaInput(val)
-    const cleaned = val.replace(/[\s+\-()]/g, '')
+  const searchCustomer = async (val: string | null | undefined) => {
+    // Do NOT touch waInput here. This helper is called from both the name
+    // input and the phone input; if it wrote back to waInput, typing in the
+    // name field would silently mirror into the phone field. Each input now
+    // owns its own state. searchCustomer's only job is to hit the DB and
+    // populate the dropdown.
+    const safe = val || ''
+    const cleaned = safe.replace(/[\s+\-()]/g, '')
     if (cleaned.length < 3) { setCustResults([]); setShowDropdown(false); setSelectedCust(null); return }
-    const { data } = await supabase.from('customers').select('*').or(`whatsapp.ilike.%${cleaned}%,name.ilike.%${val}%`).limit(6)
+    // Cash Sale is walk-in / retail. Wholesale and debtor customers belong
+    // on Sales Invoice (credit sale) so they get an SI-* ref, land in the
+    // debtor ledger, and preserve their segment. Excluding them here means
+    // typing "hello ltd" here won't offer a wholesale row that would then
+    // strip its type on post. `is_active`/`is_hidden` mirror the SI picker
+    // so soft-hidden contacts stay out of both flows.
+    const { data } = await supabase.from('customers')
+      .select('*')
+      .not('customer_type', 'in', '(wholesale,debtor)')
+      .eq('is_active', true)
+      .eq('is_hidden', false)
+      .or(`whatsapp.ilike.%${cleaned}%,name.ilike.%${val}%`)
+      .limit(6)
     if (data && data.length > 0) { setCustResults(data); setShowDropdown(true) }
     else { setCustResults([]); setShowDropdown(false) }
     setSelectedCust(null)
   }
 
   const selectCustomer = async (c: DBCustomer) => {
-    setSelectedCust(c); setWaInput(c.whatsapp); setNewCustName(c.name)
+    setSelectedCust(c); setWaInput(c.whatsapp || ''); setNewCustName(c.name)
     setShowDropdown(false); setCustResults([])
     // Load context fields for the read-only summary panel
     const { data } = await supabase
@@ -514,16 +721,80 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
         nl[i].discountPct = 0
       }
     }
-    // Recompute amount = qty × price × (1 − discountPct / 100) on every relevant edit
+    // ── 142d: price and discount% are two views of ONE number ──────────
+    // Anchored to the product's LIST price (selling_price). Lower the price
+    // and the % box shows the discount given; type a % and the price drops
+    // to match. amount = qty × price, with the discount embedded in the
+    // price — never applied twice. A line whose product has no list price
+    // (free-form) keeps the old independent-multiplier behaviour.
     if (field === 'qty' || field === 'price' || field === 'discountPct' || field === 'productId') {
       const qty = nl[i].qty || 0
-      const price = nl[i].price || 0
-      const dp = Math.max(0, Math.min(100, nl[i].discountPct || 0))
-      nl[i].discountPct = dp
-      nl[i].amount = qty * price * (1 - dp / 100)
+      const list = Number(dbProducts.find(pp => pp.id === nl[i].productId)?.selling_price) || 0
+      if (list > 0) {
+        if (field === 'discountPct') {
+          const dp = Math.max(0, Math.min(100, nl[i].discountPct || 0))
+          nl[i].discountPct = dp
+          nl[i].price = Math.round(list * (1 - dp / 100))
+        } else {
+          const price = nl[i].price || 0
+          nl[i].discountPct = price < list ? Math.round(((list - price) / list) * 1000) / 10 : 0
+        }
+        nl[i].amount = qty * (nl[i].price || 0)
+      } else {
+        const price = nl[i].price || 0
+        const dp = Math.max(0, Math.min(100, nl[i].discountPct || 0))
+        nl[i].discountPct = dp
+        nl[i].amount = qty * price * (1 - dp / 100)
+      }
     }
     setLines(nl)
   }
+
+  // ── Barcode scanning (123) ───────────────────────────────────────────────
+  // A scan either increments the line already holding that product or fills
+  // the first empty line / appends a new one. qtyPerScan is the carton
+  // multiplier: the carton EAN adds 24 pieces in one squeeze of the trigger.
+  const [unknownCode, setUnknownCode] = useState<string | null>(null)
+  const [attachProductId, setAttachProductId] = useState('')
+  const [attachQty, setAttachQty] = useState(1)
+
+  const applyScan = (productId: string, qtyPerScan: number) => {
+    setLines(prev => {
+      const nl = [...prev]
+      const at = nl.findIndex(l => l.productId === productId)
+      if (at >= 0) {
+        const qty = (nl[at].qty || 0) + qtyPerScan
+        const dp = Math.max(0, Math.min(100, nl[at].discountPct || 0))
+        nl[at] = { ...nl[at], qty, amount: qty * (nl[at].price || 0) * (1 - dp / 100) }
+        return nl
+      }
+      const p = dbProducts.find(x => x.id === productId)
+      if (!p) return prev
+      const line = { productId, name: p.name, qty: qtyPerScan, price: p.selling_price, discountPct: 0, amount: qtyPerScan * p.selling_price }
+      const empty = nl.findIndex(l => !l.productId)
+      if (empty >= 0) nl[empty] = line; else nl.push(line)
+      return nl
+    })
+  }
+
+  useScannerWedge(async (code, { wasFocusedInput }) => {
+    const hit = await findByBarcode(code)
+    if (hit) {
+      // The burst also typed itself into whatever field was focused; erase
+      // it there so "scan" never doubles as accidental text entry.
+      if (wasFocusedInput && wasFocusedInput.value.includes(code)) {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+        setter?.call(wasFocusedInput, wasFocusedInput.value.replace(code, ''))
+        wasFocusedInput.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const p = dbProducts.find(x => x.id === hit.productId)
+      applyScan(hit.productId, hit.qtyPerScan)
+      showToast(`${p?.name || 'Item'} +${hit.qtyPerScan}`)
+    } else {
+      setUnknownCode(code)
+      setAttachProductId(''); setAttachQty(1)
+    }
+  }, !showModal)
 
   // Totals
   // grossSubtotal = sum of (qty × price) BEFORE per-line discounts.
@@ -532,9 +803,46 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   //                 so the cashier can see at a glance what discount they've
   //                 applied across the whole sale.
   const grossSubtotal = lines.reduce((s, l) => s + (l.qty * l.price), 0)
+  // VAT (076). The till used to post no VAT at all: the full gross went to
+  // 4010 and 2020 was never credited. Priced per line off each product's own
+  // tax_code so a cart can mix standard, zero-rated and exempt freely.
+  const taxSnap = taxSnapshotFromSettings(settings.tax)
+  const cart = computeCartVat(
+    lines.filter(l => l.productId).map(l => ({
+      amount: l.amount,
+      product: dbProducts.find(p => p.id === l.productId),
+      isService: !!dbProducts.find(p => p.id === l.productId)?.is_service,
+    })),
+    taxSnap
+  )
+
   const subtotal = lines.reduce((s, l) => s + l.amount, 0)
   const discountGiven = Math.max(0, grossSubtotal - subtotal)
-  const deliveryTotal = (parseFloat(townDelivery) || 0) + (parseFloat(upcountryShipping) || 0)
+  // Delivery only makes sense when something physical is leaving the shop.
+  // A cart of services alone has nothing to deliver, so the whole step is
+  // hidden. Crucially deliveryTotal is forced to 0 as well: a hidden field
+  // that still fed the total would be worse than showing it.
+  const hasGoods = lines.some(l =>
+    l.productId && !dbProducts.find(p => p.id === l.productId)?.is_service)
+  // Delivery/shipping fees are a feature a tenant opts into (Settings →
+  // Sales & Inventory). Existing tenants were grandfathered ON by data
+  // migration; new tenants start OFF. When off, the section never renders
+  // and the fee can never enter the total — even from a restored draft.
+  const deliveryFeatureOn = invSettings?.delivery_fees_enabled === true
+  const deliveryTotal = hasGoods && deliveryFeatureOn
+    ? (parseFloat(townDelivery) || 0) + (parseFloat(upcountryShipping) || 0)
+    : 0
+
+  // Remove any fee already typed if the cart stops containing goods, so a
+  // stale amount cannot ride along invisibly into the posted total.
+  useEffect(() => {
+    if (!hasGoods && (showDelivery || townDelivery || upcountryShipping)) {
+      setShowDelivery(false)
+      setTownDelivery('')
+      setUpcountryShipping('')
+    }
+  }, [hasGoods])
+
 
   // Referral discount (% or flat) reduces the cash collected. Free-item shape
   // doesn't reduce the total — the free item rides as a separate line at zero
@@ -566,7 +874,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const crownPoints = Math.round(total / 1000)
 
   // Payment amounts
-  const currentMethod = PAYMENT_METHODS.find(m => m.id === selectedMethod)!
+  const currentMethod = paymentMethods.find(m => m.id === selectedMethod) || paymentMethods[0]
   const totalSplitPaid = splitLines.reduce((s, l) => s + l.amount, 0)
   const tenderedNum = parseFloat(tendered) || 0
   const change = isSplit ? totalSplitPaid - total : tenderedNum - total
@@ -578,11 +886,73 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { setToast(msg); setToastType(type) }
 
+  // ── 142b: band-aware price editing at the till ─────────────────────────
+  // A product with Negotiable pricing ticked has declared that its price
+  // moves, so its price field is editable even when the global POS
+  // price-edit switch is off — but only inside the band. On blur the typed
+  // price is clamped: above the ceiling snaps down for everyone; below the
+  // floor snaps up unless the seller holds sales.sell_below_minimum, in
+  // which case it stays (the engine stamps the voucher at posting). The
+  // engine remains the hard gate; this is the polite fence before it.
+  const lineBand = (productId: string) => {
+    const prod = dbProducts.find(pp => pp.id === productId)
+    if (!prod || prod.is_service || prod.pricing_negotiable !== true) return null
+    const maxDisc = invSettings?.max_discount_pct === undefined ? 10 : Number(invSettings.max_discount_pct)
+    const list = Number(prod.selling_price) || 0
+    const min = Number(prod.retail_min_price) || 0
+    const floor = min > 0 ? min : (maxDisc > 0 && list > 0 ? list * (1 - maxDisc / 100) : 0)
+    const ceil = Number(prod.retail_max_price) || 0
+    return { floor, ceil, explicitMin: min > 0 }
+  }
+  const canSellBelowMinNow = () => isSuperAdmin() || can('sales.sell_below_minimum')
+  // Runs on blur of BOTH the price field and the DISC% box (142f): since the
+  // two are views of one number, clamping the price re-derives the percent
+  // and the box ends up showing the band's true edge. Example: list 1,000,
+  // minimum 900 — typing 11% implies 890, snaps to 900 and the box reads
+  // 10%, exactly the deepest discount the band allows.
+  const clampLineBand = (i: number) => {
+    const line = lines[i]
+    if (!line?.productId) return
+    const band = lineBand(line.productId)
+    const price = Number(line.price) || 0
+    if (band) {
+      if (band.ceil > 0 && price > band.ceil) {
+        updateLine(i, 'price', band.ceil)
+        showToast(`Maximum for this product is TZS ${Math.round(band.ceil).toLocaleString()} — price set to the maximum.`, 'error')
+        return
+      }
+      if (band.floor > 0 && price < band.floor) {
+        if (!canSellBelowMinNow()) {
+          updateLine(i, 'price', band.floor)
+          showToast(`Minimum for this product is TZS ${Math.round(band.floor).toLocaleString()} — price set to the minimum. Going lower needs the Sell Below Minimum Price permission.`, 'error')
+        } else {
+          showToast(`Below the minimum of TZS ${Math.round(band.floor).toLocaleString()} — allowed for you, and the sale will be stamped in the day book.`, 'error')
+        }
+      }
+      return
+    }
+    // Plain product with a list price: the DISC% box clamps live at the
+    // company cap, so an over-cap percent bounces in the box, not at post.
+    const prod = dbProducts.find(pp => pp.id === line.productId)
+    const list = Number(prod?.selling_price) || 0
+    if (list > 0) {
+      const maxDisc = invSettings?.max_discount_pct === undefined ? 10 : Number(invSettings.max_discount_pct)
+      const d = Number(line.discountPct) || 0
+      if (maxDisc >= 0 && d > maxDisc) {
+        updateLine(i, 'discountPct', maxDisc)
+        showToast(`Maximum discount is ${maxDisc}% (Settings → Stock Control) — set to ${maxDisc}%.`, 'error')
+      }
+    }
+  }
+  const clampLinePrice = clampLineBand
+
   const resetForm = () => {
-    setWaInput(''); setNewCustName(''); setSelectedCust(null); setNoContactChk(false)
+    setWaInput(''); setNewCustName(''); setSelectedCust(null)
     setLines([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])
     setSelectedMethod('cash'); setIsSplit(false); setSplitLines([])
     setTendered(''); setPaymentRef(''); setIsPOD(false)
+    setSettlingTab(null)
+    setConvertingPf(null)
     setTownDelivery(''); setUpcountryShipping(''); setShowDelivery(false)
     setIsEditMode(false); setEditVoucherData(null); setAppliedBundle(null)
     setReferralCodeInput(''); setReferralPreview(null); setReferralError(null)
@@ -594,13 +964,23 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   // Update existing voucher (edit mode)
   const updateVoucher = async () => {
     if (!editVoucherData) return
+    // Refuse to attempt a round trip when the browser knows it is offline.
+    // This produces an honest message instead of waiting for the fetch to
+    // eventually fail and get labelled as a mystery.
+    if (!isOnline()) {
+      showToast('You are offline. Reconnect and try again. Nothing was updated.', 'error')
+      return
+    }
     setPosting(true)
     const result = await updateCashSale({
+      canSellBelowMin: isSuperAdmin() || can('sales.sell_below_minimum'),
+      canEditCustomers,
       editVoucherData, newCustName, waInput, lines, dbProducts, selectedCust,
-      noContact: noContactChk || undefined,
       isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef,
       townDelivery, upcountryShipping, currentMethod,
-      accountMap, deliveryAccountId, totalSplitPaid,
+      methods: paymentMethods,
+      accountMap,
+      accountNames: Object.fromEntries(Object.entries(accountInfo).map(([code, i]) => [code, i.name])), deliveryAccountId, totalSplitPaid,
       userName: user?.full_name || 'Unknown',
       userId: user?.id,
       customerContext: pendingContext,
@@ -617,27 +997,80 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   }
 
   const addSplitLine = () => {
-    const nextMethod = PAYMENT_METHODS.find(m => m.id !== selectedMethod) || PAYMENT_METHODS[1]
-    setSplitLines([...splitLines, { methodId: nextMethod.id, accountId: accountMap[nextMethod.accountCode] || '', amount: 0, ref: '' }])
+    // A method is "available" only if:
+    //   * The tenant has activated its Cash & Bank account, AND
+    //   * It isn't already the primary tile, AND
+    //   * It isn't already used on another split line.
+    // This makes duplicate methods across the payment structurally
+    // impossible; a customer paying 5k + 10k Cash is just one Cash line
+    // for 15k.
+    const used = new Set<string>([selectedMethod, ...splitLines.map(l => l.methodId)])
+    const availableMethods = paymentMethods.filter(
+      m => accountMap[m.accountCode] && !used.has(m.id)
+    )
+    const nextMethod = availableMethods[0]
+    if (!nextMethod) {
+      // Two failure modes: no other methods are activated on this tenant,
+      // or every activated method is already spoken for on a split line.
+      const activated = paymentMethods.filter(m => accountMap[m.accountCode])
+      if (activated.length < 2) {
+        showToast('Activate at least two Cash & Bank accounts in Banks & Cash before splitting a payment.', 'error')
+      } else {
+        showToast('Every activated payment method is already in this sale. Remove a split line or activate another method to add more.', 'error')
+      }
+      return
+    }
+    setSplitLines([...splitLines, { methodId: nextMethod.id, accountId: accountMap[nextMethod.accountCode], amount: 0, ref: '' }])
     setIsSplit(true)
   }
 
   const updateSplitLine = (i: number, field: keyof SplitLine, val: string | number) => {
     const nl = [...splitLines]; nl[i] = { ...nl[i], [field]: val }
     if (field === 'methodId') {
-      const m = PAYMENT_METHODS.find(pm => pm.id === val)
+      const m = paymentMethods.find(pm => pm.id === val)
       if (m) nl[i].accountId = accountMap[m.accountCode] || ''
+    }
+    // Auto-balance: when the user types a POSITIVE amount into one split
+    // line and exactly one OTHER split line is still empty, fill that
+    // other line with the remainder so the cashier can see at a glance
+    // what the customer owes on the second method. The cashier can
+    // override by typing over it. Skipped entirely when val is 0 (or
+    // NaN, or negative) so backspacing/clearing an amount doesn't get
+    // interpreted as "typed 0 here" — that used to silently move the
+    // whole balance to the empty line, making it look like the live
+    // balance banner never changed when a figure was deleted.
+    const numVal = Number(val)
+    if (field === 'amount' && total > 0 && numVal > 0) {
+      const emptyOthers: number[] = []
+      for (let idx = 0; idx < nl.length; idx++) {
+        if (idx !== i && (!nl[idx].amount || nl[idx].amount === 0)) emptyOthers.push(idx)
+      }
+      if (emptyOthers.length === 1) {
+        const otherIdx = emptyOthers[0]
+        const otherSum = nl.reduce((s, sl, idx) => s + (idx !== otherIdx ? (sl.amount || 0) : 0), 0)
+        const remainder = total - otherSum
+        if (remainder > 0) {
+          nl[otherIdx] = { ...nl[otherIdx], amount: remainder }
+        }
+      }
     }
     setSplitLines(nl)
   }
 
   const post = async () => {
+    // Phone-required guard. Only enforced when the tenant has explicitly
+    // opted in via features.pos.requireCustomerPhone (Malkia-style). Default
+    // is off so walk-in cash customers with no number are welcome.
+    if (phoneRequired && !selectedCust && !waInput.trim()) {
+      showToast('Customer phone is required. Enter a number or turn off the requirement in Settings.', 'error')
+      return
+    }
     // Referral safety guard. If the cashier typed a code but it was rejected
     // (red error chip showing, no preview), don't silently swallow it. Make
     // them explicitly confirm they want to post without any referral
     // applied. This prevents the failure mode where the customer was
     // promised a discount that never made it onto the receipt.
-    if (referralCodeInput.trim() && !referralPreview && referralError) {
+    if (showMaternalUI && referralCodeInput.trim() && !referralPreview && referralError) {
       const ok = window.confirm(
         `Referral code "${referralCodeInput.trim()}" is not valid:\n\n${referralError}\n\nPost the sale WITHOUT applying any referral?`
       )
@@ -645,14 +1078,14 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     }
     // Don't allow posting while a referral validation is in flight — the
     // cashier might hit Post a split-second before the preview lands.
-    if (referralChecking) {
+    if (showMaternalUI && referralChecking) {
       showToast('Wait — still checking referral code', 'error')
       return
     }
     // Also guard the case where a code was typed but never validated
     // (no preview AND no error AND not currently checking). Could happen if
     // the cashier never blurred or pressed Enter on the code field.
-    if (referralCodeInput.trim() && !referralPreview && !referralError) {
+    if (showMaternalUI && referralCodeInput.trim() && !referralPreview && !referralError) {
       const ok = window.confirm(
         `Referral code "${referralCodeInput.trim()}" was entered but never confirmed.\n\nPost the sale WITHOUT applying any referral?`
       )
@@ -665,17 +1098,28 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     // it's easy to miss-tap or simply leave the default selected without
     // realising they're in a different branch. This makes "wrong location"
     // a deliberate two-step action instead of a silent slip.
-    // Hard stop for location-locked users: they may only sell from their own
-    // assigned location. This is enforcement, not a warning — a locked cashier
-    // cannot post from another branch even if the picker somehow let them try.
-    if (userLoc.isLocked && !userLoc.canPostFrom(locationCode)) {
-      const mine = locations.find(l => l.code === userLoc.defaultLocationCode)
+    // Hard stop for SCOPED users: location-locked cashiers may only sell from
+    // their assigned location, and branch-scoped users (060) only from
+    // locations inside their branch. Branch-scoped users are neither isLocked
+    // nor isUnrestricted, so gating on isLocked alone silently skipped them —
+    // a branch cashier could deduct stock from any other branch. Gate on
+    // "not unrestricted" instead and let canPostFrom() decide.
+    if (!userLoc.isUnrestricted && !userLoc.canPostFrom(locationCode)) {
       const chosen = locations.find(l => l.code === locationCode)
-      showToast(
-        `You are assigned to ${mine?.code || userLoc.defaultLocationCode} (${mine?.name || '?'}). ` +
-        `You cannot sell from ${chosen?.code || locationCode} (${chosen?.name || '?'}).`,
-        'error'
-      )
+      if (userLoc.isBranchScoped) {
+        showToast(
+          `You are scoped to branch ${userLoc.allowedBranch?.code || '?'} (${userLoc.allowedBranch?.name || '?'}). ` +
+          `${chosen?.code || locationCode} (${chosen?.name || '?'}) belongs to another branch, so you cannot sell from it.`,
+          'error'
+        )
+      } else {
+        const mine = locations.find(l => l.code === userLoc.defaultLocationCode)
+        showToast(
+          `You are assigned to ${mine?.code || userLoc.defaultLocationCode} (${mine?.name || '?'}). ` +
+          `You cannot sell from ${chosen?.code || locationCode} (${chosen?.name || '?'}).`,
+          'error'
+        )
+      }
       return
     }
 
@@ -694,16 +1138,87 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       if (!ok) return
     }
 
+    // Refuse to attempt a round trip when the browser knows it is offline.
+    // Prevents the "silent failure that looks like a network error" pattern
+    // by short-circuiting BEFORE we start reserving stock or calling Supabase.
+    if (!isOnline()) {
+      showToast('You are offline. Reconnect and try again. Nothing was posted.', 'error')
+      return
+    }
+
+    // Split payment integrity check. Every split line with an amount must
+    // resolve to a real Cash & Bank account, otherwise cashSalePost drops
+    // the debit leg and produces an unbalanced journal (the "debits 20000
+    // <> credits 25000" bug). Also verify the split amounts + primary
+    // portion sum to the sale total, and refuse duplicate methods across
+    // primary + splits (the UI dedupes; this is belt-and-braces in case a
+    // draft resume or edit resurrects an older shape).
+    if (isSplit && !isPOD) {
+      const seen = new Set<string>()
+      for (let i = 0; i < splitLines.length; i++) {
+        const sl = splitLines[i]
+        if (sl.amount > 0 && !sl.accountId) {
+          const m = paymentMethods.find(pm => pm.id === sl.methodId)
+          showToast(
+            `Split ${i + 1}: ${m?.label || sl.methodId} is not set up on this account. Activate it in Banks & Cash or remove the line before posting.`,
+            'error'
+          )
+          return
+        }
+        if (seen.has(sl.methodId)) {
+          const m = paymentMethods.find(pm => pm.id === sl.methodId)
+          showToast(
+            `${m?.label || sl.methodId} appears more than once. Combine the amounts into a single line.`,
+            'error'
+          )
+          return
+        }
+        seen.add(sl.methodId)
+      }
+      // Primary portion = total - sum(splits). If splits overshoot, primary
+      // would be negative — refuse. If exactly equal, primary is zero and
+      // cashSalePost correctly skips the primary debit.
+      const primaryPortion = total - totalSplitPaid
+      if (primaryPortion < 0) {
+        showToast(
+          `Split payments total ${totalSplitPaid.toLocaleString()} exceed sale total ${total.toLocaleString()} by ${(totalSplitPaid - total).toLocaleString()}. Adjust the amounts.`,
+          'error'
+        )
+        return
+      }
+      // If the primary tile also has a positive residual AND its method is
+      // already used on a split line, that's a duplicate too. Merge or
+      // rebalance so each method appears at most once.
+      if (primaryPortion > 0 && seen.has(selectedMethod)) {
+        const m = paymentMethods.find(pm => pm.id === selectedMethod)
+        showToast(
+          `${m?.label || selectedMethod} is both the primary method and a split line. Increase the split line to absorb the ${primaryPortion.toLocaleString()} residual, or change one of them.`,
+          'error'
+        )
+        return
+      }
+      if (primaryPortion > 0 && !accountMap[currentMethod.accountCode]) {
+        showToast(
+          `The primary payment method (${mLabel(currentMethod)}) is not set up but still holds ${primaryPortion.toLocaleString()}. Either activate it, allocate that amount to a split line, or switch primary to a method that is set up.`,
+          'error'
+        )
+        return
+      }
+    }
+
     setPosting(true)
-    const saleArgs = {
-      salespersonId: salespersonId || null,
+    setPostProg({ pct: 2, label: 'Starting…' })
+    const result = await postCashSale({
+      onProgress: (pct, label) => setPostProg({ pct, label }),
       newCustName, waInput, lines, dbProducts, selectedCust,
+      canSellBelowMin: isSuperAdmin() || can('sales.sell_below_minimum'),
       isPOD, autoReceipt, selectedMethod, isSplit, splitLines, paymentRef, accountMap,
+      methods: paymentMethods,
+      branchName: branchNameOf(locations.find((l: any) => l.code === locationCode) as any, branchList) || undefined,
+      accountNames: Object.fromEntries(Object.entries(accountInfo).map(([code, i]) => [code, i.name])),
       townDelivery, upcountryShipping, deliveryAccountId,
-      riderId: riderId || null, riderName: riderName.trim() || null,
-      deliveryDestination: deliveryDestination.trim() || null,
-      upcountryBus: upcountryBus.trim() || null,
       locationCode, locations, invSettings,
+      stockOverride: stockOverrideRef.current || undefined,
       userName: user?.full_name || 'Unknown',
       userId: user?.id,
       appliedBundle, subtotal, total, crownPoints, deliveryTotal, totalSplitPaid,
@@ -712,52 +1227,88 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       // a preview is currently active. cashSalePost re-validates at post time.
       referralCode:   referralPreview ? referralCodeInput.trim().toUpperCase() : null,
       referralBenefit: referralPreview,
-    }
-
-    let result = await postCashSale(saleArgs as any)
-
-    if (!result.success && (result as any).needsRefReview) {
-      // The guard warned. The cashier, looking at the slip and the bank
-      // SMS, decides — and the decision is stamped on the voucher (19 Oct).
-      const ok = window.confirm(
-        (result.error || 'Payment reference needs review.') +
-        '\n\nPost anyway? The override and this warning will be recorded on the voucher for audit.'
-      )
-      if (ok) result = await postCashSale({ ...saleArgs, refWarnAccepted: true } as any)
-    }
+    })
 
     if (!result.success) {
+      // Insufficient stock under the 'permission' policy: holders of the
+      // override permission get the typed-reason dialog instead of a
+      // dead-end toast. Everyone else (and 'block' policy) sees the error.
+      const negPolicy = resolveNegativeStockPolicy(invSettings)
+      if (result.shortage && negPolicy === 'permission' && can(NEGATIVE_STOCK_PERMISSION) && !stockOverrideRef.current) {
+        setStockGuard({ mode: 'override', shortages: result.shortageDetails || [result.error || 'Insufficient stock'] })
+        setPosting(false); setPostProg(null)
+        return
+      }
+      stockOverrideRef.current = null
       showToast(result.error || 'Something went wrong', 'error')
-      setPosting(false)
+      setPosting(false); setPostProg(null)
       return
     }
+    stockOverrideRef.current = null  // consumed — never leak into the next sale
 
-    showToast(`${result.ref} posted · ${result.isPOD ? 'POD — receipt pending' : `${currentMethod.label} · ${crownPoints} Crown pts`}`)
+    const deliveryReminder = deliveryTotal > 0
+      ? ` · TZS ${deliveryTotal.toLocaleString()} collected for delivery — remember to pay the rider/bus from Delivery & Shipping`
+      : ''
+    showToast(`${result.ref} posted · ${result.isPOD ? 'POD — receipt pending' : `${mLabel(currentMethod)}${showMaternalUI ? ` · ${crownPoints} Crown pts` : ''}`}${deliveryReminder}`)
     clearDraft()  // posted successfully — no draft to recover
+
+    // Settling a tab: mark it settled and stamp the voucher ref. Fire and
+    // forget — a failed stamp must never affect the posted sale; the tab
+    // would simply remain open for a manual re-settle or void.
+    if (settlingTab) {
+      void supabase.from('tabs').update({
+        status: 'settled', settled_at: new Date().toISOString(),
+        settled_voucher_ref: result.ref || null,
+      }).eq('id', settlingTab.tabId).then(() => {
+        // Service Mode devices refresh their floor the moment the tab settles.
+        import('../../lib/servicePost').then(m => m.pingFloor(getActiveCompanyId() || undefined)).catch(() => {})
+      })
+      // The floor screen asked to get the cashier back; the classic Tables &
+      // Tabs flow stays on the till exactly as before.
+      const back = settlingTab.returnTo
+      setSettlingTab(null)
+      if (back === 'service' && onNav) setTimeout(() => onNav('service'), 900)
+    }
+
+    // Proforma conversion: stamp the source with THIS sale's real ref, now
+    // that the sale exists. Fire-and-forget; a failed stamp leaves the
+    // proforma active for retry, never the reverse.
+    if (convertingPf) {
+      const match = convertingPf.pfId
+        ? supabase.from('vouchers').select('id, notes').eq('id', convertingPf.pfId).maybeSingle()
+        : supabase.from('vouchers').select('id, notes').eq('ref', convertingPf.pfRef).eq('type', 'proforma').maybeSingle()
+      void match.then(({ data }) => {
+        if (!data) return
+        void supabase.from('vouchers').update({
+          status: 'converted',
+          notes: `${data.notes || ''}\n[Converted to ${result.ref || ''} on ${new Date().toISOString().slice(0, 10)}]`.trim(),
+        }).eq('id', data.id)
+      })
+      setConvertingPf(null)
+    }
 
     if (!result.isPOD && result.receiptData) {
       setLastVoucher(result.receiptData)
       setShowModal(false)
-      setShowReceipt(true)
-      // Auto WhatsApp receipt: fire-and-forget, NEVER blocks posting.
-      // Branded PDF first (wa-receipt renders + ships it); if that fails for
-      // any reason, fall back to the plain text receipt so the mama is never
-      // left with nothing. Outside a 24h window both are rejected by Twilio
-      // until the Meta template is approved — logged as 'failed', by design.
-      const waPhone = result.receiptData.customers?.whatsapp
-      if (waPhone) {
-        const rd = result.receiptData
-        sendWhatsAppReceiptPdf(result.ref || rd.ref)
-          .then(() => setWaSent(true))
-          .catch(() => waApiSend({ phone: waPhone, purpose: 'receipt', name: rd.customers?.name, body: buildReceiptText(rd) })
-            .then(() => setWaSent(true))
-            .catch(err => console.warn('WA receipt not delivered:', err?.message || err)))
+      if (showReceiptAfterPost) {
+        setShowReceipt(true)
+      } else {
+        // No modal means nothing else will reset the form (Close on the
+        // receipt modal normally does it). Reset here or the posted sale's
+        // lines linger and the next customer inherits them.
+        resetForm()
       }
+      // Off by default: a counter should not wait on a PDF for every sale.
+      // Fire and forget — a failed print must never affect a posted sale.
+      // result.receiptData, not the `lastVoucher` state: setState is async and
+      // would still hold the previous sale at this point.
+      if (autoPrintCashSale) void autoPrintVoucher({ ...result.receiptData, type: 'cash_sale' })
     } else {
       setShowModal(false); resetForm()
     }
+    setPostProg({ pct: 100, label: 'Posted' })
     loadTodayStats(); loadRecentSales(); loadProducts()
-    setPosting(false)
+    setPosting(false); setPostProg(null)
   }
 
   // ── PAYMENT BUTTON COMPONENT ──────────────────
@@ -811,35 +1362,64 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
     )
   }
 
-  const PayBtn = ({ method }: { method: PaymentMethod }) => {
-    const isSelected = selectedMethod === method.id
-    return (
-      <div onClick={() => { setSelectedMethod(method.id); setIsSplit(false); setSplitLines([]) }}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: isSelected ? `${method.color}18` : 'var(--surface2)', border: `2px solid ${isSelected ? method.color : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', transition: 'all .15s' }}>
-        <div style={{ width: 38, height: 38, borderRadius: 8, background: method.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <PayIcon id={method.id} color={method.color} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: isSelected ? method.color : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{method.label}</div>
-          <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{method.sublabel}</div>
-        </div>
-        {isSelected && <div style={{ width: 8, height: 8, borderRadius: '50%', background: method.color, flexShrink: 0 }}></div>}
-      </div>
-    )
-  }
+  // NOTE: the payment method tile used to live inside a nested function
+  // component `PayBtn` here. That was a React footgun — because the
+  // function is redefined on every render of CashSale, React sees a new
+  // component TYPE for every render pass, and unmounts + remounts the
+  // whole tile subtree including the amount / ref inputs on every
+  // keystroke. The result was focus being lost after 1–2 digits, and the
+  // "typing feels broken" bug. The tile JSX is now inlined into the map
+  // where it's rendered (see the "Payment method grid" block below), so
+  // the DOM structure stays stable across renders and inputs keep focus.
+
+
+  // Page-width switch for the sale form (12 Nov): two columns with a sticky
+  // money rail on desktop, one stacked column on phones/narrow windows.
+  const [saleWide, setSaleWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 980px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 980px)')
+    const fn = () => setSaleWide(mq.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+
+  const railRef = useRef<HTMLDivElement | null>(null)
+  const [railH, setRailH] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (!saleWide || !showModal) { setRailH(undefined); return }
+    let raf = 0
+    const measure = () => {
+      raf = 0
+      const el = railRef.current
+      if (!el) return
+      const top = Math.max(12, el.getBoundingClientRect().top)
+      setRailH(Math.max(260, window.innerHeight - top - 12))
+    }
+    const onMove = () => { if (!raf) raf = requestAnimationFrame(measure) }
+    measure()
+    window.addEventListener('scroll', onMove, { passive: true })
+    window.addEventListener('resize', onMove)
+    return () => { window.removeEventListener('scroll', onMove); window.removeEventListener('resize', onMove); if (raf) cancelAnimationFrame(raf) }
+  }, [saleWide, showModal])
 
   // ── RENDER ────────────────────────────────────
   return (
     <div className="page">
+      {!showModal && <>
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(212,135,74,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}></div>
+          <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(var(--accent-rgb),.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}></div>
           <div>
             <div className="page-title">Cash Sale</div>
-            <div className="page-sub">Counter sales · WhatsApp ID required · Auto-posts journal + Crown points</div>
+            <div className="page-sub">
+              {showMaternalUI
+                ? 'Counter sales · WhatsApp receipt · Auto-posts journal + Crown points'
+                : 'Counter sales · Auto-posts journal · WhatsApp receipt when phone given'}
+            </div>
           </div>
         </div>
         <div className="page-actions">
+          <GuideToggle attract />
           <button className="btn btn-ghost btn-sm" onClick={loadRecentSales}>Refresh</button>
           <button className="btn btn-primary" onClick={openNewSale} style={{ padding: '10px 20px', fontSize: 14, fontWeight: 700 }}>+ New Cash Sale</button>
         </div>
@@ -892,45 +1472,81 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       <>
       <div className="grid g4" style={{ marginBottom: 20 }}>
         <div className="stat-card green"><div className="stat-label">Sales Today</div><div className="stat-value">{todayStats.count}</div><div className="stat-change up">↑ Transactions</div></div>
-        <div className="stat-card amber"><div className="stat-label">Revenue Today</div><div className="stat-value">{todayStats.total >= 1000000 ? (todayStats.total/1000000).toFixed(2)+'M' : (todayStats.total/1000).toFixed(0)+'K'}</div><div className="stat-change up">↑ TZS</div></div>
-        <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{todayStats.avgSale >= 1000 ? (todayStats.avgSale/1000).toFixed(0)+'K' : todayStats.avgSale || '—'}</div><div className="stat-change up">↑ TZS</div></div>
-        <div className="stat-card yellow"><div className="stat-label">Crown Pts Awarded</div><div className="stat-value">{todayStats.crownPts.toLocaleString()}</div><div className="stat-change up">↑ Today</div></div>
+        <div className="stat-card amber"><div className="stat-label">Revenue Today</div><div className="stat-value">{fmtCompact(todayStats.total)}</div><div className="stat-change up">↑ TZS</div></div>
+        <div className="stat-card blue"><div className="stat-label">Avg Sale</div><div className="stat-value">{fmtCompact(todayStats.avgSale)}</div><div className="stat-change up">↑ TZS</div></div>
+        {showMaternalUI && (
+          <div className="stat-card yellow"><div className="stat-label">Crown Pts Awarded</div><div className="stat-value">{todayStats.crownPts.toLocaleString()}</div><div className="stat-change up">↑ Today</div></div>
+        )}
       </div>
 
       <div className="grid g32" style={{ marginBottom: 20 }}>
         <div className="card">
           <div className="card-header" style={{ marginBottom: 14 }}>
             <div>
-              <div className="card-title">Today's Sales — {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-              <div className="card-sub">{todayStats.count} transactions · {tzs(todayStats.total)} total</div>
+              {/* Titled "Recent", not "Today's". loadRecentSales() has NO date
+                  filter: it is the last 10 cash sales ever, newest first. The
+                  heading used to say Today's Sales and the subtitle used
+                  todayStats.count, which IS date-filtered, so a screen could
+                  show three posted sales under a heading claiming they were
+                  today's while the count beside them read 0. Both numbers were
+                  right; the label was wrong. */}
+              <div className="card-title">Recent Sales</div>
+              <div className="card-sub">
+                Last {recentSales.length} · Today: {todayStats.count} {todayStats.count === 1 ? 'sale' : 'sales'}, {tzs(todayStats.total)}
+              </div>
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={() => onNav?.('sales-day-book')}>Full Register →</button>
+            <button className="btn btn-ghost btn-sm">Full Register →</button>
           </div>
           {recentSales.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>
-              <div style={{ fontSize: 32, marginBottom: 10 }}></div>
-              <div style={{ fontSize: 14 }}>No sales yet today</div>
-              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>Click + New Cash Sale to start</div>
-            </div>
+            <EmptyState
+              compact
+              title="No cash sales yet"
+              body="Posting a cash sale does three things at once: records the payment into the till you pick, moves stock out of the location, and writes the journal entries behind your P&L. Products must exist in Inventory first; a new walk-in customer can be created right inside the sale."
+              actionLabel="+ Start your first sale"
+              onAction={openNewSale}
+            />
           ) : (
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Customer</th><th>Payment</th><th className="td-right">Amount</th><th>Status</th></tr></thead>
                 <tbody>
                   {recentSales.map((s, i) => (
-                    <tr key={i}>
+                    <tr
+                      key={i}
+                      onClick={() => openReceiptFor(s)}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to view receipt"
+                    >
                       <td>
                         <div className="td-bold">{(s.customers as any)?.name || s.description}</div>
-                        <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{s.ref} · {(s.customers as any)?.whatsapp}</div>
+                        <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+                          {s.ref}
+                          {/* Shown because this list is not date-scoped. Without
+                              it there is no way to tell an older sale from one
+                              posted a minute ago. */}
+                          {s.posting_date && ` · ${new Date(s.posting_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}
+                          {(s.customers as any)?.whatsapp && ` · ${(s.customers as any).whatsapp}`}
+                        </div>
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span>{s.payment_method?.includes('M-Pesa') ? '' : s.payment_method?.includes('Cash') ? '' : s.payment_method?.includes('POS') ? '' : ''}</span>
-                          <span style={{ fontSize: 12 }}>{s.payment_method}</span>
+                          <span style={{ fontSize: 12 }}>
+                            {(() => {
+                              // If payment_split shows more than one method,
+                              // label the row as SPLIT regardless of the
+                              // stored payment_method string (which may be
+                              // stale on old rows from before the label fix).
+                              const split = s.payment_split as Record<string, number> | null | undefined
+                              const activeMethods = split ? Object.entries(split).filter(([, a]) => Number(a) > 0) : []
+                              if (activeMethods.length > 1) return `SPLIT (${activeMethods.length})`
+                              if (activeMethods.length === 1) return activeMethods[0][0]
+                              return s.payment_method
+                            })()}
+                          </span>
                         </div>
                       </td>
                       <td className="td-right td-mono td-green" style={{ fontWeight: 600 }}>{s.total_amount?.toLocaleString()}</td>
-                      <td><span className={`pill ${s.status === 'posted' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.status === 'draft' ? 'POD' : 'Posted '}</span></td>
+                      <td><span className={`pill ${s.payment_status === 'paid' ? 'pill-green' : 'pill-yellow'}`} style={{ fontSize: 10 }}>{s.payment_status === 'paid' ? 'Paid' : 'Unpaid'}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -940,19 +1556,25 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="card" style={{ textAlign: 'center', padding: 28, cursor: 'pointer', border: '2px dashed var(--accent)' }} onClick={openNewSale}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}></div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 18, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>New Cash Sale</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>WhatsApp · Products · Payment · Crown points</div>
-            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: 14, fontWeight: 700 }}>+ Start New Sale</button>
-          </div>
+          {/* The dashed "Start New Sale" card that used to sit here has been
+              removed. It was the SECOND call to action on this screen, doing
+              exactly what the "+ New Cash Sale" button in the header already
+              does, which forces the user to work out whether the two differ.
+              They did not. It also carried an empty 40px div where an icon
+              used to be, so it opened with a block of dead space.
+
+              The header button stays because it is the pattern every other
+              page in the app uses and it stays put when the page scrolls.
+              When there are no sales yet, the empty state below carries its
+              own action, so a first-time user still has an obvious way in
+              without there being two buttons on screen at once. */}
 
           {Object.keys(paymentSplit).length > 0 && (
             <div className="card card-sm">
               <div className="card-title" style={{ marginBottom: 12 }}>Payment Split — Today</div>
               {Object.entries(paymentSplit).map(([method, amount], i) => {
                 const pct = todayStats.total > 0 ? (amount / todayStats.total) * 100 : 0
-                const pm = PAYMENT_METHODS.find(m => m.label === method)
+                const pm = paymentMethods.find(m => m.label === method || mLabel(m) === method)
                 return (
                   <div key={i} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
@@ -971,121 +1593,137 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       </div>
       </>
       )}
+      </>}
 
-      {/* ── MODAL ──────────────────────────────── */}
+      {/* ── FULL-PAGE SALE FORM (was a 920px modal; converted 12 Nov on
+             Joe's BUILD after the approved mockup). The overlay capped the
+             form at 920px and caused the 22px product-name collapse; as a
+             page the form breathes and the right rail owns the money. ── */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 100, overflowY: 'auto', padding: '20px 0' }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 20, width: '94%', maxWidth: 920, margin: 'auto' }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+          <div>
 
             {/* Modal Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: saleWide ? 'minmax(0, 1.45fr) minmax(360px, 1fr)' : '1fr', gap: saleWide ? 24 : 0, alignItems: 'start' }}>
+              {/* LEFT — Customer, Products, Delivery */}
+              <div style={{ padding: saleWide ? '6px 0' : '6px 0 18px', display: 'flex', flexDirection: 'column', gap: 22, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0 16px', flexWrap: 'wrap', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button onClick={() => { setShowModal(false); if (isEditMode) resetForm() }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--surface)',
+                           border: '1px solid var(--border)', borderRadius: 10, cursor: 'pointer', color: 'var(--text2)',
+                           font: 'inherit', fontSize: 13, fontWeight: 700 }}>
+                  ← Sales
+                </button>
                 <span style={{ fontSize: 22 }}>{isEditMode ? '✏️' : ''}</span>
                 <div>
                   <div style={{ fontFamily: 'var(--display)', fontSize: 17, fontWeight: 800 }}>{isEditMode ? 'Edit Cash Sale' : 'New Cash Sale'}</div>
-                  <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{isEditMode ? 'Update voucher · Stock adjusted' : 'Posts journal · Crown points · WhatsApp receipt → customer'}</div>
+                  <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{isEditMode ? 'Update voucher · Stock adjusted' : (showMaternalUI ? 'Posts journal · Crown points · WhatsApp receipt → customer' : 'Posts journal · WhatsApp receipt if phone given')}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <GuideToggle attract />
                 <div style={{ background: isEditMode ? 'var(--yellow-dim)' : 'var(--surface2)', border: `1px solid ${isEditMode ? 'var(--yellow)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 12px' }}>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{isEditMode ? 'EDITING ' : 'SALE NO. '}</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: isEditMode ? 'var(--yellow)' : 'var(--accent)' }}>{autoRef}</span>
                   {!isEditMode && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginLeft: 6 }}>Auto · Read only</span>}
                 </div>
-                <button onClick={() => { setShowModal(false); if (isEditMode) resetForm() }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: 'var(--text3)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-              {/* LEFT — Customer, Products, Delivery */}
-              <div style={{ padding: 22, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 22 }}>
 
                 {/* STEP 1 — CUSTOMER */}
                 <div>
                   <div className="step-header" style={{ marginBottom: 12 }}><div className="step-num">1</div><div className="step-title">CUSTOMER IDENTITY</div></div>
-                  <div ref={searchRef} style={{ position: 'relative' }}>
-                    <div style={{ display: 'flex' }}>
-                      <div style={{ background: 'var(--surface3)', border: '1px solid var(--border)', borderRight: 'none', borderRadius: 'var(--r) 0 0 var(--r)', padding: '0 10px', display: 'flex', alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--accent)', whiteSpace: 'nowrap', flexShrink: 0 }}>+255</div>
-                      <input className="form-input" style={{ borderRadius: '0 var(--r) var(--r) 0', borderColor: selectedCust ? 'var(--green)' : 'var(--border)' }}
-                        placeholder="7XX XXX XXX — type to search existing customers"
-                        value={waInput} onChange={e => searchCustomer(e.target.value)}
-                        onFocus={() => custResults.length > 0 && setShowDropdown(true)} />
-                    </div>
+                  <GuideTip>Type a name to search existing customers — no match means Tarakimu creates the customer with this sale. Adding a phone number sends the receipt by WhatsApp; leave it blank for a quick walk-in.</GuideTip>
 
-                    {showDropdown && custResults.length > 0 && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: 'var(--r)', zIndex: 200, boxShadow: '0 8px 32px rgba(0,0,0,.5)', overflow: 'hidden' }}>
-                        {custResults.map((c, i) => (
-                          <div key={i} onClick={() => selectCustomer(c)} style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
-                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-                              <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{c.whatsapp} · {c.pregnancy_stage || '—'}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 11, color: 'var(--yellow)' }}>{(c.crown_points || 0).toLocaleString()} pts</div>
-                              <div style={{ fontSize: 10, color: 'var(--text3)' }}>{tzs(c.balance || 0)} LFV</div>
-                            </div>
+                  {/* Name FIRST. The search input matches customers by name
+                      OR phone (see searchCustomer), so typing here catches
+                      both use cases. When no phone is captured on a walk-in
+                      cash sale, name is the only anchor. */}
+                  <div ref={searchRef} style={{ position: 'relative' }}>
+                    {selectedCust ? (
+                      <div style={{ background: 'var(--surface2)', border: '1px solid var(--green)', borderRadius: 'var(--r)', padding: 12 }}>
+                        <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Existing Customer Found</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                          <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>NAME</div><div style={{ fontSize: 13, fontWeight: 600 }}>{selectedCust.name}</div></div>
+                          <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>PHONE</div><div style={{ fontSize: 12, fontFamily: 'var(--mono)' }}>{selectedCust.whatsapp || '—'}</div></div>
+                          <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>LAST PURCHASE</div><div style={{ fontSize: 11, fontFamily: 'var(--mono)' }}>{selectedCust.last_purchase_date || '—'}</div></div>
+                          <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>LIFETIME VALUE</div><div style={{ fontSize: 12, color: 'var(--accent)', fontFamily: 'var(--mono)', fontWeight: 700 }}>{tzs(selectedCust.balance || 0)}</div></div>
+                        </div>
+                        {showMaternalUI && (
+                          <div style={{ background: 'var(--surface)', borderRadius: 6, padding: '6px 10px', display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text3)' }}>Crown Points Balance</span>
+                            <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--yellow)', fontSize: 13 }}>{(selectedCust.crown_points || 0).toLocaleString()} pts</span>
                           </div>
-                        ))}
+                        )}
                       </div>
+                    ) : (
+                      <>
+                        <input
+                          className="form-input"
+                          placeholder="Customer name — type to search or create"
+                          value={newCustName}
+                          onChange={e => { setNewCustName(e.target.value); searchCustomer(e.target.value) }}
+                          onFocus={() => custResults.length > 0 && setShowDropdown(true)}
+                        />
+                        {showDropdown && custResults.length > 0 && (
+                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: 'var(--r)', zIndex: 200, boxShadow: '0 8px 32px rgba(0,0,0,.5)', overflow: 'hidden' }}>
+                            {custResults.map((c, i) => (
+                              <div key={i} onClick={() => selectCustomer(c)} style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{c.whatsapp || 'no phone'}{showMaternalUI && ` · ${c.pregnancy_stage || '—'}`}</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  {showMaternalUI && (
+                                    <div style={{ fontSize: 11, color: 'var(--yellow)' }}>{(c.crown_points || 0).toLocaleString()} pts</div>
+                                  )}
+                                  <div style={{ fontSize: 10, color: 'var(--text3)' }}>{tzs(c.balance || 0)} LFV</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 
-                  {selectedCust ? (
-                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--green)', borderRadius: 'var(--r)', padding: 12, marginTop: 8 }}>
-                      <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--green)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{(selectedCust as any)?.code === 'WALKIN' ? ' Guest Sale · No Details Saved' : ' Existing Customer Found'}</div>
-                      {(selectedCust as any)?.code === 'WALKIN' ? (
-                        <div style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.6 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Guest Customer</div>
-                          No details recorded. No Crown points, receipts or follow-ups for this sale.
-                        </div>
-                      ) : (
-                      <>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                        <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>NAME</div><div style={{ fontSize: 13, fontWeight: 600 }}>{selectedCust.name}</div></div>
-                        <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>STAGE</div><div style={{ fontSize: 12 }}>{selectedCust.pregnancy_stage || '—'}</div></div>
-                        <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>LAST PURCHASE</div><div style={{ fontSize: 11, fontFamily: 'var(--mono)' }}>{selectedCust.last_purchase_date || '—'}</div></div>
-                        <div><div style={{ fontSize: 9, color: 'var(--text3)' }}>LIFETIME VALUE</div><div style={{ fontSize: 12, color: 'var(--accent)', fontFamily: 'var(--mono)', fontWeight: 700 }}>{tzs(selectedCust.balance || 0)}</div></div>
-                      </div>
-                      <div style={{ background: 'var(--surface)', borderRadius: 6, padding: '6px 10px', display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>Crown Points Balance</span>
-                        <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--yellow)', fontSize: 13 }}>{(selectedCust.crown_points || 0).toLocaleString()} pts</span>
-                      </div>
-                      </>
-                      )}
-                    </div>
-                  ) : (
-                    <><input className="form-input" style={{ marginTop: 8 }} placeholder="Customer name (new customer)" value={newCustName} onChange={e => setNewCustName(e.target.value)} />
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
-                      <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 11.5 }}
-                        onClick={async () => {
-                          const { data } = await supabase.from('customers').select('*').eq('code', 'WALKIN').maybeSingle()
-                          if (data) { setSelectedCust(data as any); setNewCustName(data.name); setWaInput(''); setShowDropdown(false); setCustResults([]); setExistingContext(null); setPendingContext({}); setNoContactChk(false) }
-                          else alert('WALKIN customer not found. Run migration 051.')
-                        }}>
-                        Guest Customer (no details)
-                      </button>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text3)', cursor: 'pointer', userSelect: 'none' }}>
-                        <input type="checkbox" checked={noContactChk} onChange={e => setNoContactChk(e.target.checked)} />
-                        Mteja hataki ujumbe wa WhatsApp
+                  {/* Phone SECOND. Optional by default; a tenant can flip
+                      pos.requireCustomerPhone in their feature flags to
+                      force a number (Malkia-style, WhatsApp receipt flow). */}
+                  {!selectedCust && (
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>
+                        Phone {phoneRequired ? <span style={{ color: 'var(--red, #ef4444)' }}>*</span> : <span style={{ color: 'var(--text3)' }}>(optional)</span>}
                       </label>
-                    </div></>
+                      <div style={{ display: 'flex' }}>
+                        <div style={{ background: 'var(--surface3)', border: '1px solid var(--border)', borderRight: 'none', borderRadius: 'var(--r) 0 0 var(--r)', padding: '0 10px', display: 'flex', alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--accent)', whiteSpace: 'nowrap', flexShrink: 0 }}>+255</div>
+                        <input
+                          className="form-input"
+                          style={{ borderRadius: '0 var(--r) var(--r) 0' }}
+                          placeholder={phoneRequired ? '7XX XXX XXX' : '7XX XXX XXX (leave blank for walk-in)'}
+                          value={waInput}
+                          onChange={e => { setWaInput(e.target.value); searchCustomer(e.target.value) }}
+                        />
+                      </div>
+                    </div>
                   )}
 
-                  {/* Customer Context — optional pregnancy/baby/TTC capture.
-                      Skipping is fine; missing customers flow to the back-office queue. */}
-                  {(newCustName.trim() || selectedCust) && (selectedCust as any)?.code !== 'WALKIN' && (
+                  {/* Customer Context (TTC / Pregnant / Postpartum). Gated by
+                      the tenant's industry flavor. Generic tenants never see
+                      it; maternal tenants get the full picker. */}
+                  {showMaternalUI && (newCustName.trim() || selectedCust) && (
                     <CustomerContextSection
                       existing={existingContext}
                       onChange={setPendingContext}
                     />
                   )}
 
-                  {/* Referral code — optional. Cashier types the code from
-                      the new mama's friend; the system validates against
-                      apply_referral_code and shows a benefit preview. */}
-                  {(newCustName.trim() || selectedCust) && (selectedCust as any)?.code !== 'WALKIN' && (
+                  {/* Referral code. Same gate: maternal tenants only. */}
+                  {showMaternalUI && (newCustName.trim() || selectedCust) && (
                     <div style={{ marginTop: 10 }}>
                       <label style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>
                         Referral code (optional)
@@ -1213,16 +1851,30 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                         ) : null
                       })()}
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {locations.map(loc => {
+                    <GuideTip>Stock leaves the location picked here. Your assigned default is pre-selected — change it only when you are genuinely selling from another branch or store room.</GuideTip>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Scoped users (location lock or branch scope) see ONLY
+                        their own locations — tiles they can never press are
+                        noise for a cashier, not information. Unrestricted
+                        users still see every branch. While scope is loading,
+                        show all to avoid an empty flash; the snap effect and
+                        hard stop keep it safe either way. */}
+                    {groupLocsByBranch(((userLoc.loading || userLoc.isUnrestricted) ? locations : locations.filter(l => userLoc.canPostFrom(l.code))) as any, branchList).map(group => (
+                    <div key={group.label || 'all'}>
+                    {group.label && (
+                      <div style={{ fontFamily: 'var(--mono)', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 1.4, color: 'var(--text3)', marginBottom: 5 }}>{group.label}</div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {group.locs.map((loc: any) => {
                         const isActive = locationCode === loc.code
-                        // A location-locked user may only pick their own location.
+                        // A location-locked user may only pick their own location;
+                        // a branch-scoped user only locations inside their branch.
                         // Other tiles are shown but disabled (not clickable).
-                        const allowed = !userLoc.isLocked || userLoc.canPostFrom(loc.code)
+                        const allowed = userLoc.isUnrestricted || userLoc.canPostFrom(loc.code)
                         return (
                           <div key={loc.id}
                             onClick={() => { if (allowed) setLocationCode(loc.code) }}
-                            title={allowed ? '' : 'You are not assigned to this location'}
+                            title={allowed ? '' : userLoc.isBranchScoped ? 'This location is outside your branch' : 'You are not assigned to this location'}
                             style={{
                               flex: 1,
                               padding: '12px 14px',
@@ -1242,12 +1894,16 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                         )
                       })}
                     </div>
+                    </div>
+                    ))}
+                    </div>
                   </div>
                 )}
 
                 {/* STEP 3 (was 2) — PRODUCTS */}
                 <div>
                   <div className="step-header" style={{ marginBottom: 8 }}><div className="step-num">{locations.length > 1 ? '3' : '2'}</div><div className="step-title">PRODUCTS SOLD</div></div>
+                  <GuideTip>Pick each product and quantity — the price fills in from Inventory and you can adjust it or give a per-line discount. Products must exist in Inventory before they can be sold.</GuideTip>
                   {appliedBundle && (
                     <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,229,160,.3)', borderRadius: 8, padding: '6px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
                       <span style={{ color: 'var(--green)', fontWeight: 600 }}>Bundle applied: {appliedBundle.name} · Save {tzs(appliedBundle.individual_total - appliedBundle.bundle_price)}</span>
@@ -1269,13 +1925,78 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                         })
                       : dbProducts.filter(p => p.category === filterCat)
                     return (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 48px 90px 64px auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                      <select className="form-input" style={{ fontSize: 12 }} value={line.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
-                        <option value="">— Select product —</option>
-                        {visibleProducts.map(p => <option key={p.id} value={p.id}>{p.name} · {tzs(p.selling_price)} · Stk:{p.qty_on_hand}</option>)}
-                      </select>
-                      <input type="number" className="form-input" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700 }} min={1} value={line.qty} onChange={e => updateLine(i, 'qty', parseInt(e.target.value) || 1)} />
-                      <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'right' }} value={line.price} onChange={e => updateLine(i, 'price', parseFloat(e.target.value) || 0)} />
+                    <Fragment key={i}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '34px 1fr 76px 90px 64px auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        title="Browse products by photo"
+                        onClick={() => setBrowseLine(i)}
+                        style={{ padding: 0, border: 'none', background: 'none', cursor: 'pointer', lineHeight: 0 }}
+                      >
+                        {line.productId ? (
+                          <ProductThumb
+                            companyId={activeCompanyId}
+                            productId={line.productId}
+                            imageUpdatedAt={(dbProducts.find(p => p.id === line.productId) as any)?.image_updated_at}
+                            name={dbProducts.find(p => p.id === line.productId)?.name}
+                            sku={dbProducts.find(p => p.id === line.productId)?.sku}
+                            size={32}
+                            ring
+                          />
+                        ) : (
+                          // Empty line: a clear "browse by picture" button —
+                          // camera on a dashed accent tile instead of the old
+                          // mystery "?" fallback tile.
+                          <span style={{
+                            width: 32, height: 32, borderRadius: 6,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 15, lineHeight: 1,
+                            background: 'rgba(var(--accent-rgb), .10)',
+                            border: '1px dashed var(--accent)',
+                          }}>📷</span>
+                        )}
+                      </button>
+                      <ProductPicker
+                        value={line.productId}
+                        onChange={id => updateLine(i, 'productId', id)}
+                        placeholder="Select product/service"
+                        items={visibleProducts.map(p => ({
+                          id: p.id,
+                          label: p.name,
+                          meta: `${tzs(p.selling_price)} · ${p.is_service ? 'Service' : `Stk:${p.qty_on_hand}`}`,
+                          sub: `${p.sku} · ${tzs(p.selling_price)} · ${p.is_service ? 'Service' : `Stk:${p.qty_on_hand}`}`,
+                          search: p.sku || '',
+                          // Photo products get a thumb; the rest get clean text
+                          // rows — no grey placeholder tiles in the list.
+                          thumb: (p as any).image_updated_at
+                            ? <ProductThumb companyId={activeCompanyId} productId={p.id} imageUpdatedAt={(p as any).image_updated_at} name={p.name} sku={p.sku} size={30} />
+                            : undefined,
+                          thumbLarge: (p as any).image_updated_at
+                            ? <ProductThumb companyId={activeCompanyId} productId={p.id} imageUpdatedAt={(p as any).image_updated_at} name={p.name} sku={p.sku} rounded={10} fill />
+                            : undefined,
+                        }))}
+                      />
+                      {(() => {
+                      const fq = !!(dbProducts.find(p => p.id === line.productId) as any)?.fractional_qty
+                      return <input type="number" className="form-input" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700 }} min={fq ? 0.25 : 1} step={fq ? 0.25 : 1} value={line.qty} onChange={e => updateLine(i, 'qty', fq ? (parseFloat(e.target.value) || 0) : (parseInt(e.target.value) || 1))} onBlur={() => { if (fq) updateLine(i, 'qty', snapQuarter(line.qty)) }} />
+                    })()}
+                      {(() => {
+                        // 142b: negotiable products unlock their own price
+                        // field; everything else keeps the global switch.
+                        const negotiable = !!lineBand(line.productId)
+                        const editable = invSettings?.allow_price_edit_pos === true || negotiable
+                        return (
+                      <input type="number" className="form-input"
+                        style={{ fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'right', opacity: editable ? 1 : 0.65, cursor: editable ? 'text' : 'not-allowed' }}
+                        value={line.price}
+                        readOnly={!editable}
+                        title={editable
+                          ? (negotiable ? 'Negotiable product — the price moves between its minimum and maximum. Snaps back into the band when you leave the field.' : undefined)
+                          : 'Price editing at POS is off (Settings → Stock Control). Use the discount column instead.'}
+                        onChange={e => { if (editable) updateLine(i, 'price', parseFloat(e.target.value) || 0) }}
+                        onBlur={() => { if (negotiable) clampLinePrice(i) }} />
+                        )
+                      })()}
                       {/* Per-line discount % (0–100). Empty/zero = no discount. */}
                       <input
                         type="number"
@@ -1296,13 +2017,33 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                           const v = parseFloat(e.target.value)
                           updateLine(i, 'discountPct', isNaN(v) ? 0 : v)
                         }}
-                        title="Discount % for this line (0–100)"
+                        onBlur={() => clampLineBand(i)}
+                        title="Discount % for this line — mirrors the price against the list price, and snaps back into the allowed range when you leave the field"
                       />
                       {lines.length > 1 ? <button onClick={() => setLines(lines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button> : <div />}
                     </div>
+                    {/* Line total as its own math line (12 Nov, Joe, v2): the first
+                        attempt was a 92px grid column — measured live, it starved
+                        the product NAME to 22px in the modal's ~414px left column.
+                        Under the row, the total costs the name nothing and the
+                        arithmetic explains itself. */}
+                    {line.amount > 0 && (
+                      <div style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11.5,
+                                    color: 'var(--text2)', margin: '-2px 24px 7px 0' }}>
+                        {line.qty} × {Math.round(line.price).toLocaleString()}{line.discountPct > 0 ? ` − ${line.discountPct}%` : ''} = <b style={{ color: 'var(--text)', fontSize: 12.5 }}>{tzs(line.amount)}</b>
+                      </div>
+                    )}
+                    </Fragment>
                     )
                   })}
-                  <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>PRODUCT · QTY · PRICE · DISC% (0 = no discount)</div>
+                  <ProductBrowseModal
+                    open={browseLine !== null}
+                    products={dbProducts as any}
+                    companyId={activeCompanyId}
+                    onPick={id => { if (browseLine !== null) updateLine(browseLine, 'productId', id) }}
+                    onClose={() => setBrowseLine(null)}
+                  />
+                  <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>PHOTO · PRODUCT · QTY · PRICE · DISC% — line total shows under each line</div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => setLines([...lines, { productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])}>+ Add item</button>
                     <BundlePicker onApply={(bundleLines, bundle) => {
@@ -1315,7 +2056,10 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   </div>
                 </div>
 
-                {/* STEP 3 — DELIVERY (collapsible) */}
+                {/* STEP 3 — DELIVERY (collapsible). Hidden for a services-only
+                    cart: there is nothing to deliver, so the control would only
+                    invite a fee that should not exist. */}
+                {hasGoods && deliveryFeatureOn && !settlingTab && (
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setShowDelivery(!showDelivery)}>
                     <div className="step-num">3</div>
@@ -1324,10 +2068,19 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   </div>
                   {showDelivery && (
                     <div style={{ marginTop: 12 }}>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 8 }}>Posts to 2085 Delivery & Shipping Float — not product revenue</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>
+                        The customer pays delivery or shipping together with the goods — one payment at the counter. The goods money is your sale; the delivery part you are only holding, and you will later pay it out to the rider or the bus office. Tarakimu separates the two automatically so delivery money never counts as your revenue or profit.
+                      </div>
+                      <GuideTip>Charge the customer here instead of adding delivery as a product. They pay it in the same single payment as the goods, and it prints on the receipt — but Tarakimu books only the goods as your sale. The delivery amount waits in the Delivery & Shipping pot (account 2085) as money owed onward, until you actually pay the rider or bus office and record that payout.</GuideTip>
                       <div className="form-row">
-                        <FG label="Town Delivery (TZS)"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={townDelivery} onChange={e => setTownDelivery(e.target.value)} /></FG>
-                        <FG label="Upcountry Shipping (TZS)"><input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={upcountryShipping} onChange={e => setUpcountryShipping(e.target.value)} /></FG>
+                        <FG label="Town Delivery (TZS)">
+                          <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={townDelivery} onChange={e => setTownDelivery(e.target.value)} />
+                          <GuideTip>What the customer pays for delivery within town — boda, rider, or your own driver. Type the amount you are charging them; when you later pay the rider, that payment comes out of the delivery pot, not out of your profit.</GuideTip>
+                        </FG>
+                        <FG label="Upcountry Shipping (TZS)">
+                          <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)' }} placeholder="0" value={upcountryShipping} onChange={e => setUpcountryShipping(e.target.value)} />
+                          <GuideTip>What the customer pays to send the goods upcountry — bus, courier, or cargo. Same rule as town delivery: you collect it on their behalf, it shows on the receipt, and it stays out of your sales figures until you pay the bus office.</GuideTip>
+                        </FG>
                       </div>
                       {deliveryTotal > 0 && (
                         <div style={{ background: 'var(--blue-dim)', border: '1px solid rgba(61,139,255,.2)', borderRadius: 'var(--r)', padding: '8px 12px', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
@@ -1335,134 +2088,293 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                           <span style={{ fontFamily: 'var(--mono)', color: 'var(--blue)', fontWeight: 700 }}>{tzs(deliveryTotal)}</span>
                         </div>
                       )}
-                      {(parseFloat(townDelivery) || 0) > 0 && (
-                        <div style={{ marginTop: 10 }}>
-                          <FG label="Deliver to (area / street / landmark)">
-                            <input className="form-input" placeholder="e.g. Kariakoo, Msimbazi St, near mosque"
-                              value={deliveryDestination} onChange={e => setDeliveryDestination(e.target.value)} />
-                          </FG>
-                        </div>
-                      )}
-                      {(parseFloat(upcountryShipping) || 0) > 0 && (
-                        <div style={{ marginTop: 10 }}>
-                          <FG label="Upcountry bus / carrier & destination">
-                            <input className="form-input" placeholder="e.g. Abood Bus — Morogoro, parcel office"
-                              value={upcountryBus} onChange={e => setUpcountryBus(e.target.value)} />
-                          </FG>
-                        </div>
-                      )}
-                      {(deliveryTotal > 0 || isPOD) && (
-                        <div style={{ marginTop: 10 }}>
-                          <FG label="Rider (who carries this delivery)">
-                            <select className="form-input" value={riderId}
-                              onChange={e => {
-                                if (e.target.value === '__new__') { setShowNewRider(true); return }
-                                setRiderId(e.target.value)
-                                setRiderName(riders.find(r => r.id === e.target.value)?.name || '')
-                              }}>
-                              <option value="">— Select rider —</option>
-                              {riders.map(r => (
-                                <option key={r.id} value={r.id}>{r.name}{r.phone ? ` · ${r.phone}` : ''}</option>
-                              ))}
-                              <option value="__new__">＋ Register new rider…</option>
-                            </select>
-                          </FG>
-                          {showNewRider && (
-                            <div style={{ marginTop: 8, padding: '10px 12px', border: '1px solid var(--accent)', borderRadius: 10, background: 'var(--surface2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                              <input className="form-input" placeholder="Rider name *" value={newRiderName} onChange={e => setNewRiderName(e.target.value)} autoFocus />
-                              <input className="form-input" placeholder="Phone / WhatsApp" value={newRiderPhone} onChange={e => setNewRiderPhone(e.target.value)} />
-                              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setShowNewRider(false); setNewRiderName(''); setNewRiderPhone('') }}>Cancel</button>
-                                <button type="button" className="btn btn-primary btn-sm" disabled={riderSaving || !newRiderName.trim()} onClick={registerRider}>
-                                  {riderSaving ? 'Saving…' : 'Register & select'}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
-                            Binds the rider to this sale — the Day Book sums fees and POD cash per rider for settlement. Full registry lives in Dispatch.
-                          </div>
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
+                )}
               </div>
 
               {/* RIGHT — Payment + Totals */}
-              <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div ref={railRef} style={{ padding: '6px 0 0', display: 'flex', flexDirection: 'column',
+                            position: saleWide ? 'sticky' : 'static', top: 12,
+                            height: saleWide ? (railH ? `${railH}px` : 'calc(100dvh - 24px)') : undefined, overflow: saleWide ? 'hidden' : undefined }}>
+                {/* Scrolling middle of the rail: methods, tendered, summary.
+                    The action bar below is OUTSIDE this scroller — the rail's
+                    permanent floor, on screen from the first pixel. */}
+                <div style={{ flex: saleWide ? 1 : undefined, minHeight: 0, overflowY: saleWide ? 'auto' : undefined,
+                              display: 'flex', flexDirection: 'column', gap: 20, paddingBottom: 10 }}>
 
                 {/* STEP 4 — PAYMENT */}
                 <div>
                   <div className="step-header" style={{ marginBottom: 12 }}><div className="step-num">4</div><div className="step-title">PAYMENT METHOD</div></div>
+                  <GuideTip>Tap the tile the money arrives in. Every active Cash & Bank account from Banks & Cash gets its own tile here, and tapping a second tile splits the sale across methods.</GuideTip>
 
-                  {/* POD toggle */}
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                    <button onClick={() => setIsPOD(false)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: !isPOD ? 'var(--green-dim)' : 'transparent', border: `1px solid ${!isPOD ? 'var(--green)' : 'var(--border)'}`, color: !isPOD ? 'var(--green)' : 'var(--text3)' }}>Paid at Counter</button>
-                    <button onClick={() => setIsPOD(true)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: isPOD ? 'var(--yellow-dim)' : 'transparent', border: `1px solid ${isPOD ? 'var(--yellow)' : 'var(--border)'}`, color: isPOD ? 'var(--yellow)' : 'var(--text3)' }}>Pay on Delivery (POD)</button>
-                  </div>
+                  {settlingTab && (
+                    <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--green)', color: 'var(--green)', fontSize: 12, fontWeight: 700 }}>
+                      Settling {settlingTab.label} — posting this sale closes its tab
+                    </div>
+                  )}
+                  {/* POD toggle. Hidden when settling a tab: a tab is consumed
+                      on the spot — POD is a product-seller feature, and a
+                      "deliver later" bar bill would be a fiction. */}
+                  {!settlingTab && (
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                      <button onClick={() => setIsPOD(false)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: !isPOD ? 'var(--green-dim)' : 'transparent', border: `1px solid ${!isPOD ? 'var(--green)' : 'var(--border)'}`, color: !isPOD ? 'var(--green)' : 'var(--text3)' }}>Paid at Counter</button>
+                      <button onClick={() => setIsPOD(true)} className="btn" style={{ flex: 1, justifyContent: 'center', fontSize: 12, background: isPOD ? 'var(--yellow-dim)' : 'transparent', border: `1px solid ${isPOD ? 'var(--yellow)' : 'var(--border)'}`, color: isPOD ? 'var(--yellow)' : 'var(--text3)' }}>Pay on Delivery (POD)</button>
+                    </div>
+                  )}
 
                   {!isPOD && (
                     <>
-                      {/* Payment method grid */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                        {PAYMENT_METHODS.map(m => <PayBtn key={m.id} method={m} />)}
-                      </div>
-
-                      {/* Ref number for non-cash */}
-                      {currentMethod.showRef && (
-                        <div style={{ marginBottom: 12 }}>
-                          <input className="form-input" placeholder={`${currentMethod.label} reference / transaction number`} value={paymentRef} onChange={e => setPaymentRef(e.target.value)} style={{ fontSize: 12, borderColor: 'var(--accent)' }} />
+                      {/* Split-mode banner. Sits above the tile grid so the
+                          cashier understands the tiles are inactive and
+                          they should allocate amounts in the split lines
+                          below. Exit button returns to single-method flow
+                          and clears any splits. */}
+                      {isSplit && (
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '8px 12px', marginBottom: 10,
+                          background: 'rgba(var(--accent-rgb),.12)', border: '1px solid var(--accent)',
+                          borderRadius: 'var(--r)',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>Split Payment</span>
+                            <span style={{ fontSize: 11, color: 'var(--text3)' }}>Tap tiles, enter amounts</span>
+                          </div>
+                          <button
+                            onClick={() => { setIsSplit(false); setSplitLines([]); setPaymentRef('') }}
+                            style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline', padding: 0 }}
+                          >
+                            Exit split mode
+                          </button>
                         </div>
                       )}
 
-                      {/* Split payment lines */}
-                      {isSplit && splitLines.map((sl, i) => {
-                        const slMethod = PAYMENT_METHODS.find(m => m.id === sl.methodId)!
-                        return (
-                          <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: 10, marginBottom: 8 }}>
-                            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                              <select className="form-input" style={{ flex: 1, fontSize: 12 }} value={sl.methodId} onChange={e => updateSplitLine(i, 'methodId', e.target.value)}>
-                                {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.label} — {m.sublabel}</option>)}
-                              </select>
-                              <button onClick={() => setSplitLines(splitLines.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16 }}>×</button>
+                      {/* Payment method grid. Interactive in both modes:
+                          in normal mode a click sets primary, in split
+                          mode a click adds the method as a split line
+                          (PayBtn handles its own disabled state per
+                          method). No wrapper-level pointer-events lock. */}
+                      <div style={{
+                        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: isSplit ? 6 : 8, marginBottom: 12,
+                        maxHeight: 330, overflowY: 'auto', paddingRight: 4,
+                        transition: 'gap .15s',
+                      }}>
+                        {methodsToShow.map(method => {
+                          const isSelected = selectedMethod === method.id
+                          const isSetUp = Boolean(accountMap[method.accountCode])
+                          const splitLineIdx = splitLines.findIndex(l => l.methodId === method.id)
+                          const inSplits = splitLineIdx !== -1
+                          const isPrimary = isSplit && selectedMethod === method.id && !inSplits
+                          const iconSize = isSplit ? 26 : 38
+                          const pad = isSplit ? '6px 8px' : '10px 12px'
+                          const rowGap = isSplit ? 7 : 10
+                          const labelSize = isSplit ? 12 : 13
+                          const showAsSelected = isSelected && !isSplit
+                          const onTile = (e: React.MouseEvent) => {
+                            if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'BUTTON') return
+                            if (!isSetUp) {
+                              const goSetup = window.confirm(
+                                `${mLabel(method)} is not set up yet on this account.\n\n` +
+                                `To accept ${mLabel(method)} payments, add a Cash & Bank account with code ${method.accountCode} in Banks & Cash. ` +
+                                `Once active, this tile will unlock.\n\n` +
+                                `Open Banks & Cash now?`
+                              )
+                              if (goSetup && onNav) onNav('banks')
+                              return
+                            }
+                            if (isSplit) {
+                              if (inSplits) return
+                              setSplitLines([...splitLines, { methodId: method.id, accountId: accountMap[method.accountCode], amount: 0, ref: '' }])
+                              return
+                            }
+                            setSelectedMethod(method.id); setIsSplit(false); setSplitLines([])
+                          }
+                          const removeThis = () => {
+                            const remaining = splitLines.filter((_, idx) => idx !== splitLineIdx)
+                            setSplitLines(remaining)
+                            if (remaining.length === 0) setIsSplit(false)
+                          }
+                          return (
+                            <div
+                              key={method.id}
+                              onClick={onTile}
+                              style={{
+                                display: 'flex', flexDirection: 'column', gap: inSplits ? 6 : 0,
+                                padding: pad,
+                                background: showAsSelected ? `${method.color}18` : 'var(--surface2)',
+                                border: `2px solid ${showAsSelected ? method.color : (inSplits || isPrimary ? 'var(--accent)' : 'var(--border)')}`,
+                                borderRadius: 10,
+                                cursor: inSplits ? 'default' : 'pointer',
+                                transition: 'all .15s',
+                                opacity: isSetUp ? 1 : 0.55,
+                              }}
+                              title={isSetUp
+                                ? (inSplits ? `${mLabel(method)} is on this sale.` : (isPrimary ? `${mLabel(method)} is the primary tile.` : ''))
+                                : `${mLabel(method)} is not set up. Open Banks & Cash to activate.`}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: rowGap }}>
+                                <div style={{ width: iconSize, height: iconSize, borderRadius: 8, background: method.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                  <PayIcon id={method.id.startsWith('acct_') ? (method.nature === 'cash' ? 'cash' : method.nature === 'mobile_money' ? 'mpesa' : 'nmb') : method.id} color={method.color} />
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: labelSize, fontWeight: 700, color: showAsSelected ? method.color : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mLabel(method)}</div>
+                                  <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {!isSetUp
+                                      ? `Not set up · code ${method.accountCode}`
+                                      : inSplits
+                                        ? 'On this sale'
+                                        : isPrimary
+                                          ? 'Primary'
+                                          : (accountInfo[method.accountCode]?.account_number
+                                              ? `Active · ${accountInfo[method.accountCode].account_number}`
+                                              : (isSplit ? 'Tap to add' : 'Active'))}
+                                  </div>
+                                </div>
+                                {isSelected && !isSplit && <div style={{ width: 8, height: 8, borderRadius: '50%', background: method.color, flexShrink: 0 }}></div>}
+                                {inSplits && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); removeThis() }}
+                                    style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 16, padding: '0 4px', lineHeight: 1, flexShrink: 0 }}
+                                    title="Remove from sale"
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </div>
+                              {inSplits && (
+                                <div
+                                  style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    className="form-input"
+                                    placeholder="Amount (TZS)"
+                                    value={splitLines[splitLineIdx].amount ? String(splitLines[splitLineIdx].amount) : ''}
+                                    onChange={(e) => {
+                                      // Strip non-digits so the field only ever holds a
+                                      // clean integer. Backspace / delete works cleanly
+                                      // because '' parses to 0 and the amount clears.
+                                      const clean = e.target.value.replace(/[^\d]/g, '')
+                                      updateSplitLine(splitLineIdx, 'amount', clean === '' ? 0 : parseInt(clean, 10))
+                                    }}
+                                    style={{ fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 13, padding: '6px 8px' }}
+                                  />
+                                  {method.showRef && (
+                                    <input
+                                      className="form-input"
+                                      placeholder="Ref / Transaction No"
+                                      value={splitLines[splitLineIdx].ref}
+                                      onChange={(e) => updateSplitLine(splitLineIdx, 'ref', e.target.value)}
+                                      style={{ fontSize: 11, padding: '6px 8px' }}
+                                    />
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <input type="number" className="form-input" style={{ flex: 1, fontFamily: 'var(--mono)', fontWeight: 700 }} placeholder="Amount (TZS)" value={sl.amount || ''} onChange={e => updateSplitLine(i, 'amount', parseFloat(e.target.value) || 0)} />
-                              {slMethod.showRef && <input className="form-input" style={{ flex: 1, fontSize: 12 }} placeholder="Ref / Transaction No" value={sl.ref} onChange={e => updateSplitLine(i, 'ref', e.target.value)} />}
+                          )
+                        })}
+                      </div>
+                      {unsetMethods.length > 0 && readyMethods.length > 0 && (
+                        <button type="button" onClick={() => setShowAllMethods(v => !v)}
+                          style={{ width: '100%', marginTop: -6, marginBottom: 12, padding: '7px 10px',
+                                   fontSize: 11.5, fontWeight: 700, color: 'var(--text3)', background: 'none',
+                                   border: '1px dashed var(--border)', borderRadius: 'var(--r)', cursor: 'pointer', font: 'inherit' }}>
+                          {showAllMethods
+                            ? 'Hide methods that are not set up'
+                            : `${unsetMethods.length} more ${unsetMethods.length === 1 ? 'method' : 'methods'} not set up · show`}
+                        </button>
+                      )}
+
+                      {/* Ref number for non-cash primary. Hidden in split
+                          mode: any bank leg's ref lives on its own split
+                          line, so a top-level ref is confusing. */}
+                      {currentMethod.showRef && !isSplit && (
+                        <div style={{ marginBottom: 12 }}>
+                          <input className="form-input" placeholder={`${mLabel(currentMethod)} reference / transaction number`} value={paymentRef} onChange={e => setPaymentRef(e.target.value)} style={{ fontSize: 12, borderColor: 'var(--accent)' }} />
+                        </div>
+                      )}
+
+                      {/* No separate split-lines section: each split's
+                          amount + ref inputs live inside its own tile in
+                          the grid above. This block used to duplicate
+                          them below the grid, which felt redundant. */}
+
+                      {/* Split reconciliation strip. Shows the split total
+                          vs the sale total so the cashier catches over-
+                          and under-payments before hitting Post. Only when
+                          a split is active. */}
+                      {isSplit && splitLines.length > 0 && (
+                        <div style={{
+                          padding: '8px 12px', borderRadius: 'var(--r)', marginBottom: 8,
+                          background: totalSplitPaid > total ? 'var(--red-dim)' : (totalSplitPaid === total ? 'var(--green-dim)' : 'var(--surface2)'),
+                          border: `1px solid ${totalSplitPaid > total ? 'rgba(255,71,87,.3)' : (totalSplitPaid === total ? 'rgba(0,229,160,.3)' : 'var(--border)')}`,
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12,
+                        }}>
+                          <span style={{ color: 'var(--text3)' }}>
+                            {(() => {
+                              if (totalSplitPaid > total) return 'Overpayment'
+                              if (totalSplitPaid === total) return 'Splits balance'
+                              // Undershoot: keep the label generic. The amount
+                              // on the right already tells the cashier how
+                              // much is left; naming which method absorbs it
+                              // was more noise than help, especially in split
+                              // mode where the primary tile is dimmed.
+                              return 'Amount remaining'
+                            })()}
+                          </span>
+                          <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: totalSplitPaid > total ? 'var(--red)' : (totalSplitPaid === total ? 'var(--green)' : 'var(--text)') }}>
+                            {tzs(Math.abs(total - totalSplitPaid))}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Cash tendered / quick amounts — cash-only path.
+                          Splits and non-cash primaries don't need change
+                          calculation, so the whole strip drops out. */}
+                      {!isSplit && currentMethod.id === 'cash' && (
+                        <>
+                          <div style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>
+                              AMOUNT TENDERED (for change calculation)
                             </div>
+                            <div style={{ position: 'relative' }}>
+                              <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, paddingRight: 80 }}
+                                placeholder={tzs(total)} value={tendered}
+                                onChange={e => setTendered(e.target.value)} />
+                              <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                                {total > 0 && !tendered ? tzs(total) : ''}
+                              </div>
+                            </div>
+                            <GuideTip>Type what the customer hands over and the change to give back shows below. Leaving it empty assumes exact payment.</GuideTip>
                           </div>
-                        )
-                      })}
 
-                      {/* Cash tendered / quick amounts */}
-                      <div style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>
-                          {isSplit ? 'AMOUNT TENDERED FOR CASH PORTION' : currentMethod.id === 'cash' ? 'AMOUNT TENDERED (for change calculation)' : 'TOTAL TO COLLECT'}
-                        </div>
-                        <div style={{ position: 'relative' }}>
-                          <input type="number" className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, paddingRight: 80 }}
-                            placeholder={tzs(total)} value={tendered}
-                            onChange={e => setTendered(e.target.value)} />
-                          <div style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                            {total > 0 && !tendered ? tzs(total) : ''}
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                            {[50000, 100000, 200000].map(amt => (
+                              <button key={amt} className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center', fontFamily: 'var(--mono)' }} onClick={() => setTendered(amt.toString())}>{(amt/1000).toFixed(0)}K</button>
+                            ))}
+                            <button className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center', fontWeight: 700 }} onClick={() => setTendered(total.toString())}>Exact</button>
                           </div>
-                        </div>
-                      </div>
 
-                      {/* Quick amount buttons */}
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                        {[50000, 100000, 200000].map(amt => (
-                          <button key={amt} className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center', fontFamily: 'var(--mono)' }} onClick={() => setTendered(amt.toString())}>{(amt/1000).toFixed(0)}K</button>
-                        ))}
-                        <button className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center', fontWeight: 700 }} onClick={() => setTendered(total.toString())}>Exact</button>
-                      </div>
+                          {tendered && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: change >= 0 ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${change >= 0 ? 'rgba(0,229,160,.2)' : 'rgba(255,71,87,.2)'}`, borderRadius: 'var(--r)', marginBottom: 8 }}>
+                              <span style={{ fontSize: 13, color: 'var(--text3)' }}>Change</span>
+                              <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 15, color: change >= 0 ? 'var(--green)' : 'var(--red)' }}>{tzs(Math.max(0, change))}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
 
-                      {/* Change */}
-                      {tendered && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: change >= 0 ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${change >= 0 ? 'rgba(0,229,160,.2)' : 'rgba(255,71,87,.2)'}`, borderRadius: 'var(--r)', marginBottom: 8 }}>
-                          <span style={{ fontSize: 13, color: 'var(--text3)' }}>Change</span>
-                          <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 15, color: change >= 0 ? 'var(--green)' : 'var(--red)' }}>{tzs(Math.max(0, change))}</span>
+                      {/* Non-cash single primary: just show the total the
+                          customer will send. No change to calculate. */}
+                      {!isSplit && currentMethod.id !== 'cash' && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', marginBottom: 10 }}>
+                          <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1 }}>Total to collect on {mLabel(currentMethod)}</span>
+                          <span style={{ fontFamily: 'var(--mono)', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{tzs(total)}</span>
                         </div>
                       )}
 
@@ -1520,10 +2432,13 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                       <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>included</span>
                     </div>
                   )}
-                  {margin > 0 && vis.canViewMargin && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 800, padding: '12px 0 0', borderTop: '1px solid var(--border2)', marginTop: 8 }}>
-                    <span>TOTAL</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(total)}</span>
-                  </div>
+                  <VatBreakdown cart={cart} tax={taxSnap} netLabel="Net of VAT" dense />
+                  {margin > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}><span style={{ color: 'var(--text3)' }}>Gross margin</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>{tzs(margin)} ({subtotal > 0 ? Math.round((margin/subtotal)*100) : 0}%)</span></div>}
+                  {(invSettings?.warn_below_min_margin !== false) && subtotal > 0 && margin >= 0 && (margin / subtotal) * 100 < (invSettings?.global_min_margin ?? 25) && (
+                    <div style={{ fontSize: 11, color: '#f59e0b', padding: '3px 0' }}>
+                      ⚠ Margin is below your {invSettings?.global_min_margin ?? 25}% minimum (Settings → Stock Control)
+                    </div>
+                  )}
                 </div>
 
                 {/* Info tags */}
@@ -1531,23 +2446,42 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   {!isPOD && <div style={{ color: 'var(--green)' }}>WhatsApp receipt auto-sent to customer</div>}
                   {isPOD && <div style={{ color: 'var(--yellow)' }}>Receipt posted manually after delivery</div>}
                   <div style={{ color: 'var(--text3)' }}>Inventory deducted · COGS → 5010 · Revenue → 4010</div>
-                  <div style={{ color: 'var(--yellow)' }}>{crownPoints} Crown pts will be awarded</div>
+                  {showMaternalUI && <div style={{ color: 'var(--yellow)' }}>{crownPoints} Crown pts will be awarded</div>}
+                  {!isPOD && currentMethod.id === 'pos' && <div style={{ color: 'var(--blue)' }}>POS → tagged separately in GL reports from CRDB transfers</div>}
                   {deliveryTotal > 0 && <div style={{ color: 'var(--blue)' }}>{tzs(deliveryTotal)} → Delivery & Shipping Float (2085)</div>}
                 </div>
 
-                {/* Action buttons */}
+                </div>
+                {/* The rail's floor (12 Nov v2): on desktop a static flex
+                    child below the scroller — always on screen because the
+                    rail itself is viewport-height; on phones it sticks to
+                    the screen bottom as before. */}
+                <div style={{ position: saleWide ? 'static' : 'sticky', bottom: 0, zIndex: 5, background: 'var(--surface)',
+                              margin: '0 0 0', borderRadius: '12px 12px 0 0', borderTop: '1px solid var(--border2)',
+                              padding: '12px 14px calc(14px + env(safe-area-inset-bottom, 0px))',
+                              boxShadow: '0 -8px 24px rgba(0,0,0,.12)',
+                              display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: '.04em' }}>TOTAL</span>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 21, fontWeight: 800, color: 'var(--green)' }}>{tzs(total)}</span>
+                  </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setShowModal(false); if (isEditMode) resetForm() }}>Cancel</button>
                   {!isEditMode && <button className="btn btn-ghost btn-sm" style={{ padding: '10px 14px' }}>Draft</button>}
-                  <select className="form-input" value={salespersonId} onChange={e => setSalespersonId(e.target.value)}
-                    style={{ flex: 1, fontSize: 12, borderColor: salespersonId ? undefined : 'var(--red)' }}
-                    title="Salesperson who made this sale — required to post">
-                    <option value="">Salesperson — required</option>
-                    {salespeople.map(s => <option key={s.id} value={s.id}>{spLabel(s)}</option>)}
-                  </select>
-                  <button className="btn btn-primary" onClick={isEditMode ? updateVoucher : post} disabled={posting} style={{ flex: 2, justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 700, opacity: posting ? 0.6 : 1 }}>
-                    {posting ? (isEditMode ? 'Updating…' : 'Posting…') : isEditMode ? 'Update Sale' : isPOD ? 'Post POD Sale' : `Post · ${currentMethod.label}`}
+                  <button className="btn btn-primary" onClick={isEditMode ? updateVoucher : post} disabled={posting} style={{ flex: 2, justifyContent: 'center', padding: posting && postProg ? '8px 12px' : '12px', fontSize: 13, fontWeight: 700, opacity: posting && !postProg ? 0.6 : 1 }}>
+                    {posting && postProg ? (
+                      <span style={{ display: 'block', width: '100%' }}>
+                        <span style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                          <span>{postProg.label}</span>
+                          <span style={{ fontFamily: 'var(--mono)' }}>{postProg.pct}%</span>
+                        </span>
+                        <span style={{ display: 'block', height: 5, background: 'rgba(255,255,255,.25)', borderRadius: 3, overflow: 'hidden' }}>
+                          <span style={{ display: 'block', height: '100%', width: `${postProg.pct}%`, background: '#fff', borderRadius: 3, transition: 'width .25s ease' }} />
+                        </span>
+                      </span>
+                    ) : posting ? (isEditMode ? 'Updating…' : 'Posting…') : isEditMode ? 'Update Sale' : isPOD ? 'Post POD Sale' : `Post · ${mLabel(currentMethod)}`}
                   </button>
+                </div>
                 </div>
               </div>
             </div>
@@ -1562,40 +2496,46 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
           <div style={{ background: 'rgba(0,0,0,.95)', borderBottom: '1px solid rgba(255,255,255,.1)', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, color: '#fff' }}>
               Receipt — {lastVoucher.ref}
+              {(Number(lastVoucher.delivery_total) || 0) > 0 && (
+                <div style={{ fontFamily: 'var(--body, inherit)', fontSize: 11, fontWeight: 600, color: '#7dd3fc', marginTop: 3 }}>
+                  TZS {(Number(lastVoucher.delivery_total) || 0).toLocaleString()} of this payment is delivery/shipping money — pay the rider or bus office and record the payout so the pot stays true.
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-primary" onClick={() => {
-                const el = document.getElementById('malkia-receipt-modal')
+                const win = window.open('', '_blank')
+                if (!win) return
+                const el = document.getElementById('atlasos-receipt-modal')
                 if (!el) return
-                const printRes = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt ${lastVoucher.ref}</title>
+                win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt ${lastVoucher.ref}</title>
                   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@500&family=Instrument+Sans:wght@600&display=swap" rel="stylesheet">
                   <style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;padding:20px;background:#f0f0f0}@media print{body{background:#fff;padding:0}}</style>
                   </head><body>${el.innerHTML}</body></html>`)
-    if (!printRes.ok && printRes.error) alert(printRes.error)
+                win.document.close()
+                setTimeout(() => win.print(), 600)
               }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Print / Save PDF
               </button>
-              <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, background: waSent ? 'rgba(37,211,102,.15)' : 'rgba(37,211,102,.1)', color: '#25D366', border: '1px solid rgba(37,211,102,.3)', cursor: 'pointer' }}
-                title="Tuma risiti WhatsApp kupitia wa-send"
-                disabled={sending || waSent}
+              <button className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, background: waSent ? 'rgba(37,211,102,.15)' : waConfig?.enabled && waConfig?.api_key ? 'rgba(37,211,102,.1)' : 'var(--surface2)', color: waSent ? '#25D366' : waConfig?.enabled && waConfig?.api_key ? '#25D366' : 'var(--text3)', border: `1px solid ${waConfig?.enabled && waConfig?.api_key ? 'rgba(37,211,102,.3)' : 'var(--border)'}`, cursor: waConfig?.enabled && waConfig?.api_key ? 'pointer' : 'not-allowed' }}
+                title={!waConfig?.enabled || !waConfig?.api_key ? 'Configure WhatsApp in Settings first' : ''}
+                disabled={sending || waSent || !waConfig?.enabled || !waConfig?.api_key}
                 onClick={async () => {
-                  if (!lastVoucher) return
+                  if (!lastVoucher || !waConfig) return
                   const phone = lastVoucher.customers?.whatsapp
                   if (!phone) { alert('No WhatsApp number for this customer'); return }
                   setSending(true)
-                  try {
-                    await sendWhatsAppReceiptPdf(lastVoucher.ref)
-                    setWaSent(true)
-                  } catch (pdfErr: any) {
-                    try {
-                      await waApiSend({ phone, purpose: 'receipt', name: lastVoucher.customers?.name, body: buildReceiptText(lastVoucher) })
-                      setWaSent(true)
-                    } catch (err: any) {
-                      alert('Send failed: ' + (err?.message || pdfErr?.message || err))
-                    }
-                  }
+                  const msg = formatReceiptMessage(waConfig.template_receipt || '', {
+                    customer_name: lastVoucher.customers?.name || 'Mama',
+                    ref: lastVoucher.ref, date: lastVoucher.posting_date,
+                    payment_method: lastVoucher.payment_method,
+                    items: lastVoucher.voucher_lines?.map((l: any) => ({ name: l.products?.name || '—', qty: l.qty, amount: l.total })) || [],
+                    total: lastVoucher.total_amount,
+                  })
+                  const result = await sendWhatsApp(waConfig, { to: phone, message: msg, type: 'receipt', ref: lastVoucher.ref, customer_name: lastVoucher.customers?.name, customer_id: lastVoucher.customer_id, is_transactional: true })
                   setSending(false)
+                  if (result.success) { setWaSent(true) } else { alert('Send failed: ' + result.error) }
                 }}>
                 <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
                 {sending ? 'Sending…' : waSent ? 'Sent ✓' : 'Send via WhatsApp'}
@@ -1605,35 +2545,93 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
           </div>
           {/* Scrollable receipt area */}
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: '24px 20px' }}>
-            <div id="malkia-receipt-modal">
-              <MalkiaReceipt voucher={lastVoucher} settings={receiptSettings || {
-                company_name: 'Malkia Wellness Group Ltd', tagline: 'Reimagining Motherhood',
-                address: 'Dar es Salaam, Tanzania', phone: '+255 745 555999',
-                email: 'support@malkia.co.tz', website: 'www.malkia.co.tz', instagram: '@malkia_tz',
+            <div id="atlasos-receipt-modal">
+              <ReceiptDoc voucher={lastVoucher} settings={receiptSettings || {
+                company_name: 'Your Company', tagline: 'Your tagline',
+                address: 'Dar es Salaam, Tanzania', phone: '+255 700 000 000',
+                email: 'hello@example.com', website: 'www.example.com', instagram: '@your_company',
                 tin: '—', vrn: '—', primary_color: '#85c2be', accent_color: '#f7a6ad',
                 logo_url: '', logo_width: 60, logo_x: 0, logo_y: 0, show_logo: true,
                 label_receipt: 'Receipt', label_billed_to: 'Billed To',
                 label_items: 'Items Purchased', label_total_paid: 'Total Paid',
-                label_crown_points: 'Crown Points', label_midwife_tip: 'Midwife Tip',
-                label_konnect: 'Join Malkia Konnect', label_cashier: 'Served by',
-                konnect_url: 'https://www.malkia.co.tz/join', konnect_enabled: true,
-                konnect_cta_text: 'Join Konnect →',
-                konnect_sub_text: 'Weekly guidance · Expert Q&A · Birth prep · Postpartum support',
-                konnect_utm_tracking: true,
-                community_url: '', community_enabled: false, community_name: 'Mama Community', community_qr_enabled: false,
-                show_crown_points: true, show_cashier: true,
-                show_care_tip: true, show_stage_message: true,
-                footer_message: 'Share your Malkia moment — tag us on Instagram',
-                msg_pregnant: 'You are doing something extraordinary. Every choice you make matters, Mama.',
-                msg_postpartum: 'The hardest work is invisible. We see you, and we are with you.',
-                msg_general: 'Motherhood deserves better. That is why we exist.',
+                label_cashier: 'Served by',
+                footer_message: 'Thank you for your business.',
+                show_cashier: true,
               }} />
             </div>
           </div>
         </div>
       )}
 
+      {onNav && (
+        <FirstRunSpotlight
+          when={productsChecked && dbProducts.length === 0}
+          spot="nav-inventory"
+          title="First, add something to sell"
+          message="A Cash Sale needs at least one product or service on file, and your catalogue is still empty. Add what you sell first, then come back here and record your first sale."
+          ctaLabel="Add a product"
+          onCta={() => onNav('inventory')}
+          secondaryLabel="I sell services"
+          onSecondary={() => onNav('services')}
+          dismissKey="cashsale-products"
+        />
+      )}
+      {/* Unknown barcode → attach it where it failed. The catalogue teaches
+          itself one scan at a time instead of demanding a data-entry project:
+          the cashier picks the product once, and that code resolves forever. */}
+      {unknownCode && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+             onClick={() => setUnknownCode(null)}>
+          <div onClick={e => e.stopPropagation()}
+               style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 22, width: 420, maxWidth: '92vw' }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>Unknown barcode</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--accent)', marginBottom: 12 }}>{unknownCode}</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12, lineHeight: 1.5 }}>
+              Attach it to a product and this code will ring up instantly from now on.
+            </div>
+            <label style={{ fontSize: 10, fontFamily: 'var(--mono)', textTransform: 'uppercase', color: 'var(--text3)' }}>Product</label>
+            <select className="form-input" style={{ width: '100%', marginBottom: 10 }} value={attachProductId} onChange={e => setAttachProductId(e.target.value)}>
+              <option value="">— pick the product this code belongs to —</option>
+              {dbProducts.map(p => <option key={p.id} value={p.id}>{p.name}{p.sku ? ` (${p.sku})` : ''}</option>)}
+            </select>
+            <label style={{ fontSize: 10, fontFamily: 'var(--mono)', textTransform: 'uppercase', color: 'var(--text3)' }}>Units per scan</label>
+            <input type="number" className="form-input" style={{ width: '100%', marginBottom: 4 }} min={1} value={attachQty}
+                   onChange={e => setAttachQty(Math.max(1, parseInt(e.target.value) || 1))} />
+            <div style={{ fontSize: 10.5, color: 'var(--text3)', marginBottom: 14 }}>
+              1 for the piece code. For a carton code, the pieces inside — scanning the carton then sells that many.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setUnknownCode(null)}>Ignore</button>
+              <button className="btn btn-primary btn-sm" disabled={!attachProductId}
+                onClick={async () => {
+                  const r = await attachBarcode(attachProductId, unknownCode, attachQty)
+                  if (!r.ok) { showToast(r.error || 'Could not attach', 'error'); return }
+                  applyScan(attachProductId, attachQty)
+                  const p = dbProducts.find(x => x.id === attachProductId)
+                  showToast(`Code attached — ${p?.name || 'item'} +${attachQty}`)
+                  setUnknownCode(null)
+                }}>
+                Attach &amp; add to sale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
+      {stockGuard && (
+        <StockOverrideDialog
+          mode={stockGuard.mode}
+          shortages={stockGuard.shortages}
+          busy={posting}
+          onCancel={() => { setStockGuard(null); stockOverrideRef.current = null }}
+          onConfirm={(reason) => {
+            stockOverrideRef.current = { reason, by: user?.full_name || 'Unknown' }
+            setStockGuard(null)
+            post()
+          }}
+        />
+      )}
     </div>
   )
 }
