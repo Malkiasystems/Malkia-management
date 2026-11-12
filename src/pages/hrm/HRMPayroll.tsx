@@ -9,7 +9,7 @@ import { computePayrollLine, DEFAULT_HR_SETTINGS } from './hrmTypes'
 interface PayLine {
   empId: string; name: string; title: string; code: string; contractType: string
   gross: number; nssfEnabled: boolean; payeEnabled: boolean; sdlEnabled: boolean
-  allowances: number; deductions: number; advanceDeduction: number; bonus: number
+  allowances: number; deductions: number; advanceDeduction: number; bonus: number; notes: string
   paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string
 }
 
@@ -51,7 +51,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
         empId: emp.id, name: emp.full_name, title: emp.job_title, code: emp.emp_code,
         contractType: emp.contract_type, gross: emp.gross_salary || 0,
         nssfEnabled: emp.nssf_enabled, payeEnabled: payeOn, sdlEnabled: sdlOn,
-        allowances: 0, deductions: 0, advanceDeduction: advDed, bonus: 0,
+        allowances: 0, deductions: 0, advanceDeduction: advDed, bonus: 0, notes: '',
         paye: r.paye, nssfEe: r.nssfEe, nssfEr: r.nssfEr, sdl: r.sdl, net: r.net, band: r.band,
       }
     })
@@ -362,7 +362,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
         payroll_run_id: run.id, employee_id: l.empId,
         gross: l.gross, allowances: l.allowances, deductions: l.deductions,
         advance_deduction: l.advanceDeduction,
-        paye: l.paye, nssf_ee: l.nssfEe, nssf_er: l.nssfEr, sdl: l.sdl, net_pay: l.net, bonus: l.bonus || 0,
+        paye: l.paye, nssf_ee: l.nssfEe, nssf_er: l.nssfEr, sdl: l.sdl, net_pay: l.net, bonus: l.bonus || 0, notes: (l.notes || '').trim() || null,
         payslip_sent: false,
       }))
       const { error: lineErr } = await supabase.from('hrm_payroll_lines').insert(payLines)
@@ -609,7 +609,17 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
               <tbody>
                 {displayLines.map((l, i) => (
                   <tr key={l.empId} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '10px 14px' }}><div style={{ fontWeight: 700 }}>{l.name}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>{l.title} · {l.code}{!l.nssfEnabled ? ' · No NSSF' : ''}{!l.payeEnabled ? ' · No PAYE' : ''}{!l.sdlEnabled ? ' · No SDL' : ''}</div></td>
+                    <td style={{ padding: '10px 14px' }}><div style={{ fontWeight: 700 }}>{l.name}</div><div style={{ fontSize: 10, color: 'var(--text3)' }}>{l.title} · {l.code}{!l.nssfEnabled ? ' · No NSSF' : ''}{!l.payeEnabled ? ' · No PAYE' : ''}{!l.sdlEnabled ? ' · No SDL' : ''}</div>
+                      {!isSelfMode && (
+                        <input
+                          value={l.notes || ''}
+                          onChange={e => { const nl = [...lines]; nl[i] = { ...nl[i], notes: e.target.value }; setLines(nl) }}
+                          placeholder="Payslip note for this employee (optional)"
+                          title="Printed on this employee's payslip as a note from HR"
+                          style={{ marginTop: 5, width: 230, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 7px', borderRadius: 5, fontSize: 10.5 }}
+                        />
+                      )}
+                    </td>
                     <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                       {isSelfMode
                         ? <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700 }}>{fmt(l.gross)}</span>

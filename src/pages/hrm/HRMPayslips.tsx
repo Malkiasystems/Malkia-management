@@ -29,6 +29,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { jsPDF } from 'jspdf'
 import { supabase, getActiveCompany } from '../../lib/supabase'
 import Toast from '../../components/Toast'
+import { sendWhatsAppPayslip } from '../../lib/wa'
 import {
   loadPayslipTemplate,
   hexToRgb,
@@ -51,9 +52,11 @@ interface PayslipData {
   sdl: number
   net_pay: number
   payslip_sent: boolean
+  payslip_wa_message_id?: string | null
   notes: string | null
   employee: {
     id: string
+    whatsapp?: string | null
     full_name: string
     initials: string
     emp_code: string
@@ -92,6 +95,8 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
   // YTD by employee id, computed once per period change.
   const [ytdByEmp, setYtdByEmp] = useState<Record<string, YTD>>({})
   const [leaveByEmp, setLeaveByEmp] = useState<Record<string, any>>({})
+  const [waStatus, setWaStatus] = useState<Record<string, { status: string; error: string | null }>>({})
+  const [sending, setSending] = useState<string | null>(null)
   // Notes draft state — a tiny edit buffer keyed by line.id.
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({})
   const [savingNote, setSavingNote] = useState<string | null>(null)
@@ -123,14 +128,29 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     if (!runs || runs.length === 0) { setLines([]); setYtdByEmp({}); setLoading(false); return }
 
     let query = supabase.from('hrm_payroll_lines')
-      .select('id, gross, allowances, deductions, advance_deduction, bonus, paye, nssf_ee, nssf_er, sdl, net_pay, payslip_sent, notes, employee:hrm_employees(id, full_name, initials, emp_code, job_title, department, contract_type, bank_name, bank_account, nssf_number, tin_number)')
+      .select('id, gross, allowances, deductions, advance_deduction, bonus, paye, nssf_ee, nssf_er, sdl, net_pay, payslip_sent, payslip_wa_message_id, notes, employee:hrm_employees(id, whatsapp, full_name, initials, emp_code, job_title, department, contract_type, bank_name, bank_account, nssf_number, tin_number)')
       .eq('payroll_run_id', runs[0].id)
     if (isSelfMode && linkedEmployeeId) {
       query = query.eq('employee_id', linkedEmployeeId)
     }
-    const { data } = await query
+    const { data, error: loadErr } = await query
+    if (loadErr) {
+      // Never swallow this: a failed query used to look exactly like "no payslips".
+      setToast('Could not load payslips: ' + loadErr.message); setToastType('error')
+    }
     const slips = (data || []) as unknown as PayslipData[]
     setLines(slips)
+
+    // Real delivery state for slips already sent over WhatsApp (from wa_messages)
+    const msgIds = slips.map(sl => sl.payslip_wa_message_id).filter(Boolean) as string[]
+    if (msgIds.length > 0) {
+      const { data: msgs } = await supabase.from('wa_messages').select('id, status, error').in('id', msgIds)
+      const st: Record<string, { status: string; error: string | null }> = {}
+      ;(msgs || []).forEach((m: any) => { st[m.id] = { status: m.status, error: m.error } })
+      setWaStatus(st)
+    } else {
+      setWaStatus({})
+    }
 
     // Initialise the notes draft buffer from the loaded values
     const draft: Record<string, string> = {}
@@ -161,15 +181,20 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
       })
       setYtdByEmp(acc)
 
-      // Leave balances for the leave strip (current fiscal year).
-      const fy = new Date(period + '-01').getFullYear()
+      // Leave balances for the leave strip. fiscal_year is free text, so take
+      // the row for this fiscal year when one exists, otherwise the latest row.
+      const fyYear = fyStart.slice(0, 4)
       const { data: lvRows } = await supabase
         .from('hrm_leave_balances')
-        .select('employee_id, annual_entitlement, annual_taken, annual_pending, sick_entitlement, sick_taken')
+        .select('employee_id, fiscal_year, annual_entitlement, annual_taken, annual_pending, sick_entitlement, sick_taken')
         .in('employee_id', empIds)
-        .eq('fiscal_year', fy)
       const lv: Record<string, any> = {}
-      ;(lvRows || []).forEach((r: any) => { lv[r.employee_id] = r })
+      ;[...(lvRows || [])]
+        .sort((a: any, b: any) => String(a.fiscal_year || '').localeCompare(String(b.fiscal_year || '')))
+        .forEach((r: any) => {
+          const cur = lv[r.employee_id]
+          if (!cur || !String(cur.fiscal_year || '').includes(fyYear)) lv[r.employee_id] = r
+        })
       setLeaveByEmp(lv)
     }
     setLoading(false)
@@ -237,9 +262,12 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     // payslip template is the white mark on transparent, so it reads on teal.
     let textStartX = 15
     if (logoData) {
-      const logoW = template.logoWidthMm
-      const logoH = (logoData.height / logoData.width) * logoW
-      const logoY = Math.max(template.logoPaddingMm, (headerH - logoH) / 2)
+      let logoW = template.logoWidthMm
+      let logoH = (logoData.height / logoData.width) * logoW
+      // A tall mark must never overflow the band: fit it to the header height.
+      const maxLogoH = headerH - 8
+      if (logoH > maxLogoH) { logoW = logoW * (maxLogoH / logoH); logoH = maxLogoH }
+      const logoY = (headerH - logoH) / 2
       try {
         doc.addImage(logoData.dataUrl, 'PNG', 15, logoY, logoW, logoH)
       } catch { /* bad data URL — text-only fallback */ }
@@ -299,7 +327,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     doc.text(`Bank: ${bankInfo}`, 27, y + 21)
     const taxInfo = [
       emp.tin_number ? `TIN ${emp.tin_number}` : null,
-      emp.nssf_number ? `NSSF ${emp.nssf_number}` : null,
+      emp.nssf_number ? `NSSF ${String(emp.nssf_number).replace(/^\s*NSSF[\s\-:]*/i, '')}` : null,
     ].filter(Boolean).join('  ·  ')
     if (taxInfo) doc.text(taxInfo, 27, y + 26.5)
 
@@ -436,7 +464,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
       if (template.showYTD) {
         const ytd = ytdByEmp[emp.id] || { gross: slip.gross, paye: slip.paye, nssf: slip.nssf_ee, net: slip.net_pay }
         doc.setFillColor(...accentSoft)
-        doc.roundedRect(15, y, stripW, stripH, 3, 3, 'F')
+        doc.roundedRect(15, y, leaveByEmp[emp.id] ? stripW : w - 30, stripH, 3, 3, 'F')
         doc.setTextColor(...accent); doc.setFontSize(7.5); doc.setFont('helvetica', 'bold')
         doc.text('YEAR-TO-DATE', 20, y + 5)
         doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(6)
@@ -457,7 +485,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
         doc.setTextColor(...secondary); doc.setFontSize(7.5); doc.setFont('helvetica', 'bold')
         doc.text('LEAVE BALANCE', lvX + 5, y + 5)
         doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(6)
-        doc.text(`FY ${new Date(period + '-01').getFullYear()}`, lvX + 5, y + 9)
+        doc.text(`FY ${String(lv.fiscal_year || '').replace(/^FY\s*/i, '')}`, lvX + 5, y + 9)
         doc.setFontSize(7); doc.setTextColor(...gray); doc.text('Annual', lvX + 5, y + 15)
         doc.setTextColor(...dark); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(`${annualLeft} / ${lv.annual_entitlement || 0} days`, lvX + 5, y + 20)
         doc.setTextColor(...gray); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.text('Sick', lvX + stripW / 2, y + 15)
@@ -513,8 +541,8 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     // ── APPRECIATION LINE ───────────────────────────────────────────
     // Warm note to the employee, kept on the PDF (not the WhatsApp caption)
     // so it stays private to the person reading their own slip.
-    doc.setTextColor(...accent); doc.setFontSize(9); doc.setFont('helvetica', 'bold')
-    doc.text('Tunajivunia kuwa na wewe katika timu ya Malkia. Asante.', w / 2, 274, { align: 'center' })
+    doc.setTextColor(...accent); doc.setFontSize(9.5); doc.setFont('helvetica', 'bold')
+    doc.text('Tunajivunia kuwa na wewe katika timu ya Malkia. Asante.', w / 2, Math.min(y + 6, 276), { align: 'center' })
 
     // ── FOOTER ──────────────────────────────────────────────────────
     const footerY = 280
@@ -561,6 +589,45 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     setGenerating(null)
   }
 
+  // ─── WhatsApp delivery ─────────────────────────────────────────────
+  // The server (wa-payslip) renders the PDF itself and sends it; the browser
+  // never uploads a salary document. Delivery state comes from wa_messages.
+  const sendOne = async (slip: PayslipData) => {
+    if (!slip.employee?.whatsapp) {
+      setToast(`${slip.employee?.full_name} has no WhatsApp number on file`); setToastType('error'); return
+    }
+    setSending(slip.id)
+    try {
+      const res = await sendWhatsAppPayslip(slip.id)
+      setToast(`Payslip sent to ${slip.employee.full_name} (${res.mode === 'template' ? 'approved template' : 'open chat window'})`); setToastType('success')
+      await load()
+    } catch (err: any) {
+      setToast(`Send failed for ${slip.employee?.full_name}: ${err?.message || 'unknown error'}`); setToastType('error')
+    }
+    setSending(null)
+  }
+
+  const sendAll = async () => {
+    const withWa = lines.filter(l => l.employee?.whatsapp)
+    const without = lines.filter(l => !l.employee?.whatsapp)
+    if (withWa.length === 0) { setToast('No employee in this run has a WhatsApp number'); setToastType('error'); return }
+    const msg = `Send ${withWa.length} payslip${withWa.length === 1 ? '' : 's'} for ${period} by WhatsApp?` +
+      (without.length ? `\n\nNo WhatsApp number (will be skipped): ${without.map(l => l.employee?.full_name).join(', ')}` : '')
+    if (!window.confirm(msg)) return
+    setSending('all')
+    let ok = 0
+    const failed: string[] = []
+    for (const slip of withWa) {
+      try { await sendWhatsAppPayslip(slip.id); ok++ } catch { failed.push(slip.employee?.full_name || '?') }
+    }
+    setSending(null)
+    await load()
+    const parts = [`${ok} sent`]
+    if (failed.length) parts.push(`${failed.length} failed (${failed.join(', ')})`)
+    if (without.length) parts.push(`${without.length} skipped, no WhatsApp number`)
+    setToast(parts.join(' · ')); setToastType(failed.length ? 'error' : 'success')
+  }
+
   // Totals
   const totals = lines.reduce((acc, l) => ({
     gross: acc.gross + l.gross, paye: acc.paye + l.paye,
@@ -572,7 +639,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
       <div className="page-header">
         <div>
           <div className="page-title">{isSelfMode ? 'My Payslips' : 'Payslips'}</div>
-          <div className="page-sub">{isSelfMode ? 'Your monthly payslip PDFs' : 'Auto-generated from payroll run · PDF download per employee or bulk'}</div>
+          <div className="page-sub">{isSelfMode ? 'Your monthly payslip PDFs' : 'Auto-generated from payroll run · PDF download or WhatsApp delivery, per employee or bulk'}</div>
         </div>
         <div className="page-actions">
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 11 }}>
@@ -582,6 +649,11 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
           {!isSelfMode && (
             <button className="btn btn-ghost btn-sm" onClick={() => onNav('hrm-payslip-template')} title="Configure logo, colors, footer, toggles">
               Template
+            </button>
+          )}
+          {lines.length > 0 && !isSelfMode && (
+            <button className="btn btn-ghost btn-sm" onClick={sendAll} disabled={sending !== null} title="Send every payslip in this run to the employee's own WhatsApp number">
+              {sending === 'all' ? 'Sending…' : 'Send All by WhatsApp'}
             </button>
           )}
           {lines.length > 0 && !isSelfMode && (
@@ -625,13 +697,23 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
                     <div style={{ fontWeight: 800 }}>{emp?.full_name}</div>
                     <div style={{ fontSize: 10, color: 'var(--text3)' }}>{emp?.emp_code} · {emp?.job_title} · {period}</div>
                   </div>
-                  <span style={{ fontSize: 10, background: l.payslip_sent ? '#22c55e22' : '#f59e0b22', color: l.payslip_sent ? '#22c55e' : '#f59e0b', padding: '2px 8px', borderRadius: 4 }}>{l.payslip_sent ? 'Sent' : 'Pending'}</span>
+                  {(() => {
+                    const ws = l.payslip_wa_message_id ? waStatus[l.payslip_wa_message_id] : undefined
+                    const b = !l.payslip_sent ? { t: 'Not sent', c: '#f59e0b' }
+                      : !ws ? { t: 'Sent', c: '#22c55e' }
+                      : ws.status === 'failed' ? { t: 'Failed', c: '#ef4444' }
+                      : ws.status === 'read' ? { t: 'Read ✓✓', c: '#3b82f6' }
+                      : ws.status === 'delivered' ? { t: 'Delivered ✓✓', c: '#22c55e' }
+                      : { t: 'Sent ✓', c: '#22c55e' }
+                    return <span title={ws?.error || ''} style={{ fontSize: 10, background: `${b.c}22`, color: b.c, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap' }}>{b.t}</span>
+                  })()}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11, marginBottom: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text3)' }}>Gross</span><span style={{ fontFamily: 'var(--mono)' }}>{fmt(l.gross)}</span></div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text3)' }}>PAYE</span><span style={{ fontFamily: 'var(--mono)', color: '#ef4444' }}>({fmt(l.paye)})</span></div>
                   {l.nssf_ee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text3)' }}>NSSF</span><span style={{ fontFamily: 'var(--mono)', color: '#ef4444' }}>({fmt(l.nssf_ee)})</span></div>}
                   {l.advance_deduction > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text3)' }}>Advance</span><span style={{ fontFamily: 'var(--mono)', color: '#ef4444' }}>({fmt(l.advance_deduction)})</span></div>}
+                  {l.bonus > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text3)' }}>Bonus</span><span style={{ fontFamily: 'var(--mono)', color: '#22c55e' }}>{fmt(l.bonus)}</span></div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, borderTop: '1px solid var(--border)', paddingTop: 5 }}><span>Net Pay</span><span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{fmt(l.net_pay)}</span></div>
                 </div>
 
@@ -669,6 +751,16 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
                   <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   {generating === l.id ? 'Generating...' : (template ? 'Download PDF' : 'Loading…')}
                 </button>
+                {!isSelfMode && (
+                  <button
+                    onClick={() => { if (!l.payslip_sent || window.confirm(`Resend ${emp?.full_name}'s payslip by WhatsApp?`)) sendOne(l) }}
+                    disabled={sending !== null || !emp?.whatsapp}
+                    title={emp?.whatsapp ? `Send to ${emp.whatsapp}` : 'No WhatsApp number on this employee record'}
+                    style={{ width: '100%', marginTop: 6, background: emp?.whatsapp ? '#22c55e18' : 'var(--surface2)', border: `1px solid ${emp?.whatsapp ? '#22c55e55' : 'var(--border)'}`, color: emp?.whatsapp ? '#16a34a' : 'var(--text3)', padding: '7px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: emp?.whatsapp ? 'pointer' : 'not-allowed' }}
+                  >
+                    {sending === l.id ? 'Sending…' : !emp?.whatsapp ? 'No WhatsApp number' : l.payslip_sent ? 'Resend by WhatsApp' : 'Send by WhatsApp'}
+                  </button>
+                )}
               </div>
             )
           })}

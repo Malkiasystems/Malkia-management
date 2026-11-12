@@ -38,3 +38,22 @@ export async function sendWhatsAppReceiptPdf(ref: string) {
   if (!r.ok) throw new Error(j?.error || `wa-receipt ${r.status}`)
   return j as { ok: true; pdf: string; twilio_sid: string }
 }
+
+/* Payslip delivery: wa-payslip renders the payslip server-side from the payroll
+   line, vaults it in the private payslips bucket and sends it to the
+   employee's own WhatsApp number. Requires payroll rights (hrm.confidential). */
+const WA_PAYSLIP_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-payslip'
+
+export async function sendWhatsAppPayslip(lineId: string) {
+  const { data: s } = await supabase.auth.getSession()
+  const token = s.session?.access_token
+  if (!token) throw new Error('Ingia tena MalkiaOS (session imeisha).')
+  const r = await fetch(WA_PAYSLIP_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ line_id: lineId }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j?.error || `wa-payslip ${r.status}`)
+  return j as { ok: true; mode: 'freeform' | 'template'; twilio_sid: string; message_id: string; pdf: string }
+}
