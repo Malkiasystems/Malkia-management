@@ -9,7 +9,7 @@ import { computePayrollLine, DEFAULT_HR_SETTINGS } from './hrmTypes'
 interface PayLine {
   empId: string; name: string; title: string; code: string; contractType: string
   gross: number; nssfEnabled: boolean; payeEnabled: boolean; sdlEnabled: boolean
-  allowances: number; deductions: number; advanceDeduction: number
+  allowances: number; deductions: number; advanceDeduction: number; bonus: number
   paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string
 }
 
@@ -46,12 +46,12 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       const advDed = advMap[emp.id] || 0
       const payeOn = emp.paye_enabled !== false  // default true for backwards compat
       const sdlOn = emp.sdl_enabled !== false
-      const r = computePayrollLine(emp.gross_salary || 0, emp.nssf_enabled, s.nssf_ee_rate, s.nssf_er_rate, s.sdl_rate, 0, 0, advDed, payeOn, sdlOn)
+      const r = computePayrollLine(emp.gross_salary || 0, emp.nssf_enabled, s.nssf_ee_rate, s.nssf_er_rate, s.sdl_rate, 0, 0, advDed, payeOn, sdlOn, 0)
       return {
         empId: emp.id, name: emp.full_name, title: emp.job_title, code: emp.emp_code,
         contractType: emp.contract_type, gross: emp.gross_salary || 0,
         nssfEnabled: emp.nssf_enabled, payeEnabled: payeOn, sdlEnabled: sdlOn,
-        allowances: 0, deductions: 0, advanceDeduction: advDed,
+        allowances: 0, deductions: 0, advanceDeduction: advDed, bonus: 0,
         paye: r.paye, nssfEe: r.nssfEe, nssfEr: r.nssfEr, sdl: r.sdl, net: r.net, band: r.band,
       }
     })
@@ -62,8 +62,18 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
   const recalcLine = (i: number, newGross: number) => {
     const nl = [...lines]
     const line = nl[i]
-    const r = computePayrollLine(newGross, line.nssfEnabled, settings.nssf_ee_rate, settings.nssf_er_rate, settings.sdl_rate, line.allowances, line.deductions, line.advanceDeduction, line.payeEnabled, line.sdlEnabled)
+    const r = computePayrollLine(newGross, line.nssfEnabled, settings.nssf_ee_rate, settings.nssf_er_rate, settings.sdl_rate, line.allowances, line.deductions, line.advanceDeduction, line.payeEnabled, line.sdlEnabled, line.bonus || 0)
     nl[i] = { ...line, gross: newGross, paye: r.paye, nssfEe: r.nssfEe, nssfEr: r.nssfEr, sdl: r.sdl, net: r.net, band: r.band }
+    setLines(nl)
+  }
+
+  // Bonus is added on top of net (untaxed, Malkia policy). Re-run the line so
+  // net reflects the new bonus; gross/PAYE/NSSF are unchanged by design.
+  const setBonus = (i: number, newBonus: number) => {
+    const nl = [...lines]
+    const line = nl[i]
+    const r = computePayrollLine(line.gross, line.nssfEnabled, settings.nssf_ee_rate, settings.nssf_er_rate, settings.sdl_rate, line.allowances, line.deductions, line.advanceDeduction, line.payeEnabled, line.sdlEnabled, newBonus)
+    nl[i] = { ...line, bonus: newBonus, net: r.net }
     setLines(nl)
   }
 
@@ -71,8 +81,8 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
     gross: acc.gross + l.gross, paye: acc.paye + l.paye,
     nssfEe: acc.nssfEe + l.nssfEe, nssfEr: acc.nssfEr + l.nssfEr,
     sdl: acc.sdl + l.sdl, net: acc.net + l.net,
-    advDed: acc.advDed + l.advanceDeduction,
-  }), { gross: 0, paye: 0, nssfEe: 0, nssfEr: 0, sdl: 0, net: 0, advDed: 0 })
+    advDed: acc.advDed + l.advanceDeduction, bonus: acc.bonus + (l.bonus || 0),
+  }), { gross: 0, paye: 0, nssfEe: 0, nssfEr: 0, sdl: 0, net: 0, advDed: 0, bonus: 0 })
 
   /**
    * Wipe a previously-posted payroll run cleanly.
@@ -352,7 +362,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
         payroll_run_id: run.id, employee_id: l.empId,
         gross: l.gross, allowances: l.allowances, deductions: l.deductions,
         advance_deduction: l.advanceDeduction,
-        paye: l.paye, nssf_ee: l.nssfEe, nssf_er: l.nssfEr, sdl: l.sdl, net_pay: l.net,
+        paye: l.paye, nssf_ee: l.nssfEe, nssf_er: l.nssfEr, sdl: l.sdl, net_pay: l.net, bonus: l.bonus || 0,
         payslip_sent: false,
       }))
       const { error: lineErr } = await supabase.from('hrm_payroll_lines').insert(payLines)
@@ -372,9 +382,11 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       const jLines: { journal_id: string; line_number: number; account_id: string; description: string; debit: number; credit: number }[] = []
       let ln = 1
 
-      // Dr Salary Expense (6010) — total gross
+      // Dr Salary Expense (6010) — total gross PLUS bonus. Bonus is extra
+      // salary cost paid in cash; it increases the expense and (below) the net
+      // payable by the same amount, so the journal stays balanced.
       jLines.push({ journal_id: journal.id, line_number: ln++, account_id: salaryId,
-        description: `Gross salaries — ${period}`, debit: totals.gross, credit: 0 })
+        description: `Gross salaries${totals.bonus > 0 ? ' + bonus' : ''} — ${period}`, debit: totals.gross + totals.bonus, credit: 0 })
 
       // Cr PAYE Payable (2030) — total PAYE withheld
       if (totals.paye > 0) {
@@ -388,11 +400,13 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
           description: `NSSF employee contribution — ${period}`, debit: 0, credit: totals.nssfEe })
       }
 
-      // Cr Net Salary Payable (2060) — net pay owed (before advance deduction)
-      // Advance deduction is handled separately below as Dr 2060 / Cr 1060
+      // Cr Net Salary Payable (2060) — net pay owed (before advance deduction).
+      // totals.net already INCLUDES bonus (computePayrollLine adds it to net),
+      // so preAdvanceNet carries the bonus here and balances the +bonus added
+      // to the salary-expense debit above. Advance deduction handled below.
       const preAdvanceNet = totals.net + totals.advDed
       jLines.push({ journal_id: journal.id, line_number: ln++, account_id: netPayId,
-        description: `Net salary payable — ${period}`, debit: 0, credit: preAdvanceNet })
+        description: `Net salary payable${totals.bonus > 0 ? ' (incl. bonus)' : ''} — ${period}`, debit: 0, credit: preAdvanceNet })
 
       // Dr NSSF Expense (6020) / Cr NSSF Payable (2040) — employer NSSF
       if (totals.nssfEr > 0) {
@@ -481,9 +495,9 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       const { error: vchErr } = await supabase.from('vouchers').insert({
         ref, type: 'payroll', posting_date: `${period}-28`,
         description: `Payroll — ${period} — ${lines.length} employees`,
-        total_amount: totals.gross + totals.nssfEr + totals.sdl,
+        total_amount: totals.gross + totals.bonus + totals.nssfEr + totals.sdl,
         status: 'posted', journal_id: journal.id,
-        notes: `Gross: ${totals.gross.toLocaleString()} · PAYE: ${totals.paye.toLocaleString()} · NSSF Ee: ${totals.nssfEe.toLocaleString()} · Er: ${totals.nssfEr.toLocaleString()} · SDL: ${totals.sdl.toLocaleString()} · Net: ${totals.net.toLocaleString()}`,
+        notes: `Gross: ${totals.gross.toLocaleString()} · PAYE: ${totals.paye.toLocaleString()} · NSSF Ee: ${totals.nssfEe.toLocaleString()} · Er: ${totals.nssfEr.toLocaleString()} · SDL: ${totals.sdl.toLocaleString()} · Bonus: ${totals.bonus.toLocaleString()} · Net: ${totals.net.toLocaleString()}`,
         posted_by: userName,
       })
       if (vchErr) throw new Error(`Payroll posted but voucher record failed: ${vchErr.message}`)
@@ -523,8 +537,8 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
     gross: acc.gross + l.gross, paye: acc.paye + l.paye,
     nssfEe: acc.nssfEe + l.nssfEe, nssfEr: acc.nssfEr + l.nssfEr,
     sdl: acc.sdl + l.sdl, net: acc.net + l.net,
-    advDed: acc.advDed + l.advanceDeduction,
-  }), { gross: 0, paye: 0, nssfEe: 0, nssfEr: 0, sdl: 0, net: 0, advDed: 0 })
+    advDed: acc.advDed + l.advanceDeduction, bonus: acc.bonus + (l.bonus || 0),
+  }), { gross: 0, paye: 0, nssfEe: 0, nssfEr: 0, sdl: 0, net: 0, advDed: 0, bonus: 0 })
 
   return (
     <div className="page">
@@ -586,6 +600,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
                 <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 10, color: '#ef4444' }}>PAYE</th>
                 <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 10, color: '#f59e0b' }}>NSSF Ee</th>
                 <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 10, color: 'var(--text3)' }}>Adv. Ded</th>
+                <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 10, color: '#22c55e' }}>BONUS</th>
                 <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 10, color: 'var(--accent)', fontWeight: 800 }}>NET PAY</th>
                 <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 10, color: '#a78bfa' }}>Er NSSF</th>
                 <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 10, color: '#a78bfa' }}>SDL</th>
@@ -604,6 +619,11 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
                     <td className="td-right td-mono" style={{ padding: '10px 14px', color: '#ef4444' }}>{fmt(l.paye)}</td>
                     <td className="td-right td-mono" style={{ padding: '10px 14px', color: l.nssfEe > 0 ? '#f59e0b' : 'var(--text3)' }}>{l.nssfEe > 0 ? fmt(l.nssfEe) : '---'}</td>
                     <td className="td-right td-mono" style={{ padding: '10px 14px', color: l.advanceDeduction > 0 ? '#ef4444' : 'var(--text3)' }}>{l.advanceDeduction > 0 ? `(${fmt(l.advanceDeduction)})` : '---'}</td>
+                    <td style={{ padding: '8px 14px', textAlign: 'right' }}>
+                      {isSelfMode
+                        ? <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: (l.bonus || 0) > 0 ? '#22c55e' : 'var(--text3)' }}>{(l.bonus || 0) > 0 ? fmt(l.bonus) : '---'}</span>
+                        : <input type="number" value={l.bonus || 0} onChange={e => setBonus(i, parseFloat(e.target.value) || 0)} style={{ width: 100, background: 'var(--surface2)', border: '1px solid var(--border)', color: (l.bonus || 0) > 0 ? '#22c55e' : 'var(--text)', padding: '5px 8px', borderRadius: 5, fontSize: 12, fontFamily: 'var(--mono)', textAlign: 'right' }} />}
+                    </td>
                     <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: 'var(--accent)' }}>{fmt(l.net)}</td>
                     <td className="td-right td-mono" style={{ padding: '10px 14px', color: l.nssfEr > 0 ? '#a78bfa' : 'var(--text3)' }}>{l.nssfEr > 0 ? fmt(l.nssfEr) : '---'}</td>
                     <td className="td-right td-mono" style={{ padding: '10px 14px', color: '#a78bfa' }}>{fmt(l.sdl)}</td>
@@ -619,6 +639,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
                   <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: '#ef4444' }}>{fmt(totals.paye)}</td>
                   <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: '#f59e0b' }}>{fmt(totals.nssfEe)}</td>
                   <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: '#ef4444' }}>{totals.advDed > 0 ? `(${fmt(totals.advDed)})` : '---'}</td>
+                  <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: '#22c55e' }}>{totals.bonus > 0 ? fmt(totals.bonus) : '---'}</td>
                   <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: 'var(--accent)' }}>{fmt(totals.net)}</td>
                   <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: '#a78bfa' }}>{fmt(totals.nssfEr)}</td>
                   <td className="td-right td-mono" style={{ padding: '10px 14px', fontWeight: 800, color: '#a78bfa' }}>{fmt(totals.sdl)}</td>

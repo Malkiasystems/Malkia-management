@@ -44,6 +44,7 @@ interface PayslipData {
   allowances: number
   deductions: number
   advance_deduction: number
+  bonus: number
   paye: number
   nssf_ee: number
   nssf_er: number
@@ -121,7 +122,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     if (!runs || runs.length === 0) { setLines([]); setYtdByEmp({}); setLoading(false); return }
 
     let query = supabase.from('hrm_payroll_lines')
-      .select('id, gross, allowances, deductions, advance_deduction, paye, nssf_ee, nssf_er, sdl, net_pay, payslip_sent, notes, employee:hrm_employees(id, full_name, initials, emp_code, job_title, department, contract_type, bank_name, bank_account, nssf_number, tin_number)')
+      .select('id, gross, allowances, deductions, advance_deduction, bonus, paye, nssf_ee, nssf_er, sdl, net_pay, payslip_sent, notes, employee:hrm_employees(id, full_name, initials, emp_code, job_title, department, contract_type, bank_name, bank_account, nssf_number, tin_number)')
       .eq('payroll_run_id', runs[0].id)
     if (isSelfMode && linkedEmployeeId) {
       query = query.eq('employee_id', linkedEmployeeId)
@@ -326,6 +327,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
     let ly = blockY + 8
     const earningsRows: [string, number][] = [['Basic Salary', slip.gross]]
     if (slip.allowances > 0) earningsRows.push(['Allowances', slip.allowances])
+    if (slip.bonus > 0) earningsRows.push(['Bonus (untaxed)', slip.bonus])
 
     doc.setFont('helvetica', 'normal'); doc.setTextColor(...dark); doc.setFontSize(9.5)
     for (const [label, val] of earningsRows) {
@@ -335,7 +337,7 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
       doc.setFont('helvetica', 'normal')
       ly += 6.5
     }
-    const totalEarnings = slip.gross + slip.allowances
+    const totalEarnings = slip.gross + slip.allowances + (slip.bonus || 0)
     doc.setDrawColor(...gray); doc.setLineWidth(0.2)
     doc.line(leftX, ly - 2, leftX + colW, ly - 2)
     ly += 1
@@ -470,6 +472,12 @@ export default function HRMPayslips({ onNav, hrmMode = 'company', linkedEmployee
       doc.text('Received by employee', w - 80, sigY + 14)
       y = sigY + 18
     }
+
+    // ── APPRECIATION LINE ───────────────────────────────────────────
+    // Warm note to the employee, kept on the PDF (not the WhatsApp caption)
+    // so it stays private to the person reading their own slip.
+    doc.setTextColor(...accent); doc.setFontSize(9); doc.setFont('helvetica', 'bold')
+    doc.text('Tunajivunia kuwa na wewe katika timu ya Malkia. Asante.', w / 2, 274, { align: 'center' })
 
     // ── FOOTER ──────────────────────────────────────────────────────
     const footerY = 280

@@ -304,6 +304,7 @@ export function computePayrollLine(
   advanceDeduction: number = 0,
   payeEnabled: boolean = true,
   sdlEnabled: boolean = true,
+  bonus: number = 0,
 ): { paye: number; nssfEe: number; nssfEr: number; sdl: number; net: number; band: string } {
   // NSSF is a pre-tax deduction — PAYE is calculated on gross MINUS NSSF employee contribution
   const nssfEe = nssfEnabled ? Math.round(gross * nssfEeRate / 100) : 0
@@ -312,7 +313,9 @@ export function computePayrollLine(
   const { paye: rawPaye, band } = computePAYE(taxableIncome)
   const paye = payeEnabled ? rawPaye : 0
   const sdl = sdlEnabled ? Math.round(gross * sdlRate / 100) : 0
-  const net = gross + allowances - paye - nssfEe - deductions - advanceDeduction
+  // Bonus (Malkia policy): paid ON TOP of net, after PAYE and NSSF — never
+  // taxed, never NSSF-able. Added last so it reaches take-home untouched.
+  const net = gross + allowances - paye - nssfEe - deductions - advanceDeduction + (bonus || 0)
   return { paye, nssfEe, nssfEr, sdl, net, band: payeEnabled ? band : 'Exempt' }
 }
 
