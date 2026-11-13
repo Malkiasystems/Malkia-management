@@ -124,6 +124,51 @@ const EMPTY_FORM = {
   credit_limit: '0', payment_terms: 'COD', notes: '', assigned_salesperson_id: ''
 }
 
+/* Search rules for the customer list.
+   The old rule also looked for the typed text anywhere inside the customer
+   number. Every wholesale number begins "WHL-10-", so typing h, w, l, 1 or 0
+   matched nearly every customer and the list never narrowed.
+     - one letter: customers with a word that STARTS with it (name, company
+       or contact person), so "h" finds H & E Pharmacy and Happy Baby Shop
+     - two or more characters: found anywhere in those three fields
+     - customer number: only when the text reads like a number search, either
+       starting with the code (WHL, DEB, CONT) or digits matched against the
+       serial at the end, not against the shared "10" branch part
+     - WhatsApp number: needs at least three digits */
+const SEARCH_SKIP_WORDS = new Set(['ltd', 'limited', 'co', 'company', 'and', 'the'])
+const searchWords = (c: { name?: string | null; company?: string | null; contact_person?: string | null }) =>
+  [c.name, c.company, c.contact_person].filter(Boolean).join(' ').toLowerCase()
+function matchesCustomerSearch(c: { name?: string | null; company?: string | null; contact_person?: string | null; whatsapp?: string | null; customer_number?: string | null }, q: string): boolean {
+  const hay = searchWords(c)
+  if (q.length === 1 && /[a-z]/.test(q)) {
+    // company suffixes are not what anyone is looking for when typing one letter
+    if (hay.split(/[^a-z0-9]+/).some(w => w.startsWith(q) && !SEARCH_SKIP_WORDS.has(w))) return true
+  } else {
+    if (hay.includes(q)) return true
+    // names written with symbols: "he" or "h&e" should still find "H & E Pharmacy"
+    const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const qs = squash(q)
+    if (qs.length >= 2 && (squash(c.company || '').startsWith(qs) || squash(c.name || '').startsWith(qs))) return true
+  }
+
+  const number = (c.customer_number || '').toLowerCase()
+  const typed = q.replace(/[\s-]/g, '')                 // what was typed, ignoring spaces and dashes
+  const digits = q.replace(/\D/g, '')                   // only its digits
+  if (/^[a-z]{3,}/.test(typed) && number.replace(/-/g, '').startsWith(typed)) return true   // "whl", "whl-10-0089", "deb"
+  if (digits && digits === typed.replace(/^\+/, '')) {  // the user typed a number, nothing else
+    const serial = number.split('-').pop() || ''
+    if (serial.includes(digits) || number.replace(/\D/g, '').endsWith(digits)) return true
+    if (digits.length >= 3 && (c.whatsapp || '').replace(/\D/g, '').includes(digits.replace(/^0/, ''))) return true   // 0750... also finds +255750...
+  }
+  return false
+}
+/** While searching, customers whose name begins with the typed text come first. */
+function rankBySearch<T extends { name?: string | null; company?: string | null }>(rows: T[], q: string): T[] {
+  if (!q) return rows
+  const starts = (r: T) => (r.company || r.name || '').toLowerCase().startsWith(q) || (r.name || '').toLowerCase().startsWith(q)
+  return [...rows.filter(starts), ...rows.filter(r => !starts(r))]
+}
+
 export default function Customers({ onNav, onViewStatement, onReceipt, initialTab, onTabChange, openLedgerId, onLedgerChange }: { onNav?: (p: Page) => void; onViewStatement?: (customerId: string) => void; onReceipt?: (customerId: string) => void; initialTab?: 'cash'|'wholesale'; onTabChange?: (t: 'cash'|'wholesale') => void; openLedgerId?: string | null; onLedgerChange?: (id: string | null) => void }) {
   // Tabs: 'cash' = retail walk-ins; 'wholesale' = sales-invoice customers
   // (formerly labelled "Debtors"; see migration 009).
@@ -651,7 +696,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
         const sp = (c as any).assigned_salesperson_id || null
         if (spFilter === 'none' ? sp !== null : sp !== spFilter) return false
       }
-      if (q && !c.name.toLowerCase().includes(q) && !(c.whatsapp || '').includes(deferredSearch.trim()) && !(c.customer_number || '').toLowerCase().includes(q)) return false
+      if (q && !matchesCustomerSearch(c, q)) return false
       if (tab === 'cash') {
         if (stageFilter === 'unclassified' && c.life_stage) return false
         if (stageFilter !== 'all' && stageFilter !== 'unclassified' && c.life_stage !== stageFilter) return false
@@ -686,8 +731,10 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
 
   const sortStorageKey = tab === 'cash' ? 'malkia.customers.sort.cash' : 'malkia.customers.sort.wholesale'
   const defaultSort = useMemo(() => [{ key: 'name', direction: 'asc' as const }], [])
-  const { sorted, onHeaderClick, getSortIndex, getSortDir } =
+  const { sorted: sortedByColumn, onHeaderClick, getSortIndex, getSortDir } =
     useTableSort<Customer>(filtered, { storageKey: sortStorageKey, defaultSort, accessor: sortAccessor })
+  // keep the chosen column order, but lift names that begin with the search text to the top
+  const sorted = useMemo(() => rankBySearch(sortedByColumn, deferredSearch.trim().toLowerCase()), [sortedByColumn, deferredSearch])
 
   // ── Render window ─────────────────────────────────────────────────────────
   // Each row in this table is roughly fifteen elements with inline style
