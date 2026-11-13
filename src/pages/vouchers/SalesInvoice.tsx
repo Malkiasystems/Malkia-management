@@ -661,238 +661,290 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
     setPosting(true)
     try {
       const customerId = selectedCust.id
-      const { data: acctData } = await supabase.from('accounts').select('id, code')
-        .in('code', ['4011', '5010', '1110', '2020', '1050'])
-      const acct = (code: string) => acctData?.find(a => a.code === code)?.id
-      const revenueId = acct('4011'); const cogsId = acct('5010')
-      const inventoryId = acct('1110'); const vatId = acct('2020'); const arId = acct('1050')
-      if (!revenueId || !cogsId || !inventoryId || !arId) throw new Error('Required GL accounts not found')
+      // ── Posting ────────────────────────────────────────────────────────
+      // The invoice is posted by ONE database operation (post_sales_invoice,
+      // migration 069): accounting entry, invoice, lines, stock, statement
+      // line and any advance payment are saved together or not at all. Before
+      // this, the browser sent about fourteen separate writes and a dropped
+      // connection could leave half an invoice behind.
+      //
+      // The previous method is kept below as postLegacy, used only if an
+      // administrator sets system_settings.posting_engine to
+      // {"sales_invoice":"legacy"}. It is a fallback, not a second path.
+      const postLegacy = async (): Promise<string> => {
+        const { data: acctData } = await supabase.from('accounts').select('id, code')
+          .in('code', ['4011', '5010', '1110', '2020', '1050'])
+        const acct = (code: string) => acctData?.find(a => a.code === code)?.id
+        const revenueId = acct('4011'); const cogsId = acct('5010')
+        const inventoryId = acct('1110'); const vatId = acct('2020'); const arId = acct('1050')
+        if (!revenueId || !cogsId || !inventoryId || !arId) throw new Error('Required GL accounts not found')
 
-      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
-        ref: 'JV-' + form.ref, posting_date: form.date,
-        description: `Sales Invoice — ${selectedCust.company || selectedCust.name} — ${form.ref}`,
-        journal_type: 'sales_invoice', source_type: 'sales_invoice', source_ref: form.ref,
-        posted_by: getPostedBy(), status: 'posted',
-      })  
-      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
-      const journal = journalRaw
-      // insertJournalWithRetry bumps the ref on a collision (a form left open
-      // while other invoices post carries a stale number). EVERYTHING below
-      // must use the ref that actually landed, or the voucher insert dies on
-      // vouchers_ref_key — which is exactly what created orphan journals
-      // SI-10-0290/0291 on 08/09/2026 and the same PAY-10-008x mess in Aug.
-      const finalRef = (journal as any).source_ref || form.ref
+        const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
+          ref: 'JV-' + form.ref, posting_date: form.date,
+          description: `Sales Invoice — ${selectedCust.company || selectedCust.name} — ${form.ref}`,
+          journal_type: 'sales_invoice', source_type: 'sales_invoice', source_ref: form.ref,
+          posted_by: getPostedBy(), status: 'posted',
+        })  
+        if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
+        const journal = journalRaw
+        // insertJournalWithRetry bumps the ref on a collision (a form left open
+        // while other invoices post carries a stale number). EVERYTHING below
+        // must use the ref that actually landed, or the voucher insert dies on
+        // vouchers_ref_key — which is exactly what created orphan journals
+        // SI-10-0290/0291 on 08/09/2026 and the same PAY-10-008x mess in Aug.
+        const finalRef = (journal as any).source_ref || form.ref
 
-      const jLines: any[] = [
-        { journal_id: journal.id, line_number: 1, account_id: arId, description: `AR — ${selectedCust.company || selectedCust.name} — ${finalRef}`, debit: subtotal, credit: 0 },
-        { journal_id: journal.id, line_number: 2, account_id: revenueId, description: `Revenue — ${finalRef}`, debit: 0, credit: netRevenue },
-      ]
-      if (vat > 0 && vatId) {
-        jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: vatId, description: `VAT — ${finalRef}`, debit: 0, credit: vat })
-      }
-      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: cogsId, description: `COGS — ${finalRef}`, debit: cogsTotal, credit: 0 })
-      jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: inventoryId, description: `Inventory out — ${finalRef}`, debit: 0, credit: cogsTotal })
-      const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
-      if (jlErr) throw new Error(jlErr.message)
-      await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
+        const jLines: any[] = [
+          { journal_id: journal.id, line_number: 1, account_id: arId, description: `AR — ${selectedCust.company || selectedCust.name} — ${finalRef}`, debit: subtotal, credit: 0 },
+          { journal_id: journal.id, line_number: 2, account_id: revenueId, description: `Revenue — ${finalRef}`, debit: 0, credit: netRevenue },
+        ]
+        if (vat > 0 && vatId) {
+          jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: vatId, description: `VAT — ${finalRef}`, debit: 0, credit: vat })
+        }
+        jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: cogsId, description: `COGS — ${finalRef}`, debit: cogsTotal, credit: 0 })
+        jLines.push({ journal_id: journal.id, line_number: jLines.length + 1, account_id: inventoryId, description: `Inventory out — ${finalRef}`, debit: 0, credit: cogsTotal })
+        const { error: jlErr } = await supabase.from('journal_lines').insert(jLines)
+        if (jlErr) throw new Error(jlErr.message)
+        await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
 
-      const voucherPayload: Record<string, unknown> = {
-        ref: finalRef, type: 'sales_invoice', posting_date: form.date,
-        description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
-        subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
-        status: 'posted', customer_id: customerId, journal_id: journal.id,
-        salesperson_id: salespersonIdFinal,
-        notes: form.notes || null, posted_by: getPostedBy(),
-      }
-      if (form.dueDate) voucherPayload.due_date = form.dueDate
-      if (form.paymentTerms) voucherPayload.payment_terms = form.paymentTerms
-      // New fields — requires migration add_sales_invoice_fields.sql to have run.
-      // If the columns don't exist yet, Supabase will return an error; the
-      // try/catch path already surfaces that to the user.
-      if (form.poRef.trim()) voucherPayload.po_reference = form.poRef.trim()
-      if (form.deliveryAddress.trim()) voucherPayload.delivery_address = form.deliveryAddress.trim()
+        const voucherPayload: Record<string, unknown> = {
+          ref: finalRef, type: 'sales_invoice', posting_date: form.date,
+          description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
+          subtotal: netRevenue, vat_amount: vat, total_amount: subtotal,
+          status: 'posted', customer_id: customerId, journal_id: journal.id,
+          salesperson_id: salespersonIdFinal,
+          notes: form.notes || null, posted_by: getPostedBy(),
+        }
+        if (form.dueDate) voucherPayload.due_date = form.dueDate
+        if (form.paymentTerms) voucherPayload.payment_terms = form.paymentTerms
+        // New fields — requires migration add_sales_invoice_fields.sql to have run.
+        // If the columns don't exist yet, Supabase will return an error; the
+        // try/catch path already surfaces that to the user.
+        if (form.poRef.trim()) voucherPayload.po_reference = form.poRef.trim()
+        if (form.deliveryAddress.trim()) voucherPayload.delivery_address = form.deliveryAddress.trim()
 
-      const { data: voucher, error: vErr } = await supabase.from('vouchers').insert(voucherPayload).select('id').single()
-      if (vErr) throw new Error(vErr.message)
+        const { data: voucher, error: vErr } = await supabase.from('vouchers').insert(voucherPayload).select('id').single()
+        if (vErr) throw new Error(vErr.message)
 
-      // "Paid in advance" — hold dispatch until a CEO/admin confirms funds.
-      // The invoice still posts and deducts stock; only dispatch is gated.
-      if (form.holdForApproval) {
-        await supabase.from('invoice_payment_holds').insert({
-          voucher_id: voucher.id, ref: finalRef, customer_name: selectedCust?.company || selectedCust?.name || null,
-          amount: subtotal, status: 'pending',
-          requested_by: user?.id || null, requested_by_name: user?.full_name || null,
-        }).then(() => {}, () => {})  // best-effort; never block the post
-      }
+        // "Paid in advance" — hold dispatch until a CEO/admin confirms funds.
+        // The invoice still posts and deducts stock; only dispatch is gated.
+        if (form.holdForApproval) {
+          await supabase.from('invoice_payment_holds').insert({
+            voucher_id: voucher.id, ref: finalRef, customer_name: selectedCust?.company || selectedCust?.name || null,
+            amount: subtotal, status: 'pending',
+            requested_by: user?.id || null, requested_by_name: user?.full_name || null,
+          }).then(() => {}, () => {})  // best-effort; never block the post
+        }
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]; if (!line.productId) continue
-        const prod = products.find(p => p.id === line.productId); if (!prod) continue
-        // When discountMode === 'absolute', convert to equivalent % for
-        // backward-compat with discount_pct column, so reporting continues
-        // to show a meaningful discount figure.
-        const discPctEquiv = (line.discountMode === 'absolute' && line.price > 0)
-          ? Math.round((line.discount / line.price) * 100 * 100) / 100
-          : line.discount
-        await supabase.from('voucher_lines').insert({
-          voucher_id: voucher.id, line_number: i + 1, product_id: line.productId,
-          description: line.name, qty: line.qty, unit_cost: prod.cost_price,
-          unit_price: line.price, subtotal: line.amount, discount_pct: discPctEquiv,
-          vat_amount: vat > 0 ? Math.round(line.amount * vatRate / (100 + vatRate)) : 0, total: line.amount,
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i]; if (!line.productId) continue
+          const prod = products.find(p => p.id === line.productId); if (!prod) continue
+          // When discountMode === 'absolute', convert to equivalent % for
+          // backward-compat with discount_pct column, so reporting continues
+          // to show a meaningful discount figure.
+          const discPctEquiv = (line.discountMode === 'absolute' && line.price > 0)
+            ? Math.round((line.discount / line.price) * 100 * 100) / 100
+            : line.discount
+          await supabase.from('voucher_lines').insert({
+            voucher_id: voucher.id, line_number: i + 1, product_id: line.productId,
+            description: line.name, qty: line.qty, unit_cost: prod.cost_price,
+            unit_price: line.price, subtotal: line.amount, discount_pct: discPctEquiv,
+            vat_amount: vat > 0 ? Math.round(line.amount * vatRate / (100 + vatRate)) : 0, total: line.amount,
+          })
+          await supabase.rpc('deduct_stock_allow_negative', { p_product_id: prod.id, p_qty: line.qty })
+          const selectedLoc = locations.find(l => l.code === locationCode)
+          await postLedgerEntry({
+            product_id: line.productId, entry_type: 'sale',
+            document_type: 'sales_invoice', document_ref: finalRef,
+            posting_date: form.date, qty: -line.qty, cost_amount: prod.cost_price * line.qty,
+            location: selectedLoc || null,
+          })
+          // Decrement THIS LOCATION's qty so per-location stock stays accurate.
+          // The product_locations trigger then recomputes products.qty_on_hand
+          // as SUM(all locations), keeping global in sync. Without this, every
+          // sales invoice silently caused drift (global went down, no location
+          // bumped down to match).
+          if (selectedLoc) {
+            const { data: existingLoc } = await supabase.from('product_locations')
+              .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
+            const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - line.qty)
+            await supabase.from('product_locations').upsert(
+              { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
+              { onConflict: 'product_id,location_id' }
+            )
+          }
+        }
+
+        // Update customer balance and ledger. When the customer paid in
+        // advance, the *net* balance change is subtotal − paidNow (invoice
+        // adds receivable, receipt reduces it). Both ledger rows are still
+        // posted individually for an audit trail.
+        //
+        // Additive update is safe here because netBalanceChange exactly
+        // matches the ledger rows we write below (one invoice row + one
+        // optional receipt row, summing to subtotal - paidNow). The receipt
+        // path was rewritten in CustomerPaymentFlow.postCustomerReceiptLedger
+        // to re-derive from ledger after writing, because that path had a
+        // drift bug where Math.max(0, ...) clamped overpayments and silently
+        // de-synced. Don't replicate that bug here.
+        const netBalanceChange = subtotal - paidNow
+        await supabase.from('customers').update({
+          balance: (selectedCust.balance || 0) + netBalanceChange,
+          last_purchase_date: form.date, last_purchase_amount: subtotal,
+        }).eq('id', customerId)
+
+        // Customer ledger entry — must be awaited. Previously this was fire-and-forget
+        // (.then(...) without await), meaning if the insert silently failed, the
+        // voucher would post but the AR ledger would have no record of the receivable.
+        // The customer balance trigger relies on this row existing.
+        //
+        // remaining_amount and is_open reflect the advance payment: if the
+        // wholesaler paid in full at issue, this invoice closes immediately;
+        // partial payments leave it open with a reduced remaining_amount.
+        const invoiceRemaining = Math.max(0, subtotal - paidNow)
+        const invoiceStillOpen = invoiceRemaining > 0.5
+        const { error: ledgerErr } = await supabase.from('customer_ledger_entries').insert({
+          customer_id: customerId, posting_date: form.date,
+          document_type: 'invoice', document_ref: finalRef,
+          description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
+          amount: subtotal, remaining_amount: invoiceRemaining,
+          due_date: form.dueDate || null, is_open: invoiceStillOpen, journal_id: journal.id,
         })
-        await supabase.rpc('deduct_stock_allow_negative', { p_product_id: prod.id, p_qty: line.qty })
-        const selectedLoc = locations.find(l => l.code === locationCode)
-        await postLedgerEntry({
-          product_id: line.productId, entry_type: 'sale',
-          document_type: 'sales_invoice', document_ref: finalRef,
-          posting_date: form.date, qty: -line.qty, cost_amount: prod.cost_price * line.qty,
-          location: selectedLoc || null,
-        })
-        // Decrement THIS LOCATION's qty so per-location stock stays accurate.
-        // The product_locations trigger then recomputes products.qty_on_hand
-        // as SUM(all locations), keeping global in sync. Without this, every
-        // sales invoice silently caused drift (global went down, no location
-        // bumped down to match).
-        if (selectedLoc) {
-          const { data: existingLoc } = await supabase.from('product_locations')
-            .select('qty_on_hand').eq('product_id', line.productId).eq('location_id', selectedLoc.id).maybeSingle()
-          const newLocQty = Math.max(0, (existingLoc?.qty_on_hand ?? 0) - line.qty)
-          await supabase.from('product_locations').upsert(
-            { product_id: line.productId, location_id: selectedLoc.id, location_code: selectedLoc.code, qty_on_hand: newLocQty, last_updated: new Date().toISOString() },
-            { onConflict: 'product_id,location_id' }
+        if (ledgerErr) {
+          // Never carry on quietly (three invoices lost their statement line that
+          // way in Nov 2026). First let the database add the line itself, which
+          // works even when this user's own insert is refused. Either way the
+          // failure is recorded for the administrators; if the repair also fails,
+          // the person posting is stopped with a message they must dismiss.
+          console.error('Customer ledger insert failed:', ledgerErr.message)
+          const { error: repairErr } = await supabase.rpc('ar_ensure_invoice_statement_line', { p_ref: finalRef, p_remaining: invoiceRemaining })
+          await recordPostingFailure(
+            finalRef,
+            repairErr ? 'invoice statement line (NOT repaired)' : 'invoice statement line (repaired automatically)',
+            ledgerErr.message + (repairErr ? ` | repair: ${repairErr.message}` : ''),
           )
+          if (repairErr) alarmPostingFailure(finalRef, "its line on the customer's statement", ledgerErr.message)
         }
+
+        // ── Advance payment: post a sibling Cash Receipt ──────────────────
+        // When the wholesaler paid cash at issue time, we record a normal
+        // Cash Receipt against the same customer, so it shows on their
+        // statement as "Payment received against INV-…" and the AR aging
+        // report reflects the reduced outstanding amount immediately.
+        // This keeps the books clean: invoice and receipt are two separate
+        // vouchers and two separate journals (audit-friendly), tied
+        // together by the customer ledger entries' remaining_amount.
+        if (paidNow > 0 && form.paidDepositAccountId) {
+          try {
+            const depositAcc = cashAccounts.find(a => a.id === form.paidDepositAccountId)
+            const payMethod = depositAcc ? deriveMethod(depositAcc.code, depositAcc.name) : 'cash'
+            const receiptRef = await nextRef('cash_receipt')
+            const custName = selectedCust.company || selectedCust.name
+
+            const { data: receiptJournalRaw, error: rjErr } = await insertJournalWithRetry({
+              ref: 'JV-' + receiptRef, posting_date: form.date,
+              description: `Customer Receipt (advance on ${finalRef}) — ${custName} — ${receiptRef}`,
+              journal_type: 'cash_receipt', source_type: 'cash_receipt',
+              source_ref: receiptRef, posted_by: getPostedBy(), status: 'posted',
+            })
+            if (rjErr || !receiptJournalRaw) throw new Error(rjErr?.message || 'Receipt journal insert failed')
+
+            const { error: rlErr } = await supabase.from('journal_lines').insert([
+              {
+                journal_id: receiptJournalRaw.id, line_number: 1,
+                account_id: form.paidDepositAccountId,
+                description: `Received from ${custName} — advance on ${finalRef}`,
+                debit: paidNow, credit: 0,
+              },
+              {
+                journal_id: receiptJournalRaw.id, line_number: 2,
+                account_id: arId,
+                description: `AR payment — ${custName} — ${finalRef}`,
+                debit: 0, credit: paidNow,
+              },
+            ])
+            if (rlErr) throw new Error('Receipt journal lines: ' + rlErr.message)
+
+            await Promise.all([
+              supabase.rpc('update_account_balance', { p_account_id: form.paidDepositAccountId, p_debit: paidNow, p_credit: 0 }),
+              supabase.rpc('update_account_balance', { p_account_id: arId, p_debit: 0, p_credit: paidNow }),
+            ])
+
+            // Receipt voucher row — links the receipt to the customer and
+            // exposes it in the Payment Register page.
+            await supabase.from('vouchers').insert({
+              ref: receiptRef, type: 'cash_receipt', posting_date: form.date,
+              description: `Customer Receipt (advance on ${finalRef}) — ${custName}`,
+              total_amount: paidNow, status: 'posted', journal_id: receiptJournalRaw.id,
+              payment_method: payMethod,
+              notes: form.paidTransactionId
+                ? `Advance payment for ${finalRef} · ${payMethod.toUpperCase()} ref: ${form.paidTransactionId}`
+                : `Advance payment for ${finalRef}`,
+              posted_by: getPostedBy(), customer_id: customerId,
+            })
+
+            // Receipt ledger entry — negative amount on the customer's AR
+            // ledger, marks the receipt itself as closed. Settling specific
+            // invoices (i.e. matching this receipt to the invoice ledger
+            // entry above so it reduces remaining_amount further) is already
+            // handled at insert time via the invoiceRemaining math; the
+            // receipt row exists for audit and customer statement display.
+            await statementLine(supabase.from('customer_ledger_entries').insert({
+              customer_id: customerId, posting_date: form.date,
+              document_type: 'receipt', document_ref: receiptRef,
+              description: `Payment received against ${finalRef}`,
+              amount: -paidNow, remaining_amount: 0,
+              is_open: false, journal_id: receiptJournalRaw.id,
+            }), { ref: receiptRef, what: "the payment line on the customer's statement" })
+          } catch (advErr: any) {
+            // Invoice already posted at this point — surface the receipt
+            // failure so the user knows to retry the receipt manually rather
+            // than thinking the whole thing failed.
+            console.error('Advance receipt failed after invoice posted:', advErr.message)
+            showToast(`Invoice ${finalRef} posted, but advance receipt failed: ${advErr.message}. Please post the receipt manually via Cash Receipt.`, 'error')
+          }
+        }
+        return finalRef
       }
 
-      // Update customer balance and ledger. When the customer paid in
-      // advance, the *net* balance change is subtotal − paidNow (invoice
-      // adds receivable, receipt reduces it). Both ledger rows are still
-      // posted individually for an audit trail.
-      //
-      // Additive update is safe here because netBalanceChange exactly
-      // matches the ledger rows we write below (one invoice row + one
-      // optional receipt row, summing to subtotal - paidNow). The receipt
-      // path was rewritten in CustomerPaymentFlow.postCustomerReceiptLedger
-      // to re-derive from ledger after writing, because that path had a
-      // drift bug where Math.max(0, ...) clamped overpayments and silently
-      // de-synced. Don't replicate that bug here.
+      let engine: 'db' | 'legacy' = 'db'
+      try {
+        const { data: eng } = await supabase.from('system_settings').select('value').eq('key', 'posting_engine').maybeSingle()
+        const ev = eng?.value ? (typeof eng.value === 'string' ? JSON.parse(eng.value) : eng.value) : null
+        if (ev?.sales_invoice === 'legacy') engine = 'legacy'
+      } catch { /* setting unreadable: use the database operation */ }
+
+      let finalRef: string
+      if (engine === 'legacy') {
+        finalRef = await postLegacy()
+      } else {
+        const depositAcc = cashAccounts.find(a => a.id === form.paidDepositAccountId)
+        const { data: posted, error: postErr } = await supabase.rpc('post_sales_invoice', { p: {
+          ref: form.ref, date: form.date, due_date: form.dueDate || null,
+          payment_terms: form.paymentTerms || null, notes: form.notes || null,
+          po_reference: form.poRef.trim() || null, delivery_address: form.deliveryAddress.trim() || null,
+          customer_id: customerId, salesperson_id: salespersonIdFinal, location_code: locationCode || null,
+          posted_by: getPostedBy(), vat_enabled: vatEnabled, vat_rate: vatRate, subtotal,
+          hold_for_approval: !!form.holdForApproval,
+          requested_by: user?.id || null, requested_by_name: user?.full_name || null,
+          paid_now: paidNow, paid_deposit_account_id: paidNow > 0 ? form.paidDepositAccountId : null,
+          pay_method: depositAcc ? deriveMethod(depositAcc.code, depositAcc.name) : 'cash',
+          paid_transaction_id: form.paidTransactionId || null,
+          lines: lines.map((line, i) => ({ line, i })).filter(x => x.line.productId).map(({ line, i }) => ({
+            line_number: i + 1, product_id: line.productId, name: line.name, qty: line.qty,
+            price: line.price, amount: line.amount,
+            discount_pct: (line.discountMode === 'absolute' && line.price > 0)
+              ? Math.round((line.discount / line.price) * 100 * 100) / 100
+              : line.discount,
+          })),
+        } })
+        // Nothing was saved if this failed: the whole posting is undone.
+        if (postErr) throw new Error(postErr.message)
+        if (!posted?.ref) throw new Error('Posting returned no invoice number. Nothing was saved; please try again.')
+        finalRef = posted.ref as string
+      }
       const netBalanceChange = subtotal - paidNow
-      await supabase.from('customers').update({
-        balance: (selectedCust.balance || 0) + netBalanceChange,
-        last_purchase_date: form.date, last_purchase_amount: subtotal,
-      }).eq('id', customerId)
 
-      // Customer ledger entry — must be awaited. Previously this was fire-and-forget
-      // (.then(...) without await), meaning if the insert silently failed, the
-      // voucher would post but the AR ledger would have no record of the receivable.
-      // The customer balance trigger relies on this row existing.
-      //
-      // remaining_amount and is_open reflect the advance payment: if the
-      // wholesaler paid in full at issue, this invoice closes immediately;
-      // partial payments leave it open with a reduced remaining_amount.
-      const invoiceRemaining = Math.max(0, subtotal - paidNow)
-      const invoiceStillOpen = invoiceRemaining > 0.5
-      const { error: ledgerErr } = await supabase.from('customer_ledger_entries').insert({
-        customer_id: customerId, posting_date: form.date,
-        document_type: 'invoice', document_ref: finalRef,
-        description: `Sales Invoice — ${selectedCust.company || selectedCust.name}`,
-        amount: subtotal, remaining_amount: invoiceRemaining,
-        due_date: form.dueDate || null, is_open: invoiceStillOpen, journal_id: journal.id,
-      })
-      if (ledgerErr) {
-        // Never carry on quietly (three invoices lost their statement line that
-        // way in Nov 2026). First let the database add the line itself, which
-        // works even when this user's own insert is refused. Either way the
-        // failure is recorded for the administrators; if the repair also fails,
-        // the person posting is stopped with a message they must dismiss.
-        console.error('Customer ledger insert failed:', ledgerErr.message)
-        const { error: repairErr } = await supabase.rpc('ar_ensure_invoice_statement_line', { p_ref: finalRef, p_remaining: invoiceRemaining })
-        await recordPostingFailure(
-          finalRef,
-          repairErr ? 'invoice statement line (NOT repaired)' : 'invoice statement line (repaired automatically)',
-          ledgerErr.message + (repairErr ? ` | repair: ${repairErr.message}` : ''),
-        )
-        if (repairErr) alarmPostingFailure(finalRef, "its line on the customer's statement", ledgerErr.message)
-      }
-
-      // ── Advance payment: post a sibling Cash Receipt ──────────────────
-      // When the wholesaler paid cash at issue time, we record a normal
-      // Cash Receipt against the same customer, so it shows on their
-      // statement as "Payment received against INV-…" and the AR aging
-      // report reflects the reduced outstanding amount immediately.
-      // This keeps the books clean: invoice and receipt are two separate
-      // vouchers and two separate journals (audit-friendly), tied
-      // together by the customer ledger entries' remaining_amount.
-      if (paidNow > 0 && form.paidDepositAccountId) {
-        try {
-          const depositAcc = cashAccounts.find(a => a.id === form.paidDepositAccountId)
-          const payMethod = depositAcc ? deriveMethod(depositAcc.code, depositAcc.name) : 'cash'
-          const receiptRef = await nextRef('cash_receipt')
-          const custName = selectedCust.company || selectedCust.name
-
-          const { data: receiptJournalRaw, error: rjErr } = await insertJournalWithRetry({
-            ref: 'JV-' + receiptRef, posting_date: form.date,
-            description: `Customer Receipt (advance on ${finalRef}) — ${custName} — ${receiptRef}`,
-            journal_type: 'cash_receipt', source_type: 'cash_receipt',
-            source_ref: receiptRef, posted_by: getPostedBy(), status: 'posted',
-          })
-          if (rjErr || !receiptJournalRaw) throw new Error(rjErr?.message || 'Receipt journal insert failed')
-
-          const { error: rlErr } = await supabase.from('journal_lines').insert([
-            {
-              journal_id: receiptJournalRaw.id, line_number: 1,
-              account_id: form.paidDepositAccountId,
-              description: `Received from ${custName} — advance on ${finalRef}`,
-              debit: paidNow, credit: 0,
-            },
-            {
-              journal_id: receiptJournalRaw.id, line_number: 2,
-              account_id: arId,
-              description: `AR payment — ${custName} — ${finalRef}`,
-              debit: 0, credit: paidNow,
-            },
-          ])
-          if (rlErr) throw new Error('Receipt journal lines: ' + rlErr.message)
-
-          await Promise.all([
-            supabase.rpc('update_account_balance', { p_account_id: form.paidDepositAccountId, p_debit: paidNow, p_credit: 0 }),
-            supabase.rpc('update_account_balance', { p_account_id: arId, p_debit: 0, p_credit: paidNow }),
-          ])
-
-          // Receipt voucher row — links the receipt to the customer and
-          // exposes it in the Payment Register page.
-          await supabase.from('vouchers').insert({
-            ref: receiptRef, type: 'cash_receipt', posting_date: form.date,
-            description: `Customer Receipt (advance on ${finalRef}) — ${custName}`,
-            total_amount: paidNow, status: 'posted', journal_id: receiptJournalRaw.id,
-            payment_method: payMethod,
-            notes: form.paidTransactionId
-              ? `Advance payment for ${finalRef} · ${payMethod.toUpperCase()} ref: ${form.paidTransactionId}`
-              : `Advance payment for ${finalRef}`,
-            posted_by: getPostedBy(), customer_id: customerId,
-          })
-
-          // Receipt ledger entry — negative amount on the customer's AR
-          // ledger, marks the receipt itself as closed. Settling specific
-          // invoices (i.e. matching this receipt to the invoice ledger
-          // entry above so it reduces remaining_amount further) is already
-          // handled at insert time via the invoiceRemaining math; the
-          // receipt row exists for audit and customer statement display.
-          await statementLine(supabase.from('customer_ledger_entries').insert({
-            customer_id: customerId, posting_date: form.date,
-            document_type: 'receipt', document_ref: receiptRef,
-            description: `Payment received against ${finalRef}`,
-            amount: -paidNow, remaining_amount: 0,
-            is_open: false, journal_id: receiptJournalRaw.id,
-          }), { ref: receiptRef, what: "the payment line on the customer's statement" })
-        } catch (advErr: any) {
-          // Invoice already posted at this point — surface the receipt
-          // failure so the user knows to retry the receipt manually rather
-          // than thinking the whole thing failed.
-          console.error('Advance receipt failed after invoice posted:', advErr.message)
-          showToast(`Invoice ${finalRef} posted, but advance receipt failed: ${advErr.message}. Please post the receipt manually via Cash Receipt.`, 'error')
-        }
-      }
 
       // Post-update balance: what the customer now owes after this invoice
       // (and after the optional advance receipt, if any). InvoiceTemplate in
