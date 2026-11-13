@@ -25,6 +25,7 @@ interface Contact {
 interface Msg {
   id: string; direction: 'in' | 'out'; purpose: string; body: string | null
   status: string; error: string | null; created_at: string
+  media_type?: string | null; media_path?: string | null; media_status?: string | null
 }
 
 /* ── theme: the user picks light or dark; remembered on this browser ── */
@@ -66,6 +67,89 @@ const stamp = (iso: string) =>
 const windowOpen = (c: { last_inbound_at: string | null }) => waWindowLeftMs(c.last_inbound_at) > 0
 const NO_TEXT = '[Voice note, photo or sticker]'
 
+/* media: files live in the private wa-media bucket; the app opens them through
+   short-lived signed links, cached so a thread does not re-request them */
+const MEDIA_LABEL = /^\[(Voice note|Photo|Video|Document|Sticker|Contact)\]\s?/
+const signedCache = new Map<string, { url: string; until: number }>()
+async function signedMediaUrl(path: string): Promise<string | null> {
+  const hit = signedCache.get(path)
+  if (hit && hit.until > Date.now()) return hit.url
+  const { data, error } = await supabase.storage.from('wa-media').createSignedUrl(path, 3600)
+  if (error || !data?.signedUrl) return null
+  signedCache.set(path, { url: data.signedUrl, until: Date.now() + 50 * 60000 })
+  return data.signedUrl
+}
+const mediaKind = (type: string | null | undefined) => {
+  const t = (type || '').toLowerCase()
+  if (t.startsWith('audio/')) return 'voice note'
+  if (t === 'image/webp') return 'sticker'
+  if (t.startsWith('image/')) return 'photo'
+  if (t.startsWith('video/')) return 'video'
+  return 'document'
+}
+
+const URL_RE = /(https?:\/\/[^\s<>()]+)/g
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(URL_RE)
+  return <>{parts.map((part, i) => i % 2 === 1
+    ? <a key={i} href={part} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>{part}</a>
+    : part)}</>
+}
+
+function MediaBlock({ m, t, onReady }: { m: Msg; t: Palette; onReady?: () => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const kind = mediaKind(m.media_type)
+  useEffect(() => {
+    let alive = true
+    setUrl(null); setFailed(false)
+    if (m.media_status === 'stored' && m.media_path) {
+      signedMediaUrl(m.media_path).then(u => { if (alive) { if (u) setUrl(u); else setFailed(true) } })
+    }
+    return () => { alive = false }
+  }, [m.media_path, m.media_status])
+
+  const note = (text: string) => <div style={{ fontSize: 12, fontStyle: 'italic', opacity: .8, padding: '2px 0' }}>{text}</div>
+  if (m.media_status === 'pending') return note(`Fetching the ${kind}...`)
+  if (m.media_status === 'too_large') return note(`This ${kind} is larger than 25 MB and was not saved. Ask the customer to send it another way.`)
+  if (m.media_status === 'failed' || failed) return note(`This ${kind} could not be fetched. Ask the customer to send it again.`)
+  if (!url) return note(`Loading the ${kind}...`)
+  const type = (m.media_type || '').toLowerCase()
+  if (type.startsWith('image/')) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" title="Open full size">
+        <img src={url} alt={kind} onLoad={onReady} style={{ display: 'block', maxWidth: 'min(320px, 100%)', maxHeight: 320, borderRadius: 8, border: `1px solid ${t.border}` }} />
+      </a>
+    )
+  }
+  if (type.startsWith('audio/')) {
+    return (
+      <div>
+        <audio controls preload="none" src={url} style={{ width: 280, maxWidth: '100%', height: 38 }} />
+        <div style={{ fontSize: 10.5, opacity: .75 }}>Voice note. <a href={url} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>Open in a new tab</a> if it does not play.</div>
+      </div>
+    )
+  }
+  if (type.startsWith('video/')) {
+    return <video controls preload="metadata" src={url} onLoadedMetadata={onReady} style={{ display: 'block', maxWidth: 'min(320px, 100%)', maxHeight: 320, borderRadius: 8 }} />
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer"
+      style={{ display: 'inline-block', padding: '7px 11px', borderRadius: 8, border: `1px solid ${t.border}`, color: 'inherit', fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>
+      Open the {kind}
+    </a>
+  )
+}
+
+/* emoji picker: a small built-in set, no extra library to load */
+const EMOJI: { title: string; items: string[] }[] = [
+  { title: 'Warm', items: ['🙏', '😊', '🥰', '😍', '😘', '🤗', '😄', '😁', '😂', '🙂', '😉', '😇', '🤩', '😌', '🥹', '😢', '😔', '😅'] },
+  { title: 'Hearts', items: ['❤️', '💕', '💖', '💗', '💓', '💞', '💝', '🧡', '💛', '💚', '💙', '💜', '🤍', '🌸', '🌷', '🌹', '✨', '🎉'] },
+  { title: 'Hands', items: ['👍', '👏', '🙌', '👌', '🤝', '💪', '👋', '✌️', '🤞', '👉', '👇', '☝️', '✍️', '🫶', '🤲', '👎', '✋', '🫡'] },
+  { title: 'Mother and baby', items: ['🤰', '🤱', '👶', '🍼', '👩‍🍼', '👪', '🧸', '🎀', '🛍️', '👗', '🩷', '🌼', '🕊️', '🏥', '💊', '🩺', '🧴', '🛁'] },
+  { title: 'Shop', items: ['✅', '❌', '⏰', '📦', '🚚', '🏍️', '💵', '💳', '🧾', '📍', '📞', '📲', '🔔', '⭐', '🎁', '👑', '💯', '❗'] },
+]
+
 const PAGE_CSS = `
 @keyframes waDotRing { 0% { box-shadow: 0 0 0 0 rgba(217,45,32,.6) } 70% { box-shadow: 0 0 0 7px rgba(217,45,32,0) } 100% { box-shadow: 0 0 0 0 rgba(217,45,32,0) } }
 .wa-dot { width: 9px; height: 9px; border-radius: 50%; background: #D92D20; flex-shrink: 0; animation: waDotRing 1.3s ease-out infinite }
@@ -93,6 +177,13 @@ export default function WhatsAppInbox() {
   const qRef = useRef(q); qRef.current = q
   const selRef = useRef<Contact | null>(sel); selRef.current = sel
   const endRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  // Speed: opened threads are kept in memory, and every waiting conversation is
+  // loaded in advance, so opening a chat shows it at once instead of waiting
+  // on a fresh round trip to the server.
+  const threadCache = useRef<Map<string, Msg[]>>(new Map())
+  const [loadingThread, setLoadingThread] = useState(false)
 
   const toggleTheme = () => {
     const next: ThemeName = theme === 'dark' ? 'light' : 'dark'
@@ -116,19 +207,52 @@ export default function WhatsAppInbox() {
     if (cur) { const fresh = list.find(c => c.phone === cur.phone); if (fresh) setSel(fresh) }
   }, [])
   const loadMsgs = useCallback(async (phone: string) => {
-    const { data, error } = await supabase.rpc('wa_messages_list', { p_phone: phone, p_limit: 200 })
-    if (error) setErr(error.message); else setMsgs(((data || []) as Msg[]).slice().reverse())
+    const { data, error } = await supabase.rpc('wa_messages_list', { p_phone: phone, p_limit: 120 })
+    if (error) { setErr(error.message); if (selRef.current?.phone === phone) setLoadingThread(false); return }
+    const list = ((data || []) as Msg[]).slice().reverse()
+    threadCache.current.set(phone, list)
+    // only paint it if this is still the open conversation (fast switching must not show the wrong chat)
+    if (selRef.current?.phone === phone) { setMsgs(list); setLoadingThread(false) }
+  }, [])
+
+  // one round trip for the recent messages of every waiting conversation
+  const prefetchWaiting = useCallback(async (phones: string[]) => {
+    if (!phones.length) return
+    const { data, error } = await supabase.rpc('wa_inbox_threads', { p_phones: phones.slice(0, 40), p_per: 60 })
+    if (error || !data) return // speed-up only: opening a chat still loads it the normal way
+    const byPhone = new Map<string, Msg[]>()
+    ;(data as (Msg & { phone: string })[]).forEach(m => { const a = byPhone.get(m.phone) || []; a.push(m); byPhone.set(m.phone, a) })
+    byPhone.forEach((list, phone) => {
+      list.sort((a, b) => a.created_at < b.created_at ? -1 : 1)
+      threadCache.current.set(phone, list)
+      if (selRef.current?.phone === phone) { setMsgs(list); setLoadingThread(false) }
+    })
   }, [])
 
   useEffect(() => { loadContacts('') }, [loadContacts])
-  useEffect(() => { if (sel) loadMsgs(sel.phone); else setMsgs([]) }, [sel?.phone, loadMsgs]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setEmojiOpen(false)
+    if (!sel) { setMsgs([]); setLoadingThread(false); return }
+    const cached = threadCache.current.get(sel.phone)
+    if (cached) { setMsgs(cached); setLoadingThread(false) }   // instant
+    else { setMsgs([]); setLoadingThread(true) }                // never show the previous chat under a new name
+    loadMsgs(sel.phone)                                         // always refresh in the background
+  }, [sel?.phone, loadMsgs]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // search: wait until typing pauses instead of asking the server on every keystroke
+  useEffect(() => {
+    const id = window.setTimeout(() => loadContacts(q), 250)
+    return () => window.clearTimeout(id)
+  }, [q, loadContacts])
 
   // Whenever the waiting queue changes, refresh the contact list and the open thread.
   useEffect(() => {
     if (!inbox.loaded) return
     loadContacts(qRef.current)
-    if (selRef.current) loadMsgs(selRef.current.phone)
-  }, [inbox.items, inbox.loaded, loadContacts, loadMsgs])
+    prefetchWaiting(inbox.items.map(i => i.phone))
+    const cur = selRef.current
+    if (cur && !inbox.items.some(i => i.phone === cur.phone)) loadMsgs(cur.phone)
+  }, [inbox.items, inbox.loaded, loadContacts, loadMsgs, prefetchWaiting])
 
   // Live: any new or updated message for the open conversation reloads it at
   // once (delivery ticks included). A slow poll stays as a safety net.
@@ -154,6 +278,13 @@ export default function WhatsAppInbox() {
 
   // keep the newest message in view
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [msgs.length, sel?.phone])
+  // a photo or video that finishes loading makes the thread taller; follow it,
+  // unless the user has scrolled up to read older messages
+  const threadRef = useRef<HTMLDivElement | null>(null)
+  const followIfNearEnd = useCallback(() => {
+    const el = threadRef.current
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 700) endRef.current?.scrollIntoView({ block: 'end' })
+  }, [])
 
   const pick = async (phone: string) => {
     const known = contacts.find(c => c.phone === phone)
@@ -169,11 +300,20 @@ export default function WhatsAppInbox() {
     setBusy(true); setErr('')
     try {
       await sendWhatsApp({ phone: sel.phone, body: text.trim(), purpose })
-      setText('')
+      setText(''); setEmojiOpen(false)
       await loadMsgs(sel.phone)
       await refreshWaInbox() // a reply accepted by WhatsApp clears "needs reply" on the server
     } catch (e: any) { setErr(e.message) }
     setBusy(false)
+  }
+
+  const insertEmoji = (e: string) => {
+    const el = inputRef.current
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
+    const next = text.slice(0, start) + e + text.slice(end)
+    setText(next)
+    window.requestAnimationFrame(() => { if (el) { el.focus(); const pos = start + e.length; el.setSelectionRange(pos, pos) } })
   }
 
   const markHandled = async (phone: string) => {
@@ -283,7 +423,7 @@ export default function WhatsAppInbox() {
               <button onClick={() => setView('waiting')} style={tab(view === 'waiting', inbox.items.length > 0)}>Waiting ({inbox.items.length})</button>
               <button onClick={() => setView('all')} style={tab(view === 'all')}>All</button>
             </div>
-            <input value={q} onChange={e => { setQ(e.target.value); loadContacts(e.target.value) }} placeholder="Search name or number..."
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name or number..."
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${t.border}`, fontSize: 13, background: t.input, color: t.text, boxSizing: 'border-box' }} />
             {view === 'waiting' && (
               <div style={{ display: 'flex', gap: 5, marginTop: 9, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -394,17 +534,22 @@ export default function WhatsAppInbox() {
                 </div>
               )}
 
-              <div className="wa-inbox-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div ref={threadRef} className="wa-inbox-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 9 }}>
                 {msgs.map(m => {
                   const out = m.direction === 'out'
                   const isTpl = !!m.body && m.body.startsWith('[tpl] ')
-                  const body = isTpl ? m.body!.slice(6) : m.body
+                  const hasMedia = !!m.media_type
+                  // when the file itself is shown, drop the "[Photo]" style label and keep any caption
+                  const body = isTpl ? m.body!.slice(6) : hasMedia ? (m.body || '').replace(MEDIA_LABEL, '') : m.body
                   return (
                     <div key={m.id} style={{ alignSelf: out ? 'flex-end' : 'flex-start', maxWidth: '72%',
                       background: out ? t.outBubble : t.inBubble, color: out ? t.outText : t.inText, borderRadius: 12, padding: '9px 12px' }}>
-                      <div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {body || <i style={{ opacity: .75 }}>{out ? '(template message)' : `${NO_TEXT} It cannot be shown here. Call the customer or ask them to type it.`}</i>}
-                      </div>
+                      {hasMedia && <div style={{ marginBottom: body ? 6 : 0 }}><MediaBlock m={m} t={t} onReady={followIfNearEnd} /></div>}
+                      {(body || !hasMedia) && (
+                        <div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {body ? <Linkified text={body} /> : <i style={{ opacity: .75 }}>{out ? '(template message)' : `${NO_TEXT} It arrived before media was supported, so it cannot be shown. Ask the customer to send it again.`}</i>}
+                        </div>
+                      )}
                       <div style={{ fontSize: 10.5, opacity: .72, marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <span>{stamp(m.created_at)}</span>
                         {out && <span>{m.purpose}{isTpl ? ' · template' : ''}</span>}
@@ -413,7 +558,8 @@ export default function WhatsAppInbox() {
                     </div>
                   )
                 })}
-                {!msgs.length && <div style={{ color: t.text3, fontSize: 12.5 }}>No messages yet.</div>}
+                {loadingThread && !msgs.length && <div style={{ color: t.text3, fontSize: 12.5 }}>Loading conversation...</div>}
+                {!loadingThread && !msgs.length && <div style={{ color: t.text3, fontSize: 12.5 }}>No messages yet.</div>}
                 <div ref={endRef} />
               </div>
 
@@ -422,12 +568,34 @@ export default function WhatsAppInbox() {
                   The 24 hour reply window is closed, so WhatsApp will reject a normal message. Call the customer on {sel.phone}{selWaiting ? ', then tap "Mark as handled".' : '.'}
                 </div>
               )}
-              <div style={{ padding: 12, borderTop: `1px solid ${t.border}`, background: t.panel, display: 'flex', gap: 8 }}>
+              <div style={{ padding: 12, borderTop: `1px solid ${t.border}`, background: t.panel, display: 'flex', gap: 8, position: 'relative' }}>
+                {emojiOpen && canType && (
+                  <div role="dialog" aria-label="Emoji"
+                    style={{ position: 'absolute', left: 12, bottom: 'calc(100% + 6px)', width: 372, maxWidth: 'calc(100% - 24px)', maxHeight: 300, overflowY: 'auto', zIndex: 20,
+                      background: t.panel, border: `1px solid ${t.border}`, borderRadius: 12, padding: 10, boxShadow: '0 12px 34px rgba(0,0,0,.28)' }}>
+                    {EMOJI.map(g => (
+                      <div key={g.title} style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: t.text3, textTransform: 'uppercase', letterSpacing: '.5px', margin: '2px 2px 4px' }}>{g.title}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(9, 1fr)', gap: 2 }}>
+                          {g.items.map(e => (
+                            <button key={e} onClick={() => insertEmoji(e)} title={e}
+                              style={{ fontSize: 21, lineHeight: '34px', height: 36, border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 8, padding: 0 }}>{e}</button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button onClick={() => setEmojiOpen(o => !o)} disabled={!canType} title="Emoji" aria-label="Emoji"
+                  style={{ width: 42, borderRadius: 8, border: `1px solid ${emojiOpen ? t.accent : t.border}`, background: t.input, fontSize: 19, cursor: canType ? 'pointer' : 'default', opacity: canType ? 1 : .5, padding: 0 }}>
+                  🙂
+                </button>
                 <select value={purpose} onChange={e => setPurpose(e.target.value as WaPurpose)} disabled={!canType} title="Message type"
                   style={{ borderRadius: 8, border: `1px solid ${t.border}`, fontSize: 12.5, padding: '0 6px', background: t.input, color: t.text }}>
                   {(['support', 'order', 'receipt', 'tip', 'system', 'marketing'] as WaPurpose[]).map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
-                <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} disabled={!canType}
+                <input ref={inputRef} value={text} onChange={e => setText(e.target.value)} disabled={!canType}
+                  onKeyDown={e => { if (e.key === 'Enter') send(); if (e.key === 'Escape') setEmojiOpen(false) }}
                   placeholder={canType ? 'Type a reply...' : 'Reply window closed'}
                   style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: `1px solid ${t.border}`, fontSize: 13.5, background: t.input, color: t.text, opacity: canType ? 1 : .6 }} />
                 <button disabled={busy || !text.trim() || !canType} onClick={send}
