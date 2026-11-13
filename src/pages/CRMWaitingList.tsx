@@ -21,8 +21,10 @@ interface Entry {
   customer_id: string | null; customer_name: string; whatsapp: string | null
   status: string; note: string | null; created_at: string | null; added_by_name: string | null
   notified_at?: string | null; notify_wa_message_id?: string | null; notify_count?: number | null
+  offer_percent?: number | null; offer_price?: number | null; offer_expires_at?: string | null
+  customer_reply?: string | null
 }
-interface Group { product_id: string; product_name: string; category: string; inStock: number; entries: Entry[]; totalWanted: number }
+interface Group { product_id: string; product_name: string; category: string; inStock: number; retail: number; entries: Entry[]; totalWanted: number }
 
 function waitedFor(s: string | null): string {
   if (!s) return ''
@@ -48,6 +50,10 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState('')
   const [bulk, setBulk] = useState('')   // product id while a "tell all" run is going
+  // the offer being prepared: for one waiting customer, or for everyone waiting for a product
+  const [offer, setOffer] = useState<{ group: Group; entry: Entry | null } | null>(null)
+  const [pct, setPct] = useState('5')
+  const [maxPct, setMaxPct] = useState(10)
   // delivery state of the WhatsApp notice for each entry, from the message log
   const [ticks, setTicks] = useState<Record<string, { status: string; error: string | null }>>({})
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
@@ -91,13 +97,14 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     const ids = Array.from(new Set(rows.map(r => r.product_id)))
     const stock = new Map<string, number>()
     const cat = new Map<string, string>()
+    const retail = new Map<string, number>()
     if (ids.length) {
-      const { data: prods } = await supabase.from('products').select('id, qty_on_hand, category').in('id', ids)
-      ;(prods || []).forEach((p: any) => { stock.set(p.id, p.qty_on_hand || 0); cat.set(p.id, p.category || '') })
+      const { data: prods } = await supabase.from('products').select('id, qty_on_hand, category, selling_price').in('id', ids)
+      ;(prods || []).forEach((p: any) => { stock.set(p.id, p.qty_on_hand || 0); cat.set(p.id, p.category || ''); retail.set(p.id, Number(p.selling_price) || 0) })
     }
     const map = new Map<string, Group>()
     rows.forEach(r => {
-      const g = map.get(r.product_id) || { product_id: r.product_id, product_name: r.product_name || 'Product', category: cat.get(r.product_id) || '', inStock: stock.get(r.product_id) ?? 0, entries: [], totalWanted: 0 }
+      const g = map.get(r.product_id) || { product_id: r.product_id, product_name: r.product_name || 'Product', category: cat.get(r.product_id) || '', inStock: stock.get(r.product_id) ?? 0, retail: retail.get(r.product_id) ?? 0, entries: [], totalWanted: 0 }
       g.entries.push(r); g.totalWanted += Number(r.qty_wanted) || 0
       map.set(r.product_id, g)
     })
@@ -105,6 +112,11 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     setLoading(false)
   }, [tab])
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    supabase.from('system_settings').select('value').eq('key', 'waitlist_offer').maybeSingle().then(({ data }: any) => {
+      try { const v = data?.value ? (typeof data.value === 'string' ? JSON.parse(data.value) : data.value) : null; if (Number(v?.max_percent) > 0) setMaxPct(Number(v.max_percent)) } catch { /* keep the default */ }
+    })
+  }, [])
 
   const searchProducts = async (v: string) => {
     setProdQuery(v); setPickedProd(null)
@@ -152,39 +164,52 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     if (error) { flash('Failed: ' + error.message, 'err'); return }
     flash(`${e.customer_name} marked ${status}`); load()
   }
+  // Price the customer is told: retail less the percentage, rounded down to the
+  // nearest 100 (the same sum the sending function does; it has the final say).
+  const priceAfter = (retail: number, percent: number) => Math.floor((retail * (1 - percent / 100)) / 100) * 100
+
   // Tell a waiting customer through the business number. Returns what happened
   // so the "tell all" run can count results without a toast per person.
-  const tell = async (e: Entry, force = false): Promise<{ result: 'sent' | 'recent' | 'failed'; message: string }> => {
+  const tell = async (e: Entry, percent: number, force = false): Promise<{ result: 'sent' | 'recent' | 'failed'; message: string }> => {
     try {
-      await sendWaitlistNotice(e.id, force)
+      await sendWaitlistNotice(e.id, percent, force)
       return { result: 'sent', message: '' }
     } catch (err: any) {
       return { result: err?.code === 'recent' ? 'recent' : 'failed', message: err?.message || 'Could not send' }
     }
   }
-  const tellOne = async (e: Entry) => {
-    setBusy(e.id)
-    let r = await tell(e)
-    if (r.result === 'recent' && window.confirm(`${e.customer_name}: ${r.message}\n\nSend the message again anyway?`)) r = await tell(e, true)
-    setBusy('')
-    if (r.result === 'sent') flash(`${e.customer_name} told on WhatsApp from the business number`)
-    else if (r.result === 'failed') flash(r.message, 'err')
-    load()
-  }
-  const tellAll = async (g: Group) => {
+  const sendOffer = async () => {
+    if (!offer) return
+    const percent = Number(pct)
+    if (!Number.isFinite(percent) || percent <= 0) { flash('Enter the discount percentage to offer.', 'err'); return }
+    if (percent > maxPct) { flash(`The discount cannot be more than ${maxPct}%.`, 'err'); return }
+    const { group: g, entry } = offer
+    setOffer(null)
+    if (entry) {
+      setBusy(entry.id)
+      let r = await tell(entry, percent)
+      if (r.result === 'recent' && window.confirm(`${entry.customer_name}: ${r.message}\n\nSend the message again anyway?`)) r = await tell(entry, percent, true)
+      setBusy('')
+      if (r.result === 'sent') flash(`${entry.customer_name} told on WhatsApp: ${percent}% off, TZS ${priceAfter(g.retail, percent).toLocaleString()}`)
+      else if (r.result === 'failed') flash(r.message, 'err')
+      load(); return
+    }
     const targets = g.entries.filter(e => e.status === 'waiting' && e.whatsapp)
-    if (!targets.length) { flash('Everyone here has already been told, or has no WhatsApp number.', 'err'); return }
-    if (!window.confirm(`Send the back-in-stock message to ${targets.length} ${targets.length === 1 ? 'person' : 'people'} waiting for ${g.product_name}?\n\nIt goes from the business WhatsApp number and each message is charged.`)) return
     setBulk(g.product_id)
     let sent = 0, failed = 0, firstError = ''
     for (const e of targets) {
-      const r = await tell(e)
+      const r = await tell(e, percent)
       if (r.result === 'sent') sent++
       else { failed++; if (!firstError) firstError = `${e.customer_name}: ${r.message}` }
     }
     setBulk('')
     flash(failed ? `${sent} told, ${failed} not sent. First problem: ${firstError}` : `${sent} ${sent === 1 ? 'person' : 'people'} told on WhatsApp`, failed ? 'err' : 'ok')
     load()
+  }
+  const tellOne = (g: Group, e: Entry) => setOffer({ group: g, entry: e })
+  const tellAll = (g: Group) => {
+    if (!g.entries.some(e => e.status === 'waiting' && e.whatsapp)) { flash('Everyone here has already been told, or has no WhatsApp number.', 'err'); return }
+    setOffer({ group: g, entry: null })
   }
 
   const markNotified = async (e: Entry) => {
@@ -452,14 +477,24 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
                             WhatsApp {label}{when ? ` ${when}` : ''}{(e.notify_count || 0) > 1 ? ` (${e.notify_count} times)` : ''}
                           </span>
                         })()}
+                        {e.customer_reply === 'hold' && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 5, background: 'var(--green, #16a34a)', color: '#fff', textTransform: 'uppercase', letterSpacing: .3 }}>Replied: hold one for me</span>}
+                        {e.customer_reply === 'call' && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 5, background: '#d97706', color: '#fff', textTransform: 'uppercase', letterSpacing: .3 }}>Asked for a call</span>}
                       </div>
+                      {e.offer_percent ? (() => {
+                        const ends = e.offer_expires_at ? new Date(e.offer_expires_at) : null
+                        const live = ends ? ends.getTime() > Date.now() : false
+                        return <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: live ? 'var(--accent)' : 'var(--text3)' }}>
+                          Offered {e.offer_percent}% off: TZS {Number(e.offer_price || 0).toLocaleString()}
+                          {ends ? (live ? ` until ${ends.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ` (offer ended ${ends.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`) : ''}
+                        </div>
+                      })() : null}
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
                         wants {e.qty_wanted} · waiting {waitedFor(e.created_at)}{e.whatsapp ? ` · ${e.whatsapp}` : ''}{e.added_by_name ? ` · added by ${e.added_by_name}` : ''}{e.note ? ` · ${e.note}` : ''}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {g.inStock > 0 && e.whatsapp && (
-                        <button disabled={busy === e.id || !!bulk} onClick={() => tellOne(e)}
+                        <button disabled={busy === e.id || !!bulk} onClick={() => tellOne(g, e)}
                           title="Sends the back-in-stock message from the business number. It is recorded and shows in the WhatsApp Inbox."
                           style={{ ...btn, background: 'rgba(37,211,102,.15)', color: '#25D366', border: '1px solid rgba(37,211,102,.4)' }}>
                           {busy === e.id ? 'Sending...' : e.status === 'notified' ? 'Tell again' : 'Tell on WhatsApp'}
@@ -498,6 +533,38 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
             </table>
           </div>
       )}
+
+      {offer && (() => {
+        const g = offer.group
+        const n = offer.entry ? 1 : g.entries.filter(e => e.status === 'waiting' && e.whatsapp).length
+        const percent = Number(pct)
+        const ok = Number.isFinite(percent) && percent > 0 && percent <= maxPct
+        return (
+          <div onClick={() => setOffer(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+            <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 22, width: 430, maxWidth: '92%' }}>
+              <div style={{ fontSize: 17, fontWeight: 800 }}>{offer.entry ? `Tell ${offer.entry.customer_name}` : `Tell ${n} ${n === 1 ? 'person' : 'people'}`}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--text3)', marginTop: 3 }}>{g.product_name} is back. The message goes from the business WhatsApp number.</div>
+              <label style={lbl}>Discount to offer (up to {maxPct}%)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input autoFocus type="number" min={1} max={maxPct} step={1} value={pct} onChange={ev => setPct(ev.target.value)}
+                  onKeyDown={ev => { if (ev.key === 'Enter' && ok && g.retail > 0) sendOffer() }} style={{ ...inp, width: 100, marginBottom: 0, fontSize: 16, fontWeight: 700 }} />
+                <span style={{ fontSize: 16, fontWeight: 700 }}>%</span>
+              </div>
+              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 9, background: 'var(--surface2)', fontSize: 13, lineHeight: 1.6 }}>
+                {g.retail > 0 ? (ok
+                  ? <>Normal price <b>TZS {g.retail.toLocaleString()}</b>. The customer will be told <b>TZS {priceAfter(g.retail, percent).toLocaleString()}</b> if they pay within 24 hours.</>
+                  : <span style={{ color: 'var(--red, #dc2626)' }}>Enter a percentage from 1 to {maxPct}.</span>)
+                  : <span style={{ color: 'var(--red, #dc2626)' }}>This product has no retail price set, so the offer cannot be sent.</span>}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 8 }}>{n === 1 ? 'This message is charged.' : `${n} messages will be sent, and each one is charged.`} The offer is recorded so the cashier can honour it.</div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                <button onClick={() => setOffer(null)} style={btn}>Cancel</button>
+                <button disabled={!ok || !(g.retail > 0)} onClick={sendOffer} style={{ ...btn, background: '#25D366', color: '#06301A', border: 'none', opacity: ok && g.retail > 0 ? 1 : .5 }}>{n === 1 ? 'Send' : `Send to ${n}`}</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {toast && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', padding: '10px 18px', borderRadius: 8, color: '#fff', background: toast.type === 'ok' ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)', fontSize: 13, zIndex: 3000 }}>{toast.msg}</div>}
     </div>

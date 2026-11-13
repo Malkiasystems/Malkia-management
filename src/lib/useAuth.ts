@@ -398,6 +398,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   // existing "WhatsApp Inbox" permission; the server enforces the same rule in
   // wa_inbox_assert() (migration 060). Super admins pass via the 40+ bypass.
   'whatsapp-centre': ['crm.inbox'],
+  'wa-templates': ['crm.inbox'],
   'crm-automations': ['crm.automations'],
   'crm-preorders': ['crm.view'],
   // The waiting list is captured at the counter by whoever meets the customer,

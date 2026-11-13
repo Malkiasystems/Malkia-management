@@ -66,7 +66,7 @@ const EXPENSE_PAGES: Page[] = ['expense-register', 'new-expense']
 
 const IMPORT_PAGES: Page[] = ['import-register', 'import-order']
 
-const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers', 'circle-moderation', 'whatsapp-centre']
+const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers', 'circle-moderation', 'whatsapp-centre', 'wa-templates']
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'audit-trail', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
@@ -149,6 +149,7 @@ const EXPENSE_SUB: { label: string; page: Page; icon: string; tab?: 'budget' | '
 const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Hub',         page: 'crm-hub',         icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
   { label: 'WhatsApp Inbox', page: 'whatsapp-centre', icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
+  { label: 'WA Templates', page: 'wa-templates', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h5' },
   { label: 'Automations', page: 'crm-automations', icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' },
   { label: 'Pre-Orders',  page: 'crm-preorders',   icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },
   { label: 'Waiting',     page: 'crm-waiting-list', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2' },

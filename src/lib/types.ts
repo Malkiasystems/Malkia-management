@@ -36,6 +36,7 @@ export type Page =
   // Circle (public site) moderation
   | 'circle-moderation'
   | 'whatsapp-centre'
+  | 'wa-templates'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles

@@ -64,14 +64,14 @@ export async function sendWhatsAppPayslip(lineId: string) {
    shows in the WhatsApp Inbox with delivery ticks) and marks the entry. */
 const WA_WAITLIST_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-waitlist'
 
-export async function sendWaitlistNotice(waitingId: string, force = false) {
+export async function sendWaitlistNotice(waitingId: string, percent: number, force = false) {
   const { data: s } = await supabase.auth.getSession()
   const token = s.session?.access_token
   if (!token) throw new Error('Sign in to MalkiaOS again (your session has ended).')
   const r = await fetch(WA_WAITLIST_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-    body: JSON.stringify({ waiting_id: waitingId, force }),
+    body: JSON.stringify({ waiting_id: waitingId, percent, force }),
   })
   const j = await r.json().catch(() => ({}))
   if (!r.ok) {
@@ -79,5 +79,27 @@ export async function sendWaitlistNotice(waitingId: string, force = false) {
     err.code = j?.code
     throw err
   }
-  return j as { ok: true; mode: 'freeform' | 'template'; message_id: string | null; marked: boolean }
+  return j as { ok: true; mode: 'freeform' | 'template'; message_id: string | null; marked: boolean; percent: number; price: number; retail: number }
+}
+
+/* Business-number templates (CRM > WhatsApp Templates): list with Meta's
+   decision, check a draft against Meta's rules, submit a new one. */
+const WA_TEMPLATES_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-templates'
+
+export async function waTemplates(payload: Record<string, unknown>) {
+  const { data: s } = await supabase.auth.getSession()
+  const token = s.session?.access_token
+  if (!token) throw new Error('Sign in to MalkiaOS again (your session has ended).')
+  const r = await fetch(WA_TEMPLATES_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const err = new Error(j?.error || `wa-templates ${r.status}`) as Error & { problems?: string[] }
+    err.problems = j?.problems
+    throw err
+  }
+  return j as { ok: true; can_create?: boolean; templates?: any[]; problems?: string[]; submitted?: boolean; template?: any }
 }
