@@ -127,7 +127,14 @@ export default function WaBusinessTemplates() {
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: 20 }}>
             <div>
               <label style={lbl}>Used for</label>
-              <select value={draft.slot} onChange={e => setDraft({ ...draft, slot: e.target.value })} style={inp}>
+              <select value={draft.slot} style={inp} onChange={e => {
+                const slot = e.target.value
+                // Choosing the waiting list on an untouched form loads the agreed message, so nothing has to be retyped.
+                const untouched = !draft.name.trim() && !draft.body.trim()
+                setDraft(slot === 'back_in_stock' && untouched
+                  ? { ...WAITLIST_PRESET, samples: { ...WAITLIST_PRESET.samples }, buttons: WAITLIST_PRESET.buttons.map(b => ({ ...b })) }
+                  : { ...draft, slot, name: draft.name.trim() || (slot === 'back_in_stock' ? WAITLIST_PRESET.name : draft.name) })
+              }}>
                 <option value="">Not assigned yet (for a future feature)</option>
                 <option value="back_in_stock">{SLOT_LABEL.back_in_stock}</option>
               </select>
@@ -137,7 +144,8 @@ export default function WaBusinessTemplates() {
                 </div>
               )}
               <label style={lbl}>Name (lowercase, no spaces)</label>
-              <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })} placeholder="malkia_back_in_stock_offer_sw" style={{ ...inp, fontFamily: 'var(--mono)' }} />
+              <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })} placeholder="type a name here" style={{ ...inp, fontFamily: 'var(--mono)', borderColor: draft.name.trim() ? 'var(--border)' : '#E8B93E' }} />
+              {!draft.name.trim() && <div style={{ fontSize: 11.5, color: '#9A6700', marginTop: 4 }}>Empty. Type a name, for example malkia_offer_sw.</div>}
               <label style={lbl}>Type</label>
               <select value={draft.category} onChange={e => setDraft({ ...draft, category: e.target.value })} style={inp}>
                 <option value="MARKETING">Marketing: offers, discounts, anything that sells (higher charge)</option>
@@ -151,7 +159,8 @@ export default function WaBusinessTemplates() {
                 <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', width: 44 }}>{`{{${n}}}`}</span>
                   <input value={draft.samples[String(n)] || ''} onChange={e => setDraft({ ...draft, samples: { ...draft.samples, [String(n)]: e.target.value } })}
-                    placeholder={(draft.slot && BLANK_MEANING[draft.slot]?.[n - 1]) || 'example'} style={inp} />
+                    placeholder={`type an example${draft.slot && BLANK_MEANING[draft.slot]?.[n - 1] ? ' ' + BLANK_MEANING[draft.slot][n - 1] : ''}`}
+                    style={{ ...inp, borderColor: (draft.samples[String(n)] || '').trim() ? 'var(--border)' : '#E8B93E' }} />
                 </div>
               ))}
               <label style={lbl}>Buttons the customer can tap (up to 3, 20 characters each)</label>

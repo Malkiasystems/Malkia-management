@@ -50,6 +50,10 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState('')
   const [bulk, setBulk] = useState('')   // product id while a "tell all" run is going
+  // the entry a WhatsApp message is being sent to right now. Kept apart from `busy`
+  // (which covers Fulfilled, Cancel and Told by phone) so the WhatsApp button only
+  // ever says "Sending..." when a message really is being sent.
+  const [telling, setTelling] = useState('')
   // the offer being prepared: for one waiting customer, or for everyone waiting for a product
   const [offer, setOffer] = useState<{ group: Group; entry: Entry | null } | null>(null)
   const [pct, setPct] = useState('5')
@@ -186,10 +190,10 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     const { group: g, entry } = offer
     setOffer(null)
     if (entry) {
-      setBusy(entry.id)
+      setTelling(entry.id)
       let r = await tell(entry, percent)
       if (r.result === 'recent' && window.confirm(`${entry.customer_name}: ${r.message}\n\nSend the message again anyway?`)) r = await tell(entry, percent, true)
-      setBusy('')
+      setTelling('')
       if (r.result === 'sent') flash(`${entry.customer_name} told on WhatsApp: ${percent}% off, TZS ${priceAfter(g.retail, percent).toLocaleString()}`)
       else if (r.result === 'failed') flash(r.message, 'err')
       load(); return
@@ -441,7 +445,7 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   {g.inStock > 0 && g.entries.some(e => e.status === 'waiting' && e.whatsapp) && (
-                    <button disabled={!!bulk || !!busy} onClick={() => tellAll(g)}
+                    <button disabled={!!bulk || !!busy || !!telling} onClick={() => tellAll(g)}
                       title="Sends the back-in-stock message from the business number to everyone here who has not been told yet"
                       style={{ ...btn, background: '#25D366', color: '#06301A', border: 'none' }}>
                       {bulk === g.product_id ? 'Sending...' : `Tell all ${g.entries.filter(e => e.status === 'waiting' && e.whatsapp).length} on WhatsApp`}
@@ -494,10 +498,10 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {g.inStock > 0 && e.whatsapp && (
-                        <button disabled={busy === e.id || !!bulk} onClick={() => tellOne(g, e)}
+                        <button disabled={busy === e.id || telling === e.id || !!bulk} onClick={() => tellOne(g, e)}
                           title="Sends the back-in-stock message from the business number. It is recorded and shows in the WhatsApp Inbox."
                           style={{ ...btn, background: 'rgba(37,211,102,.15)', color: '#25D366', border: '1px solid rgba(37,211,102,.4)' }}>
-                          {busy === e.id ? 'Sending...' : e.status === 'notified' ? 'Tell again' : 'Tell on WhatsApp'}
+                          {telling === e.id ? 'Sending...' : e.status === 'notified' ? 'Tell again' : 'Tell on WhatsApp'}
                         </button>
                       )}
                       {link && g.inStock > 0 && <a href={link} target="_blank" rel="noreferrer" title="Opens your own WhatsApp. Not recorded, and it does not come from the business number."
