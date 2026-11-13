@@ -4,6 +4,7 @@ import { useAuth, canAccessPage } from '../lib/useAuth'
 import { requestExpenseRegisterTab } from '../lib/expenseRegisterTab'
 import { requestSalesRegisterTab } from '../lib/salesRegisterTab'
 import { getActiveCompany, supabase } from '../lib/supabase'
+import { useWaInbox } from '../lib/waInbox'
 
 
 // ── Hover physics ───────────────────────────────────────────────────────────
@@ -393,6 +394,12 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleCrmSub = CRM_SUB.filter(sub => canAccess(sub.page))
   const visibleSettingsSub = SETTINGS_SUB.filter(sub => canAccess(sub.page))
   const visibleHrmSub = HRM_SUB.filter(sub => canAccess(sub.page))
+
+  // Customers waiting for a WhatsApp reply (migration 060). Only users holding
+  // the WhatsApp Inbox permission poll; everyone else sees nothing.
+  const waAllowed = canAccessPage('whatsapp-centre', permissions)
+  const waInbox = useWaInbox(waAllowed)
+  const waWaiting = waAllowed && waInbox.allowed ? waInbox.items.length : 0
   const visibleVouchersSub = VOUCHERS_SUB.filter(sub => canAccess(sub.page))
   const visibleInventorySub = INVENTORY_SUB.filter(sub => canAccess(sub.page))
   const visibleAccountsSub = ACCOUNTS_SUB.filter(sub => canAccess(sub.page))
@@ -406,6 +413,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
       position: 'relative'
     }}>
       {SB_CSS}
+      <style>{'@keyframes waSideRing{0%{box-shadow:0 0 0 0 rgba(217,45,32,.6)}70%{box-shadow:0 0 0 7px rgba(217,45,32,0)}100%{box-shadow:0 0 0 0 rgba(217,45,32,0)}}.wa-side-dot{animation:waSideRing 1.3s ease-out infinite}@media (prefers-reduced-motion:reduce){.wa-side-dot{animation:none}}'}</style>
 
       {/* Rail head: the collapse toggle, pinned above the nav so its position
           never moves as sections open and close. */}
@@ -576,6 +584,14 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 }}>›</span>
               )}
 
+              {Boolean(isCrmItem) && waWaiting > 0 && (
+                <span className="wa-side-dot" title={`WhatsApp: ${waWaiting} wanasubiri jibu`} style={{
+                  position: 'absolute', top: 3, right: expanded ? 18 : 6, minWidth: 16, height: 16, padding: '0 4px',
+                  borderRadius: 999, background: '#D92D20', color: '#fff', fontSize: 9.5, fontWeight: 800,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{waWaiting}</span>
+              )}
+
               {navItem.badge && (
                 <span style={{
                   position: 'absolute', top: 5, right: 6, minWidth: 14, height: 14,
@@ -722,7 +738,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      style={{ position:'relative', display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
                         borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
@@ -730,6 +746,13 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                         <path d={sub.icon}/>
                       </svg>
                       <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      {sub.page === 'whatsapp-centre' && waWaiting > 0 && (
+                        <span className="wa-side-dot" title={`${waWaiting} wanasubiri jibu`} style={{
+                          position: expanded ? 'static' : 'absolute', top: 2, right: 6, marginLeft: expanded ? 'auto' : 0,
+                          minWidth: 16, height: 16, padding: '0 4px', borderRadius: 999, background: '#D92D20', color: '#fff',
+                          fontSize: 9.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>{waWaiting}</span>
+                      )}
                     </div>
                   )
                 })}

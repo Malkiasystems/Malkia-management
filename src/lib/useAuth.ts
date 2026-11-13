@@ -393,6 +393,11 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'crm': ['crm.view'],
   'crm-hub': ['crm.view'],
   'crm-inbox': ['crm.inbox'],
+  // WhatsApp Command Centre: every customer conversation, plus the ability to
+  // reply as Malkia. It was unmapped (= open to any login by URL). Gated on the
+  // existing "WhatsApp Inbox" permission; the server enforces the same rule in
+  // wa_inbox_assert() (migration 060). Super admins pass via the 40+ bypass.
+  'whatsapp-centre': ['crm.inbox'],
   'crm-automations': ['crm.automations'],
   'crm-preorders': ['crm.view'],
   // The waiting list is captured at the counter by whoever meets the customer,
