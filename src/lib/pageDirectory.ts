@@ -15,7 +15,7 @@ import { BREADCRUMBS } from './data'
 const EXTENDED_LABELS: Record<string, string> = {
   'crm-hub': 'CRM Hub',
   'crm-command-center': 'CRM Command Center',
-  'crm-inbox': 'CRM Inbox',
+  'whatsapp-centre': 'WhatsApp Inbox',
   'crm-automations': 'CRM Automations',
   'crm-preorders': 'CRM Pre-Orders',
   'crm-referrals': 'CRM Referrals',
@@ -122,6 +122,7 @@ const KEYWORDS: Record<string, string> = {
   'customers': 'clients contacts buyers',
   'hrm-payroll': 'salary wages pay run paye',
   'hrm-payslips': 'salary slip',
+  'whatsapp-centre': 'inbox messages customers chat reply waiting',
   'hrm-kpi': 'scorecard performance targets',
   'crm-hub': 'customer relations',
   'crm-loyalty': 'crown points rewards tier',
@@ -193,7 +194,7 @@ const PAGE_ICON: Record<string, string> = {
   'settings': P.sliders, 'display-settings': P.sliders, 'users': P.shield, 'users-access': P.shield,
   'crm-loyalty': P.crown, 'investors-hub': P.briefcase, 'investors': P.briefcase,
   'konnect': P.message, 'company-branding': P.sliders, 'crown-rewards': P.crown,
-  'crm-whatsapp-templates': P.message, 'crm-inbox': P.message,
+  'crm-whatsapp-templates': P.message, 'crm-inbox': P.message, 'whatsapp-centre': P.message,
 }
 
 const PREFIX_ICON: [string, string][] = [

@@ -148,7 +148,6 @@ const InternalUseReturns = lazy(() => import('./pages/InternalUseReturns'))
 // CRM Module (lazy - entire module loads on first CRM page visit)
 const CRMHub = lazy(() => import('./pages/CRMHub'))
 const CRMCommandCenter = lazy(() => import('./pages/crm/CRMCommandCenter'))
-const CRMInbox = lazy(() => import('./pages/CRMInbox'))
 const CRMAutomations = lazy(() => import('./pages/CRMAutomations'))
 const CRMPreorders = lazy(() => import('./pages/CRMPreorders'))
 const CRMWaitingList = lazy(() => import('./pages/CRMWaitingList'))
@@ -345,7 +344,8 @@ const AccessDenied = ({ page, onNav }: { page: string; onNav?: (p: any) => void 
 const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-hub': 'CRM Hub',
   'crm-command-center': 'CRM / Command Center',
-  'crm-inbox': 'CRM / Inbox',
+  'crm-inbox': 'CRM / WhatsApp Inbox',
+  'whatsapp-centre': 'CRM / WhatsApp Inbox',
   'crm-automations': 'CRM / Automations',
   'crm-preorders': 'CRM / Pre-Orders',
   'crm-referrals': 'CRM / Referrals',
@@ -731,7 +731,7 @@ function AppContent() {
       case 'circle-moderation':  return <CircleModeration />
       case 'whatsapp-centre':    return <WhatsAppCentre />
       case 'crm-command-center': return <CRMCommandCenter onNav={navigate} />
-      case 'crm-inbox':         return <CRMInbox />
+      case 'crm-inbox':         return <WhatsAppCentre />
       case 'crm-automations':   return <CRMAutomations onNav={navigate} />
       case 'crm-preorders':     return <CRMPreorders onNav={navigate} />
       case 'crm-waiting-list':  return <CRMWaitingList onNav={navigate} />

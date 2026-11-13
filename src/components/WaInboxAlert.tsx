@@ -155,11 +155,11 @@ function WaInboxAlertInner({ current, onNav }: { current: Page; onNav: (p: Page)
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <span style={{ fontSize: 10, fontWeight: 800, color: meta.color, background: meta.bg, borderRadius: 999, padding: '1px 7px' }}>{meta.label}</span>
           <b style={{ fontSize: 13, color: '#1B1B1B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.name || i.phone}</b>
-          <span style={{ marginLeft: 'auto', fontSize: 10.5, color: '#8A1F1F', fontWeight: 700, whiteSpace: 'nowrap' }}>amesubiri {waWaitedFor(i.needs_reply_since)}</span>
+          <span style={{ marginLeft: 'auto', fontSize: 10.5, color: '#8A1F1F', fontWeight: 700, whiteSpace: 'nowrap' }}>waiting {waWaitedFor(i.needs_reply_since)}</span>
         </div>
         <div style={{ fontSize: 12.5, color: '#3B3B3B', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.last_inbound_body || '[Voice note, photo or sticker]'}</div>
         <div style={{ fontSize: 10.5, marginTop: 2, color: left > 0 ? '#1F7A3D' : '#8A1F1F', fontWeight: 600 }}>
-          {left > 0 ? `Dirisha linafungwa baada ya ${waDuration(left)}` : 'Dirisha limefungwa: mpigie simu'}
+          {left > 0 ? `Reply window closes in ${waDuration(left)}` : 'Reply window closed: call the customer'}
         </div>
       </button>
     )
@@ -170,28 +170,28 @@ function WaInboxAlertInner({ current, onNav }: { current: Page; onNav: (p: Page)
       <style>{CSS}</style>
 
       {open && !onCentre && (
-        <div className="wa-alert-card" role="alertdialog" aria-label="WhatsApp: wateja wanasubiri"
+        <div className="wa-alert-card" role="alertdialog" aria-label="WhatsApp: customers waiting for a reply"
           style={{ position: 'fixed', right: 22, bottom: 150, width: 370, maxWidth: 'calc(100vw - 32px)', zIndex: 4001,
             background: '#fff', border: '2px solid #D92D20', borderRadius: 14, overflow: 'hidden',
             boxShadow: '0 18px 50px rgba(120,20,12,.35)' }}>
           <div style={{ background: '#D92D20', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 9 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d={CHAT_ICON} /></svg>
             <div style={{ fontWeight: 800, fontSize: 14 }}>
-              {items.length === 1 ? 'Mteja 1 anasubiri jibu WhatsApp' : `Wateja ${items.length} wanasubiri jibu WhatsApp`}
+              {items.length === 1 ? '1 customer is waiting for a WhatsApp reply' : `${items.length} customers are waiting for a WhatsApp reply`}
             </div>
           </div>
           <div style={{ maxHeight: '46vh', overflowY: 'auto' }}>
             {shown.map(row)}
-            {more > 0 && <div style={{ padding: '7px 14px', fontSize: 11.5, color: '#6B6B6B' }}>na wengine {more}</div>}
+            {more > 0 && <div style={{ padding: '7px 14px', fontSize: 11.5, color: '#6B6B6B' }}>and {more} more</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, padding: 10, background: '#FFF6F5' }}>
             <button onClick={goCentre}
               style={{ flex: 1, padding: '9px 10px', borderRadius: 8, border: 'none', background: '#D92D20', color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-              Fungua WhatsApp
+              Open WhatsApp Inbox
             </button>
-            <button onClick={later} title="Tahadhari itarudi tena hadi mteja ajibiwe au ushughulikie"
+            <button onClick={later} title="This alert comes back until the customer is answered or the conversation is marked as handled"
               style={{ padding: '9px 10px', borderRadius: 8, border: '1px solid #E9B7B2', background: '#fff', color: '#8A1F1F', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              Baadaye (dk {cfg.repeat_minutes})
+              Later ({cfg.repeat_minutes} min)
             </button>
           </div>
         </div>
@@ -199,7 +199,7 @@ function WaInboxAlertInner({ current, onNav }: { current: Page; onNav: (p: Page)
 
       {!onCentre && (
         <button onClick={() => setOpen(o => !o)} className={`wa-alert-bubble${highCount > 0 ? ' wa-urgent' : ''}`}
-          title={`WhatsApp: ${items.length} wanasubiri jibu`} aria-label={`WhatsApp: ${items.length} wanasubiri jibu`}
+          title={`WhatsApp: ${items.length} waiting for a reply`} aria-label={`WhatsApp: ${items.length} waiting for a reply`}
           style={{ position: 'fixed', right: 22, bottom: 84, width: 54, height: 54, borderRadius: '50%', zIndex: 4000,
             border: '3px solid #fff', background: '#D92D20', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d={CHAT_ICON} /></svg>

@@ -65,7 +65,7 @@ const GROUPS: GroupCard[] = [
     page: 'integrations-settings' as Page,
     title: 'Integrations',
     description: 'WhatsApp, email, SMS, payment gateways, TRA EFD',
-    bullets: ['WhatsApp · Wati · Twilio', 'Email (SMTP) · SMS', 'TRA EFD integration', 'Payment gateway hooks'],
+    bullets: ['WhatsApp · Twilio', 'Email (SMTP) · SMS', 'TRA EFD integration', 'Payment gateway hooks'],
     icon: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
     color: '#25D366',
     gradient: 'linear-gradient(135deg, rgba(37,211,102,.08) 0%, rgba(37,211,102,.04) 100%)',

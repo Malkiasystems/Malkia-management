@@ -1,12 +1,12 @@
 // ── MALKIA WHATSAPP SERVICE ───────────────────────────────────────────────
 // Infrastructure ready — plug in API credentials via Settings → WhatsApp
-// Supports: Wati, Twilio, Infobip, Custom webhook
+// Supports: Twilio, Infobip, Custom webhook (WATI retired 13 Nov 2026)
 // All sends logged to whatsapp_sends table in Supabase
 
 import { supabase } from './supabase'
 
 export interface WAConfig {
-  provider: 'wati' | 'twilio' | 'infobip' | 'custom' | ''
+  provider: 'twilio' | 'infobip' | 'custom' | ''
   api_key: string
   api_url: string
   sender_number: string
@@ -114,31 +114,6 @@ export const formatPhone = (phone: string): string => {
     return '+' + cleaned
   }
   return cleaned
-}
-
-// ── SEND VIA WATI ─────────────────────────────────────────────────────────
-const sendViaWati = async (config: WAConfig, payload: WASendPayload): Promise<WASendResult> => {
-  // Wati API: POST https://live-server-XXXX.wati.io/api/v1/sendSessionMessage/{phone}
-  // Headers: Authorization: Bearer {api_key}
-  try {
-    const phone = formatPhone(payload.to).replace('+', '')
-    const url = `${config.api_url}/api/v1/sendSessionMessage/${phone}`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.api_key}`,
-      },
-      body: JSON.stringify({ messageText: payload.message }),
-    })
-    const data = await res.json()
-    if (res.ok) {
-      return { success: true, message_id: data.id || data.messageId, provider: 'wati' }
-    }
-    return { success: false, error: data.message || 'Wati API error', provider: 'wati' }
-  } catch (err: any) {
-    return { success: false, error: err.message, provider: 'wati' }
-  }
 }
 
 // ── SEND VIA TWILIO ───────────────────────────────────────────────────────
@@ -266,7 +241,6 @@ export const sendWhatsApp = async (
   let result: WASendResult
 
   switch (config.provider) {
-    case 'wati':     result = await sendViaWati(config, payload);     break
     case 'twilio':   result = await sendViaTwilio(config, payload);   break
     case 'infobip':  result = await sendViaInfobip(config, payload);  break
     case 'custom':   result = await sendViaCustom(config, payload);   break

@@ -18,18 +18,12 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
 }
 
 const PROVIDERS = [
-  { id: 'wati',    name: 'Wati',    desc: 'Best for SMEs · Easy setup · Flat monthly fee',          color: '#25D366', docs: 'https://docs.wati.io' },
   { id: 'twilio',  name: 'Twilio',  desc: 'Most reliable · Pay per message · $0.005/msg',            color: '#F22F46', docs: 'https://www.twilio.com/docs/whatsapp' },
   { id: 'infobip', name: 'Infobip', desc: 'Strong Africa coverage · Good deliverability',            color: '#FF4B26', docs: 'https://www.infobip.com/docs/whatsapp' },
   { id: 'custom',  name: 'Custom',  desc: 'Your own webhook · Full control · Any provider',          color: '#6366f1', docs: '' },
 ]
 
 const FIELD_LABELS: Record<string, Record<string, { label: string; placeholder: string; hint: string }>> = {
-  wati: {
-    api_key:       { label: 'API Token', placeholder: 'eyJhbGciOiJIUzI1NiIs...', hint: 'Found in Wati Dashboard → Settings → API' },
-    api_url:       { label: 'Wati Server URL', placeholder: 'https://live-server-12345.wati.io', hint: 'Your Wati instance URL — found in dashboard URL' },
-    sender_number: { label: 'Sender Number', placeholder: '+255700000000', hint: 'Your WhatsApp Business number registered with Wati' },
-  },
   twilio: {
     api_key:       { label: 'Account SID : Auth Token', placeholder: 'ACxxxxxxxx:your_auth_token', hint: 'Format: AccountSID:AuthToken — found in Twilio Console' },
     api_url:       { label: 'API URL (leave default)', placeholder: 'https://api.twilio.com', hint: 'Leave blank to use default Twilio API URL' },

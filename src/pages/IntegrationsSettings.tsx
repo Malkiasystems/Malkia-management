@@ -15,7 +15,7 @@ export default function IntegrationsSettings({ onNav }: Props) {
   const integrations: IntegrationCard[] = [
     {
       title: 'WhatsApp',
-      description: 'Send receipts and invoices via Wati, Twilio, or Infobip · Message templates · Delivery logs',
+      description: 'Send receipts and invoices via Twilio or Infobip · Message templates · Delivery logs',
       status: 'live',
       onClick: () => onNav('whatsapp-settings'),
       color: '#25D366',

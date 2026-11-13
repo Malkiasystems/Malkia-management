@@ -148,7 +148,7 @@ const EXPENSE_SUB: { label: string; page: Page; icon: string; tab?: 'budget' | '
 
 const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Hub',         page: 'crm-hub',         icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
-  { label: 'Inbox',       page: 'crm-inbox',       icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
+  { label: 'WhatsApp Inbox', page: 'whatsapp-centre', icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
   { label: 'Automations', page: 'crm-automations', icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' },
   { label: 'Pre-Orders',  page: 'crm-preorders',   icon: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' },
   { label: 'Waiting',     page: 'crm-waiting-list', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2' },
@@ -157,7 +157,6 @@ const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Feedback',    page: 'crm-feedback',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
   { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
   { label: 'Circle Maoni', page: 'circle-moderation', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM8 12l3 3 5-6' },
-  { label: 'WhatsApp', page: 'whatsapp-centre', icon: 'M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z' },
 ]
 
 interface SidebarProps { current: Page; onNav: (p: Page) => void; stockMode?: boolean }
@@ -586,7 +585,9 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
               {Boolean(isCrmItem) && waWaiting > 0 && (
                 <span className="wa-side-dot" title={`WhatsApp: ${waWaiting} wanasubiri jibu`} style={{
-                  position: 'absolute', top: 3, right: expanded ? 18 : 6, minWidth: 16, height: 16, padding: '0 4px',
+                  // expanded: sits inline after the label; collapsed: pinned to the icon's corner
+                  position: expanded ? 'static' : 'absolute', top: 3, right: 6, marginLeft: expanded ? 2 : 0, flexShrink: 0,
+                  minWidth: 16, height: 16, padding: '0 4px', boxSizing: 'border-box',
                   borderRadius: 999, background: '#D92D20', color: '#fff', fontSize: 9.5, fontWeight: 800,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{waWaiting}</span>

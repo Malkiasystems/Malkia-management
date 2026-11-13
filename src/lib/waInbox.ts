@@ -23,9 +23,9 @@ export interface WaWaiting {
 export interface WaInboxState { items: WaWaiting[]; allowed: boolean; loaded: boolean }
 
 export const WA_PRIORITY_META: Record<WaPriority, { label: string; color: string; bg: string }> = {
-  high:   { label: 'Juu',     color: '#B42318', bg: '#FDECEC' },
-  normal: { label: 'Kawaida', color: '#9A6700', bg: '#FFF4D6' },
-  low:    { label: 'Chini',   color: '#3F6B4F', bg: '#EAF6EC' },
+  high:   { label: 'High',   color: '#B42318', bg: '#FDECEC' },
+  normal: { label: 'Normal', color: '#9A6700', bg: '#FFF4D6' },
+  low:    { label: 'Low',    color: '#3F6B4F', bg: '#EAF6EC' },
 }
 
 let state: WaInboxState = { items: [], allowed: false, loaded: false }
@@ -33,6 +33,15 @@ let signature = ''
 const listeners = new Set<() => void>()
 let timer: number | null = null
 let pollMs = 30000
+// Live channel: any change to a contact row (a new customer message, a reply,
+// a "handled" tap on another screen) refreshes the queue within about a second.
+// Polling stays on as a safety net in case the live connection drops.
+let channel: ReturnType<typeof supabase.channel> | null = null
+let nudgeTimer: number | null = null
+const nudge = () => {
+  if (nudgeTimer !== null) window.clearTimeout(nudgeTimer)
+  nudgeTimer = window.setTimeout(() => { nudgeTimer = null; refreshWaInbox() }, 400)
+}
 
 const emit = () => listeners.forEach(l => l())
 
@@ -61,10 +70,19 @@ function subscribe(l: () => void) {
   if (listeners.size === 1) {
     refreshWaInbox()
     timer = window.setInterval(refreshWaInbox, pollMs)
+    try {
+      channel = supabase
+        .channel('wa-inbox-queue')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'wa_contacts' }, nudge)
+        .subscribe()
+    } catch { channel = null /* polling still covers it */ }
   }
   return () => {
     listeners.delete(l)
-    if (listeners.size === 0 && timer !== null) { window.clearInterval(timer); timer = null }
+    if (listeners.size === 0) {
+      if (timer !== null) { window.clearInterval(timer); timer = null }
+      if (channel) { try { supabase.removeChannel(channel) } catch { /* ignore */ } channel = null }
+    }
   }
 }
 
@@ -92,10 +110,11 @@ export const waWindowLeftMs = (lastInboundAt: string | null): number =>
 
 export const waDuration = (ms: number): string => {
   const m = Math.max(0, Math.floor(ms / 60000))
-  if (m < 1) return 'chini ya dk 1'
-  if (m < 60) return `dk ${m}`
-  if (m < 1440) return `saa ${Math.floor(m / 60)}${m % 60 ? ` dk ${m % 60}` : ''}`
-  return `siku ${Math.floor(m / 1440)}`
+  if (m < 1) return 'under 1 min'
+  if (m < 60) return `${m} min`
+  if (m < 1440) return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60)
+  return `${d} d${h ? ` ${h} h` : ''}`
 }
 
 export const waWaitedFor = (sinceIso: string): string => waDuration(Date.now() - new Date(sinceIso).getTime())
