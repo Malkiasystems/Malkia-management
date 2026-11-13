@@ -57,3 +57,27 @@ export async function sendWhatsAppPayslip(lineId: string) {
   if (!r.ok) throw new Error(j?.error || `wa-payslip ${r.status}`)
   return j as { ok: true; mode: 'freeform' | 'template'; twilio_sid: string; message_id: string; pdf: string }
 }
+
+/* Waiting list: tell a customer the product they asked for is back, from the
+   business number. wa-waitlist picks an ordinary message inside the customer's
+   24h window and the approved template outside it, logs the message (so it
+   shows in the WhatsApp Inbox with delivery ticks) and marks the entry. */
+const WA_WAITLIST_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-waitlist'
+
+export async function sendWaitlistNotice(waitingId: string, force = false) {
+  const { data: s } = await supabase.auth.getSession()
+  const token = s.session?.access_token
+  if (!token) throw new Error('Sign in to MalkiaOS again (your session has ended).')
+  const r = await fetch(WA_WAITLIST_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ waiting_id: waitingId, force }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const err = new Error(j?.error || `wa-waitlist ${r.status}`) as Error & { code?: string }
+    err.code = j?.code
+    throw err
+  }
+  return j as { ok: true; mode: 'freeform' | 'template'; message_id: string | null; marked: boolean }
+}

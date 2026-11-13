@@ -158,7 +158,6 @@ const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
 const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
 const WhatsAppTemplates = lazy(() => import('./pages/crm/WhatsAppTemplates'))
 const WhatsAppResources = lazy(() => import('./pages/crm/WhatsAppResources'))
-const Waitlist = lazy(() => import('./pages/crm/Waitlist'))
 
 // HRM Module (lazy - loads on first HRM page visit)
 const HRMDashboard = lazy(() => import('./pages/hrm/HRMDashboard'))
@@ -355,7 +354,8 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-upsell': 'CRM / Upsell Engine',
   'crm-whatsapp-templates': 'CRM / WhatsApp Templates',
   'crm-whatsapp-resources': 'CRM / Resources',
-  'crm-waitlist': 'CRM / Waitlist',
+  'crm-waitlist': 'CRM / Waiting List',
+  'crm-waiting-list': 'CRM / Waiting List',
   'users': 'Settings / User Management',
   'approvals': 'Settings / Approval Workflows',
   'approvals-settings': 'Settings / Approval Rules',
@@ -742,7 +742,7 @@ function AppContent() {
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
       case 'crm-whatsapp-templates': return <WhatsAppTemplates onNav={navigate} />
       case 'crm-whatsapp-resources': return <WhatsAppResources onNav={navigate} />
-      case 'crm-waitlist': return <Waitlist onNav={navigate} />
+      case 'crm-waitlist': return <CRMWaitingList onNav={navigate} />   // the unused second waitlist screen is retired
       case 'crm-customers':     return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} />
       
       // HRM Module Routes — pass mode, linked employee, and manage permission

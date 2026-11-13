@@ -12,6 +12,7 @@ import { localIso } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/useAuth'
 import { renderElementToPdfBlob } from '../lib/customerDocuments'
+import { sendWaitlistNotice } from '../lib/wa'
 import type { Page } from '../lib/types'
 
 interface Props { onNav?: (p: Page) => void }
@@ -19,6 +20,7 @@ interface Entry {
   id: string; product_id: string; product_name: string | null; qty_wanted: number
   customer_id: string | null; customer_name: string; whatsapp: string | null
   status: string; note: string | null; created_at: string | null; added_by_name: string | null
+  notified_at?: string | null; notify_wa_message_id?: string | null; notify_count?: number | null
 }
 interface Group { product_id: string; product_name: string; category: string; inStock: number; entries: Entry[]; totalWanted: number }
 
@@ -45,8 +47,11 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
   const [closed, setClosed] = useState<Entry[]>([])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState('')
+  const [bulk, setBulk] = useState('')   // product id while a "tell all" run is going
+  // delivery state of the WhatsApp notice for each entry, from the message log
+  const [ticks, setTicks] = useState<Record<string, { status: string; error: string | null }>>({})
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
-  const flash = (m: string, t: 'ok' | 'err' = 'ok') => { setToast({ msg: m, type: t }); setTimeout(() => setToast(null), 3000) }
+  const flash = (m: string, t: 'ok' | 'err' = 'ok') => { setToast({ msg: m, type: t }); setTimeout(() => setToast(null), t === 'err' ? 9000 : 3000) }
 
   // filters
   const [fProduct, setFProduct] = useState('all')
@@ -76,6 +81,13 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     }
     const { data } = await supabase.from('waiting_list').select('*').in('status', ['waiting', 'notified']).order('created_at', { ascending: true })
     const rows = (data || []) as Entry[]
+    const msgIds = rows.map(r => r.notify_wa_message_id).filter(Boolean) as string[]
+    if (msgIds.length) {
+      const { data: ms } = await supabase.from('wa_messages').select('id, status, error').in('id', msgIds)
+      const t: Record<string, { status: string; error: string | null }> = {}
+      ;(ms || []).forEach((m: any) => { t[m.id] = { status: m.status, error: m.error } })
+      setTicks(t)
+    } else setTicks({})
     const ids = Array.from(new Set(rows.map(r => r.product_id)))
     const stock = new Map<string, number>()
     const cat = new Map<string, string>()
@@ -140,6 +152,41 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
     if (error) { flash('Failed: ' + error.message, 'err'); return }
     flash(`${e.customer_name} marked ${status}`); load()
   }
+  // Tell a waiting customer through the business number. Returns what happened
+  // so the "tell all" run can count results without a toast per person.
+  const tell = async (e: Entry, force = false): Promise<{ result: 'sent' | 'recent' | 'failed'; message: string }> => {
+    try {
+      await sendWaitlistNotice(e.id, force)
+      return { result: 'sent', message: '' }
+    } catch (err: any) {
+      return { result: err?.code === 'recent' ? 'recent' : 'failed', message: err?.message || 'Could not send' }
+    }
+  }
+  const tellOne = async (e: Entry) => {
+    setBusy(e.id)
+    let r = await tell(e)
+    if (r.result === 'recent' && window.confirm(`${e.customer_name}: ${r.message}\n\nSend the message again anyway?`)) r = await tell(e, true)
+    setBusy('')
+    if (r.result === 'sent') flash(`${e.customer_name} told on WhatsApp from the business number`)
+    else if (r.result === 'failed') flash(r.message, 'err')
+    load()
+  }
+  const tellAll = async (g: Group) => {
+    const targets = g.entries.filter(e => e.status === 'waiting' && e.whatsapp)
+    if (!targets.length) { flash('Everyone here has already been told, or has no WhatsApp number.', 'err'); return }
+    if (!window.confirm(`Send the back-in-stock message to ${targets.length} ${targets.length === 1 ? 'person' : 'people'} waiting for ${g.product_name}?\n\nIt goes from the business WhatsApp number and each message is charged.`)) return
+    setBulk(g.product_id)
+    let sent = 0, failed = 0, firstError = ''
+    for (const e of targets) {
+      const r = await tell(e)
+      if (r.result === 'sent') sent++
+      else { failed++; if (!firstError) firstError = `${e.customer_name}: ${r.message}` }
+    }
+    setBulk('')
+    flash(failed ? `${sent} told, ${failed} not sent. First problem: ${firstError}` : `${sent} ${sent === 1 ? 'person' : 'people'} told on WhatsApp`, failed ? 'err' : 'ok')
+    load()
+  }
+
   const markNotified = async (e: Entry) => {
     if (!canManage) { flash('You need CRM rights to update a waiting entry.', 'err'); return }
     setBusy(e.id)
@@ -367,11 +414,20 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
                   <div style={{ fontWeight: 800 }}>{g.product_name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{g.entries.length} waiting · {g.totalWanted} units wanted</div>
                 </div>
-                <span style={{ fontSize: 12, fontWeight: 800, padding: '4px 10px', borderRadius: 7,
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {g.inStock > 0 && g.entries.some(e => e.status === 'waiting' && e.whatsapp) && (
+                    <button disabled={!!bulk || !!busy} onClick={() => tellAll(g)}
+                      title="Sends the back-in-stock message from the business number to everyone here who has not been told yet"
+                      style={{ ...btn, background: '#25D366', color: '#06301A', border: 'none' }}>
+                      {bulk === g.product_id ? 'Sending...' : `Tell all ${g.entries.filter(e => e.status === 'waiting' && e.whatsapp).length} on WhatsApp`}
+                    </button>
+                  )}
+                  <span style={{ fontSize: 12, fontWeight: 800, padding: '4px 10px', borderRadius: 7,
                   background: g.inStock > 0 ? 'rgba(22,163,74,.15)' : 'rgba(220,38,38,.12)',
                   color: g.inStock > 0 ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)' }}>
                   {g.inStock > 0 ? `${g.inStock} in stock — call them` : 'Out of stock'}
-                </span>
+                  </span>
+                </div>
               </div>
               {g.entries.map(e => {
                 const returning = !!e.customer_id
@@ -386,15 +442,32 @@ export default function CRMWaitingList({ onNav: _onNav }: Props) {
                           color: returning ? 'var(--accent)' : 'var(--yellow, #d97706)' }}>
                           {returning ? 'Returning customer' : 'New enquiry'}
                         </span>
-                        {e.status === 'notified' && <span style={{ fontSize: 10, color: 'var(--text3)' }}>· notified</span>}
+                        {e.status === 'notified' && (() => {
+                          const tk = e.notify_wa_message_id ? ticks[e.notify_wa_message_id] : undefined
+                          const when = e.notified_at ? new Date(e.notified_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
+                          if (!tk) return <span style={{ fontSize: 10, color: 'var(--text3)' }}>told{when ? ` ${when}` : ''} (by phone or own WhatsApp)</span>
+                          const bad = tk.status === 'failed'
+                          const label = bad ? 'not delivered' : tk.status === 'read' ? 'read' : tk.status === 'delivered' ? 'delivered' : 'sent'
+                          return <span title={bad ? (tk.error || '') : 'Sent from the business number'} style={{ fontSize: 10, fontWeight: 700, color: bad ? 'var(--red, #dc2626)' : 'var(--green, #16a34a)' }}>
+                            WhatsApp {label}{when ? ` ${when}` : ''}{(e.notify_count || 0) > 1 ? ` (${e.notify_count} times)` : ''}
+                          </span>
+                        })()}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
                         wants {e.qty_wanted} · waiting {waitedFor(e.created_at)}{e.whatsapp ? ` · ${e.whatsapp}` : ''}{e.added_by_name ? ` · added by ${e.added_by_name}` : ''}{e.note ? ` · ${e.note}` : ''}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {link && <a href={link} target="_blank" rel="noreferrer" style={{ ...btn, background: 'rgba(37,211,102,.15)', color: '#25D366', border: '1px solid rgba(37,211,102,.4)', textDecoration: 'none' }}>WhatsApp</a>}
-                      {canManage && e.status !== 'notified' && <button disabled={busy === e.id} onClick={() => markNotified(e)} style={btn}>Mark notified</button>}
+                      {g.inStock > 0 && e.whatsapp && (
+                        <button disabled={busy === e.id || !!bulk} onClick={() => tellOne(e)}
+                          title="Sends the back-in-stock message from the business number. It is recorded and shows in the WhatsApp Inbox."
+                          style={{ ...btn, background: 'rgba(37,211,102,.15)', color: '#25D366', border: '1px solid rgba(37,211,102,.4)' }}>
+                          {busy === e.id ? 'Sending...' : e.status === 'notified' ? 'Tell again' : 'Tell on WhatsApp'}
+                        </button>
+                      )}
+                      {link && g.inStock > 0 && <a href={link} target="_blank" rel="noreferrer" title="Opens your own WhatsApp. Not recorded, and it does not come from the business number."
+                        style={{ fontSize: 11, color: 'var(--text3)', alignSelf: 'center', textDecoration: 'underline' }}>own WhatsApp</a>}
+                      {canManage && e.status !== 'notified' && <button disabled={busy === e.id} onClick={() => markNotified(e)} title="Use this when you told them by phone" style={btn}>Told by phone</button>}
                       {canManage && <button disabled={busy === e.id} onClick={() => close(e, 'fulfilled')} style={{ ...btn, background: 'var(--green, #16a34a)', color: '#fff', border: 'none' }}>Fulfilled</button>}
                       {canManage && <button disabled={busy === e.id} onClick={() => close(e, 'cancelled')} style={{ ...btn, color: 'var(--text3)' }}>Cancel</button>}
                     </div>

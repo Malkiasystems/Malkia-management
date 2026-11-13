@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import DemoNotice from '../components/DemoNotice'
 // supabase import ready for real data
 // import { supabase } from '../lib/supabase'
 // import { tzs } from '../lib/utils'
@@ -67,7 +68,7 @@ interface FeedbackItem {
   response?: string
 }
 
-export default function CRMFeedback({ onNav }: Props) {
+function CRMFeedbackPreview({ onNav }: Props) {
   void onNav // available for future navigation
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -518,5 +519,16 @@ export default function CRMFeedback({ onNav }: Props) {
         )}
       </div>
     </div>
+  )
+}
+
+// This screen is a design preview. The wrapper below labels it as such until
+// it is connected to real data (see components/DemoNotice.tsx).
+export default function CRMFeedback(props: any) {
+  return (
+    <>
+      <DemoNotice what="reviews, complaints and ratings" real="Your real feedback requests exist in the system but are not shown here yet." />
+      <CRMFeedbackPreview {...props} />
+    </>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import DemoNotice from '../components/DemoNotice'
 // supabase import ready for real data
 // import { supabase } from '../lib/supabase'
 import { tzs } from '../lib/utils'
@@ -79,7 +80,7 @@ interface UpsellActivity {
   timestamp: string
 }
 
-export default function CRMUpsell({ onNav }: Props) {
+function CRMUpsellPreview({ onNav }: Props) {
   void onNav // available for future navigation
   const [rules, setRules] = useState<UpsellRule[]>([])
   const [activities, setActivities] = useState<UpsellActivity[]>([])
@@ -542,5 +543,16 @@ export default function CRMUpsell({ onNav }: Props) {
         </div>
       </div>
     </div>
+  )
+}
+
+// This screen is a design preview. The wrapper below labels it as such until
+// it is connected to real data (see components/DemoNotice.tsx).
+export default function CRMUpsell(props: any) {
+  return (
+    <>
+      <DemoNotice what="rules, suggestions and conversions" />
+      <CRMUpsellPreview {...props} />
+    </>
   )
 }

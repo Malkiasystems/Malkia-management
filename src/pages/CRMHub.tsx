@@ -501,7 +501,7 @@ export default function CRMHub({ onNav }: Props) {
             <Icon name="file" size={16} />
             Resources
           </button>
-          <button style={s.btnPrimary} onClick={() => onNav('crm-waitlist')}>
+          <button style={s.btnPrimary} onClick={() => onNav('crm-waiting-list')}>
             <Icon name="clock" size={16} />
             Waitlist
           </button>

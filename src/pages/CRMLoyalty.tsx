@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import DemoNotice from '../components/DemoNotice'
 // supabase import ready for real data
 // import { supabase } from '../lib/supabase'
 import type { Page } from '../lib/types'
@@ -82,7 +83,7 @@ interface PointsActivity {
   timestamp: string
 }
 
-export default function CRMLoyalty({ onNav }: Props) {
+function CRMLoyaltyPreview({ onNav }: Props) {
   void onNav // available for future navigation
   const [tiers, setTiers] = useState<TierData[]>([])
   const [members, setMembers] = useState<LoyaltyMember[]>([])
@@ -470,5 +471,16 @@ export default function CRMLoyalty({ onNav }: Props) {
         </div>
       </div>
     </div>
+  )
+}
+
+// This screen is a design preview. The wrapper below labels it as such until
+// it is connected to real data (see components/DemoNotice.tsx).
+export default function CRMLoyalty(props: any) {
+  return (
+    <>
+      <DemoNotice what="members, tiers and points" real="Customers do hold real Crown points, but this screen does not show them yet." />
+      <CRMLoyaltyPreview {...props} />
+    </>
   )
 }

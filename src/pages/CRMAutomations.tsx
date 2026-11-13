@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import DemoNotice from '../components/DemoNotice'
 // supabase import ready for real data
 // import { supabase } from '../lib/supabase'
 // import { tzs } from '../lib/utils'
@@ -76,7 +77,7 @@ interface DeliveryLog {
   timestamp: string
 }
 
-export default function CRMAutomations({ onNav }: Props) {
+function CRMAutomationsPreview({ onNav }: Props) {
   void onNav // available for future navigation
   const [automations, setAutomations] = useState<Automation[]>([])
   const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLog[]>([])
@@ -539,5 +540,16 @@ export default function CRMAutomations({ onNav }: Props) {
         </div>
       </div>
     </div>
+  )
+}
+
+// This screen is a design preview. The wrapper below labels it as such until
+// it is connected to real data (see components/DemoNotice.tsx).
+export default function CRMAutomations(props: any) {
+  return (
+    <>
+      <DemoNotice what="automations, message counts and delivery log" real="Real automations are planned for a later phase; no message has been sent by this screen." />
+      <CRMAutomationsPreview {...props} />
+    </>
   )
 }
