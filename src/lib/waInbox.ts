@@ -18,6 +18,7 @@ export interface WaWaiting {
   reply_priority: WaPriority
   last_inbound_at: string | null
   last_inbound_body: string | null
+  unanswered?: number
 }
 
 export interface WaInboxState { items: WaWaiting[]; allowed: boolean; loaded: boolean }
