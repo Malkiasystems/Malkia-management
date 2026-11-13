@@ -10,6 +10,7 @@ import type { HRMViewMode } from './pages/hrm/hrmTypes'
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
 import WaInboxAlert from './components/WaInboxAlert'
+import BooksCheckBanner from './components/BooksCheckBanner'
 import MobileNav from './components/MobileNav'
 import OtpGate from './components/OtpGate'
 import { isMfaVerifiedThisSession, markMfaVerified, clearMfaVerified } from './lib/useLoginOtp'
@@ -772,6 +773,8 @@ function AppContent() {
           <Topbar breadcrumb={breadcrumb} onNav={navigate} onBack={goBack} canGoBack={history.length > 0} />
           {/* Customers waiting on WhatsApp: shown on every page to inbox holders */}
           <WaInboxAlert current={page} onNav={navigate} />
+          {/* Administrators: a red notice when the records do not add up */}
+          <BooksCheckBanner />
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
             <div className="app-sidebar-desktop" style={{ display: 'flex' }}>
               <Sidebar current={page} onNav={navigate} stockMode={isStockWorkspace} />

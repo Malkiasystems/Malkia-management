@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import { statementLine } from '../../lib/postingGuard'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -78,12 +79,12 @@ export default function DebitNote({ onNav }: Props) {
       })
 
       if (selectedCust?.id) {
-        await supabase.from('customer_ledger_entries').insert({
+        await statementLine(supabase.from('customer_ledger_entries').insert({
           customer_id: selectedCust.id, posting_date: form.date,
           document_type: 'debit_note', document_ref: form.ref,
           description: `Debit Note — ${form.reason}`,
           amount, remaining_amount: amount, is_open: true, journal_id: j.id,
-        })
+        }), { ref: form.ref, what: "its line on the customer's statement" })
       }
 
       showToast(`${form.ref} posted · Dr AR (1050) / Cr Revenue (4010) · ${form.customer} balance increased by ${tzs(amount)}`)

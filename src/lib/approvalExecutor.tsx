@@ -14,6 +14,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { supabase } from './supabase'
+import { statementLine } from './postingGuard'
 import { insertJournalWithRetry } from './refs'
 import { postLedgerEntry } from './itemLedger'
 import { markRequestExecuted } from './useApproval'
@@ -489,12 +490,12 @@ async function executeCreditNote(c: ExecuteContext): Promise<ExecutorResult> {
 
   // Customer ledger entry
   if (p.customerId) {
-    await supabase.from('customer_ledger_entries').insert({
+    await statementLine(supabase.from('customer_ledger_entries').insert({
       customer_id: p.customerId, posting_date: p.form.date,
       document_type: 'credit_note', document_ref: p.form.ref,
       description: `Credit Note — ${p.form.reason}`,
       amount: -p.amount, remaining_amount: -p.amount, is_open: true, journal_id: journal.id,
-    })
+    }), { ref: p.form.ref, what: "its line on the customer's statement" })
   }
 
   // Restore stock if returned

@@ -17,6 +17,7 @@
  */
 
 import { supabase } from './supabase'
+import { statementLine } from './postingGuard'
 import { nextRef, insertJournalWithRetry } from './refs'
 import { today } from './utils'
 import { postLedgerEntry } from './itemLedger'
@@ -719,7 +720,7 @@ export async function postCashSale(params: PostParams): Promise<PostResult> {
     }
 
     if (isPOD && customerId && arId) {
-      await supabase.from('customer_ledger_entries').insert({ customer_id: customerId, posting_date: postingDate, document_type: 'invoice', document_ref: ref, description: `POD — ${newCustName}`, amount: total, remaining_amount: total, is_open: true, journal_id: journal.id })
+      await statementLine(supabase.from('customer_ledger_entries').insert({ customer_id: customerId, posting_date: postingDate, document_type: 'invoice', document_ref: ref, description: `POD — ${newCustName}`, amount: total, remaining_amount: total, is_open: true, journal_id: journal.id }), { ref, what: "its line on the customer's statement" })
     }
 
     // AUTO-CREATE BANK RECEIPT VOUCHER for non-cash payments

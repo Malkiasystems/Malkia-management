@@ -4,6 +4,7 @@ import { salespersonCodeFor } from '../../lib/salespersonCode'
 import { invoiceFileName } from '../../lib/invoiceFileName'
 import { cartonsToPieces, fmtCartonHint } from '../../lib/uom'
 import { supabase } from '../../lib/supabase'
+import { statementLine, recordPostingFailure, alarmPostingFailure } from '../../lib/postingGuard'
 import VoucherPage from '../../components/VoucherPage'
 import Toast from '../../components/Toast'
 import DraftBanner from '../../components/DraftBanner'
@@ -799,8 +800,19 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
         due_date: form.dueDate || null, is_open: invoiceStillOpen, journal_id: journal.id,
       })
       if (ledgerErr) {
+        // Never carry on quietly (three invoices lost their statement line that
+        // way in Nov 2026). First let the database add the line itself, which
+        // works even when this user's own insert is refused. Either way the
+        // failure is recorded for the administrators; if the repair also fails,
+        // the person posting is stopped with a message they must dismiss.
         console.error('Customer ledger insert failed:', ledgerErr.message)
-        showToast(`Voucher posted but AR ledger entry failed: ${ledgerErr.message}`, 'error')
+        const { error: repairErr } = await supabase.rpc('ar_ensure_invoice_statement_line', { p_ref: finalRef, p_remaining: invoiceRemaining })
+        await recordPostingFailure(
+          finalRef,
+          repairErr ? 'invoice statement line (NOT repaired)' : 'invoice statement line (repaired automatically)',
+          ledgerErr.message + (repairErr ? ` | repair: ${repairErr.message}` : ''),
+        )
+        if (repairErr) alarmPostingFailure(finalRef, "its line on the customer's statement", ledgerErr.message)
       }
 
       // ── Advance payment: post a sibling Cash Receipt ──────────────────
@@ -866,13 +878,13 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
           // entry above so it reduces remaining_amount further) is already
           // handled at insert time via the invoiceRemaining math; the
           // receipt row exists for audit and customer statement display.
-          await supabase.from('customer_ledger_entries').insert({
+          await statementLine(supabase.from('customer_ledger_entries').insert({
             customer_id: customerId, posting_date: form.date,
             document_type: 'receipt', document_ref: receiptRef,
             description: `Payment received against ${finalRef}`,
             amount: -paidNow, remaining_amount: 0,
             is_open: false, journal_id: receiptJournalRaw.id,
-          })
+          }), { ref: receiptRef, what: "the payment line on the customer's statement" })
         } catch (advErr: any) {
           // Invoice already posted at this point — surface the receipt
           // failure so the user knows to retry the receipt manually rather

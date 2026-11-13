@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import { statementLine } from '../../lib/postingGuard'
 import VoucherPage from '../../components/VoucherPage'
 import { FG } from '../../components/FormHelpers'
 import Toast from '../../components/Toast'
@@ -495,19 +496,19 @@ export default function CreditNote({ onNav }: Props) {
       // it doesn't affect balance calculations.
       if (customerId) {
         if (creditLegPosted) {
-          await supabase.from('customer_ledger_entries').insert({
+          await statementLine(supabase.from('customer_ledger_entries').insert({
             customer_id: customerId, posting_date: form.date,
             document_type: 'credit_note', document_ref: form.ref,
             description: `Credit Note (cash refund) — ${form.reason} — ${tzs(amount)} refunded to bank/cash`,
             amount: 0, remaining_amount: 0, is_open: false, journal_id: j.id,
-          })
+          }), { ref: form.ref, what: "its line on the customer's statement" })
         } else {
-          await supabase.from('customer_ledger_entries').insert({
+          await statementLine(supabase.from('customer_ledger_entries').insert({
             customer_id: customerId, posting_date: form.date,
             document_type: 'credit_note', document_ref: form.ref,
             description: `Credit Note — ${form.reason}`,
             amount: -amount, remaining_amount: -amount, is_open: true, journal_id: j.id,
-          })
+          }), { ref: form.ref, what: "its line on the customer's statement" })
         }
       }
 
