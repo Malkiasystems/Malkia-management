@@ -25,7 +25,8 @@ interface Tpl {
 }
 const SLOT_LABEL: Record<string, string> = {
   back_in_stock: 'Waiting list: back in stock with offer', receipt_pdf: 'Receipt (PDF)', receipt_text: 'Receipt (text)',
-  invoice_pdf: 'Invoice (PDF)', payslip: 'Payslip',
+  invoice_pdf: 'Invoice: on credit, with a pay-by date (PDF)', payslip: 'Payslip',
+  invoice_thanks_pdf: 'Invoice: pay on delivery or already paid (PDF)', invoice_part_pdf: 'Invoice: part paid (PDF)',
 }
 const STATUS: Record<string, { label: string; bg: string; fg: string }> = {
   approved: { label: 'Approved', bg: '#DCF5E6', fg: '#12683A' },
@@ -44,7 +45,30 @@ const WAITLIST_PRESET = {
   samples: { '1': 'Asha', '2': 'Push to Recover Kit', '3': '10', '4': '45,000' } as Record<string, string>,
   buttons: [{ title: 'Ndiyo, niwekee', id: 'hold' }, { title: 'Nipigie simu', id: 'call' }, { title: 'Sihitaji tena', id: 'no' }],
 }
-const BLANK_MEANING: Record<string, string[]> = { back_in_stock: ['customer first name', 'product', 'discount percent', 'price after discount'] }
+const BLANK_MEANING: Record<string, string[]> = {
+  back_in_stock: ['customer first name', 'product', 'discount percent', 'price after discount'],
+  invoice_thanks_pdf: ['invoice number', 'total'],
+  invoice_part_pdf: ['invoice number', 'total', 'amount paid', 'balance', 'when the balance is due'],
+}
+// The agreed invoice messages. Each carries the invoice PDF, attached automatically.
+const INVOICE_THANKS_PRESET = {
+  slot: 'invoice_thanks_pdf', name: 'malkia_invoice_thanks_pdf_sw', category: 'UTILITY',
+  body: 'Invoice yako {{1}} \u00b7 Jumla TZS {{2}}. Hifadhi invoice hii kwa kumbukumbu zako. Asante kwa kuwa mshirika wa Malkia.',
+  samples: { '1': 'SI-10-0392', '2': '224,250' } as Record<string, string>, buttons: [] as { title: string; id: string }[],
+}
+const INVOICE_PART_PRESET = {
+  slot: 'invoice_part_pdf', name: 'malkia_invoice_part_pdf_sw', category: 'UTILITY',
+  body: 'Invoice yako {{1}} \u00b7 Jumla TZS {{2}} \u00b7 Umelipa TZS {{3}}. Salio TZS {{4}} lilipwe {{5}}. Hifadhi invoice hii kwa kumbukumbu zako. Asante kwa kuwa mshirika wa Malkia.',
+  samples: { '1': 'SI-10-0392', '2': '224,250', '3': '100,000', '4': '124,250', '5': 'kabla ya 19/11/2026' } as Record<string, string>, buttons: [] as { title: string; id: string }[],
+}
+const PDF_SLOTS = ['invoice_thanks_pdf', 'invoice_part_pdf']
+const PRESETS: Record<string, typeof WAITLIST_PRESET> = { back_in_stock: WAITLIST_PRESET, invoice_thanks_pdf: INVOICE_THANKS_PRESET, invoice_part_pdf: INVOICE_PART_PRESET }
+const clonePreset = (slot: string) => { const pr = PRESETS[slot]; return { ...pr, samples: { ...pr.samples }, buttons: pr.buttons.map(b => ({ ...b })) } }
+const PRESET_NOTE: Record<string, string> = {
+  back_in_stock: 'The waiting-list message has not been created yet. Until it is, staff cannot tell waiting customers that a product is back.',
+  invoice_thanks_pdf: 'The invoice message for dealers who pay on delivery or have already paid has not been created yet. Until Meta approves it, they keep getting the "pay before" message.',
+  invoice_part_pdf: 'The invoice message for dealers who paid part has not been created yet. Until Meta approves it, they keep getting the "pay before" message.',
+}
 const EMPTY = { slot: '', name: '', category: 'MARKETING', body: '', samples: {} as Record<string, string>, buttons: [] as { title: string; id: string }[] }
 
 const blanksIn = (body: string) => Array.from(new Set(Array.from(body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)).map(m => Number(m[1])))).sort((a, b) => a - b)
@@ -69,7 +93,8 @@ export default function WaBusinessTemplates() {
   useEffect(() => { load() }, [])
 
   const blanks = useMemo(() => (draft ? blanksIn(draft.body) : []), [draft])
-  const hasWaitlist = rows.some(r => r.slot === 'back_in_stock')
+  const missingPresets = Object.keys(PRESETS).filter(slot => !rows.some(r => r.slot === slot))
+  const isPdfSlot = !!draft && PDF_SLOTS.includes(draft.slot)
 
   const submit = async () => {
     if (!draft) return
@@ -112,14 +137,14 @@ export default function WaBusinessTemplates() {
       {notice && <div style={{ ...card, borderColor: '#9BD3B0', background: '#EAF8F0', color: '#12683A', fontSize: 13, fontWeight: 600 }}>{notice}</div>}
       {error && <div style={{ ...card, borderColor: '#E8A0A0', background: '#FCEDED', color: '#8F1D1D', fontSize: 13 }}>{error}</div>}
 
-      {canCreate && !draft && !hasWaitlist && !loading && (
-        <div style={{ ...card, borderColor: '#E8B93E', background: '#FFF6DA', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 13, color: '#5F4500' }}>
-            <b>The waiting-list message has not been created yet.</b> Until it is, staff cannot tell waiting customers that a product is back.
+      {canCreate && !draft && !loading && missingPresets.map(slot => (
+        <div key={slot} style={{ ...card, borderColor: '#E8B93E', background: '#FFF6DA', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, color: '#5F4500', flex: 1, minWidth: 260 }}>
+            <b>{SLOT_LABEL[slot]}.</b> {PRESET_NOTE[slot]}
           </div>
-          <button onClick={() => { setDraft({ ...WAITLIST_PRESET, samples: { ...WAITLIST_PRESET.samples }, buttons: WAITLIST_PRESET.buttons.map(b => ({ ...b })) }); setProblems([]); setNotice('') }} style={primary}>Start from the agreed wording</button>
+          <button onClick={() => { setDraft(clonePreset(slot)); setProblems([]); setNotice('') }} style={primary}>Start from the agreed wording</button>
         </div>
-      )}
+      ))}
 
       {draft && (
         <div style={{ ...card, borderColor: 'var(--accent)' }}>
@@ -129,18 +154,19 @@ export default function WaBusinessTemplates() {
               <label style={lbl}>Used for</label>
               <select value={draft.slot} style={inp} onChange={e => {
                 const slot = e.target.value
-                // Choosing the waiting list on an untouched form loads the agreed message, so nothing has to be retyped.
+                // Choosing a kind on an untouched form loads its agreed message, so nothing has to be retyped.
                 const untouched = !draft.name.trim() && !draft.body.trim()
-                setDraft(slot === 'back_in_stock' && untouched
-                  ? { ...WAITLIST_PRESET, samples: { ...WAITLIST_PRESET.samples }, buttons: WAITLIST_PRESET.buttons.map(b => ({ ...b })) }
-                  : { ...draft, slot, name: draft.name.trim() || (slot === 'back_in_stock' ? WAITLIST_PRESET.name : draft.name) })
+                setDraft(PRESETS[slot] && untouched ? clonePreset(slot)
+                  : { ...draft, slot, name: draft.name.trim() || (PRESETS[slot]?.name ?? draft.name), buttons: PDF_SLOTS.includes(slot) ? [] : draft.buttons })
               }}>
                 <option value="">Not assigned yet (for a future feature)</option>
                 <option value="back_in_stock">{SLOT_LABEL.back_in_stock}</option>
+                <option value="invoice_thanks_pdf">{SLOT_LABEL.invoice_thanks_pdf}</option>
+                <option value="invoice_part_pdf">{SLOT_LABEL.invoice_part_pdf}</option>
               </select>
               {draft.slot && BLANK_MEANING[draft.slot] && (
                 <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 5, lineHeight: 1.5 }}>
-                  Keep exactly four blanks in this order: {BLANK_MEANING[draft.slot].map((m, i) => `{{${i + 1}}} ${m}`).join(', ')}. The waiting list fills them in for each customer.
+                  Keep exactly {BLANK_MEANING[draft.slot].length} blanks in this order: {BLANK_MEANING[draft.slot].map((m, i) => `{{${i + 1}}} ${m}`).join(', ')}. The system fills them in for each customer.{isPdfSlot ? ' The invoice PDF is attached automatically.' : ''}
                 </div>
               )}
               <label style={lbl}>Name (lowercase, no spaces)</label>
@@ -163,6 +189,7 @@ export default function WaBusinessTemplates() {
                     style={{ ...inp, borderColor: (draft.samples[String(n)] || '').trim() ? 'var(--border)' : '#E8B93E' }} />
                 </div>
               ))}
+              {!isPdfSlot && (<>
               <label style={lbl}>Buttons the customer can tap (up to 3, 20 characters each)</label>
               {draft.buttons.map((b, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
@@ -171,6 +198,7 @@ export default function WaBusinessTemplates() {
                 </div>
               ))}
               {draft.buttons.length < 3 && <button onClick={() => setDraft({ ...draft, buttons: [...draft.buttons, { title: '', id: `b${draft.buttons.length + 1}` }] })} style={btn}>Add a button</button>}
+              </>)}
             </div>
             <div>
               <label style={lbl}>How the customer will see it</label>
@@ -178,6 +206,12 @@ export default function WaBusinessTemplates() {
                 <div style={{ background: '#fff', color: '#111B21', borderRadius: 10, padding: '9px 11px', fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word', boxShadow: '0 1px 1px rgba(0,0,0,.12)' }}>
                   {draft.body ? fillPreview(draft.body, draft.samples) : <span style={{ color: '#8696A0' }}>Your message appears here.</span>}
                 </div>
+                {isPdfSlot && (
+                  <div style={{ background: '#fff', color: '#111B21', borderRadius: 10, padding: '8px 11px', marginTop: 5, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 1px 1px rgba(0,0,0,.12)' }}>
+                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B42318" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
+                    The invoice PDF
+                  </div>
+                )}
                 {draft.buttons.filter(b => b.title.trim()).map((b, i) => (
                   <div key={i} style={{ background: '#fff', color: '#027EB5', borderRadius: 10, padding: '9px 11px', marginTop: 5, fontSize: 14, fontWeight: 600, textAlign: 'center', boxShadow: '0 1px 1px rgba(0,0,0,.12)' }}>{b.title}</div>
                 ))}
