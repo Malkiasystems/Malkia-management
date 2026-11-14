@@ -86,7 +86,6 @@ const dayLabel = (iso: string) => {
 }
 const stamp = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-const windowOpen = (c: { last_inbound_at: string | null }) => waWindowLeftMs(c.last_inbound_at) > 0
 
 /* chat-list time, the way messaging apps show it */
 const listTime = (iso: string | null | undefined): string => {
@@ -234,6 +233,9 @@ const EMOJI: { title: string; items: string[] }[] = [
 ]
 
 const PAGE_CSS = `
+.wa-wide{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,3fr) 96px 130px 170px 40px;gap:16px;align-items:center}
+@media (max-width:980px){.wa-wide{grid-template-columns:minmax(0,1fr) 40px}.wa-wide .wa-opt{display:none}}
+
 @keyframes waDotRing { 0% { box-shadow: 0 0 0 0 rgba(217,45,32,.6) } 70% { box-shadow: 0 0 0 7px rgba(217,45,32,0) } 100% { box-shadow: 0 0 0 0 rgba(217,45,32,0) } }
 .wa-dot { width: 9px; height: 9px; border-radius: 50%; background: #D92D20; flex-shrink: 0; animation: waDotRing 1.3s ease-out infinite }
 @media (prefers-reduced-motion: reduce) { .wa-dot { animation: none } }
@@ -290,6 +292,18 @@ export default function WhatsAppInbox() {
     setTheme(next)
     try { window.localStorage.setItem(THEME_KEY, next) } catch { /* private mode: choice lasts for this visit */ }
   }
+
+  const emojiOpenRef = useRef(false); emojiOpenRef.current = emojiOpen
+  useEffect(() => {
+    if (!sel) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (emojiOpenRef.current) setEmojiOpen(false)
+      else setSel(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sel?.phone])
 
   const waiting = useMemo(() => new Map(inbox.items.map(i => [i.phone, i])), [inbox.items])
   const counts = useMemo(() => {
@@ -593,6 +607,47 @@ export default function WhatsAppInbox() {
     </button>
   )
 
+  /* A chat as one full-width row: customer and kind, last message, priority, time waiting,
+     reply window, unanswered count. Used for the Waiting and All chats lists. Search results
+     keep the compact row, because they show a snippet of the matching message. */
+  const wideRow = (o: {
+    phone: string; name: string | null; preview: string; fromUs?: boolean; prio?: WaPriority
+    since?: string | null; lastInbound?: string | null; time?: string | null; unanswered?: number; onClick: () => void
+  }) => {
+    const left = waWindowLeftMs(o.lastInbound || null)
+    const waitingNow = (o.unanswered || 0) > 0
+    const pr = o.prio ? (t.prio[o.prio] || t.prio.normal) : null
+    const k = kinds[o.phone]
+    return (
+      <button key={o.phone} onClick={o.onClick} className="wa-wide"
+        style={{ width: '100%', textAlign: 'left', padding: '12px 18px', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          borderBottom: `1px solid ${t.border}`, background: sel?.phone === o.phone ? t.rowSel : 'transparent', color: t.text }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <Avatar name={o.name} phone={o.phone} size={44} />
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: 'block', fontWeight: 700, fontSize: 14.5, ...ellipsis }}>{o.name || o.phone}</span>
+            <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: t.text3, marginTop: 1 }}>{k ? KIND_LABEL[k] : (o.name ? o.phone : '')}</span>
+          </span>
+        </span>
+        <span className="wa-opt" style={{ fontSize: 13, color: waitingNow ? t.text : t.text2, fontWeight: waitingNow ? 600 : 400, ...ellipsis }}>
+          {o.fromUs && <span style={{ color: t.text3 }}>You: </span>}
+          {o.preview || <i style={{ color: t.text3 }}>No messages yet</i>}
+        </span>
+        <span className="wa-opt">
+          {pr && o.prio && <span style={{ fontSize: 11, fontWeight: 800, color: pr.color, background: pr.bg, borderRadius: 999, padding: '2px 9px' }}>{PRIO_LABEL[o.prio] || 'Normal'}</span>}
+        </span>
+        <span className="wa-opt" style={{ fontSize: 12.5, fontWeight: 700, color: waitingNow ? t.danger : t.text3 }}>
+          {waitingNow && o.since ? waWaitedFor(o.since) : listTime(o.time)}
+        </span>
+        <span className="wa-opt" style={{ fontSize: 12.5, fontWeight: 700, color: left > 0 ? t.ok : t.text3 }}>
+          {left > 0 ? `${waDuration(left)} left` : 'Closed'}
+        </span>
+        <span style={{ justifySelf: 'end' }}><span style={countBadge(o.unanswered || 0)}>{o.unanswered}</span></span>
+      </button>
+    )
+  }
+  const closeChat = () => { setSel(null); setEmojiOpen(false) }
+
   let lastDay = ''
   return (
     <div style={{ flex: '1 1 0%', minHeight: 440, display: 'flex', flexDirection: 'column', background: t.bg, color: t.text }}>
@@ -601,7 +656,7 @@ export default function WhatsAppInbox() {
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         {/* ── chats panel: its own band and tint, so it never reads as a system menu ── */}
-        <div style={{ width: 392, flexShrink: 0, borderRight: `1px solid ${t.border}`, background: t.listBg, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, background: t.listBg, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div style={{ background: t.band, color: t.bandText, padding: '14px 14px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>
@@ -631,7 +686,7 @@ export default function WhatsAppInbox() {
 
           {!searchMode && (
             <div style={{ padding: '10px 12px', borderBottom: `1px solid ${t.border}` }}>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, maxWidth: 440 }}>
                 <button onClick={() => setView('waiting')} style={tab(view === 'waiting', inbox.items.length > 0)}>Waiting ({inbox.items.length})</button>
                 <button onClick={() => setView('all')} style={tab(view === 'all')}>All chats</button>
               </div>
@@ -663,6 +718,12 @@ export default function WhatsAppInbox() {
             </div>
           )}
 
+          {!searchMode && (
+            <div className="wa-wide" style={{ padding: '8px 18px', fontSize: 10.5, fontWeight: 800, letterSpacing: '.6px', textTransform: 'uppercase', color: t.text3, borderBottom: `1px solid ${t.border}`, background: t.panel2 }}>
+              <span>Customer</span><span className="wa-opt">Last message</span><span className="wa-opt">Priority</span>
+              <span className="wa-opt">{view === 'waiting' ? 'Waiting' : 'Last activity'}</span><span className="wa-opt">Reply window</span><span />
+            </div>
+          )}
           <div className="wa-inbox-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
             {/* search results: chats whose name or number matches, then every message containing the words */}
             {searchMode && (
@@ -695,49 +756,39 @@ export default function WhatsAppInbox() {
                 {!waitingList.length && <div style={{ padding: 18, fontSize: 12.5, color: t.text3 }}>
                   {inbox.items.length ? 'Nothing matches this filter.' : 'No customer is waiting for a reply. Good work.'}
                 </div>}
-                {waitingList.map(i => {
-                  const left = waWindowLeftMs(i.last_inbound_at)
-                  const pr = t.prio[i.reply_priority] || t.prio.normal
-                  return chatRow({
-                    key: i.phone, phone: i.phone, name: i.name, time: i.last_inbound_at, preview: i.last_inbound_body || NO_TEXT,
-                    unanswered: Math.max(1, i.unanswered || 1), open: left > 0, onClick: () => pick(i.phone),
-                    extra: (
-                      <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4, fontSize: 10.5 }}>
-                        <span style={{ fontWeight: 800, color: pr.color, background: pr.bg, borderRadius: 999, padding: '1px 8px' }}>{PRIO_LABEL[i.reply_priority] || 'Normal'}</span>
-                        <span style={{ color: t.danger, fontWeight: 700 }}>waiting {waWaitedFor(i.needs_reply_since)}</span>
-                        <span style={{ color: left > 0 ? t.ok : t.text3, fontWeight: 700 }}>{left > 0 ? `${waDuration(left)} left to reply` : 'reply window closed'}</span>
-                      </span>
-                    ),
-                  })
-                })}
+                {waitingList.map(i => wideRow({
+                  phone: i.phone, name: i.name, preview: i.last_inbound_body || NO_TEXT, prio: i.reply_priority,
+                  since: i.needs_reply_since, lastInbound: i.last_inbound_at, time: i.last_inbound_at,
+                  unanswered: Math.max(1, i.unanswered || 1), onClick: () => pick(i.phone),
+                }))}
               </>
             )}
 
             {!searchMode && view === 'all' && (
               <>
                 {!contacts.length && <div style={{ padding: 18, fontSize: 12.5, color: t.text3 }}>No chats yet. They appear when the first message is sent or received.</div>}
-                {allList.map(c => chatRow({
-                  key: c.phone, phone: c.phone, name: c.name, time: c.last_message_at || c.last_inbound_at || c.last_outbound_at,
-                  preview: cleanBody(c.last_message_body), fromUs: c.last_message_dir === 'out',
-                  unanswered: waiting.has(c.phone) ? Math.max(1, waiting.get(c.phone)?.unanswered || 1) : 0, open: windowOpen(c), onClick: () => setSel(c),
-                }))}
+                {allList.map(c => {
+                  const w = waiting.get(c.phone)
+                  return wideRow({
+                    phone: c.phone, name: c.name, preview: cleanBody(c.last_message_body), fromUs: c.last_message_dir === 'out',
+                    prio: w?.reply_priority, since: w?.needs_reply_since, lastInbound: c.last_inbound_at,
+                    time: c.last_message_at || c.last_inbound_at || c.last_outbound_at,
+                    unanswered: w ? Math.max(1, w.unanswered || 1) : 0, onClick: () => setSel(c),
+                  })
+                })}
               </>
             )}
           </div>
         </div>
 
-        {/* ── conversation ── */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          {!sel && (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: t.wall, backgroundImage: crownWallpaper(t.wallInk) }}>
-              <div style={{ color: t.text2, fontSize: 14, textAlign: 'center', padding: '18px 26px', background: t.panel, border: `1px solid ${t.border}`, borderRadius: 14, maxWidth: 380 }}>
-                <div style={{ fontWeight: 800, fontSize: 15, color: t.text, marginBottom: 4 }}>Customer conversations</div>
-                {inbox.items.length ? 'Pick a chat on the left to read and reply.' : 'Nobody is waiting. Pick a chat under All chats, or search for a word a customer used.'}
-              </div>
-            </div>
-          )}
-          {sel && (
-            <>
+        {/* -- conversation: a pop-up over the list, the same shape as New Cash Sale.
+               Click outside, the X, or Escape closes it. -- */}
+        {sel && (
+          <div onMouseDown={e => { if (e.target === e.currentTarget) closeChat() }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20, boxSizing: 'border-box' }}>
+            <div role="dialog" aria-modal="true" aria-label={`Chat with ${sel.name || sel.phone}`}
+              style={{ width: '94%', maxWidth: 920, height: 'min(820px, 92vh)', background: t.bg, color: t.text, border: `1px solid ${t.border}`, borderRadius: 20,
+                overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 80px rgba(0,0,0,.55)' }}>
               <div style={{ padding: '10px 16px', borderBottom: `1px solid ${t.border}`, background: t.panel, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <Avatar name={sel.name} phone={sel.phone} size={42} />
                 <div style={{ minWidth: 0 }}>
@@ -756,7 +807,31 @@ export default function WhatsAppInbox() {
                     color: sel.consent_marketing ? t.prio.low.color : t.text2 }}>
                   Marketing: {sel.consent_marketing ? 'ALLOWED' : 'NOT ALLOWED'}
                 </button>
+                <button onClick={closeChat} aria-label="Close chat" title="Close (Esc)"
+                  style={{ width: 40, height: 40, borderRadius: 999, border: `1px solid ${t.border}`, background: t.panel2, color: t.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                </button>
               </div>
+
+              {/* step through the customers still waiting without closing the pop-up */}
+              {(() => {
+                const queue = waitingList
+                const others = queue.filter(i => i.phone !== sel.phone)
+                if (!others.length) return null
+                const idx = queue.findIndex(i => i.phone === sel.phone)
+                const next = idx >= 0 ? queue[(idx + 1) % queue.length] : queue[0]
+                const prev = idx >= 0 ? queue[(idx - 1 + queue.length) % queue.length] : queue[queue.length - 1]
+                const nav: CSSProperties = { padding: '7px 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }
+                return (
+                  <div style={{ padding: '8px 16px', borderBottom: `1px solid ${t.border}`, background: t.panel2, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12.5, color: t.text2, fontWeight: 600 }}>{others.length} more {others.length === 1 ? 'customer' : 'customers'} waiting</span>
+                    <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                      {others.length > 1 && <button onClick={() => pick(prev.phone)} style={{ ...nav, border: `1px solid ${t.border}`, background: 'transparent', color: t.text }}>Previous</button>}
+                      <button onClick={() => pick(next.phone)} style={{ ...nav, border: 'none', background: t.accent, color: t.accentText }}>Next waiting</button>
+                    </span>
+                  </div>
+                )
+              })()}
 
               {selWaiting && (
                 <div style={{ padding: '8px 16px', borderBottom: `1px solid ${t.dangerBorder}`, background: t.dangerBg, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -856,9 +931,9 @@ export default function WhatsAppInbox() {
                   {busy ? 'Sending...' : 'Send'}
                 </button>
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
