@@ -158,6 +158,7 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'crm.edit', label: 'Edit Records' },
       { key: 'crm.delete', label: 'Delete Records' },
       { key: 'crm.inbox', label: 'WhatsApp Inbox' },
+      { key: 'crm.inbox.staff', label: 'WhatsApp Inbox: staff chats and salary slip messages' },
       { key: 'crm.konnect', label: 'Konnect Module' },
       { key: 'crm.automations', label: 'Automations' },
       { key: 'crm.export', label: 'Export CRM Data' },

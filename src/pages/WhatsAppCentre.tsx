@@ -23,6 +23,8 @@ interface Contact {
   circle_user_id: string | null; os_customer_id: string | null; dealer_shop_id: string | null
   last_message_body?: string | null; last_message_at?: string | null; last_message_dir?: string | null
 }
+type ChatKind = 'staff' | 'wholesale' | 'retail' | 'new'
+const KIND_LABEL: Record<ChatKind, string> = { staff: 'Staff', wholesale: 'Wholesale', retail: 'Retail', new: 'New number' }
 interface SearchHit {
   id: string; phone: string; name: string | null; direction: 'in' | 'out'
   body: string | null; created_at: string; media_type: string | null; purpose: string
@@ -253,6 +255,12 @@ export default function WhatsAppInbox() {
   const [err, setErr] = useState('')
   const [view, setView] = useState<'waiting' | 'all'>('waiting')
   const [pf, setPf] = useState<WaPriority | 'all'>('all')
+  // Kind of chat: staff, wholesale, retail, or a number we do not know yet. The server decides
+  // each chat's kind and only returns staff chats to someone with the staff-chat permission.
+  const [kf, setKf] = useState<ChatKind | 'all'>('all')
+  const [kinds, setKinds] = useState<Record<string, ChatKind>>({})
+  const [staffOk, setStaffOk] = useState(false)
+  const kfRef = useRef<ChatKind | 'all'>('all'); kfRef.current = kf
   const [, setTick] = useState(0) // re-render every minute so countdowns move
   // keyword search across message text
   const [hits, setHits] = useState<SearchHit[] | null>(null)
@@ -291,7 +299,10 @@ export default function WhatsAppInbox() {
   }, [inbox.items])
 
   const loadContacts = useCallback(async (query: string) => {
-    const { data, error } = await supabase.rpc('wa_contacts_list', { p_q: query || null, p_limit: 200 })
+    const kind = kfRef.current
+    const { data, error } = kind === 'all'
+      ? await supabase.rpc('wa_contacts_list', { p_q: query || null, p_limit: 200 })
+      : await supabase.rpc('wa_contacts_by_kind', { p_kind: kind, p_q: query || null, p_limit: 200 })
     if (error) { setErr(error.message); return }
     const list = (data || []) as Contact[]
     setContacts(list)
@@ -329,6 +340,16 @@ export default function WhatsAppInbox() {
   }, [])
 
   useEffect(() => { loadContacts('') }, [loadContacts])
+  // reload the list when the kind filter changes (the server applies it, so older chats are not missed)
+  useEffect(() => { loadContacts(qRef.current) }, [kf, loadContacts])
+  useEffect(() => {
+    supabase.rpc('wa_contact_kinds').then(({ data }: any) => {
+      const m: Record<string, ChatKind> = {}
+      ;(data || []).forEach((r: any) => { m[r.phone] = r.kind })
+      setKinds(m)
+    })
+    supabase.rpc('wa_staff_chats_allowed').then(({ data }: any) => setStaffOk(data === true))
+  }, [])
   useEffect(() => {
     setEmojiOpen(false)
     // a plain chat switch (not a jump from search) always lands on the newest message
@@ -490,14 +511,17 @@ export default function WhatsAppInbox() {
   const srcLabels = (c: Contact) => {
     const l: string[] = []
     if (c.circle_user_id) l.push('Circle')
-    if (c.os_customer_id) l.push('Customer')
+    const k = kinds[c.phone]
+    if (k === 'staff') l.push('Staff')
+    else if (k === 'wholesale') l.push('Wholesale customer')
+    else if (c.os_customer_id) l.push(k === 'retail' ? 'Retail customer' : 'Customer')
     if (c.dealer_shop_id) l.push('Dealer')
     if (!l.length && c.first_source) l.push(c.first_source)
     return l
   }
 
   const needle = q.trim().toLowerCase()
-  const waitingList = inbox.items.filter(i =>
+  const waitingList = inbox.items.filter(i => (kf === 'all' || (kinds[i.phone] || 'new') === kf)).filter(i =>
     (pf === 'all' || i.reply_priority === pf) &&
     (!needle || i.phone.toLowerCase().includes(needle) || (i.name || '').toLowerCase().includes(needle)))
   const allList = [...contacts].sort((a, b) => Number(waiting.has(b.phone)) - Number(waiting.has(a.phone)))
@@ -610,6 +634,16 @@ export default function WhatsAppInbox() {
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => setView('waiting')} style={tab(view === 'waiting', inbox.items.length > 0)}>Waiting ({inbox.items.length})</button>
                 <button onClick={() => setView('all')} style={tab(view === 'all')}>All chats</button>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {(['all', 'retail', 'wholesale', ...(staffOk ? ['staff'] : []), 'new'] as (ChatKind | 'all')[]).map(k => (
+                  <button key={k} onClick={() => setKf(k)}
+                    title={k === 'staff' ? 'Chats with staff numbers. Only people with the staff-chat permission see these.' : undefined}
+                    style={{ padding: '4px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                      border: `1px solid ${kf === k ? t.accent : t.border}`, background: kf === k ? t.accent : 'transparent', color: kf === k ? '#fff' : t.text2 }}>
+                    {k === 'all' ? 'Everyone' : KIND_LABEL[k]}
+                  </button>
+                ))}
               </div>
               {view === 'waiting' && inbox.items.length > 0 && (
                 <div style={{ display: 'flex', gap: 5, marginTop: 9, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -747,9 +781,10 @@ export default function WhatsAppInbox() {
                 {msgs.map(m => {
                   const out = m.direction === 'out'
                   const isTpl = !!m.body && m.body.startsWith('[tpl] ')
-                  const hasMedia = !!m.media_type
+                  // a salary slip never shows its file here, whatever the record carries
+                  const hasMedia = m.purpose !== 'payslip' && (!!m.media_type)
                   // when the file itself is shown, drop the "[Photo]" style label and keep any caption
-                  const body = isTpl ? m.body!.slice(6) : hasMedia ? (m.body || '').replace(MEDIA_LABEL, '') : m.body
+                  const body = m.purpose === 'payslip' ? 'Salary slip sent' : isTpl ? m.body!.slice(6) : hasMedia ? (m.body || '').replace(MEDIA_LABEL, '') : m.body
                   const day = dayLabel(m.created_at)
                   const showDay = day !== lastDay
                   lastDay = day
