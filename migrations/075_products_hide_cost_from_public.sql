@@ -1,8 +1,8 @@
 -- 075: the public can read product catalogue fields only, never cost,
 -- supplier or margin fields.
--- STATUS: NOT YET APPLIED. Apply only AFTER the Malkia-Shop bundle of
--- 17 Nov 2026 is live (the old /partners page requests cost_price and
--- would fail to load products if this ran first).
+-- STATUS: ALREADY LIVE in Supabase (applied + tested via MCP, 17 Nov 2026),
+-- after the Malkia-Shop bundle of 17 Nov 2026 was confirmed live (the old
+-- /partners page requested cost_price and would have failed otherwise).
 -- Hidden from the public after this: cost_price, cost_price_usd,
 -- supplier_id, preferred_supplier_id, min_margin_pct, allow_sell_below_cost,
 -- reorder_point, lead_time_days, costing_method, product_posting_group,
