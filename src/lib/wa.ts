@@ -48,6 +48,33 @@ export async function sendWhatsAppReceiptPdf(ref: string) {
    retried: the old sender would fail the same way. */
 const WA_INVOICE_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-invoice'
 
+/* Cash-sale receipts go through wa-risiti (same receipt, plus a personal
+   Malkia Circle join link). wa-receipt stays live as the safety net: if the
+   new function is unreachable, missing, crashes, or says the voucher is not a
+   cash sale, the old one sends the receipt exactly as before. */
+const WA_RISITI_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-risiti'
+
+export async function sendWhatsAppRisitiPdf(ref: string) {
+  const { data: s } = await supabase.auth.getSession()
+  const token = s.session?.access_token
+  if (!token) throw new Error('Ingia tena MalkiaOS (session imeisha).')
+  let r: Response
+  try {
+    r = await fetch(WA_RISITI_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ref }),
+    })
+  } catch {
+    return sendWhatsAppReceiptPdf(ref)          // network / function not reachable
+  }
+  const j = await r.json().catch(() => ({}))
+  if (r.ok) return j as { ok: true; pdf: string; twilio_sid: string }
+  // 502 = PDF was built but WhatsApp refused it: resending would not help.
+  if (r.status === 404 || (r.status >= 500 && r.status !== 502) || j?.code === 'not_cash_sale') return sendWhatsAppReceiptPdf(ref)
+  throw new Error(j?.error || `wa-risiti ${r.status}`)
+}
+
 export async function sendWhatsAppInvoicePdf(ref: string) {
   const { data: s } = await supabase.auth.getSession()
   const token = s.session?.access_token

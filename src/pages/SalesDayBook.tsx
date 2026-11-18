@@ -7,7 +7,7 @@ import CategoryFilter, { makeCategoryPredicate } from '../components/CategoryFil
 import type { Page } from '../lib/types'
 import { exportCSV as doExportCSV, exportPDF as doExportPDF, exportDetailPDF as doExportDetailPDF } from '../lib/salesDayBookExport'
 import type { SDBSale, SDBExpense, SDBCreditNote, SDBTemplateSettings } from '../lib/salesDayBookExport'
-import { sendWhatsAppReceiptPdf, sendWhatsAppInvoicePdf } from '../lib/wa'
+import { sendWhatsAppRisitiPdf, sendWhatsAppInvoicePdf } from '../lib/wa'
 
 interface Props {
   onNav?: (p: Page) => void
@@ -752,7 +752,7 @@ export default function SalesDayBook({ onEdit }: Props) {
                   setWaSending(true); setWaErr(null)
                   try {
                     if (waConfirm?.type === 'sales_invoice') await sendWhatsAppInvoicePdf(waConfirm.ref)
-                    else await sendWhatsAppReceiptPdf(waConfirm.ref)
+                    else await sendWhatsAppRisitiPdf(waConfirm.ref)
                     setWaSentRefs(prev => new Set(prev).add(waConfirm.ref))
                     setWaConfirm(null)
                   } catch (err: any) {

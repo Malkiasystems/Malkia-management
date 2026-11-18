@@ -8,6 +8,11 @@
 // invoice from MalkiaOS keeps its signing area; that is the copy the customer
 // or their transport agent signs on delivery.
 // Caption and Meta template (wa_template_invoice_pdf) are unchanged.
+// v2 (18 Nov 2026): (1) the invoice status gets its own line, so a long
+// "PARTIAL · 1,245,000 outstanding" no longer prints over its label;
+// (2) long invoices flow onto further pages instead of stopping at 12 lines
+// ("...and N more lines") or crowding the footer. A one-page invoice looks
+// the same as before apart from the status line.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1"
@@ -250,7 +255,7 @@ async function renderInvoicePdf(v: any, cust: any, fonts: Record<string, Uint8Ar
   if (cust?.tin_number) { ly += 6; t(`TIN: ${cust.tin_number}`, 40, ly, 10, mono, G.g888); ly += 10 }
   if (cust?.whatsapp) { ly += 6; t(String(cust.whatsapp), 40, ly, 10, mono, G.aaa); ly += 10 }
   const leftColH = (ly - yTop) + 22
-  const stmtH = 191
+  const stmtH = 208
   const rowH = Math.max(leftColH, showStmt ? stmtH : 0)
   if (showStmt) {
     rect(colW, yTop, colW, rowH, effPaid ? rgb(0.957, 0.984, 0.969) : G.peach)
@@ -268,35 +273,71 @@ async function renderInvoicePdf(v: any, cust: any, fonts: Record<string, Uint8Ar
     t(currentBalance > 0 ? "Total Now Owed" : "Account Balance", sx, sy + 2, 11, bodySB, owedC)
     tr(`TZS ${fmt(currentBalance)}`, sxr, sy, 14, monoM, owedC); sy += 24
     hline(sx, sy, sxr - sx, G.peachLine); sy += 10
-    spaced("STATUS OF THIS INVOICE", sx, sy + 1, 10, mono, G.g888, 1)
+    spaced("STATUS OF THIS INVOICE", sx, sy + 1, 10, mono, G.g888, 1); sy += 17
     const stC = effPaid ? rgb(0.176, 0.478, 0.31) : effPartial ? rgb(0.722, 0.525, 0.043) : G.red
     const stT = effPaid ? (settledByCredit ? "SETTLED · covered by account credit" : "PAID IN FULL")
       : effPartial ? `PARTIAL · ${fmt(effRemaining)} outstanding` : `OUTSTANDING · ${fmt(effRemaining)}`
-    tr(stT, sxr, sy, 11, monoM, stC); sy += 19
+    t(stT, sx, sy, 11, monoM, stC); sy += 19
     t(`Reflects all invoices and payments as of ${statementDate}`, sx, sy, 9, bodyIt, G.aaa)
   }
   hline(0, yTop + rowH, 794, G.line)
   yTop += rowH
+
+  // ── Footer geometry (needed first, to know how much room is left) ────────
+  const bandH = 6
+  const footTop = 1122.5 - bandH - 16 - 48
+  const drawBand = () => {
+    for (let i = 0; i < 40; i++) {
+      const u = i / 39, tt2 = 1 - Math.abs(u - 0.5) * 2
+      const c = rgb(0.102 + (P.red - 0.102) * tt2, 0.102 + (P.green - 0.102) * tt2, 0.102 + (P.blue - 0.102) * tt2)
+      rect(794 * u, 1122.5 - bandH, 794 / 39 + 0.5, bandH, c)
+    }
+  }
+  const drawFooter = () => {
+    hline(40, footTop, 714, G.line)
+    t(IS.footer_note || "", 40, footTop + 14, 10, bodyIt, G.aaa)
+    tr(IS.company_name, 754, footTop + 12, 9, monoM, P)
+    tr(v.ref, 754, footTop + 25, 9, mono, G.ccc)
+    drawBand()
+  }
+
+  // ── Paging ──────────────────────────────────────────────────────────────
+  // Content must end above `limit`. When something does not fit, close the
+  // page with its footer and continue on a fresh page with a slim header.
+  const limit = footTop - 12
+  const newPage = (): number => {
+    drawFooter()
+    page = doc.addPage([PW, PH])
+    rect(0, 0, 794, 6, P)
+    t(IS.company_name, 40, 34, 13, syne, INK)
+    tr(v.ref, 754, 34, 13, monoM, INK)
+    spaced(`${String(IS.label_invoice || "Tax Invoice").toUpperCase()} \u00b7 CONTINUED`, 40, 54, 9, mono, G.aaa, 1.5)
+    hline(40, 74, 714, G.line)
+    return 92
+  }
 
   yTop += 20
   const tX = 40, tW = 714
   const cWd = { num: 36, qty: 50, unit: 110, disc: 60, amt: 130 }
   const descW = tW - cWd.num - cWd.qty - cWd.unit - cWd.disc - cWd.amt
   const xDesc = tX + cWd.num, xQty = xDesc + descW + cWd.qty, xUnit = xQty + cWd.unit, xDisc = xUnit + cWd.disc, xAmt = tX + tW
-  rect(tX, yTop, tW, 27, G.tableHead)
-  const hy = yTop + 9
-  spaced("#", tX + 14, hy, 9, mono, G.ccc, 1)
-  spaced("ITEM / DESCRIPTION", xDesc + 12, hy, 9, mono, G.ccc, 1)
-  spacedR("QTY", xQty - 12, hy, 9, mono, G.ccc, 1)
-  spacedR("UNIT PRICE", xUnit - 12, hy, 9, mono, G.ccc, 1)
-  spacedR("DISC", xDisc - 12, hy, 9, mono, G.ccc, 1)
-  spacedR("AMOUNT (TZS)", xAmt - 12, hy, 9, mono, G.ccc, 1)
+  const drawTableHead = (top: number) => {
+    rect(tX, top, tW, 27, G.tableHead)
+    const hy = top + 9
+    spaced("#", tX + 14, hy, 9, mono, G.ccc, 1)
+    spaced("ITEM / DESCRIPTION", xDesc + 12, hy, 9, mono, G.ccc, 1)
+    spacedR("QTY", xQty - 12, hy, 9, mono, G.ccc, 1)
+    spacedR("UNIT PRICE", xUnit - 12, hy, 9, mono, G.ccc, 1)
+    spacedR("DISC", xDisc - 12, hy, 9, mono, G.ccc, 1)
+    spacedR("AMOUNT (TZS)", xAmt - 12, hy, 9, mono, G.ccc, 1)
+  }
+  drawTableHead(yTop)
   yTop += 27
-  const maxLines = 12
-  const lns: any[] = (v.voucher_lines || []).slice(0, maxLines)
+  const lns: any[] = (v.voucher_lines || [])
   lns.forEach((l: any, i: number) => {
     const hasSku = !!l.products?.sku
     const rH = hasSku ? 41 : 32
+    if (yTop + rH > limit) { yTop = newPage(); drawTableHead(yTop); yTop += 27 }
     if (i % 2 === 1) rect(tX, yTop, tW, rH, G.zebra)
     const by = yTop + 10
     t(String(i + 1).padStart(2, "0"), tX + 11, by + 1, 11, monoM, P)
@@ -309,12 +350,12 @@ async function renderInvoicePdf(v: any, cust: any, fonts: Record<string, Uint8Ar
     yTop += rH
     hline(tX, yTop, tW, rgb(0.961, 0.961, 0.961))
   })
-  if ((v.voucher_lines || []).length > maxLines) {
-    yTop += 6
-    t(`…and ${(v.voucher_lines || []).length - maxLines} more lines — full detail on your account statement`, xDesc + 12, yTop, 10, bodyIt, G.g888)
-    yTop += 16
+  {
+    // Bank details and the invoice total stay together on one page.
+    const has2b = IS.bank2_name && IS.bank2_account_number
+    const payH = IS.show_bank_details ? 19 + 14 + (3 + (has2b ? 1 : 0)) * 22 + (IS.payment_note ? 30 : 0) + 14 : 0
+    if (yTop + 24 + Math.max(payH, 29 + 45) > limit) yTop = newPage() - 24
   }
-
   yTop += 24
   const payX = 40, payW = colW - 40 - 24
   const totX = colW + 24, totW = 794 - 40 - totX
@@ -352,6 +393,7 @@ async function renderInvoicePdf(v: any, cust: any, fonts: Record<string, Uint8Ar
   yTop = Math.max(payBottom, tcY + 45)
 
   if (IS.show_notes && v.notes) {
+    if (yTop + 20 + 48 > limit) yTop = newPage() - 20
     yTop += 20
     const nH = 48
     rect(40, yTop, 714, nH, rgb(0.976, 0.976, 0.976))
@@ -359,24 +401,6 @@ async function renderInvoicePdf(v: any, cust: any, fonts: Record<string, Uint8Ar
     spaced(String(IS.label_notes || "Notes").toUpperCase(), 56, yTop + 12, 9, monoM, G.aaa, 1.5)
     t(String(v.notes).slice(0, 110), 56, yTop + 26, 11, body, G.g555)
     yTop += nH
-  }
-
-  // ── Footer geometry (needed first, to know how much room is left) ────────
-  const bandH = 6
-  const footTop = 1122.5 - bandH - 16 - 48
-  const drawBand = () => {
-    for (let i = 0; i < 40; i++) {
-      const u = i / 39, tt2 = 1 - Math.abs(u - 0.5) * 2
-      const c = rgb(0.102 + (P.red - 0.102) * tt2, 0.102 + (P.green - 0.102) * tt2, 0.102 + (P.blue - 0.102) * tt2)
-      rect(794 * u, 1122.5 - bandH, 794 / 39 + 0.5, bandH, c)
-    }
-  }
-  const drawFooter = () => {
-    hline(40, footTop, 714, G.line)
-    t(IS.footer_note || "", 40, footTop + 14, 10, bodyIt, G.aaa)
-    tr(IS.company_name, 754, footTop + 12, 9, monoM, P)
-    tr(v.ref, 754, footTop + 25, 9, mono, G.ccc)
-    drawBand()
   }
 
   // ── Digital-copy notice ─────────────────────────────────────────────────
@@ -393,22 +417,17 @@ async function renderInvoicePdf(v: any, cust: any, fonts: Record<string, Uint8Ar
     let dcy = top + 13 + 9 + 9
     for (const l of dcLines) { t(l, 56, dcy, 11, body, G.g555); dcy += 15 }
   }
-  if (yTop + 26 + dcH <= footTop - 12) {
-    // Normal case: the notice sits under the totals, above the footer.
-    drawNotice(yTop + 26)
-    drawFooter()
-  } else {
-    // Long invoice: no room left on page 1. Never draw the notice over the
-    // footer; give it a short second page instead.
-    drawFooter()
-    page = doc.addPage([PW, PH])
-    rect(0, 0, 794, 6, P)
-    t(IS.company_name, 40, 34, 13, syne, INK)
-    tr(v.ref, 754, 34, 13, monoM, INK)
-    spaced(`${String(IS.label_invoice || "Tax Invoice").toUpperCase()} \u00b7 PAGE 2 OF 2`, 40, 54, 9, mono, G.aaa, 1.5)
-    hline(40, 74, 714, G.line)
-    drawNotice(92)
-    drawBand()
+  if (yTop + 26 + dcH > limit) yTop = newPage() - 26
+  drawNotice(yTop + 26)
+  drawFooter()
+
+  // Page numbers, only when the invoice runs past one page.
+  const pages = doc.getPages()
+  if (pages.length > 1) {
+    pages.forEach((pg: any, i: number) => {
+      page = pg
+      spaced(`PAGE ${i + 1} OF ${pages.length}`, 40, footTop + 30, 9, mono, G.aaa, 1.5)
+    })
   }
   return await doc.save()
 }

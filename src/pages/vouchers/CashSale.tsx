@@ -7,7 +7,7 @@ import { nextRef } from '../../lib/refs'
 import { today, tzs } from '../../lib/utils'
 import { MalkiaReceipt } from '../ReceiptTemplate'
 import type { ReceiptSettings } from '../ReceiptTemplate'
-import { sendWhatsApp as waApiSend, sendWhatsAppReceiptPdf } from '../../lib/wa'
+import { sendWhatsApp as waApiSend, sendWhatsAppRisitiPdf } from '../../lib/wa'
 
 // Receipt hook (30 Oct): text receipt through wa-send, the one audited door.
 // Matches the Meta template draft so the free-form (in-window) version and
@@ -783,7 +783,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
       const waPhone = result.receiptData.customers?.whatsapp
       if (waPhone) {
         const rd = result.receiptData
-        sendWhatsAppReceiptPdf(result.ref || rd.ref)
+        sendWhatsAppRisitiPdf(result.ref || rd.ref)
           .then(() => setWaSent(true))
           .catch(() => waApiSend({ phone: waPhone, purpose: 'receipt', name: rd.customers?.name, body: buildReceiptText(rd) })
             .then(() => setWaSent(true))
@@ -1640,7 +1640,7 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                   if (!phone) { alert('No WhatsApp number for this customer'); return }
                   setSending(true)
                   try {
-                    await sendWhatsAppReceiptPdf(lastVoucher.ref)
+                    await sendWhatsAppRisitiPdf(lastVoucher.ref)
                     setWaSent(true)
                   } catch (pdfErr: any) {
                     try {
