@@ -111,6 +111,42 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
   const [dbProducts, setDbProducts] = useState<DBProduct[]>([])
   const [filterCat, setFilterCat] = useState('all')
   const [lines, setLines] = useState<SaleLine[]>([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }])
+
+  // ── Malkia Circle discount (recurring Circle members only) ──
+  // Self-contained: it only reads, and any failure simply shows no banner.
+  // The discount is never applied automatically; the cashier presses Apply,
+  // which fills the existing per-line DISC% field.
+  const [circleInfo, setCircleInfo] = useState<{ member: boolean; member_no?: number; recurring: boolean; past_purchases?: number } | null>(null)
+  const [circlePct, setCirclePct] = useState<Record<string, number>>({})
+  const circleCustId = selectedCust?.id || null
+  const circleEditId = editVoucherData?.id || null
+  useEffect(() => {
+    let live = true
+    setCircleInfo(null)
+    if (!circleCustId) return
+    ;(async () => {
+      try {
+        const { data, error } = await supabase.rpc('circle_customer_status', { p_customer_id: circleCustId, p_exclude_voucher_id: circleEditId })
+        if (!live || error || !data || !(data as any).member) return
+        setCircleInfo(data as any)
+        if ((data as any).recurring) {
+          const { data: rows } = await supabase.from('products').select('id, circle_discount_pct').gt('circle_discount_pct', 0)
+          if (live && rows) setCirclePct(Object.fromEntries((rows as any[]).map(r => [r.id, Number(r.circle_discount_pct) || 0])))
+        }
+      } catch { /* no banner */ }
+    })()
+    return () => { live = false }
+  }, [circleCustId, circleEditId])
+  const circleEligible = circleInfo?.recurring && !appliedBundle
+    ? lines.filter(l => l.productId && (circlePct[l.productId] || 0) > 0) : []
+  const circlePending = circleEligible.filter(l => (l.discountPct || 0) < (circlePct[l.productId] || 0))
+  const applyCircleDiscount = () => {
+    setLines(lines.map(l => {
+      const pct = l.productId ? (circlePct[l.productId] || 0) : 0
+      if (pct <= 0 || (l.discountPct || 0) >= pct) return l
+      return { ...l, discountPct: pct, amount: (l.qty || 0) * (l.price || 0) * (1 - pct / 100) }
+    }))
+  }
   const { groups, catsByGroup } = useCategories()
 
   // Delivery
@@ -1252,6 +1288,25 @@ export default function CashSale({ editVoucherId, onClearEdit, onNav }: Props) {
                     <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,229,160,.3)', borderRadius: 8, padding: '6px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
                       <span style={{ color: 'var(--green)', fontWeight: 600 }}>Bundle applied: {appliedBundle.name} · Save {tzs(appliedBundle.individual_total - appliedBundle.bundle_price)}</span>
                       <button onClick={() => { setAppliedBundle(null); setLines([{ productId: '', name: '', qty: 1, price: 0, discountPct: 0, amount: 0 }]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 10, textDecoration: 'underline' }}>Clear</button>
+                    </div>
+                  )}
+                  {circleInfo?.member && (
+                    <div style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', borderRadius: 8, padding: '8px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: 11.5 }}>
+                      <span>
+                        <strong>Malkia Circle member #{circleInfo.member_no}</strong>
+                        {!circleInfo.recurring && ' · first purchase, no Circle discount yet (starts on the next one)'}
+                        {circleInfo.recurring && appliedBundle && ' · recurring customer. Bundle price applied, so no Circle discount on top'}
+                        {circleInfo.recurring && !appliedBundle && circleEligible.length === 0 && ' · recurring customer. No product on this sale has a Circle discount'}
+                        {circleInfo.recurring && !appliedBundle && circleEligible.length > 0 && (
+                          <> · recurring customer. Circle discount: {circleEligible.map(l => `${l.name} ${circlePct[l.productId]}%`).join(', ')}</>
+                        )}
+                      </span>
+                      {circlePending.length > 0 && (
+                        <button type="button" className="btn btn-sm" onClick={applyCircleDiscount} style={{ whiteSpace: 'nowrap', background: 'var(--accent)', color: '#fff', border: 'none' }}>Apply Circle discount</button>
+                      )}
+                      {circleEligible.length > 0 && circlePending.length === 0 && (
+                        <span style={{ whiteSpace: 'nowrap', fontWeight: 700, color: 'var(--accent)' }}>Applied ✓</span>
+                      )}
                     </div>
                   )}
                   {/* Category filter strip */}
