@@ -14,7 +14,7 @@ import { postLedgerEntry } from '../../lib/itemLedger'
 import { useVoucherDraft } from '../../lib/useVoucherDraft'
 import type { Page } from '../../lib/types'
 import { MalkiaInvoice } from '../InvoiceTemplate'
-import { sendWhatsAppReceiptPdf } from '../../lib/wa'
+import { sendWhatsAppInvoicePdf } from '../../lib/wa'
 import { useCategories } from '../../lib/useCategories'
 import { useUserLocation } from '../../lib/useUserLocation'
 import { useAuth } from '../../lib/useAuth'
@@ -1005,7 +1005,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
       showToast(`${finalRef} posted · TZS ${subtotal.toLocaleString()}${paidLabel}`)
       // Branded Ankara PDF via the Twilio pipeline; fire-and-forget so a
       // messaging hiccup never blocks or scares the posting flow.
-      if (selectedCust?.whatsapp) sendWhatsAppReceiptPdf(finalRef).catch(() => {})
+      if (selectedCust?.whatsapp) sendWhatsAppInvoicePdf(finalRef).catch(() => {})
       clearDraft()  // posted successfully — no draft to recover
     } catch (err: any) {
       showToast(err.message || 'Something went wrong', 'error')
@@ -2049,7 +2049,7 @@ export default function SalesInvoice({ onNav, editVoucherId, onClearEdit }: Prop
                 onClick={async () => {
                   if (!lastInvoice) return
                   setSending(true)
-                  try { await sendWhatsAppReceiptPdf(lastInvoice.ref); setWaSent(true) }
+                  try { await sendWhatsAppInvoicePdf(lastInvoice.ref); setWaSent(true) }
                   catch (e: any) { showToast(e?.message || 'WhatsApp send failed', 'error') }
                   finally { setSending(false) }
                 }}>

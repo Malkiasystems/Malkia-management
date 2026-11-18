@@ -39,6 +39,36 @@ export async function sendWhatsAppReceiptPdf(ref: string) {
   return j as { ok: true; pdf: string; twilio_sid: string }
 }
 
+/* Sales-invoice (Ankara) PDF: wa-invoice is the invoice-only sender (digital
+   copy notice instead of a signing area). Split from wa-receipt on 18 Nov 2026
+   so invoice changes never touch the cash-sale receipt path.
+   Safety net: if wa-invoice is unreachable or errors BEFORE sending (missing
+   function, server error), fall back to the original wa-receipt sender so the
+   customer still gets their invoice. Auth and bad-request errors are not
+   retried: the old sender would fail the same way. */
+const WA_INVOICE_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-invoice'
+
+export async function sendWhatsAppInvoicePdf(ref: string) {
+  const { data: s } = await supabase.auth.getSession()
+  const token = s.session?.access_token
+  if (!token) throw new Error('Ingia tena MalkiaOS (session imeisha).')
+  let r: Response
+  try {
+    r = await fetch(WA_INVOICE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ref }),
+    })
+  } catch {
+    return sendWhatsAppReceiptPdf(ref)          // network / function not reachable
+  }
+  const j = await r.json().catch(() => ({}))
+  if (r.ok) return j as { ok: true; pdf: string; twilio_sid: string }
+  // 502 = PDF was built but WhatsApp refused it: resending would not help.
+  if (r.status === 404 || (r.status >= 500 && r.status !== 502)) return sendWhatsAppReceiptPdf(ref)
+  throw new Error(j?.error || `wa-invoice ${r.status}`)
+}
+
 /* Payslip delivery: wa-payslip renders the payslip server-side from the payroll
    line, vaults it in the private payslips bucket and sends it to the
    employee's own WhatsApp number. Requires payroll rights (hrm.confidential). */
