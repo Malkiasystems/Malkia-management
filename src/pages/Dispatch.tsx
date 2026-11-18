@@ -15,6 +15,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/useAuth'
 import { renderElementToPdfBlob } from '../lib/customerDocuments'
+import { useInvoicePreview } from '../lib/useInvoicePreview'
+import InvoicePreviewModal from '../components/InvoicePreviewModal'
 import type { Page } from '../lib/types'
 
 interface Props { onNav?: (p: Page) => void }
@@ -45,6 +47,11 @@ const party = (i: Invoice) => i.customers?.company || i.customers?.name || 'Walk
 export default function Dispatch({ onNav: _onNav }: Props) {
   const { user, can, isSuperAdmin } = useAuth()
   const canDispatch = isSuperAdmin() || can('inventory.dispatch')
+
+  // View / print the actual invoice (the copy the customer or their transport
+  // agent signs on delivery) without leaving the dispatch queue. Same loader
+  // and viewer the Customers page uses.
+  const invoicePreview = useInvoicePreview()
 
   const [tab, setTab] = useState<'awaiting' | 'dispatched'>('awaiting')
   const [awaiting, setAwaiting] = useState<Invoice[]>([])
@@ -463,7 +470,10 @@ export default function Dispatch({ onNav: _onNav }: Props) {
                 <div style={{ display: 'flex', gap: 10 }}>
                   {canDispatch && <input type="checkbox" checked={selected.has(inv.id)} onChange={() => toggle(inv.id)} style={{ marginTop: 4 }} />}
                   <div>
-                    <div style={{ fontWeight: 800, fontFamily: 'var(--mono)' }}>{inv.ref}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 800, fontFamily: 'var(--mono)' }}>{inv.ref}</span>
+                      <ViewInvoiceBtn busy={invoicePreview.loading} onClick={() => invoicePreview.openByRef(inv.ref)} />
+                    </div>
                     <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{party(inv)}</div>
                     {inv.customers?.whatsapp && <div style={{ fontSize: 12, color: 'var(--text3)' }}>{inv.customers.whatsapp}</div>}
                     {inv.delivery_address && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>📍 {inv.delivery_address}</div>}
@@ -544,7 +554,12 @@ export default function Dispatch({ onNav: _onNav }: Props) {
                 <tbody>
                   {done.map(d => (
                     <tr key={d.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '9px 12px', fontFamily: 'var(--mono)' }}>{d.ref}</td>
+                      <td style={{ padding: '9px 12px', fontFamily: 'var(--mono)' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          {d.ref}
+                          <ViewInvoiceBtn busy={invoicePreview.loading} onClick={() => invoicePreview.openByRef(d.ref)} />
+                        </span>
+                      </td>
                       <td style={{ padding: '9px 12px' }}>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
                           background: d.status === 'collected' ? 'var(--surface2)' : (d.is_final ? 'var(--accent-dim, rgba(94,168,162,.15))' : 'rgba(217,119,6,.15)'),
@@ -564,6 +579,18 @@ export default function Dispatch({ onNav: _onNav }: Props) {
           )
       )}
 
+      <InvoicePreviewModal
+        voucher={invoicePreview.voucher}
+        settings={invoicePreview.settings}
+        onClose={invoicePreview.close}
+        domId="dispatch-invoice-preview"
+      />
+      {invoicePreview.error && (
+        <div onClick={invoicePreview.close} style={{ position: 'fixed', bottom: 64, left: '50%', transform: 'translateX(-50%)', padding: '10px 18px', borderRadius: 8, color: '#fff', background: 'var(--red, #dc2626)', fontSize: 13, fontWeight: 600, zIndex: 9999, cursor: 'pointer' }}>
+          Could not open invoice: {invoicePreview.error}
+        </div>
+      )}
+
       {toast && (
         <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', padding: '10px 18px', borderRadius: 8, color: '#fff', background: toast.type === 'ok' ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)', fontSize: 13, zIndex: 1000 }}>
           {toast.msg}
@@ -575,6 +602,19 @@ export default function Dispatch({ onNav: _onNav }: Props) {
 
 const inp: React.CSSProperties = { flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13 }
 const ghost: React.CSSProperties = { padding: '8px 12px', borderRadius: 8, background: 'var(--surface2)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }
+
+// Eye button beside an invoice number: opens the invoice for viewing/printing.
+function ViewInvoiceBtn({ onClick, busy }: { onClick: () => void; busy?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} disabled={busy} title="View / print invoice" aria-label="View or print invoice"
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, padding: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--accent)', cursor: busy ? 'wait' : 'pointer', flexShrink: 0 }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    </button>
+  )
+}
 
 // ─── printable builders ────────────────────────────────────────────────────
 function baseEl(): HTMLDivElement {
