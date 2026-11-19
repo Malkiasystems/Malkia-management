@@ -159,7 +159,8 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'crm.delete', label: 'Delete Records' },
       { key: 'crm.inbox', label: 'WhatsApp Inbox' },
       { key: 'crm.inbox.staff', label: 'WhatsApp Inbox: staff chats and salary slip messages' },
-      { key: 'crm.konnect', label: 'Konnect Module' },
+      { key: 'crm.konnect', label: 'Circle Messages (alerts, weekly lessons)' },
+      { key: 'crm.circle.review', label: 'Circle Messages: mark a lesson as reviewed by a midwife' },
       { key: 'crm.automations', label: 'Automations' },
       { key: 'crm.export', label: 'Export CRM Data' },
     ]

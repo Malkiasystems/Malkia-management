@@ -399,6 +399,8 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   // wa_inbox_assert() (migration 060). Super admins pass via the 40+ bypass.
   'whatsapp-centre': ['crm.inbox'],
   'wa-templates': ['crm.inbox'],
+  // Circle Messages took the place of the Konnect placeholder; it keeps that permission.
+  'circle-messages': ['crm.konnect'],
   'crm-automations': ['crm.automations'],
   'crm-preorders': ['crm.view'],
   // The waiting list is captured at the counter by whoever meets the customer,
