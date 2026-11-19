@@ -1,8 +1,9 @@
 // @ts-nocheck
-// wa-templates v3: WhatsApp templates managed from MalkiaOS.
+// wa-templates v4: WhatsApp templates managed from MalkiaOS.
 // v2 added the two invoice messages that carry the invoice PDF (thank-you, part paid).
 // v3 lets a template with no fixed use carry a PDF too (attach_pdf), for guides and
 //    weekly lessons. Nothing changes for the slots that already exist.
+// v4 adds an image as the other kind of attachment (attach: "pdf" | "image").
 //
 // POST { action: "list" }      WhatsApp Inbox permission. Every registered template with
 //                              Meta's current decision (refreshed from the provider).
@@ -64,7 +65,7 @@ const mapStatus = (s) => {
 
 const blankNumbers = (body) => [...new Set([...String(body || "").matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1])))].sort((a, b) => a - b)
 // A template with no fixed use that carries a PDF chosen at send time.
-const wantsOwnPdf = (d) => !d.slot && d.attach_pdf === true
+const ownAttach = (d) => d.slot ? "" : (d.attach === "image" ? "image" : (d.attach === "pdf" || d.attach_pdf === true) ? "pdf" : "")
 
 // Meta's rules that can be checked before submitting. Returns a list of problems in plain words.
 function problems(d) {
@@ -100,7 +101,7 @@ function problems(d) {
     if (uniq.length !== PDF_SLOTS[d.slot]) out.push(`This invoice message needs exactly ${PDF_SLOTS[d.slot]} blanks, in this order: ${PDF_BLANKS[d.slot]}. The invoice PDF is attached automatically.`)
     if (buttons.length) out.push("A message that carries the invoice PDF cannot have buttons.")
   }
-  if (wantsOwnPdf(d) && buttons.length) out.push("A message that carries a PDF cannot have buttons. Remove the buttons or untick the PDF.")
+  if (ownAttach(d) && buttons.length) out.push("A message that carries a PDF or an image cannot have buttons. Remove the buttons or choose no attachment.")
   return [...new Set(out)]
 }
 
@@ -174,6 +175,46 @@ async function sampleDocumentPdfUrl() {
   return (data && data.signedUrl) || null
 }
 
+// A plain sample picture for Meta (teal with a maroon band), built by hand as a PNG.
+function crc32(buf) {
+  let c, crc = 0xffffffff
+  for (let n = 0; n < buf.length; n++) { c = (crc ^ buf[n]) & 0xff; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crc = (crc >>> 8) ^ c }
+  return (crc ^ 0xffffffff) >>> 0
+}
+function pngChunk(type, data) {
+  const out = new Uint8Array(12 + data.length)
+  const dv = new DataView(out.buffer)
+  dv.setUint32(0, data.length)
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i)
+  out.set(data, 8)
+  dv.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)))
+  return out
+}
+async function plainSamplePng() {
+  const W = 540, H = 675
+  const raw = new Uint8Array(H * (1 + W * 3))
+  for (let y = 0; y < H; y++) {
+    const band = y > 520 && y < 600
+    const o = y * (1 + W * 3)
+    for (let x = 0; x < W; x++) { const p = o + 1 + x * 3; raw[p] = band ? 0x7a : 0x85; raw[p + 1] = band ? 0x1f : 0xc2; raw[p + 2] = band ? 0x3d : 0xbe }
+  }
+  const z = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer())
+  const ihdr = new Uint8Array(13); const dv = new DataView(ihdr.buffer)
+  dv.setUint32(0, W); dv.setUint32(4, H); ihdr[8] = 8; ihdr[9] = 2
+  const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+  const parts = [sig, pngChunk("IHDR", ihdr), pngChunk("IDAT", z), pngChunk("IEND", new Uint8Array(0))]
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let at = 0; for (const p of parts) { out.set(p, at); at += p.length }
+  return out
+}
+async function sampleImageUrl() {
+  const path = "_samples/malkia-image-sample.png"
+  const up = await sb.storage.from("receipts").upload(path, new Blob([await plainSamplePng()], { type: "image/png" }), { upsert: true, contentType: "image/png" })
+  if (up.error) return null
+  const { data } = await sb.storage.from("receipts").createSignedUrl(path, 60 * 60 * 24 * 30)
+  return (data && data.signedUrl) || null
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (req.method !== "POST") return json({ error: "POST only" }, 405)
@@ -201,7 +242,7 @@ Deno.serve(async (req) => {
         slot: b.slot || null, name: String(b.name || "").trim(), category: String(b.category || "").toUpperCase(),
         body: String(b.body || "").replace(/\r\n/g, "\n").trim(), samples: b.samples || {},
         buttons: (Array.isArray(b.buttons) ? b.buttons : []).map((x, i) => ({ title: String((x && x.title) || "").trim(), id: String((x && x.id) || `b${i + 1}`).replace(/[^a-z0-9_]/gi, "").slice(0, 20) || `b${i + 1}` })),
-        attach_pdf: !b.slot && b.attach_pdf === true,
+        attach: ownAttach(b),
       }
       const bad = problems(draft)
       if (bad.length) return json({ error: "The draft does not meet Meta's rules.", problems: bad }, 400)
@@ -209,7 +250,7 @@ Deno.serve(async (req) => {
       if (clash) return json({ error: `A template named ${draft.name} already exists. Wording cannot be changed after submission, so give the new version a new name (for example add _v2).` }, 409)
 
       const isPdf = !!draft.slot && PDF_SLOTS[draft.slot] !== undefined
-      const ownPdf = wantsOwnPdf(draft)
+      const own = ownAttach(draft)
       let variables = draft.samples
       let types
       if (isPdf) {
@@ -218,10 +259,10 @@ Deno.serve(async (req) => {
         if (!sampleUrl) return json({ error: "No stored invoice PDF was found to give Meta as a sample. Send one invoice by WhatsApp first, then try again." }, 409)
         variables = { ...draft.samples, [fileBlank]: sampleUrl }
         types = { "twilio/media": { body: draft.body, media: [`{{${fileBlank}}}`] } }
-      } else if (ownPdf) {
+      } else if (own) {
         const fileBlank = String(blankNumbers(draft.body).length + 1)
-        const sampleUrl = await sampleDocumentPdfUrl()
-        if (!sampleUrl) return json({ error: "The sample PDF for Meta could not be prepared. Nothing was sent. Try again." }, 500)
+        const sampleUrl = own === "image" ? await sampleImageUrl() : await sampleDocumentPdfUrl()
+        if (!sampleUrl) return json({ error: "The sample file for Meta could not be prepared. Nothing was sent. Try again." }, 500)
         variables = { ...draft.samples, [fileBlank]: sampleUrl }
         types = { "twilio/media": { body: draft.body, media: [`{{${fileBlank}}}`] } }
       } else {
@@ -236,7 +277,7 @@ Deno.serve(async (req) => {
       if (draft.slot) await sb.from("wa_templates").update({ is_active: false }).eq("slot", draft.slot)
       const row = {
         slot: draft.slot, name: draft.name, sid: c.body.sid, category: draft.category, language: "sw", body: draft.body,
-        samples: draft.samples, buttons: draft.buttons, has_media: isPdf || ownPdf,
+        samples: draft.samples, buttons: draft.buttons, has_media: isPdf || !!own, media_kind: isPdf || own === "pdf" ? "pdf" : own === "image" ? "image" : null,
         status: a.ok ? mapStatus(a.body && a.body.status) : "unknown",
         rejection_reason: a.ok ? null : `Submission to Meta failed: ${(a.body && a.body.message) || a.status}`,
         is_active: true, submitted_by: who.id, submitted_by_name: who.name, checked_at: new Date().toISOString(),

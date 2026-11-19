@@ -19,7 +19,7 @@ import { waTemplates } from '../../lib/wa'
 
 interface Tpl {
   id: string; slot: string | null; name: string; sid: string | null; category: string; meta_category: string | null
-  body: string; samples: Record<string, string>; buttons: { title: string; id: string }[]; has_media: boolean
+  body: string; samples: Record<string, string>; buttons: { title: string; id: string }[]; has_media: boolean; media_kind?: string | null
   status: string; rejection_reason: string | null; is_active: boolean; submitted_by_name: string | null
   created_at: string; checked_at: string | null
 }
@@ -63,13 +63,13 @@ const INVOICE_PART_PRESET = {
 }
 const PDF_SLOTS = ['invoice_thanks_pdf', 'invoice_part_pdf']
 const PRESETS: Record<string, typeof WAITLIST_PRESET> = { back_in_stock: WAITLIST_PRESET, invoice_thanks_pdf: INVOICE_THANKS_PRESET, invoice_part_pdf: INVOICE_PART_PRESET }
-const clonePreset = (slot: string) => { const pr = PRESETS[slot]; return { ...pr, attach_pdf: false, samples: { ...pr.samples }, buttons: pr.buttons.map(b => ({ ...b })) } }
+const clonePreset = (slot: string) => { const pr = PRESETS[slot]; return { ...pr, attach: '', samples: { ...pr.samples }, buttons: pr.buttons.map(b => ({ ...b })) } }
 const PRESET_NOTE: Record<string, string> = {
   back_in_stock: 'The waiting-list message has not been created yet. Until it is, staff cannot tell waiting customers that a product is back.',
   invoice_thanks_pdf: 'The invoice message for dealers who pay on delivery or have already paid has not been created yet. Until Meta approves it, they keep getting the "pay before" message.',
   invoice_part_pdf: 'The invoice message for dealers who paid part has not been created yet. Until Meta approves it, they keep getting the "pay before" message.',
 }
-const EMPTY = { slot: '', name: '', category: 'MARKETING', body: '', attach_pdf: false, samples: {} as Record<string, string>, buttons: [] as { title: string; id: string }[] }
+const EMPTY = { slot: '', name: '', category: 'MARKETING', body: '', attach: '', samples: {} as Record<string, string>, buttons: [] as { title: string; id: string }[] }
 
 const blanksIn = (body: string) => Array.from(new Set(Array.from(body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)).map(m => Number(m[1])))).sort((a, b) => a - b)
 const fillPreview = (body: string, samples: Record<string, string>) => body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => samples[n] || `{{${n}}}`)
@@ -96,8 +96,9 @@ export default function WaBusinessTemplates() {
   const missingPresets = Object.keys(PRESETS).filter(slot => !rows.some(r => r.slot === slot))
   const isPdfSlot = !!draft && PDF_SLOTS.includes(draft.slot)
   // A template with no fixed use can also carry a PDF (a guide, a weekly lesson). The file is chosen when it is sent.
-  const ownPdf = !!draft && !draft.slot && draft.attach_pdf
-  const noButtons = isPdfSlot || ownPdf
+  const ownPdf = !!draft && !draft.slot && draft.attach === 'pdf'
+  const ownImage = !!draft && !draft.slot && draft.attach === 'image'
+  const noButtons = isPdfSlot || ownPdf || ownImage
 
   const submit = async () => {
     if (!draft) return
@@ -160,7 +161,7 @@ export default function WaBusinessTemplates() {
                 // Choosing a kind on an untouched form loads its agreed message, so nothing has to be retyped.
                 const untouched = !draft.name.trim() && !draft.body.trim()
                 setDraft(PRESETS[slot] && untouched ? clonePreset(slot)
-                  : { ...draft, slot, attach_pdf: slot ? false : draft.attach_pdf, name: draft.name.trim() || (PRESETS[slot]?.name ?? draft.name), buttons: PDF_SLOTS.includes(slot) ? [] : draft.buttons })
+                  : { ...draft, slot, attach: slot ? '' : draft.attach, name: draft.name.trim() || (PRESETS[slot]?.name ?? draft.name), buttons: PDF_SLOTS.includes(slot) ? [] : draft.buttons })
               }}>
                 <option value="">Not assigned yet (for a future feature)</option>
                 <option value="back_in_stock">{SLOT_LABEL.back_in_stock}</option>
@@ -192,13 +193,17 @@ export default function WaBusinessTemplates() {
                     style={{ ...inp, borderColor: (draft.samples[String(n)] || '').trim() ? 'var(--border)' : '#E8B93E' }} />
                 </div>
               ))}
-              {!draft.slot && (
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 14, fontSize: 13, color: 'var(--text)', cursor: 'pointer', lineHeight: 1.45 }}>
-                  <input type="checkbox" checked={draft.attach_pdf} style={{ marginTop: 3 }}
-                    onChange={e => setDraft({ ...draft, attach_pdf: e.target.checked, buttons: e.target.checked ? [] : draft.buttons })} />
-                  <span><b>Attach a document (PDF).</b> Tick this if the message says something is attached. The actual file is chosen each time the message is sent. This cannot be added after Meta approves the template.</span>
-                </label>
-              )}
+              {!draft.slot && (<>
+                <label style={lbl}>Attachment</label>
+                <select value={draft.attach} style={inp} onChange={e => setDraft({ ...draft, attach: e.target.value, buttons: e.target.value ? [] : draft.buttons })}>
+                  <option value="">No attachment (words only)</option>
+                  <option value="pdf">A PDF document (the customer taps to open it)</option>
+                  <option value="image">An image (shows in the chat, one picture per message)</option>
+                </select>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 5, lineHeight: 1.5 }}>
+                  The actual file is chosen each time the message is sent. The kind of attachment cannot be changed after Meta approves the template.
+                </div>
+              </>)}
               {!noButtons && (<>
               <label style={lbl}>Buttons the customer can tap (up to 3, 20 characters each)</label>
               {draft.buttons.map((b, i) => (
@@ -212,10 +217,13 @@ export default function WaBusinessTemplates() {
             </div>
             <div>
               <label style={lbl}>How the customer will see it</label>
-              <div style={{ background: '#E5DDD5', borderRadius: 12, padding: 14 }}>
+              <div style={{ background: '#E5DDD5', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column' }}>
                 <div style={{ background: '#fff', color: '#111B21', borderRadius: 10, padding: '9px 11px', fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word', boxShadow: '0 1px 1px rgba(0,0,0,.12)' }}>
                   {draft.body ? fillPreview(draft.body, draft.samples) : <span style={{ color: '#8696A0' }}>Your message appears here.</span>}
                 </div>
+                {ownImage && (
+                  <div style={{ background: '#D9E7E5', color: '#3B5754', borderRadius: 10, marginBottom: 5, height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, order: -1 }}>The image</div>
+                )}
                 {(isPdfSlot || ownPdf) && (
                   <div style={{ background: '#fff', color: '#111B21', borderRadius: 10, padding: '8px 11px', marginTop: 5, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 1px 1px rgba(0,0,0,.12)' }}>
                     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B42318" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg>
@@ -256,7 +264,7 @@ export default function WaBusinessTemplates() {
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 {!t.is_active && <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: 'var(--surface2)', color: 'var(--text3)' }}>Replaced</span>}
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: 'var(--surface2)', color: 'var(--text2)' }}>{(t.meta_category || t.category || '').toUpperCase() === 'MARKETING' ? 'Marketing' : 'Service'}{t.has_media ? ' + PDF' : ''}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: 'var(--surface2)', color: 'var(--text2)' }}>{(t.meta_category || t.category || '').toUpperCase() === 'MARKETING' ? 'Marketing' : 'Service'}{t.has_media ? (t.media_kind === 'image' ? ' + Image' : ' + PDF') : ''}</span>
                 <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: st.bg, color: st.fg }}>{st.label}</span>
               </div>
             </div>
