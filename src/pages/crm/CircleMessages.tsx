@@ -22,6 +22,8 @@ async function call(fn: string, payload: Record<string, unknown>) {
 
 interface Lesson { id: string; kind: 'lesson' | 'guide'; week: number | null; position: number | null; topic: string; media_kind: 'image' | 'pdf'; file_path: string; status: 'draft' | 'reviewed' | 'ready'; reviewed_by_name: string | null; reviewed_at: string | null }
 interface AlertStatus { can_change: boolean; settings: { key: string; value: string }[]; templates: { name: string; status: string }[]; midwives: { user_id: string; name: string; expert_title: string | null; expert_alerts: boolean }[]; recent: { id: string; kind: string; is_test: boolean; status: string; error: string | null; created_at: string; to: string }[] }
+interface Usage { today: string; since: string; tracking_started: string | null; mothers: number; active_mothers: number; daily: { day: string; mothers: number; views: number; visitor_views: number }[]; sections: { section: string; mothers: number; views: number }[]; weeks: { week_start: string; mothers: number; also_active_week_before: number }[]; members: { member: string; kind: string; joined: string; days_active: number; views: number; last_seen: string | null }[] }
+const SECTION_LABEL: Record<string, string> = { home: 'Home (her own page)', questions: 'Questions feed', question: 'Reading a question', ask: 'Ask a question', hospitals: 'Hospitals and reviews', inbox: 'Inbox', weekly: 'Week-by-week page' }
 interface Audience { open: boolean; joined: number; stopped: number; pregnant_members: number; by_week: Record<string, number> }
 
 const WEEKS = Array.from({ length: 38 }, (_, i) => i + 4)
@@ -32,7 +34,7 @@ const when = (s: string) => new Date(s).toLocaleString('en-GB', { day: 'numeric'
 export default function CircleMessages() {
   const { can, isSuperAdmin } = useAuth()
   const canReview = isSuperAdmin() || can('crm.circle.review')
-  const [tab, setTab] = useState<'alerts' | 'lessons' | 'guides' | 'who'>('alerts')
+  const [tab, setTab] = useState<'alerts' | 'lessons' | 'guides' | 'who' | 'usage'>('alerts')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -40,6 +42,8 @@ export default function CircleMessages() {
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [aud, setAud] = useState<Audience | null>(null)
   const [testPhone, setTestPhone] = useState('')
+  const [usage, setUsage] = useState<Usage | null>(null)
+  const [days, setDays] = useState(30)
   const [week, setWeek] = useState(4)
   const [draft, setDraft] = useState<{ kind: 'lesson' | 'guide'; week: number; position: number; topic: string; file: File | null } | null>(null)
 
@@ -51,6 +55,22 @@ export default function CircleMessages() {
   }
   const loadAud = async () => { const { data, error } = await supabase.rpc('circle_weekly_audience'); if (error) setError(error.message); else setAud(data as Audience) }
   useEffect(() => { loadAlerts(); loadLessons(); loadAud() }, [])
+  useEffect(() => { supabase.rpc('circle_usage_report', { p_days: days }).then(({ data, error }) => { if (error) setError(error.message); else setUsage(data as Usage) }) }, [days])
+  const exportUsage = () => {
+    if (!usage) return
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const lines = [
+      [`Malkia Circle usage, ${usage.since} to ${usage.today}`], ['Members are numbered in joining order. No names or phone numbers.'], [],
+      ['Member', 'Type', 'Joined', 'Days active', 'Section opens', 'Last seen'],
+      ...usage.members.map(m => [m.member, m.kind, m.joined, m.days_active, m.views, m.last_seen || 'never']), [],
+      ['Day', 'Mothers active', 'Section opens by members', 'Section opens by visitors not logged in'],
+      ...usage.daily.map(d => [d.day, d.mothers, d.views, d.visitor_views]), [],
+      ['Section', 'Mothers who opened it', 'Opens'],
+      ...usage.sections.map(x => [SECTION_LABEL[x.section] || x.section, x.mothers, x.views]),
+    ]
+    const blob = new Blob(['\ufeff' + lines.map(r => r.map(esc).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `malkia-circle-usage-${usage.since}-to-${usage.today}.csv`; a.click(); URL.revokeObjectURL(a.href)
+  }
 
   const setting = (k: string) => alerts?.settings.find(s => s.key === k)?.value === 'true'
   const tplOk = (n: string) => alerts?.templates.find(t => t.name === n)?.status === 'approved'
@@ -169,7 +189,7 @@ export default function CircleMessages() {
       {error && <div style={{ ...card, borderColor: '#E8A0A0', background: '#FCEDED', color: '#8F1D1D', fontSize: 13 }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {([['alerts', 'Alerts'], ['lessons', 'Lessons by week'], ['guides', 'Guides'], ['who', 'Who receives']] as const).map(([k, l]) => (
+        {([['alerts', 'Alerts'], ['lessons', 'Lessons by week'], ['guides', 'Guides'], ['who', 'Who receives'], ['usage', 'Usage']] as const).map(([k, l]) => (
           <button key={k} onClick={() => { setTab(k); setDraft(null) }} style={tab === k ? primary : btn}>{l}</button>
         ))}
       </div>
@@ -270,6 +290,60 @@ export default function CircleMessages() {
               ))}
             </div>
           )}
+        </div>
+      </>)}
+
+      {tab === 'usage' && (!usage ? <div style={muted}>Loading...</div> : <>
+        <div style={{ ...card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <b style={{ fontSize: 13, color: 'var(--text)' }}>Period</b>
+          {[7, 30, 90].map(n => <button key={n} style={days === n ? primary : btn} onClick={() => setDays(n)}>Last {n} days</button>)}
+          <span style={{ flex: 1 }} />
+          <button style={btn} onClick={exportUsage}>Download for sharing (CSV, no names)</button>
+        </div>
+        <div style={card}>
+          <div style={muted}>{usage.tracking_started
+            ? `Visits have been recorded since ${usage.tracking_started}. Nothing before that date can be recovered.`
+            : 'No visit has been recorded yet. Recording starts when the website update is live; nothing before that can be recovered.'} A visit means a member opened a section of Circle. Which question she read and what she typed are never recorded. Midwives and test accounts are left out of the counts.</div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
+          {[['Mothers in Circle', String(usage.mothers)], [`Active in the last ${days} days`, String(usage.active_mothers)], ['Share active', usage.mothers ? Math.round(100 * usage.active_mothers / usage.mothers) + '%' : '0%']].map(([l, v]) => (
+            <div key={l} style={{ ...card, marginBottom: 0 }}><div style={muted}>{l}</div><div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>{v}</div></div>
+          ))}
+        </div>
+        <div style={card}>
+          <div style={h2}>Mothers active each day</div>
+          {(() => { const max = Math.max(1, ...usage.daily.map(d => d.mothers)); const shown = usage.daily.slice(-30)
+            return <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 110, marginTop: 12 }}>
+              {shown.map(d => <div key={d.day} title={`${d.day}: ${d.mothers} mothers, ${d.views} opens`} style={{ flex: 1, minWidth: 4, height: `${Math.max(2, 100 * d.mothers / max)}%`, background: d.mothers ? 'var(--accent)' : 'var(--border)', borderRadius: 3 }} />)}
+            </div> })()}
+          <div style={{ ...muted, marginTop: 6 }}>{days > 30 ? 'Showing the last 30 days of the period. ' : ''}Hover a bar for the day and the count.</div>
+        </div>
+        <div style={card}>
+          <div style={h2}>Coming back</div>
+          <div style={{ ...muted, marginTop: 4 }}>For each week, how many mothers were active, and how many of them were also active the week before.</div>
+          {usage.weeks.length === 0 && <div style={{ ...muted, marginTop: 8 }}>Nothing yet.</div>}
+          {usage.weeks.map(w => (
+            <div key={w.week_start} style={{ display: 'flex', gap: 10, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8, fontSize: 13, color: 'var(--text)' }}>
+              <span style={{ width: 150, color: 'var(--text3)' }}>Week of {w.week_start}</span><span style={{ flex: 1 }}><b>{w.mothers}</b> active</span><span><b>{w.also_active_week_before}</b> came back from the week before</span>
+            </div>
+          ))}
+        </div>
+        <div style={card}>
+          <div style={h2}>Sections used</div>
+          {usage.sections.length === 0 && <div style={{ ...muted, marginTop: 8 }}>Nothing yet.</div>}
+          {usage.sections.map(x => (
+            <div key={x.section} style={{ display: 'flex', gap: 10, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8, fontSize: 13, color: 'var(--text)' }}>
+              <span style={{ flex: 1 }}>{SECTION_LABEL[x.section] || x.section}</span><span style={{ width: 120 }}><b>{x.mothers}</b> mothers</span><span style={{ width: 90, textAlign: 'right' }}>{x.views} opens</span>
+            </div>
+          ))}
+        </div>
+        <div style={card}>
+          <div style={h2}>Each member</div>
+          <div style={{ ...muted, marginTop: 4 }}>Numbered in joining order, without names, so this list can be shared.</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr 110px 100px 100px 110px', gap: '6px 10px', fontSize: 13, color: 'var(--text)', marginTop: 10 }}>
+            {['Member', 'Type', 'Joined', 'Days active', 'Opens', 'Last seen'].map(hd => <b key={hd} style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase' }}>{hd}</b>)}
+            {usage.members.flatMap(m => [m.member, m.kind, m.joined, m.days_active, m.views, m.last_seen || 'never'].map((v, i) => <span key={m.member + i}>{v}</span>))}
+          </div>
         </div>
       </>)}
     </div>
