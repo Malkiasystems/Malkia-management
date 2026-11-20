@@ -25,6 +25,9 @@ interface Contact {
 }
 type ChatKind = 'staff' | 'wholesale' | 'retail' | 'new'
 const KIND_LABEL: Record<ChatKind, string> = { staff: 'Staff', wholesale: 'Wholesale', retail: 'Retail', new: 'New number' }
+/* "Circle mothers" is a tag, not a kind: a mother who is also a retail customer stays
+   Retail and also shows under Circle mothers, as one chat (migration 096). */
+type KindFilter = ChatKind | 'all' | 'circle'
 interface SearchHit {
   id: string; phone: string; name: string | null; direction: 'in' | 'out'
   body: string | null; created_at: string; media_type: string | null; purpose: string
@@ -259,10 +262,12 @@ export default function WhatsAppInbox() {
   const [pf, setPf] = useState<WaPriority | 'all'>('all')
   // Kind of chat: staff, wholesale, retail, or a number we do not know yet. The server decides
   // each chat's kind and only returns staff chats to someone with the staff-chat permission.
-  const [kf, setKf] = useState<ChatKind | 'all'>('all')
+  const [kf, setKf] = useState<KindFilter>('all')
   const [kinds, setKinds] = useState<Record<string, ChatKind>>({})
   const [staffOk, setStaffOk] = useState(false)
-  const kfRef = useRef<ChatKind | 'all'>('all'); kfRef.current = kf
+  const kfRef = useRef<KindFilter>('all'); kfRef.current = kf
+  const [circlePhones, setCirclePhones] = useState<Set<string>>(new Set())
+  const [circleReady, setCircleReady] = useState(false)
   const [, setTick] = useState(0) // re-render every minute so countdowns move
   // keyword search across message text
   const [hits, setHits] = useState<SearchHit[] | null>(null)
@@ -363,6 +368,11 @@ export default function WhatsAppInbox() {
       setKinds(m)
     })
     supabase.rpc('wa_staff_chats_allowed').then(({ data }: any) => setStaffOk(data === true))
+    // Circle mothers. If the database does not have this yet (migration 096), the tab stays hidden.
+    supabase.rpc('wa_circle_phones').then(({ data, error }: any) => {
+      if (error) return
+      setCirclePhones(new Set((data || []).map((r: any) => r.phone))); setCircleReady(true)
+    })
   }, [])
   useEffect(() => {
     setEmojiOpen(false)
@@ -535,7 +545,7 @@ export default function WhatsAppInbox() {
   }
 
   const needle = q.trim().toLowerCase()
-  const waitingList = inbox.items.filter(i => (kf === 'all' || (kinds[i.phone] || 'new') === kf)).filter(i =>
+  const waitingList = inbox.items.filter(i => (kf === 'all' || (kf === 'circle' ? circlePhones.has(i.phone) : (kinds[i.phone] || 'new') === kf))).filter(i =>
     (pf === 'all' || i.reply_priority === pf) &&
     (!needle || i.phone.toLowerCase().includes(needle) || (i.name || '').toLowerCase().includes(needle)))
   const allList = [...contacts].sort((a, b) => Number(waiting.has(b.phone)) - Number(waiting.has(a.phone)))
@@ -626,7 +636,7 @@ export default function WhatsAppInbox() {
           <Avatar name={o.name} phone={o.phone} size={44} />
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontWeight: 700, fontSize: 14.5, ...ellipsis }}>{o.name || o.phone}</span>
-            <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: t.text3, marginTop: 1 }}>{k ? KIND_LABEL[k] : (o.name ? o.phone : '')}</span>
+            <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: t.text3, marginTop: 1 }}>{k ? KIND_LABEL[k] : (o.name ? o.phone : '')}{circlePhones.has(o.phone) ? ' · Circle mother' : ''}</span>
           </span>
         </span>
         <span className="wa-opt" style={{ fontSize: 13, color: waitingNow ? t.text : t.text2, fontWeight: waitingNow ? 600 : 400, ...ellipsis }}>
@@ -691,12 +701,12 @@ export default function WhatsAppInbox() {
                 <button onClick={() => setView('all')} style={tab(view === 'all')}>All chats</button>
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                {(['all', 'retail', 'wholesale', ...(staffOk ? ['staff'] : []), 'new'] as (ChatKind | 'all')[]).map(k => (
+                {(['all', 'retail', 'wholesale', ...(circleReady ? ['circle'] : []), ...(staffOk ? ['staff'] : []), 'new'] as KindFilter[]).map(k => (
                   <button key={k} onClick={() => setKf(k)}
-                    title={k === 'staff' ? 'Chats with staff numbers. Only people with the staff-chat permission see these.' : undefined}
+                    title={k === 'staff' ? 'Chats with staff numbers. Only people with the staff-chat permission see these.' : k === 'circle' ? 'Mothers who have a Malkia Circle account. A mother who is also a customer shows here and under Retail or Wholesale.' : undefined}
                     style={{ padding: '4px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                       border: `1px solid ${kf === k ? t.accent : t.border}`, background: kf === k ? t.accent : 'transparent', color: kf === k ? '#fff' : t.text2 }}>
-                    {k === 'all' ? 'Everyone' : KIND_LABEL[k]}
+                    {k === 'all' ? 'Everyone' : k === 'circle' ? 'Circle mothers' : KIND_LABEL[k]}
                   </button>
                 ))}
               </div>
