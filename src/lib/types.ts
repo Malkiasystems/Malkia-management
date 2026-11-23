@@ -23,6 +23,7 @@ export type Page =
   | 'crm' | 'crm-hub' | 'crm-inbox' | 'crm-automations' | 'crm-preorders' | 'crm-waiting-list'
   | 'crm-referrals' | 'crm-ambassador'  // crm-referrals kept as alias; new code uses crm-ambassador
   | 'crm-loyalty' | 'crm-feedback' | 'crm-upsell'
+  | 'crm-wholesale-crown'  // Malkia Crown for wholesalers: points on payments, converted to credit notes
   | 'crm-customers' | 'crm-command-center'
   | 'crm-whatsapp-templates' | 'crm-whatsapp-resources'
   | 'crm-waitlist'

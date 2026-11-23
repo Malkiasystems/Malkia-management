@@ -409,6 +409,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'crm-waiting-list': ['crm.view', 'sales.create', 'sales.view', 'customers.view', 'inventory.view'],
   'crm-referrals': ['crm.view'],
   'crm-loyalty': ['crm.view'],
+  'crm-wholesale-crown': ['crm.view'],
   'crm-feedback': ['crm.view'],
   'crm-upsell': ['crm.view'],
   'users': ['settings.users'],

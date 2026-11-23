@@ -66,7 +66,7 @@ const EXPENSE_PAGES: Page[] = ['expense-register', 'new-expense']
 
 const IMPORT_PAGES: Page[] = ['import-register', 'import-order']
 
-const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-feedback', 'crm-upsell', 'crm-customers', 'circle-moderation', 'whatsapp-centre', 'wa-templates']
+const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-wholesale-crown', 'crm-feedback', 'crm-upsell', 'crm-customers', 'circle-moderation', 'whatsapp-centre', 'wa-templates']
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'audit-trail', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
@@ -155,6 +155,7 @@ const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Waiting',     page: 'crm-waiting-list', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2' },
   { label: 'Referrals',   page: 'crm-referrals',   icon: 'M18 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 12a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98' },
   { label: 'Crown',       page: 'crm-loyalty',     icon: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zM3 20h18' },
+  { label: 'Wholesale Crown', page: 'crm-wholesale-crown', icon: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zM3 20h18 M8 20v2 M16 20v2' },
   { label: 'Feedback',    page: 'crm-feedback',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
   { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
   { label: 'Circle Maoni', page: 'circle-moderation', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM8 12l3 3 5-6' },

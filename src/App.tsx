@@ -156,6 +156,7 @@ const CRMPreorders = lazy(() => import('./pages/CRMPreorders'))
 const CRMWaitingList = lazy(() => import('./pages/CRMWaitingList'))
 const CRMReferrals = lazy(() => import('./pages/CRMReferrals'))
 const CRMLoyalty = lazy(() => import('./pages/CRMLoyalty'))
+const WholesaleCrown = lazy(() => import('./pages/crm/WholesaleCrown'))
 const CRMFeedback = lazy(() => import('./pages/CRMFeedback'))
 const CRMUpsell = lazy(() => import('./pages/CRMUpsell'))
 const WhatsAppTemplates = lazy(() => import('./pages/crm/WhatsAppTemplates'))
@@ -354,6 +355,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'crm-preorders': 'CRM / Pre-Orders',
   'crm-referrals': 'CRM / Referrals',
   'crm-loyalty': 'CRM / Crown Rewards',
+  'crm-wholesale-crown': 'CRM / Wholesale Crown',
   'crm-feedback': 'CRM / Feedback',
   'crm-upsell': 'CRM / Upsell Engine',
   'crm-whatsapp-templates': 'CRM / WhatsApp Templates',
@@ -744,6 +746,7 @@ function AppContent() {
       case 'crm-waiting-list':  return <CRMWaitingList onNav={navigate} />
       case 'crm-referrals':     return <CRMReferrals onNav={navigate} />
       case 'crm-loyalty':       return <CRMLoyalty onNav={navigate} />
+      case 'crm-wholesale-crown': return <WholesaleCrown onNav={navigate} />
       case 'crm-feedback':      return <CRMFeedback onNav={navigate} />
       case 'crm-upsell':        return <CRMUpsell onNav={navigate} />
       case 'crm-whatsapp-templates': return <WhatsAppTemplates onNav={navigate} />
