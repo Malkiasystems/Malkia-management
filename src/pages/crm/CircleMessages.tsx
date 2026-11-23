@@ -232,7 +232,7 @@ export default function CircleMessages() {
           {alerts.recent.map(r => (
             <div key={r.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8, fontSize: 13, color: 'var(--text)' }}>
               <span style={{ width: 110, color: 'var(--text3)' }}>{when(r.created_at)}</span>
-              <span style={{ flex: 1, minWidth: 200 }}>{r.kind === 'question_alert' ? 'New question alert' : 'Answer notice'}{r.is_test ? ' (test)' : ''} to {r.to}{r.error ? <span style={{ color: 'var(--text3)' }}> · {r.error}</span> : null}</span>
+              <span style={{ flex: 1, minWidth: 200 }}>{r.kind === 'question_alert' ? 'New question alert' : r.kind === 'question_escalation' ? 'Unanswered question escalation' : 'Answer notice'}{r.is_test ? ' (test)' : ''} to {r.to}{r.error ? <span style={{ color: 'var(--text3)' }}> · {r.error}</span> : null}</span>
               {pill(r.status)}
             </div>
           ))}

@@ -1,6 +1,9 @@
 // @ts-nocheck
-// circle-alerts v2: the two Malkia Circle WhatsApp notices.
+// circle-alerts v3: the Malkia Circle WhatsApp notices.
 //   question_alert  a mother asked a question -> each approved midwife is told
+//   question_escalation  a question still has no midwife answer after the set hours -> the
+//                   staff numbers in circle_msg_settings.escalate_to are told (migration 097).
+//                   It uses the approved question alert template, so the wording is the same.
 //   answer_ready    a midwife answered        -> the mother who asked is told (only if she ticked the box)
 // The database queues a row in circle_wa_outbox and pokes this function.
 //
@@ -14,6 +17,7 @@
 // A row that cannot be sent within 24 hours expires: a late alert is worse than none.
 // v2: a Whisper's answer notice links to Circle, not to the question, and the status list
 //     never says which mother a notice went to, so staff cannot work out who whispered.
+// v3: question_escalation added. Nothing else changed.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 
@@ -25,7 +29,7 @@ const CORS = {
 }
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } })
 
-const TEMPLATE = { question_alert: "malkia_circle_question_alert_sw", answer_ready: "malkia_circle_answer_ready_sw" }
+const TEMPLATE = { question_alert: "malkia_circle_question_alert_sw", answer_ready: "malkia_circle_answer_ready_sw", question_escalation: "malkia_circle_question_alert_sw" }
 const SETTING = { question_alert: "alert_question_on", answer_ready: "alert_answer_on" }
 const SITE = "https://www.malkia.co.tz"
 
@@ -99,8 +103,8 @@ async function sendOne(row, sidCache) {
   }
   const link = q && !(row.kind === "answer_ready" && q.is_whisper) ? `${SITE}/circle/swali/${q.id}` : `${SITE}/circle`
   let vars, text
-  if (row.kind === "question_alert") {
-    const who = firstName(name, "Mkunga")
+  if (row.kind === "question_alert" || row.kind === "question_escalation") {
+    const who = firstName(name, row.kind === "question_escalation" ? "Malkia" : "Mkunga")
     const excerpt = clean((q && (q.title || q.body)) || "Hili ni jaribio la taarifa ya swali jipya", 120)
     vars = { "1": who, "2": excerpt, "3": link }
     text = `Habari ${who}, kuna swali jipya kwenye Malkia Circle linalosubiri jibu lako: "${excerpt}". Fungua hapa: ${link} na tafadhali lijibu haraka iwezekanavyo.`
@@ -153,12 +157,12 @@ Deno.serve(async (req) => {
     if (action === "status") {
       const { data: settings } = await sb.from("circle_msg_settings").select("key, value, updated_at")
       const { data: recent } = await sb.from("circle_wa_outbox").select("id, kind, is_test, status, error, created_at, done_at, to_user, to_name").order("created_at", { ascending: false }).limit(40)
-      const { data: tpl } = await sb.from("wa_templates").select("name, status").in("name", Object.values(TEMPLATE))
+      const { data: tpl } = await sb.from("wa_templates").select("name, status").in("name", [...new Set(Object.values(TEMPLATE))])
       const { data: midwives } = await sb.from("circle_profiles").select("user_id, name, expert_title, expert_alerts").eq("is_expert", true).eq("expert_status", "approved")
       const midwifeName = Object.fromEntries((midwives || []).map((m) => [m.user_id, m.name]))
       const shown = (recent || []).map((r) => ({
         id: r.id, kind: r.kind, is_test: r.is_test, status: r.status, error: r.error, created_at: r.created_at, done_at: r.done_at,
-        to: r.is_test ? (r.to_name || "test") : r.kind === "question_alert" ? (midwifeName[r.to_user] || "midwife") : "the mother who asked",
+        to: r.is_test ? (r.to_name || "test") : r.kind === "question_escalation" ? (r.to_name || "staff") : r.kind === "question_alert" ? (midwifeName[r.to_user] || "midwife") : "the mother who asked",
       }))
       return json({ ok: true, can_change: who.admin, settings: settings || [], templates: tpl || [], midwives: midwives || [], recent: shown })
     }

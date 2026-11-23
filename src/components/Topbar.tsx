@@ -3,7 +3,7 @@ import type { Page } from '../lib/types'
 import { useAuth } from '../lib/useAuth'
 import { supabase } from '../lib/supabase'
 import { matchPages } from '../lib/pageDirectory'
-import ApprovalBell from './ApprovalBell'
+import NotificationBell from './NotificationBell'
 
 interface Props {
   breadcrumb: string
@@ -394,7 +394,10 @@ export default function Topbar({ breadcrumb, onNav, onBack, canGoBack }: Props) 
       </div>
 
       <div style={styles.right} className="tb-right">
-        <ApprovalBell onNav={onNav} />
+        {/* One bell for everything waiting on this person. It replaced the yellow
+            payment bell (ApprovalBell): payments waiting for approval are one of
+            the kinds it shows, to the same people, opening the same page. */}
+        <NotificationBell onNav={onNav} />
         <div style={styles.fyBadge} className="tb-fy">FY 2025-26</div>
         
         <div style={styles.userSection}>
