@@ -765,6 +765,43 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
   const defaultSort = useMemo(() => [{ key: 'name', direction: 'asc' as const }], [])
   const { sorted: sortedByColumn, onHeaderClick, getSortIndex, getSortDir } =
     useTableSort<Customer>(filtered, { storageKey: sortStorageKey, defaultSort, accessor: sortAccessor })
+
+  // ── Statement (ledger) sorting ────────────────────────────────────────────
+  // Click a column heading on a customer's statement to arrange by it; click again to
+  // reverse, a third time to go back to the normal order, newest first (Joe, 24 Nov 2026).
+  // The running balance is worked out once, in date order, and travels with its row, so
+  // each row always shows the balance as it stood after that entry.
+  // Not remembered between visits and reset for each customer: a statement should always
+  // open newest first.
+  const ledgerRows = useMemo(() => {
+    let bal = 0
+    return [...ledger].reverse().map(e => {
+      bal += e.amount
+      return { ...e, runningBalance: bal }
+    }).reverse()
+  }, [ledger])
+  const ledgerAccessor = useCallback((row: LedgerEntry & { runningBalance: number }, key: string): unknown => {
+    switch (key) {
+      case 'date':        return row.posting_date
+      case 'ref':         return row.document_ref
+      case 'type':        return row.document_type
+      case 'description': return (row.description || '').toLowerCase()
+      case 'debit':       return row.amount > 0 ? row.amount : null       // rows with no debit go last
+      case 'credit':      return row.amount < 0 ? -row.amount : null      // rows with no credit go last
+      case 'balance':     return row.runningBalance
+      case 'due':         return row.due_date || null
+      case 'status': {
+        if (row.is_open && row.amount > 0) return row.due_date && new Date(row.due_date) < new Date() ? '1 overdue' : '2 open'
+        return row.amount < 0 ? '4 payment' : '3 closed'                   // what needs attention comes first
+      }
+      default:            return null
+    }
+  }, [])
+  const { sorted: ledgerSorted, sortSpecs: ledgerSortSpecs, onHeaderClick: onLedgerHeaderClick,
+          getSortIndex: ledgerSortIndex, getSortDir: ledgerSortDir, clearSort: clearLedgerSort } =
+    useTableSort(ledgerRows, { accessor: ledgerAccessor })
+  useEffect(() => { clearLedgerSort() }, [selected?.id, clearLedgerSort])
+
   // keep the chosen column order, but lift names that begin with the search text to the top
   const sorted = useMemo(() => rankBySearch(sortedByColumn, deferredSearch.trim().toLowerCase()), [sortedByColumn, deferredSearch])
 
@@ -841,14 +878,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
     return () => io.disconnect()
   }, [hiddenCount])
 
-  // Running balance for ledger
-  const ledgerWithBalance = () => {
-    let bal = 0
-    return [...ledger].reverse().map(e => {
-      bal += e.amount
-      return { ...e, runningBalance: bal }
-    }).reverse()
-  }
+  // (The statement's running balance is worked out in ledgerRows above, with its sorting.)
 
   const openInvoices = ledger.filter(e => e.is_open && e.amount > 0)
   const totalOutstanding = openInvoices.reduce((s, e) => s + e.remaining_amount, 0)
@@ -881,7 +911,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
 
   // ── LEDGER VIEW ─────────────────────────────────────────────────────────
   if (view === 'ledger' && selected) {
-    const rows = ledgerWithBalance()
+    const rows = ledgerSorted
     const creditUsedPct = selected.credit_limit > 0 ? Math.min(100, Math.round((selected.balance / selected.credit_limit) * 100)) : 0
 
     // Release a credit hold (super admin only). Records the balance and worst
@@ -1055,14 +1085,21 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
               <style>{`.cust-ledger table { width: 100% }
 .cust-ledger th, .cust-ledger td { padding: 6px 8px !important; white-space: nowrap; line-height: 1.3 }
 .cust-ledger th { padding-top: 8px !important; padding-bottom: 8px !important }`}</style>
+              {ledgerSortSpecs.length > 0 && (
+                <div style={{ display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',padding:'6px 10px',fontSize:11,color:'var(--text3)',background:'var(--surface2)',borderBottom:'1px solid var(--border)' }}>
+                  <span>Arranged by {ledgerSortSpecs.map(sp => `${({ date:'date', ref:'reference', type:'type', description:'description', debit:'debit', credit:'credit', balance:'balance', due:'due date', status:'status' } as Record<string,string>)[sp.key] || sp.key} ${sp.direction === 'asc' ? '↑' : '↓'}`).join(', then ')}. The Balance column still shows the balance after each entry in date order.</span>
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize:11,marginLeft:'auto' }} onClick={clearLedgerSort}>Back to newest first</button>
+                </div>
+              )}
               <table>
                 <thead>
                   <tr>
-                    <th>Date</th><th>Ref</th><th>Type</th><th>Description</th>
-                    <th className="td-right">Debit</th>
-                    <th className="td-right">Credit</th>
-                    <th className="td-right">Balance</th>
-                    <th>Due Date</th><th>Status</th>
+                    {([['Date','date'],['Ref','ref'],['Type','type'],['Description','description']] as const).map(([l, k]) =>
+                      <SortableTh key={k} label={l} sortKey={k} onHeaderClick={onLedgerHeaderClick} getSortIndex={ledgerSortIndex} getSortDir={ledgerSortDir} />)}
+                    {([['Debit','debit'],['Credit','credit'],['Balance','balance']] as const).map(([l, k]) =>
+                      <SortableTh key={k} label={l} sortKey={k} align="right" onHeaderClick={onLedgerHeaderClick} getSortIndex={ledgerSortIndex} getSortDir={ledgerSortDir} />)}
+                    {([['Due Date','due'],['Status','status']] as const).map(([l, k]) =>
+                      <SortableTh key={k} label={l} sortKey={k} onHeaderClick={onLedgerHeaderClick} getSortIndex={ledgerSortIndex} getSortDir={ledgerSortDir} />)}
                   </tr>
                 </thead>
                 <tbody>
@@ -1073,7 +1110,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                     // from different templates — clicking them would show a lie.
                     const canPreview = e.document_type === 'invoice' && !!e.document_ref
                     return (
-                      <tr key={i}
+                      <tr key={e.id || i}
                         onClick={() => { if (canPreview) invoicePreview.openByRef(e.document_ref) }}
                         title={canPreview ? `View invoice ${e.document_ref}` : undefined}
                         style={{
