@@ -115,7 +115,9 @@ const Ic = ({ n, s = 14, c = 'currentColor' }: { n: string; s?: number; c?: stri
   const p = { width: s, height: s, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
   if (n === 'user')    return <svg {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
   if (n === 'plus')    return <svg {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-  if (n === 'back')    return <svg {...p}><polyline points="15 18 9 12 15 6"/></svg>
+  // A full arrow, the same shape as the Back button in the top bar. The bare "<" chevron it
+  // replaced read as a breadcrumb or a collapse control, not as "go back".
+  if (n === 'back')    return <svg {...p} strokeWidth={2}><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
   if (n === 'ledger')  return <svg {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
   if (n === 'edit')    return <svg {...p}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
   if (n === 'wa')      return <svg {...p}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
@@ -890,8 +892,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       <div className="page">
         <div className="page-header">
           <div style={{ display:'flex',alignItems:'center',gap:12 }}>
-            <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => { setView('list'); onLedgerChange?.(null); setRestored(false) }}>
-              <Ic n="back" /> Customers
+            <button className="btn btn-ghost btn-sm" title="Back to the customer list" style={{ display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',fontWeight:600,color:'var(--text)' }} onClick={() => { setView('list'); onLedgerChange?.(null); setRestored(false) }}>
+              <Ic n="back" s={15} /> Back to Customers
             </button>
             <div style={{ width:1,height:24,background:'var(--border)' }}></div>
             <div>
@@ -1136,8 +1138,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       <div className="page">
         <div className="page-header">
           <div style={{ display:'flex',alignItems:'center',gap:12 }}>
-            <button className="btn btn-ghost btn-sm" style={{ display:'flex',alignItems:'center',gap:6 }} onClick={() => setView('list')}>
-              <Ic n="back" /> Customers
+            <button className="btn btn-ghost btn-sm" title="Back to the customer list" style={{ display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',fontWeight:600,color:'var(--text)' }} onClick={() => setView('list')}>
+              <Ic n="back" s={15} /> Back to Customers
             </button>
             <div style={{ width:1,height:24,background:'var(--border)' }}></div>
             <div className="page-title">{selected ? `Edit — ${selected.name}` : `Add ${isWholesale ? 'Wholesale Contact' : 'Cash Contact'}`}</div>
