@@ -45,6 +45,18 @@ interface LedgerEntry {
 
 // Keyed by the customer_type literal. The dictionary still maps the legacy
 // 'debtor' key to the same list so transitional rows render correctly.
+// How long a wholesaler has to pay, in days. 0 means cash on delivery.
+// credit_days is the stored figure (kept in step with the payment terms by the
+// database); the terms text (NET45, NET7, COD) is the fallback for older rows.
+const creditDays = (c: { credit_days?: number | null; payment_terms?: string | null }): number => {
+  if (typeof c.credit_days === 'number' && c.credit_days >= 0) return c.credit_days
+  return parseInt(String(c.payment_terms || '').replace(/\D/g, ''), 10) || 0
+}
+const creditPeriodLabel = (c: { credit_days?: number | null; payment_terms?: string | null }): string => {
+  const d = creditDays(c)
+  return d > 0 ? `${d} day${d === 1 ? '' : 's'}` : 'COD'
+}
+
 const SEGMENTS: Record<'cash' | 'wholesale' | 'debtor', string[]> = {
   cash:      ['Retail', 'Wholesale'],
   wholesale: ['Corporate', 'Wholesale'],
@@ -719,7 +731,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
       case 'company':           return row.company || row.name
       case 'segment':           return row.segment
       case 'whatsapp':          return row.whatsapp
-      case 'payment_terms':     return row.payment_terms
+      case 'payment_terms':     return creditDays(row)   // sorts shortest to longest credit, not by the letters
       case 'credit_limit':      return row.credit_limit ?? 0
       case 'balance':           return row.balance ?? 0
       case 'last_purchase':     return row.last_purchase_date
@@ -966,13 +978,15 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
         <div style={{ background:'linear-gradient(135deg,rgba(10,10,10,1) 0%,rgba(25,25,25,1) 100%)',border:'1px solid rgba(255,255,255,.06)',borderRadius:14,padding:'18px 24px',marginBottom:20,display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:16 }}>
           {[
             { label:'Outstanding Balance', val: tzs(selected.balance || 0), color: (selected.balance||0) > 0 ? 'var(--red)' : 'var(--green)' },
-            { label:'Credit Limit', val: selected.credit_limit > 0 ? tzs(selected.credit_limit) : 'Unlimited', color:'var(--text)' },
-            { label:'Credit Period', val: (() => { const d = parseInt(String(selected.payment_terms||'').replace(/D/g,'')) || 0; return d > 0 ? ` days` : 'COD'; })(), color:'var(--text)' },
+            // This card is always dark, in the light theme too, so these two use a fixed light
+            // colour. var(--text) is near-black in the light theme and made them unreadable.
+            { label:'Credit Limit', val: selected.credit_limit > 0 ? tzs(selected.credit_limit) : 'Unlimited', color:'#F2F2F2' },
+            { label:'Credit Period', val: selected.customer_type === 'cash' ? '—' : creditPeriodLabel(selected), color:'#F2F2F2' },
             { label:'Crown Points', val: (selected.crown_points||0).toLocaleString(), color:'var(--yellow)' },
-            { label:'Last Purchase', val: selected.last_purchase_date || '—', color:'var(--text3)' },
+            { label:'Last Purchase', val: selected.last_purchase_date || '—', color:'#B5B5B5' },
           ].map(item => (
             <div key={item.label}>
-              <div style={{ fontSize:9,fontFamily:'var(--mono)',color:'#666',textTransform:'uppercase',letterSpacing:1,marginBottom:6 }}>{item.label}</div>
+              <div style={{ fontSize:9,fontFamily:'var(--mono)',color:'#8A8A8A',textTransform:'uppercase',letterSpacing:1,marginBottom:6 }}>{item.label}</div>
               <div style={{ fontFamily:'var(--mono)',fontSize:14,fontWeight:700,color:item.color }}>{item.val}</div>
             </div>
           ))}
@@ -1469,7 +1483,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                     <SortableTh label="Segment" sortKey="segment" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
                     {tab==='cash'
                       ? <SortableTh label="WhatsApp" sortKey="whatsapp" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
-                      : <SortableTh label="Payment Terms" sortKey="payment_terms" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
+                      : <SortableTh label="Credit Period" sortKey="payment_terms" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
                     {tab==='wholesale' && <SortableTh label="Credit Limit" sortKey="credit_limit" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />}
                     <SortableTh label="Balance" sortKey="balance" align="right" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
                     <SortableTh label="Last Purchase" sortKey="last_purchase" onHeaderClick={onHeaderClick} getSortIndex={getSortIndex} getSortDir={getSortDir} />
@@ -1513,7 +1527,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                       <td><span className="pill pill-gray" style={{ fontSize:9,textTransform:'capitalize' }}>{c.segment}</span></td>
                       {tab==='cash'
                         ? <td className="td-mono" style={{ fontSize:11,color:'#25D366' }}>{c.whatsapp||'—'}</td>
-                        : <td style={{ fontSize:11,color:'var(--text3)' }}>{c.payment_terms||'COD'}</td>
+                        : <td style={{ fontSize:12,color:'var(--text)',whiteSpace:'nowrap' }} title={`Payment terms: ${c.payment_terms||'COD'}`}>{creditPeriodLabel(c)}</td>
                       }
                       {tab==='wholesale' && (
                         <td className="td-right td-mono" style={{ fontSize:11 }}>{c.credit_limit>0?tzs(c.credit_limit):'Unlimited'}</td>
