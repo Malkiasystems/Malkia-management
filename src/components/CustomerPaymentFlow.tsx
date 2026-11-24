@@ -102,6 +102,16 @@ export function CustomerPaymentFlow({
   // Auto-select a customer when one is prefilled (Receipt button on the customer page).
   // Runs once, after the debtor list has loaded, and only if nothing is selected yet.
   const autoPicked = useRef(false)
+
+  // The amount as it is right now. pickCustomer() waits for the invoices to load, and
+  // by then the clerk may already have typed the amount; the value it started with
+  // would be stale (Saleh Shop, 24 Nov 2026: a TZS 2,000,000 receipt posted matched
+  // to nothing, so the invoice went on showing as unpaid).
+  const amountRef = useRef(amount)
+  amountRef.current = amount
+  // True once the clerk has set allocations by hand (typed one, or pressed Clear).
+  // From then on we stop matching for them, until they press Auto Allocate.
+  const manual = useRef(false)
   useEffect(() => {
     if (autoPicked.current || !initialCustomerId || selected) return
     const match = allDebtors.find(d => d.id === initialCustomerId)
@@ -133,6 +143,7 @@ export function CustomerPaymentFlow({
   // Re-run FIFO auto-allocation when the amount changes
   useEffect(() => {
     if (openInvoices.length === 0 || amount <= 0) return
+    manual.current = false          // a new amount means match it afresh, oldest invoice first
     applyFIFOAllocation(amount)
     // Intentionally exclude openInvoices from deps — we only want to re-allocate
     // when the user types a new amount, not when we modify allocations below.
@@ -168,6 +179,7 @@ export function CustomerPaymentFlow({
   }
 
   const pickCustomer = async (c: Debtor) => {
+    manual.current = false
     setSelected(c)
     setSearch(c.company || c.name)
     setShowDropdown(false)
@@ -198,8 +210,18 @@ export function CustomerPaymentFlow({
 
     // Auto-allocate using FIFO immediately (once invoices are in state, the
     // useEffect-watcher won't retrigger, so we apply here explicitly)
-    setTimeout(() => applyFIFOAllocationInternal(invoices, amount), 0)
+    // Use the amount as it is NOW, not as it was when the customer was picked.
+    setTimeout(() => applyFIFOAllocationInternal(invoices, amountRef.current), 0)
   }
+
+  // Safety net for the same gap: whenever invoices are on screen, an amount is typed,
+  // nothing at all is matched and the clerk has not chosen that by hand, match it.
+  useEffect(() => {
+    if (manual.current || amount <= 0 || openInvoices.length === 0) return
+    if (openInvoices.some(i => i.allocation > 0)) return
+    applyFIFOAllocationInternal(openInvoices, amount)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openInvoices, amount])
 
   // ─── FIFO allocation ─────────────────────────────────────────────────────
   // Applies the payment amount across invoices oldest-first. Each invoice
@@ -224,6 +246,7 @@ export function CustomerPaymentFlow({
   // fully control allocation from that point. They can always click "Auto
   // Allocate" to reset to FIFO.
   const updateAllocation = (idx: number, value: number) => {
+    manual.current = true
     setOpenInvoices(prev => prev.map((inv, i) => {
       if (i !== idx) return inv
       const clamped = Math.max(0, Math.min(inv.remaining_amount, value))
@@ -231,13 +254,15 @@ export function CustomerPaymentFlow({
     }))
   }
 
-  const resetToFIFO = () => applyFIFOAllocation(amount)
+  const resetToFIFO = () => { manual.current = false; applyFIFOAllocation(amount) }
 
   const clearAll = () => {
+    manual.current = true
     setOpenInvoices(prev => prev.map(i => ({ ...i, allocation: 0 })))
   }
 
   const changeCustomer = () => {
+    manual.current = false
     setSelected(null)
     setSearch('')
     setOpenInvoices([])

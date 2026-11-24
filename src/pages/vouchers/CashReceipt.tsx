@@ -331,7 +331,18 @@ export default function CashReceipt({ onNav: _onNav, prefill }: Props) {
       }
       if (paymentState.unallocatedCredit > 0.5) {
         const nm = (paymentState.selectedCustomer as any).company || paymentState.selectedCustomer.name || 'this customer'
-        const ok = window.confirm(`This receipt is TZS ${Math.round(paymentState.unallocatedCredit).toLocaleString()} more than ${nm} currently owes.\n\nThe extra will sit as a credit on their account (they will show as in credit). Post anyway?`)
+        const fmt = (n: number) => Math.round(n).toLocaleString()
+        // What is still unpaid on their invoices after this receipt's matching. If any of it
+        // could have taken the unmatched money, this is not an overpayment: it is a receipt
+        // that was not matched. Posting it that way leaves the balance right but the invoice
+        // still showing as unpaid and overdue (Saleh Shop, 24 Nov 2026), so it is refused.
+        const stillUnpaid = paymentState.allocations.reduce((sum, i) => sum + Math.max(0, i.remaining_amount - i.allocation), 0)
+        if (stillUnpaid > 0.5) {
+          const could = Math.min(stillUnpaid, paymentState.unallocatedCredit)
+          showToast(`TZS ${fmt(could)} of this receipt is not matched to any invoice, but ${nm} still has TZS ${fmt(stillUnpaid)} unpaid on invoices. Press "Auto Allocate (FIFO)" in the invoice list below, or type the amounts, then post again.`, 'error')
+          return
+        }
+        const ok = window.confirm(`This receipt is TZS ${fmt(paymentState.unallocatedCredit)} more than ${nm} currently owes.\n\nThe extra will sit as a credit on their account (they will show as in credit). Post anyway?`)
         if (!ok) return
       }
       await postCustomerReceipt(amount, refGuardOverridden)
