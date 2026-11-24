@@ -975,7 +975,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
         )}
 
         {/* Customer summary */}
-        <div style={{ background:'linear-gradient(135deg,rgba(10,10,10,1) 0%,rgba(25,25,25,1) 100%)',border:'1px solid rgba(255,255,255,.06)',borderRadius:14,padding:'18px 24px',marginBottom:20,display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:16 }}>
+        <div style={{ background:'linear-gradient(135deg,rgba(10,10,10,1) 0%,rgba(25,25,25,1) 100%)',border:'1px solid rgba(255,255,255,.06)',borderRadius:14,padding:'14px 22px',marginBottom:12,display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:16 }}>
           {[
             { label:'Outstanding Balance', val: tzs(selected.balance || 0), color: (selected.balance||0) > 0 ? 'var(--red)' : 'var(--green)' },
             // This card is always dark, in the light theme too, so these two use a fixed light
@@ -992,31 +992,32 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
           ))}
         </div>
 
-        {/* Credit usage bar — wholesale contacts (and legacy debtor rows) */}
-        {selected.customer_type !== 'cash' && selected.credit_limit > 0 && (
-          <div style={{ marginBottom:16,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px' }}>
-            <div style={{ display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:12 }}>
-              <span style={{ color:'var(--text3)' }}>Credit Used</span>
-              <span style={{ fontFamily:'var(--mono)',fontWeight:700,color:creditUsedPct > 80 ? 'var(--red)' : 'var(--accent)' }}>{creditUsedPct}%</span>
-            </div>
-            <div style={{ height:6,background:'var(--surface3)',borderRadius:3,overflow:'hidden' }}>
-              <div style={{ height:'100%',width:`${creditUsedPct}%`,background:creditUsedPct>80?'var(--red)':creditUsedPct>60?'var(--yellow)':'var(--green)',borderRadius:3,transition:'width .3s' }}></div>
-            </div>
-            <div style={{ display:'flex',justifyContent:'space-between',marginTop:6,fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)' }}>
-              <span>Used: {tzs(selected.balance||0)}</span>
-              <span>Available: {tzs(Math.max(0,selected.credit_limit-(selected.balance||0)))}</span>
-            </div>
-          </div>
-        )}
+        {/* Credit used and open invoices, as two slim strips side by side (one line each),
+            so the statement below starts higher on the screen (Joe, 24 Nov 2026). Each
+            appears on the same conditions as before; with only one, it takes the full width. */}
+        {((selected.customer_type !== 'cash' && selected.credit_limit > 0) || openInvoices.length > 0) && (
+          <div style={{ display:'flex',gap:10,flexWrap:'wrap',marginBottom:12 }}>
+            {/* Credit usage — wholesale contacts (and legacy debtor rows) */}
+            {selected.customer_type !== 'cash' && selected.credit_limit > 0 && (
+              <div style={{ flex:'1 1 380px',minWidth:0,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 14px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap' }}>
+                <span style={{ fontSize:12,color:'var(--text3)',whiteSpace:'nowrap' }}>Credit used <b style={{ fontFamily:'var(--mono)',color:creditUsedPct > 80 ? 'var(--red)' : 'var(--accent)' }}>{creditUsedPct}%</b></span>
+                <div style={{ flex:'1 1 80px',height:6,background:'var(--surface3)',borderRadius:3,overflow:'hidden' }}>
+                  <div style={{ height:'100%',width:`${creditUsedPct}%`,background:creditUsedPct>80?'var(--red)':creditUsedPct>60?'var(--yellow)':'var(--green)',borderRadius:3,transition:'width .3s' }}></div>
+                </div>
+                <span style={{ fontSize:11,fontFamily:'var(--mono)',color:'var(--text3)',whiteSpace:'nowrap' }}>
+                  Used {tzs(selected.balance||0)} · Available {tzs(Math.max(0,selected.credit_limit-(selected.balance||0)))}
+                </span>
+              </div>
+            )}
 
-        {/* Open invoices summary */}
-        {openInvoices.length > 0 && (
-          <div style={{ background:'rgba(255,71,87,.06)',border:'1px solid rgba(255,71,87,.2)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
-            <div>
-              <div style={{ fontSize:13,fontWeight:600,color:'var(--red)' }}>{openInvoices.length} Open Invoice{openInvoices.length>1?'s':''}</div>
-              <div style={{ fontSize:11,color:'var(--text3)',marginTop:2 }}>Total outstanding: <span style={{ fontFamily:'var(--mono)',fontWeight:700,color:'var(--red)' }}>{tzs(totalOutstanding)}</span></div>
-            </div>
-            <div style={{ fontSize:10,color:'var(--text3)' }}>Highlighted below</div>
+            {/* Open invoices summary */}
+            {openInvoices.length > 0 && (
+              <div style={{ flex:'1 1 300px',minWidth:0,background:'rgba(255,71,87,.06)',border:'1px solid rgba(255,71,87,.2)',borderRadius:10,padding:'8px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap' }}>
+                <span style={{ fontSize:13,fontWeight:600,color:'var(--red)',whiteSpace:'nowrap' }}>{openInvoices.length} Open Invoice{openInvoices.length>1?'s':''}</span>
+                <span style={{ fontSize:11,color:'var(--text3)',whiteSpace:'nowrap' }}>Total outstanding: <span style={{ fontFamily:'var(--mono)',fontWeight:700,color:'var(--red)' }}>{tzs(totalOutstanding)}</span></span>
+                <span style={{ fontSize:10,color:'var(--text3)',marginLeft:'auto',whiteSpace:'nowrap' }}>Highlighted below</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -1031,7 +1032,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
               {/* Compact rows: dates, references and amounts stay on one line and the cells
                   are tighter, so more of the statement fits on screen (Joe, 24 Nov 2026).
                   Before this, "RCP-10-1767" and "TZS 1,080,000" each broke over 2-3 lines. */}
-              <style>{`.cust-ledger th, .cust-ledger td { padding: 6px 10px !important; white-space: nowrap; line-height: 1.3 }
+              <style>{`.cust-ledger table { width: 100% }
+.cust-ledger th, .cust-ledger td { padding: 6px 8px !important; white-space: nowrap; line-height: 1.3 }
 .cust-ledger th { padding-top: 8px !important; padding-bottom: 8px !important }`}</style>
               <table>
                 <thead>
@@ -1066,7 +1068,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                           )}
                         </td>
                         <td><span className={`pill ${e.document_type==='invoice'?'pill-amber':e.document_type==='payment'?'pill-green':e.document_type==='cash_sale'?'pill-blue':'pill-gray'}`} style={{ fontSize:9 }}>{e.document_type?.replace('_',' ')}</span></td>
-                        <td title={e.description || undefined} style={{ fontSize:11,color:'var(--text3)',maxWidth:320,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.description}</td>
+                        <td title={e.description || undefined} style={{ fontSize:11,color:'var(--text3)',width:'100%',maxWidth:0,minWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.description}</td>
                         <td className="td-right td-mono" style={{ color:'var(--red)',fontSize:12 }}>{e.amount > 0 ? tzs(e.amount) : '—'}</td>
                         <td className="td-right td-mono" style={{ color:'var(--green)',fontSize:12 }}>{e.amount < 0 ? tzs(Math.abs(e.amount)) : '—'}</td>
                         <td className="td-right td-mono" style={{ fontWeight:700,fontSize:13,color:(e as any).runningBalance > 0 ? 'var(--red)' : 'var(--green)' }}>
