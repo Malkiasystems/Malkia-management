@@ -1027,7 +1027,12 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
           ) : rows.length === 0 ? (
             <div style={{ textAlign:'center',padding:'40px 0',color:'var(--text3)' }}>No ledger entries yet.</div>
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap cust-ledger">
+              {/* Compact rows: dates, references and amounts stay on one line and the cells
+                  are tighter, so more of the statement fits on screen (Joe, 24 Nov 2026).
+                  Before this, "RCP-10-1767" and "TZS 1,080,000" each broke over 2-3 lines. */}
+              <style>{`.cust-ledger th, .cust-ledger td { padding: 6px 10px !important; white-space: nowrap; line-height: 1.3 }
+.cust-ledger th { padding-top: 8px !important; padding-bottom: 8px !important }`}</style>
               <table>
                 <thead>
                   <tr>
@@ -1061,7 +1066,7 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                           )}
                         </td>
                         <td><span className={`pill ${e.document_type==='invoice'?'pill-amber':e.document_type==='payment'?'pill-green':e.document_type==='cash_sale'?'pill-blue':'pill-gray'}`} style={{ fontSize:9 }}>{e.document_type?.replace('_',' ')}</span></td>
-                        <td style={{ fontSize:11,color:'var(--text3)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.description}</td>
+                        <td title={e.description || undefined} style={{ fontSize:11,color:'var(--text3)',maxWidth:320,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.description}</td>
                         <td className="td-right td-mono" style={{ color:'var(--red)',fontSize:12 }}>{e.amount > 0 ? tzs(e.amount) : '—'}</td>
                         <td className="td-right td-mono" style={{ color:'var(--green)',fontSize:12 }}>{e.amount < 0 ? tzs(Math.abs(e.amount)) : '—'}</td>
                         <td className="td-right td-mono" style={{ fontWeight:700,fontSize:13,color:(e as any).runningBalance > 0 ? 'var(--red)' : 'var(--green)' }}>
@@ -1083,8 +1088,8 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                 </tbody>
                 <tfoot>
                   <tr style={{ background:'var(--surface2)',fontWeight:800 }}>
-                    <td colSpan={4} style={{ padding:'12px 14px',fontFamily:'var(--mono)',fontSize:11,color:'var(--text3)',textTransform:'uppercase' }}>Closing Balance</td>
-                    <td colSpan={3} className="td-right td-mono" style={{ color: (selected.balance||0) > 0 ? 'var(--red)' : 'var(--green)',fontSize:15,padding:'12px 14px',fontWeight:800 }}>
+                    <td colSpan={4} style={{ fontFamily:'var(--mono)',fontSize:11,color:'var(--text3)',textTransform:'uppercase' }}>Closing Balance</td>
+                    <td colSpan={3} className="td-right td-mono" style={{ color: (selected.balance||0) > 0 ? 'var(--red)' : 'var(--green)',fontSize:15,fontWeight:800 }}>
                       {tzs(Math.abs(selected.balance||0))} {(selected.balance||0) > 0 ? 'DR' : 'CR'}
                     </td>
                     <td colSpan={2}></td>
