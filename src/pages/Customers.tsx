@@ -52,6 +52,24 @@ const creditDays = (c: { credit_days?: number | null; payment_terms?: string | n
   if (typeof c.credit_days === 'number' && c.credit_days >= 0) return c.credit_days
   return parseInt(String(c.payment_terms || '').replace(/\D/g, ''), 10) || 0
 }
+// One colour per kind of document, used for both the reference number and its label on
+// the customer statement, so an invoice, a receipt and a credit note can be told apart at a
+// glance (Joe, 24 Nov 2026). Mid tones chosen to read on both the light and the dark theme.
+// A new kind of document only needs a line here; anything unknown falls back to grey.
+const DOC_COLOR: Record<string, { color: string; label: string }> = {
+  invoice:         { color: '#D97706', label: 'invoice' },        // amber: money owed to us
+  receipt:         { color: '#16A34A', label: 'receipt' },        // green: money received
+  payment:         { color: '#16A34A', label: 'payment' },
+  credit_note:     { color: '#7C3AED', label: 'credit note' },    // purple: we reduced what they owe
+  debit_note:      { color: '#DB2777', label: 'debit note' },     // pink: we increased what they owe
+  journal:         { color: '#2563EB', label: 'journal' },        // blue: accountant's adjustment
+  journal_entry:   { color: '#2563EB', label: 'journal' },
+  cash_sale:       { color: '#0891B2', label: 'cash sale' },      // cyan
+  opening_balance: { color: '#64748B', label: 'opening balance' },
+}
+const docStyle = (type: string | null | undefined) =>
+  DOC_COLOR[String(type || '')] || { color: '#64748B', label: String(type || 'entry').replace(/_/g, ' ') }
+
 const creditPeriodLabel = (c: { credit_days?: number | null; payment_terms?: string | null }): string => {
   const d = creditDays(c)
   return d > 0 ? `${d} day${d === 1 ? '' : 's'}` : 'COD'
@@ -1063,13 +1081,13 @@ export default function Customers({ onNav, onViewStatement, onReceipt, initialTa
                           cursor: canPreview ? 'pointer' : 'default',
                         }}>
                         <td className="td-mono" style={{ fontSize:11,color:'var(--text3)' }}>{e.posting_date}</td>
-                        <td className="td-mono td-amber" style={{ fontSize:11,fontWeight:700 }}>
+                        <td className="td-mono" style={{ fontSize:11,fontWeight:700,color:docStyle(e.document_type).color }}>
                           {e.document_ref}
                           {canPreview && (
                             <span style={{ marginLeft:5,fontSize:9,color:'var(--text3)',fontWeight:400 }}>↗</span>
                           )}
                         </td>
-                        <td><span className={`pill ${e.document_type==='invoice'?'pill-amber':e.document_type==='payment'?'pill-green':e.document_type==='cash_sale'?'pill-blue':'pill-gray'}`} style={{ fontSize:9 }}>{e.document_type?.replace('_',' ')}</span></td>
+                        <td><span className="pill" style={{ fontSize:9,color:docStyle(e.document_type).color,background:docStyle(e.document_type).color+'1F',border:`1px solid ${docStyle(e.document_type).color}40` }}>{docStyle(e.document_type).label}</span></td>
                         <td title={e.description || undefined} style={{ fontSize:11,color:'var(--text3)',width:'100%',maxWidth:0,minWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.description}</td>
                         <td className="td-right td-mono" style={{ color:'var(--red)',fontSize:12 }}>{e.amount > 0 ? tzs(e.amount) : '—'}</td>
                         <td className="td-right td-mono" style={{ color:'var(--green)',fontSize:12 }}>{e.amount < 0 ? tzs(Math.abs(e.amount)) : '—'}</td>
