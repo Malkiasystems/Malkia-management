@@ -39,6 +39,7 @@ export type Page =
   | 'whatsapp-centre'
   | 'wa-templates'
   | 'circle-messages'
+  | 'circle-members'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles

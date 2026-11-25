@@ -161,6 +161,7 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'crm.inbox.staff', label: 'WhatsApp Inbox: staff chats and salary slip messages' },
       { key: 'crm.konnect', label: 'Circle Messages (alerts, weekly lessons)' },
       { key: 'crm.circle.review', label: 'Circle Messages: mark a lesson as reviewed by a midwife' },
+      { key: 'crm.circle.members', label: 'Circle Members: see mothers\' names and WhatsApp numbers' },
       { key: 'crm.automations', label: 'Automations' },
       { key: 'crm.export', label: 'Export CRM Data' },
     ]

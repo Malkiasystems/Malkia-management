@@ -401,6 +401,10 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'wa-templates': ['crm.inbox'],
   // Circle Messages took the place of the Konnect placeholder; it keeps that permission.
   'circle-messages': ['crm.konnect'],
+  // Circle Members shows mothers' names and WhatsApp numbers. Its own permission, so the
+  // numbers are not opened to everyone who can run Circle Messages. The database checks
+  // the same permission (site_049). Super admins pass via the 40+ bypass.
+  'circle-members': ['crm.circle.members'],
   'crm-automations': ['crm.automations'],
   'crm-preorders': ['crm.view'],
   // The waiting list is captured at the counter by whoever meets the customer,
