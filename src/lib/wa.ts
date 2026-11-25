@@ -142,12 +142,14 @@ export async function sendWaitlistNotice(waitingId: string, percent: number, for
 /* Business-number templates (CRM > WhatsApp Templates): list with Meta's
    decision, check a draft against Meta's rules, submit a new one. */
 const WA_TEMPLATES_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-templates'
+// The login-code message is created by its own small function (action 'create_code').
+const WA_LOGIN_CODE_TEMPLATE_URL = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/wa-login-code-template'
 
 export async function waTemplates(payload: Record<string, unknown>) {
   const { data: s } = await supabase.auth.getSession()
   const token = s.session?.access_token
   if (!token) throw new Error('Sign in to MalkiaOS again (your session has ended).')
-  const r = await fetch(WA_TEMPLATES_URL, {
+  const r = await fetch(payload.action === 'create_code' ? WA_LOGIN_CODE_TEMPLATE_URL : WA_TEMPLATES_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),

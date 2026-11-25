@@ -27,6 +27,7 @@ const SLOT_LABEL: Record<string, string> = {
   back_in_stock: 'Waiting list: back in stock with offer', receipt_pdf: 'Receipt (PDF)', receipt_text: 'Receipt (text)',
   invoice_pdf: 'Invoice: on credit, with a pay-by date (PDF)', payslip: 'Payslip',
   invoice_thanks_pdf: 'Invoice: pay on delivery or already paid (PDF)', invoice_part_pdf: 'Invoice: part paid (PDF)',
+  login_code: 'Login code (Malkia Circle joining and password reset)',
 }
 const STATUS: Record<string, { label: string; bg: string; fg: string }> = {
   approved: { label: 'Approved', bg: '#DCF5E6', fg: '#12683A' },
@@ -83,6 +84,7 @@ export default function WaBusinessTemplates() {
   const [problems, setProblems] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [codeBusy, setCodeBusy] = useState(false)
 
   const load = async () => {
     setLoading(true); setError('')
@@ -117,6 +119,20 @@ export default function WaBusinessTemplates() {
     setBusy(false)
   }
 
+  // The login-code message. Meta writes its wording itself (the code, a line
+  // not to share it, when it expires), so there is no form: one button.
+  const needsLoginCode = !rows.some(r => r.slot === 'login_code' && r.is_active && r.status !== 'rejected')
+  const submitLoginCode = async () => {
+    if (!window.confirm('Send the login-code message to Meta for approval?\n\nMeta writes the wording itself, in Swahili: the code, a line telling the person not to share it, and that it expires in 10 minutes. It has a "copy code" button.')) return
+    setCodeBusy(true); setError(''); setNotice('')
+    try {
+      const r = await waTemplates({ action: 'create_code' })
+      setNotice(r.submitted ? 'The login-code message was sent to Meta. Approval usually takes from a few minutes to a few hours.' : 'The login-code message was created but Meta did not accept the submission. See the reason on its card.')
+      await load()
+    } catch (e: any) { setError(e?.message || 'Could not submit the login-code message') }
+    setCodeBusy(false)
+  }
+
   const card: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', padding: 16, marginBottom: 12 }
   const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: .4, margin: '12px 0 5px' }
@@ -140,6 +156,15 @@ export default function WaBusinessTemplates() {
 
       {notice && <div style={{ ...card, borderColor: '#9BD3B0', background: '#EAF8F0', color: '#12683A', fontSize: 13, fontWeight: 600 }}>{notice}</div>}
       {error && <div style={{ ...card, borderColor: '#E8A0A0', background: '#FCEDED', color: '#8F1D1D', fontSize: 13 }}>{error}</div>}
+
+      {canCreate && !draft && !loading && needsLoginCode && (
+        <div style={{ ...card, borderColor: '#E8B93E', background: '#FFF6DA', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, color: '#5F4500', flex: 1, minWidth: 260 }}>
+            <b>{SLOT_LABEL.login_code}.</b> A one-time code sent to a mother's WhatsApp to prove the number is hers. It has not been created yet. Until Meta approves it, Malkia Circle cannot ask for a code.
+          </div>
+          <button onClick={submitLoginCode} disabled={codeBusy} style={primary}>{codeBusy ? 'Sending...' : 'Send to Meta'}</button>
+        </div>
+      )}
 
       {canCreate && !draft && !loading && missingPresets.map(slot => (
         <div key={slot} style={{ ...card, borderColor: '#E8B93E', background: '#FFF6DA', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -264,7 +289,7 @@ export default function WaBusinessTemplates() {
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 {!t.is_active && <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: 'var(--surface2)', color: 'var(--text3)' }}>Replaced</span>}
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: 'var(--surface2)', color: 'var(--text2)' }}>{(t.meta_category || t.category || '').toUpperCase() === 'MARKETING' ? 'Marketing' : 'Service'}{t.has_media ? (t.media_kind === 'image' ? ' + Image' : ' + PDF') : ''}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: 'var(--surface2)', color: 'var(--text2)' }}>{(t.meta_category || t.category || '').toUpperCase() === 'MARKETING' ? 'Marketing' : (t.meta_category || t.category || '').toUpperCase() === 'AUTHENTICATION' ? 'Login code' : 'Service'}{t.has_media ? (t.media_kind === 'image' ? ' + Image' : ' + PDF') : ''}</span>
                 <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: st.bg, color: st.fg }}>{st.label}</span>
               </div>
             </div>
