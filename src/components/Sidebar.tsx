@@ -66,7 +66,9 @@ const EXPENSE_PAGES: Page[] = ['expense-register', 'new-expense']
 
 const IMPORT_PAGES: Page[] = ['import-register', 'import-order']
 
-const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-wholesale-crown', 'crm-feedback', 'crm-upsell', 'crm-customers', 'circle-moderation', 'whatsapp-centre', 'wa-templates']
+const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-wholesale-crown', 'crm-feedback', 'crm-upsell', 'crm-customers', 'whatsapp-centre', 'wa-templates']
+// Malkia Circle has its own group: who joined, what we send them, and what they posted.
+const CIRCLE_PAGES: Page[] = ['circle-members', 'circle-messages', 'circle-moderation']
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'audit-trail', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
@@ -158,7 +160,11 @@ const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Wholesale Crown', page: 'crm-wholesale-crown', icon: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zM3 20h18 M8 20v2 M16 20v2' },
   { label: 'Feedback',    page: 'crm-feedback',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
   { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
-  { label: 'Circle Maoni', page: 'circle-moderation', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM8 12l3 3 5-6' },
+]
+const CIRCLE_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'Members',  page: 'circle-members',    icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
+  { label: 'Messages', page: 'circle-messages',   icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
+  { label: 'Maoni',    page: 'circle-moderation', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM8 12l3 3 5-6' },
 ]
 
 interface SidebarProps { current: Page; onNav: (p: Page) => void; stockMode?: boolean }
@@ -208,6 +214,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const [salesOpen, setSalesOpen] = useState(false)
   const [expensesOpen, setExpensesOpen] = useState(false)
   const [crmOpen, setCrmOpen] = useState(false)
+  const [circleOpen, setCircleOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hrmOpen, setHrmOpen] = useState(false)
   const [vouchersOpen, setVouchersOpen] = useState(false)
@@ -226,13 +233,14 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     // one, and the rail turned into a wall of items.
     const openOnly = (which: string) => {
       setVouchersOpen(which === 'vouchers'); setSalesOpen(which === 'sales')
-      setExpensesOpen(which === 'expenses'); setCrmOpen(which === 'crm')
+      setExpensesOpen(which === 'expenses'); setCrmOpen(which === 'crm'); setCircleOpen(which === 'circle')
       setSettingsOpen(which === 'settings'); setHrmOpen(which === 'hrm')
       setAccountsOpen(which === 'accounts'); setInventoryOpen(which === 'inventory')
     }
     if (VOUCHER_PAGES.includes(current)) openOnly('vouchers')
     else if (SALES_PAGES.includes(current)) openOnly('sales')
     else if (EXPENSE_PAGES.includes(current)) openOnly('expenses')
+    else if (CIRCLE_PAGES.includes(current)) openOnly('circle')
     else if (CRM_PAGES.includes(current)) openOnly('crm')
     else if (SETTINGS_PAGES.includes(current)) openOnly('settings')
     else if (HRM_PAGES.includes(current)) openOnly('hrm')
@@ -367,8 +375,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     // Investors only for companies that show them
     ...(company.showInvestors ? [{ icon: 'investors', label: 'Investors', page: 'investors-hub' as Page }] : []),
     { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
-    { icon: 'konnect',   label: 'Circle Messages', page: 'circle-messages' as Page },
-    { icon: 'customers', label: 'Circle Members', page: 'circle-members' as Page },
+    { icon: 'konnect',   label: 'Circle',    page: 'circle-members' as Page, hasSub: true },
     { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
     { icon: 'hrm',       label: 'HRM',       page: 'hrm' as Page,       hasSub: true },
     { sep: true },
@@ -384,6 +391,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const isSalesActive = SALES_PAGES.includes(current)
   const isExpenseActive = EXPENSE_PAGES.includes(current)
   const isCrmActive = CRM_PAGES.includes(current)
+  const isCircleActive = CIRCLE_PAGES.includes(current)
   const isSettingsActive = SETTINGS_PAGES.includes(current)
   const isHrmActive = HRM_PAGES.includes(current)
   
@@ -394,6 +402,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleSalesSub = SALES_SUB.filter(sub => canAccess(sub.page))
   const visibleExpenseSub = EXPENSE_SUB.filter(sub => canAccess(sub.page))
   const visibleCrmSub = CRM_SUB.filter(sub => canAccess(sub.page))
+  const visibleCircleSub = CIRCLE_SUB.filter(sub => canAccess(sub.page))
   const visibleSettingsSub = SETTINGS_SUB.filter(sub => canAccess(sub.page))
   const visibleHrmSub = HRM_SUB.filter(sub => canAccess(sub.page))
 
@@ -447,6 +456,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const navItem = item as { icon: string; label: string; page: Page; hasSub?: boolean; coming?: boolean; badge?: number }
 
         // Skip items user can't access (except coming soon items)
+        // The Circle group shows when the user may open any page inside it.
+        if (navItem.page === 'circle-members' && navItem.hasSub && visibleCircleSub.length === 0) return null
         if (!navItem.coming && navItem.page && !canAccess(navItem.page as Page)) {
           // For parent items (Sales, CRM, Settings), check if any sub-items are accessible
           if (navItem.page === 'sales' && visibleSalesSub.length === 0) return null
@@ -456,7 +467,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           if (navItem.page === 'inventory' && visibleInventorySub.length === 0) return null
           // For non-parent items, just skip
           if (navItem.page === 'expense-register' && visibleExpenseSub.length === 0) return null
-          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'expense-register'].includes(navItem.page as string)) return null
+          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'expense-register', 'circle-members'].includes(navItem.page as string)) return null
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
@@ -469,6 +480,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           (navItem.page === 'expense-register' && isExpenseActive) ||
           (navItem.page === 'import-register' && isImportActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
+          (navItem.page === 'circle-members' && isCircleActive) ||
           (navItem.page === 'settings' && isSettingsActive) ||
           (navItem.page === 'hrm' && isHrmActive) ||
           (navItem.page === 'chart-of-accounts' && isAccountsActive)
@@ -476,6 +488,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isSalesItem = navItem.page === 'sales'
         const isExpenseItem = navItem.page === 'expense-register'
         const isCrmItem = navItem.page === 'crm-hub'
+        const isCircleItem = navItem.page === 'circle-members' && Boolean(navItem.hasSub)
         const isSettingsItem = navItem.page === 'settings'
         const isHrmItem = navItem.page === 'hrm'
         const isVouchersItem = navItem.page === 'vouchers'
@@ -490,54 +503,61 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 if (isExpenseItem) {
                   if (expensesOpen) { setExpensesOpen(false) } else {
                     setExpensesOpen(true)
-                    setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
+                    setSalesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setCircleOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
                     requestExpenseRegisterTab('transactions')
                     onNav('expense-register')
                   }
                 } else if (isSalesItem) {
                   if (salesOpen) { setSalesOpen(false) } else {
                     setSalesOpen(true)
-                    setExpensesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
+                    setExpensesOpen(false); setVouchersOpen(false); setInventoryOpen(false); setCrmOpen(false); setCircleOpen(false); setSettingsOpen(false); setHrmOpen(false); setAccountsOpen(false)
                     onNav('sales')
                   }
                 } else if (isVouchersItem) {
                   if (vouchersOpen) { setVouchersOpen(false) } else {
                     setVouchersOpen(true)
-                    setSalesOpen(false); setInventoryOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    setSalesOpen(false); setInventoryOpen(false); setCrmOpen(false); setCircleOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
                     onNav('vouchers')
                   }
                 } else if (isInventoryItem) {
                   if (inventoryOpen) { setInventoryOpen(false) } else {
                     setInventoryOpen(true)
-                    setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    setVouchersOpen(false); setSalesOpen(false); setCrmOpen(false); setCircleOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
                     onNav('inventory')
                   }
                 } else if (isAccountsItem) {
                   if (accountsOpen) { setAccountsOpen(false) } else {
                     setAccountsOpen(true)
-                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setCircleOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
                     onNav('chart-of-accounts')
                   }
                 } else if (isCrmItem) {
                   if (crmOpen) { setCrmOpen(false) } else {
                     setCrmOpen(true)
-                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false); setCircleOpen(false)
                     onNav('crm-hub')
+                  }
+                } else if (isCircleItem) {
+                  if (circleOpen) { setCircleOpen(false) } else {
+                    setCircleOpen(true)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    // Open the first Circle page this user is allowed to see.
+                    if (visibleCircleSub[0]) onNav(visibleCircleSub[0].page)
                   }
                 } else if (isSettingsItem) {
                   if (settingsOpen) { setSettingsOpen(false) } else {
                     setSettingsOpen(true)
-                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setCircleOpen(false); setHrmOpen(false); setExpensesOpen(false); setAccountsOpen(false)
                     onNav('settings')
                   }
                 } else if (isHrmItem) {
                   if (hrmOpen) { setHrmOpen(false) } else {
                     setHrmOpen(true)
-                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setExpensesOpen(false); setAccountsOpen(false)
+                    setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setCircleOpen(false); setSettingsOpen(false); setExpensesOpen(false); setAccountsOpen(false)
                     onNav('hrm')
                   }
                 } else {
-                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
+                  setVouchersOpen(false); setInventoryOpen(false); setSalesOpen(false); setCrmOpen(false); setCircleOpen(false); setSettingsOpen(false); setHrmOpen(false); setExpensesOpen(false)
                   onNav(navItem.page)
                 }
               }}
@@ -578,10 +598,10 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 textTransform: 'uppercase', letterSpacing: '.4px'
               }}>{navItem.label}</span>
 
-              {Boolean(isExpenseItem || isSalesItem || isVouchersItem || isInventoryItem || isAccountsItem || isCrmItem || isSettingsItem || isHrmItem) && (
+              {Boolean(isExpenseItem || isSalesItem || isVouchersItem || isInventoryItem || isAccountsItem || isCrmItem || isCircleItem || isSettingsItem || isHrmItem) && (
                 <span style={{ 
                   position:'absolute', right:4, top:'50%', 
-                  transform:`translateY(-50%) rotate(${(isExpenseItem && expensesOpen) || (isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isInventoryItem && inventoryOpen) || (isAccountsItem && accountsOpen) || (isCrmItem && crmOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
+                  transform:`translateY(-50%) rotate(${(isExpenseItem && expensesOpen) || (isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isInventoryItem && inventoryOpen) || (isAccountsItem && accountsOpen) || (isCrmItem && crmOpen) || (isCircleItem && circleOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
                   transition:'transform .2s', color:'var(--text3)', fontSize:8 
                 }}>›</span>
               )}
@@ -757,6 +777,28 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                           fontSize: 9.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>{waWaiting}</span>
                       )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Circle sub-menu */}
+            {Boolean(isCircleItem) && circleOpen && visibleCircleSub.length > 0 && (
+              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+                {visibleCircleSub.map(sub => {
+                  const subActive = current === sub.page
+                  return (
+                    <div key={sub.page} onClick={() => onNav(sub.page)}
+                      className="sb-sub"
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                        background: subActive ? 'var(--accent-dim)' : 'transparent',
+                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
+                      }}>
+                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <path d={sub.icon}/>
+                      </svg>
+                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}

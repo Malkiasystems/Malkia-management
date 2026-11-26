@@ -18,6 +18,7 @@ const PATHS: Record<string, string> = {
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3',
   trash: 'M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
   x: 'M18 6L6 18 M6 6l12 12',
+  bag: 'M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z M3 6h18 M16 10a4 4 0 0 1-8 0',
 }
 function Icon({ name, size = 16, style }: { name: keyof typeof PATHS | string; size?: number; style?: React.CSSProperties }) {
   return (
@@ -35,11 +36,14 @@ interface Member {
   terms_version: string | null; terms_accepted_at: string | null; whatsapp_verified_at: string | null; weekly_wa: boolean
   questions: number; answers: number; last_active: string | null; marketing_ok: boolean; groups: string[]
 }
+/* What she has bought from Malkia, matched by her WhatsApp number to the customer records. */
+interface Bought { orders: number; total: number; last_at: string | null; customer: string | null; customers: number }
 interface Group { id: string; name: string; note: string | null; created_by_name: string | null; n: number }
-type SortKey = 'name' | 'member_no' | 'stage' | 'created_at' | 'questions' | 'answers' | 'last_active'
+type SortKey = 'name' | 'member_no' | 'stage' | 'created_at' | 'questions' | 'answers' | 'last_active' | 'bought'
 
 const STAGE_LABEL: Record<Stage, string> = { ttc: 'Trying for a baby', pregnancy: 'Pregnant', parenting: 'Parenting' }
 const STAGE_COLOR: Record<Stage, [string, string]> = { ttc: ['#FBE9F0', '#8A2150'], pregnancy: ['#E4F1EF', '#2F6B66'], parenting: ['#FFF3D6', '#7A5B00'] }
+const tzs = (n: number) => 'TZS ' + Math.round(n).toLocaleString('en-US')
 const day = (s?: string | null) => s ? new Date(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
 const local = (p: string) => /^255\d{9}$/.test(p) ? `0${p.slice(3, 6)} ${p.slice(6, 9)} ${p.slice(9)}` : p
 const daysAgo = (s: string) => Math.floor((Date.now() - new Date(s).getTime()) / 86400000)
@@ -55,6 +59,8 @@ export default function CircleMembers() {
   const [members, setMembers] = useState<Member[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [canExport, setCanExport] = useState(false)
+  const [bought, setBought] = useState<Record<string, Bought>>({})
+  const [buy, setBuy] = useState<'all' | 'yes' | 'no'>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -78,6 +84,10 @@ export default function CircleMembers() {
     if (error) { setError(error.message); setLoading(false); return }
     setMembers((data?.members || []) as Member[]); setGroups((data?.groups || []) as Group[]); setCanExport(!!data?.can_export)
     setLoading(false)
+    // Purchases load separately, so the list still shows if this part fails.
+    const b = await supabase.rpc('circle_members_purchases')
+    if (b.error) setError(`The list loaded, but purchases could not be read: ${b.error.message}`)
+    else setBought((b.data || {}) as Record<string, Bought>)
   }
   useEffect(() => { load() }, [])
 
@@ -87,8 +97,10 @@ export default function CircleMembers() {
     week: mothers.filter(m => daysAgo(m.created_at) < 7).length,
     month: mothers.filter(m => daysAgo(m.created_at) < 30).length,
     active: mothers.filter(m => m.questions + m.answers > 0).length,
+    buyers: mothers.filter(m => (bought[m.user_id]?.orders || 0) > 0).length,
+    spent: mothers.reduce((n, m) => n + Number(bought[m.user_id]?.total || 0), 0),
     byStage: (['pregnancy', 'parenting', 'ttc'] as Stage[]).map(s => [s, mothers.filter(m => m.stage === s).length] as [Stage, number]),
-  }), [mothers])
+  }), [mothers, bought])
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase(); const digits = needle.replace(/\D/g, '').replace(/^0/, '')
@@ -100,6 +112,8 @@ export default function CircleMembers() {
       if (activity === 'silent' && m.questions + m.answers > 0) return false
       if (terms === 'yes' && !m.terms_accepted_at) return false
       if (terms === 'no' && m.terms_accepted_at) return false
+      if (buy === 'yes' && !(bought[m.user_id]?.orders > 0)) return false
+      if (buy === 'no' && bought[m.user_id]?.orders > 0) return false
       if (from && m.created_at.slice(0, 10) < from) return false
       if (to && m.created_at.slice(0, 10) > to) return false
       if (needle && !(m.name.toLowerCase().includes(needle) || m.username.toLowerCase().includes(needle) || (digits.length >= 3 && m.whatsapp.includes(digits)))) return false
@@ -107,14 +121,15 @@ export default function CircleMembers() {
     })
     const dir = sort.dir === 'asc' ? 1 : -1
     return out.sort((a, b) => {
-      const av: any = sort.key === 'name' ? a.name.toLowerCase() : (a as any)[sort.key]
-      const bv: any = sort.key === 'name' ? b.name.toLowerCase() : (b as any)[sort.key]
+      const val = (m: Member): any => sort.key === 'name' ? m.name.toLowerCase() : sort.key === 'bought' ? (bought[m.user_id]?.orders > 0 ? Number(bought[m.user_id].total) : null) : (m as any)[sort.key]
+      const av: any = val(a)
+      const bv: any = val(b)
       if (av == null && bv == null) return 0
       if (av == null) return 1            // empty values always last
       if (bv == null) return -1
       return av < bv ? -dir : av > bv ? dir : 0
     })
-  }, [members, kind, stage, group, activity, terms, from, to, q, sort])
+  }, [members, kind, stage, group, activity, terms, buy, bought, from, to, q, sort])
 
   const shown = useMemo(() => new Set(rows.map(r => r.user_id)), [rows])
   const pickedShown = useMemo(() => [...picked].filter(id => shown.has(id)), [picked, shown])
@@ -163,13 +178,13 @@ export default function CircleMembers() {
     if (!list.length) return
     if (!window.confirm(`Export ${list.length} member${list.length === 1 ? '' : 's'} to Excel?\n\nThe file holds names and WhatsApp numbers. This export is recorded with your name.`)) return
     setBusy('export')
-    const filters = { kind, stage, group: group === 'all' ? null : groupName(group), activity, terms, from: from || null, to: to || null, search: q.trim() || null, ticked_only: pickedShown.length > 0 }
+    const filters = { kind, stage, group: group === 'all' ? null : groupName(group), activity, terms, bought: buy, from: from || null, to: to || null, search: q.trim() || null, ticked_only: pickedShown.length > 0 }
     const { error } = await supabase.rpc('circle_members_export_log', { p_rows: list.length, p_filters: filters })
     if (error) { say('', `Nothing was exported: ${error.message}`); setBusy(''); return }
-    const aoa: (string | number)[][] = [['Member no', 'Name', 'WhatsApp', 'Stage', 'Week or baby age', 'Joined', 'Questions', 'Answers', 'Last active', 'Founder no', 'Terms accepted', 'Terms version', 'Number proved', 'Weekly lessons', 'Groups']]
-    list.forEach(m => aoa.push([m.member_no, m.name, m.whatsapp, STAGE_LABEL[m.stage] || m.stage, detail(m), day(m.created_at), m.questions, m.answers, day(m.last_active), m.founder_no || '', day(m.terms_accepted_at), m.terms_version || '', m.whatsapp_verified_at ? 'Yes' : 'No', m.weekly_wa ? 'Yes' : 'No', m.groups.map(groupName).filter(Boolean).join(', ')]))
+    const aoa: (string | number)[][] = [['Member no', 'Name', 'WhatsApp', 'Stage', 'Week or baby age', 'Joined', 'Questions', 'Answers', 'Last active', 'Orders', 'Total bought (TZS)', 'Last purchase', 'Founder no', 'Terms accepted', 'Terms version', 'Number proved', 'Weekly lessons', 'Groups']]
+    list.forEach(m => aoa.push([m.member_no, m.name, m.whatsapp, STAGE_LABEL[m.stage] || m.stage, detail(m), day(m.created_at), m.questions, m.answers, day(m.last_active), bought[m.user_id]?.orders || 0, Math.round(Number(bought[m.user_id]?.total || 0)), day(bought[m.user_id]?.last_at), m.founder_no || '', day(m.terms_accepted_at), m.terms_version || '', m.whatsapp_verified_at ? 'Yes' : 'No', m.weekly_wa ? 'Yes' : 'No', m.groups.map(groupName).filter(Boolean).join(', ')]))
     const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = [10, 26, 16, 18, 18, 14, 10, 10, 14, 10, 14, 12, 12, 12, 30].map(wch => ({ wch }))
+    ws['!cols'] = [10, 26, 16, 18, 18, 14, 10, 10, 14, 8, 16, 14, 10, 14, 12, 12, 12, 30].map(wch => ({ wch }))
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Circle members')
     XLSX.writeFile(wb, `Malkia-Circle-members-${new Date().toISOString().slice(0, 10)}.xlsx`)
     say(`Exported ${list.length} member${list.length === 1 ? '' : 's'}. The export was recorded.`)
@@ -195,7 +210,7 @@ export default function CircleMembers() {
       <div><div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', lineHeight: 1.1 }}>{value}</div><div style={muted}>{label}{sub ? ` · ${sub}` : ''}</div></div>
     </div>
   )
-  const filtersOn = stage !== 'all' || group !== 'all' || activity !== 'all' || terms !== 'all' || !!from || !!to || !!q.trim()
+  const filtersOn = stage !== 'all' || group !== 'all' || activity !== 'all' || terms !== 'all' || buy !== 'all' || !!from || !!to || !!q.trim()
   const counts = { mother: mothers.length, expert: members.filter(m => m.kind === 'expert').length, test: members.filter(m => m.kind === 'test').length }
 
   if (loading) return <div style={{ padding: 24, ...muted }}>Loading Circle members...</div>
@@ -217,6 +232,7 @@ export default function CircleMembers() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 12 }}>
         {stat(<Icon name="users" size={19} />, 'mothers in Circle', stats.total, `${stats.active} have asked or answered`)}
         {stat(<Icon name="heart" size={19} />, 'joined in the last 7 days', stats.week, `${stats.month} in 30 days`)}
+        {stat(<Icon name="bag" size={19} />, 'have bought from Malkia', stats.buyers, stats.buyers ? tzs(stats.spent) : 'none yet')}
         {stats.byStage.map(([s, n]) => <div key={s}>{stat(s === 'pregnancy' ? <Icon name="heart" size={19} /> : s === 'parenting' ? <Icon name="baby" size={19} /> : <Icon name="sprout" size={19} />, STAGE_LABEL[s], n, stats.total ? `${Math.round(n * 100 / stats.total)}%` : undefined)}</div>)}
       </div>
 
@@ -242,9 +258,12 @@ export default function CircleMembers() {
           <select style={inp} value={terms} onChange={e => setTerms(e.target.value as any)}>
             <option value="all">Terms: all</option><option value="yes">Accepted the terms</option><option value="no">No terms record</option>
           </select>
+          <select style={inp} value={buy} onChange={e => setBuy(e.target.value as any)} title="Purchases from Malkia, matched by her WhatsApp number">
+            <option value="all">Bought or not</option><option value="yes">Has bought from Malkia</option><option value="no">Never bought</option>
+          </select>
           <label style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6 }}>Joined from<input type="date" style={inp} value={from} onChange={e => setFrom(e.target.value)} /></label>
           <label style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6 }}>to<input type="date" style={inp} value={to} onChange={e => setTo(e.target.value)} /></label>
-          {filtersOn && <button style={btn} onClick={() => { setStage('all'); setGroup('all'); setActivity('all'); setTerms('all'); setFrom(''); setTo(''); setQ('') }}><Icon name="x" size={14} />Clear</button>}
+          {filtersOn && <button style={btn} onClick={() => { setStage('all'); setGroup('all'); setActivity('all'); setTerms('all'); setBuy('all'); setFrom(''); setTo(''); setQ('') }}><Icon name="x" size={14} />Clear</button>}
         </div>
       </div>
 
@@ -275,11 +294,11 @@ export default function CircleMembers() {
       </div>
 
       <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1040 }}>
           <thead>
             <tr>
               <th style={{ padding: '9px 10px', borderBottom: '1px solid var(--border)', width: 34 }}><input type="checkbox" checked={allPicked} onChange={toggleAll} aria-label="Tick everyone shown" /></th>
-              {th('No', 'member_no')}{th('Name', 'name')}{th('WhatsApp')}{th('Stage', 'stage')}{th('Joined', 'created_at')}{th('Asked', 'questions', true)}{th('Answered', 'answers', true)}{th('Last active', 'last_active')}{th('Terms')}{th('Groups')}
+              {th('No', 'member_no')}{th('Name', 'name')}{th('WhatsApp')}{th('Stage', 'stage')}{th('Joined', 'created_at')}{th('Asked', 'questions', true)}{th('Answered', 'answers', true)}{th('Last active', 'last_active')}{th('Bought', 'bought', true)}{th('Terms')}{th('Groups')}
             </tr>
           </thead>
           <tbody>
@@ -300,15 +319,23 @@ export default function CircleMembers() {
                 <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.questions || ''}</td>
                 <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.answers || ''}</td>
                 <td style={{ ...td, whiteSpace: 'nowrap', color: m.last_active ? 'var(--text)' : 'var(--text3)' }}>{m.last_active ? day(m.last_active) : 'Never posted'}</td>
+                <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {bought[m.user_id]?.orders > 0 ? (
+                    <span title={`Customer record: ${bought[m.user_id].customer || ''}${bought[m.user_id].customers > 1 ? ` and ${bought[m.user_id].customers - 1} more with the same number` : ''}`}>
+                      <div style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{tzs(Number(bought[m.user_id].total))}</div>
+                      <div style={{ ...muted, fontSize: 11.5 }}>{bought[m.user_id].orders} order{bought[m.user_id].orders === 1 ? '' : 's'} · last {day(bought[m.user_id].last_at)}</div>
+                    </span>
+                  ) : <span style={{ color: 'var(--text3)' }}>{bought[m.user_id] ? 'Customer, no order' : ''}</span>}
+                </td>
                 <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.terms_accepted_at ? <span title={`Accepted on ${day(m.terms_accepted_at)}`} style={{ color: '#1E6B34', fontWeight: 700 }}>Version {m.terms_version || '1'}</span> : <span style={{ color: 'var(--text3)' }} title="She joined before the terms page existed">No record</span>}</td>
                 <td style={td}>{m.groups.map(groupName).filter(Boolean).map(n => <span key={n} style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--surface2)', border: '1px solid var(--border)', marginRight: 4, marginBottom: 2 }}>{n}</span>)}</td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text3)', padding: 28 }}>{filtersOn ? 'No member matches these filters.' : 'Nobody here yet.'}</td></tr>}
+            {!rows.length && <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text3)', padding: 28 }}>{filtersOn ? 'No member matches these filters.' : 'Nobody here yet.'}</td></tr>}
           </tbody>
         </table>
       </div>
-      <div style={muted}>Showing {rows.length} of {counts[kind]}. "Asked" counts questions she asked without her name too, but this page never shows which ones. "Last active" is her latest question, answer or reaction.</div>
+      <div style={muted}>Showing {rows.length} of {counts[kind]}. "Asked" counts questions she asked without her name too, but this page never shows which ones. "Last active" is her latest question, answer or reaction. "Bought" counts posted cash sales and sales invoices on customer records that carry her WhatsApp number; a purchase under a different number will not show.</div>
     </div>
   )
 }
