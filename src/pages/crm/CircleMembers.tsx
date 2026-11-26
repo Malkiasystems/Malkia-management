@@ -3,7 +3,7 @@
 // how active she is, sort mothers into their own groups, and (super admins only) export
 // the list. The list, the groups and the export log are all served by database
 // functions that check the caller's permission (site_049); this page holds no rules.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../../lib/supabase'
 
@@ -18,6 +18,7 @@ const PATHS: Record<string, string> = {
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3',
   trash: 'M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
   x: 'M18 6L6 18 M6 6l12 12',
+  chat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
   bag: 'M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z M3 6h18 M16 10a4 4 0 0 1-8 0',
 }
 function Icon({ name, size = 16, style }: { name: keyof typeof PATHS | string; size?: number; style?: React.CSSProperties }) {
@@ -78,6 +79,7 @@ export default function CircleMembers() {
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [newGroup, setNewGroup] = useState<string | null>(null)
   const [target, setTarget] = useState('')
+  const listRef = useRef<HTMLDivElement>(null)
 
   const load = async () => {
     const { data, error } = await supabase.rpc('circle_members_list')
@@ -94,7 +96,7 @@ export default function CircleMembers() {
   const mothers = useMemo(() => members.filter(m => m.kind === 'mother'), [members])
   const stats = useMemo(() => ({
     total: mothers.length,
-    week: mothers.filter(m => daysAgo(m.created_at) < 7).length,
+    week: mothers.filter(m => m.created_at.slice(0, 10) >= new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)).length,
     month: mothers.filter(m => daysAgo(m.created_at) < 30).length,
     active: mothers.filter(m => m.questions + m.answers > 0).length,
     buyers: mothers.filter(m => (bought[m.user_id]?.orders || 0) > 0).length,
@@ -204,12 +206,33 @@ export default function CircleMembers() {
     </th>
   )
   const td: React.CSSProperties = { padding: '9px 10px', fontSize: 13, color: 'var(--text)', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }
-  const stat = (icon: React.ReactNode, label: string, value: number | string, sub?: string) => (
-    <div style={{ ...card, marginBottom: 0, display: 'flex', gap: 12, alignItems: 'center' }}>
-      <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--accent-dim, rgba(0,0,0,.06))', color: 'var(--accent)', display: 'grid', placeItems: 'center', flex: 'none' }}>{icon}</div>
-      <div><div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', lineHeight: 1.1 }}>{value}</div><div style={muted}>{label}{sub ? ` · ${sub}` : ''}</div></div>
-    </div>
+  // A number card. Clicking it shows exactly those mothers in the list below;
+  // clicking it again (while it is the one showing) goes back to everyone.
+  const stat = (icon: React.ReactNode, label: string, value: number | string, sub: string | undefined, on: boolean, show: () => void) => (
+    <button type="button" onClick={show} title={on ? 'Showing these in the list. Click to show everyone.' : 'Click to see these mothers in the list'}
+      style={{ ...card, marginBottom: 0, display: 'flex', gap: 12, alignItems: 'center', width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+        borderColor: on ? 'var(--accent)' : 'var(--border)', boxShadow: on ? '0 0 0 1px var(--accent)' : 'none' }}>
+      <div style={{ width: 38, height: 38, borderRadius: 10, background: on ? 'var(--accent)' : 'var(--accent-dim, rgba(0,0,0,.06))', color: on ? '#fff' : 'var(--accent)', display: 'grid', placeItems: 'center', flex: 'none' }}>{icon}</div>
+      <div style={{ minWidth: 0 }}><div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', lineHeight: 1.1 }}>{value}</div><div style={muted}>{label}{sub ? ` · ${sub}` : ''}</div></div>
+    </button>
   )
+  const clearFilters = () => { setStage('all'); setGroup('all'); setActivity('all'); setTerms('all'); setBuy('all'); setFrom(''); setTo(''); setQ('') }
+  const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
+  const only = { stage: stage === 'all', group: group === 'all', activity: activity === 'all', terms: terms === 'all', buy: buy === 'all', dates: !from && !to, q: !q.trim() }
+  const plain = kind === 'mother' && only.group && only.terms && only.q
+  // Which card, if any, describes exactly what the list is showing now.
+  const showing = !plain ? '' :
+    only.stage && only.activity && only.buy && only.dates ? 'all' :
+    only.stage && activity === 'active' && only.buy && only.dates ? 'active' :
+    only.stage && only.activity && only.buy && from === weekAgo && !to ? 'week' :
+    only.stage && only.activity && buy === 'yes' && only.dates ? 'buyers' :
+    only.activity && only.buy && only.dates && stage !== 'all' ? stage : ''
+  // Show one card's mothers: start from everyone, apply that one filter, bring the list into view.
+  const showCard = (which: string, apply: () => void) => {
+    setKind('mother'); setPicked(new Set()); clearFilters()
+    if (showing !== which) apply()
+    setTimeout(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
   const filtersOn = stage !== 'all' || group !== 'all' || activity !== 'all' || terms !== 'all' || buy !== 'all' || !!from || !!to || !!q.trim()
   const counts = { mother: mothers.length, expert: members.filter(m => m.kind === 'expert').length, test: members.filter(m => m.kind === 'test').length }
 
@@ -229,11 +252,12 @@ export default function CircleMembers() {
       {notice && <div style={{ ...card, borderColor: '#A9D9B4', background: '#EAF8EE', color: '#1E6B34', fontSize: 13 }}>{notice}</div>}
       {error && <div style={{ ...card, borderColor: '#E3A5A5', background: '#FCEDED', color: '#8F1D1D', fontSize: 13 }}>{error}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 12 }}>
-        {stat(<Icon name="users" size={19} />, 'mothers in Circle', stats.total, `${stats.active} have asked or answered`)}
-        {stat(<Icon name="heart" size={19} />, 'joined in the last 7 days', stats.week, `${stats.month} in 30 days`)}
-        {stat(<Icon name="bag" size={19} />, 'have bought from Malkia', stats.buyers, stats.buyers ? tzs(stats.spent) : 'none yet')}
-        {stats.byStage.map(([s, n]) => <div key={s}>{stat(s === 'pregnancy' ? <Icon name="heart" size={19} /> : s === 'parenting' ? <Icon name="baby" size={19} /> : <Icon name="sprout" size={19} />, STAGE_LABEL[s], n, stats.total ? `${Math.round(n * 100 / stats.total)}%` : undefined)}</div>)}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+        {stat(<Icon name="users" size={19} />, 'mothers in Circle', stats.total, undefined, showing === 'all', () => showCard('all', () => {}))}
+        {stat(<Icon name="chat" size={19} />, 'have asked or answered', stats.active, stats.total ? `${Math.round(stats.active * 100 / stats.total)}%` : undefined, showing === 'active', () => showCard('active', () => setActivity('active')))}
+        {stat(<Icon name="heart" size={19} />, 'joined in the last 7 days', stats.week, `${stats.month} in 30 days`, showing === 'week', () => showCard('week', () => setFrom(weekAgo)))}
+        {stat(<Icon name="bag" size={19} />, 'have bought from Malkia', stats.buyers, stats.buyers ? tzs(stats.spent) : 'none yet', showing === 'buyers', () => showCard('buyers', () => setBuy('yes')))}
+        {stats.byStage.map(([st, n]) => <div key={st}>{stat(<Icon name={st === 'pregnancy' ? 'heart' : st === 'parenting' ? 'baby' : 'sprout'} size={19} />, STAGE_LABEL[st], n, stats.total ? `${Math.round(n * 100 / stats.total)}%` : undefined, showing === st, () => showCard(st, () => setStage(st)))}</div>)}
       </div>
 
       <div style={card}>
@@ -263,7 +287,7 @@ export default function CircleMembers() {
           </select>
           <label style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6 }}>Joined from<input type="date" style={inp} value={from} onChange={e => setFrom(e.target.value)} /></label>
           <label style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6 }}>to<input type="date" style={inp} value={to} onChange={e => setTo(e.target.value)} /></label>
-          {filtersOn && <button style={btn} onClick={() => { setStage('all'); setGroup('all'); setActivity('all'); setTerms('all'); setBuy('all'); setFrom(''); setTo(''); setQ('') }}><Icon name="x" size={14} />Clear</button>}
+          {filtersOn && <button style={btn} onClick={clearFilters}><Icon name="x" size={14} />Clear</button>}
         </div>
       </div>
 
@@ -293,7 +317,7 @@ export default function CircleMembers() {
         )}
       </div>
 
-      <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
+      <div ref={listRef} style={{ ...card, padding: 0, overflowX: 'auto', scrollMarginTop: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1040 }}>
           <thead>
             <tr>
