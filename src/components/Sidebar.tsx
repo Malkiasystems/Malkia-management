@@ -14,18 +14,18 @@ import { useWaInbox } from '../lib/waInbox'
 // real keys. Reduced motion keeps the glow and drops the movement.
 const SB_CSS = (
   <style>{`
-    .sb-key { transition: all .15s cubic-bezier(.2,.8,.3,1); will-change: transform; }
-    /* Hover reads unmistakably as the accent. The old var(--accent-dim) halo
-       sat at 12% opacity and vanished on the light themes entirely. A hairline
-       accent ring plus a stronger bloom survives every theme, because it is
-       mixed from --accent-rgb which the theme defines. */
-    .sb-key:hover { transform: translateY(-2px) scale(1.05); background: var(--surface2) !important; box-shadow: 0 0 0 1px rgba(var(--accent-rgb),.55), 0 6px 16px rgba(0,0,0,.35), 0 0 14px rgba(var(--accent-rgb),.45); }
-    .sb-key:active { transform: translateY(0) scale(.96); }
-    .sb-key:hover svg { stroke: var(--accent); filter: drop-shadow(0 0 5px var(--accent-dim)); }
-    .sb-key:hover .sb-label { color: var(--accent) !important; }
-    .sb-sub { transition: all .13s ease; }
-    .sb-sub:hover { transform: translateY(-1px); background: var(--surface3) !important; box-shadow: inset 2px 0 0 var(--accent), 0 0 10px rgba(var(--accent-rgb),.35); }
-    .sb-sub:hover svg { stroke: var(--accent); }
+    /* Look borrowed from Instagram's sidebar: rows are calm at rest, hover is a
+       soft fill, and the current page is the one bold row with a filled pill.
+       Nothing lifts, scales or glows. */
+    .sb-key { transition: background .15s ease; }
+    .sb-key:hover { background: var(--surface2) !important; }
+    .sb-key:active { transform: scale(.98); }
+    .sb-key:hover svg { stroke: var(--text); }
+    .sb-key:hover .sb-label { color: var(--text) !important; }
+    .sb-sub { transition: background .13s ease; }
+    .sb-sub:hover { background: var(--surface2) !important; }
+    .sb-sub:hover svg { stroke: var(--text); }
+    .sb-sub:hover .sb-sublabel { color: var(--text) !important; }
     .sb-rail { transition: width .2s ease; }
     /* Submenus slide open instead of popping in. Mount-only by design. */
     .sb-submenu { animation: sbOpen .16s ease; }
@@ -33,23 +33,26 @@ const SB_CSS = (
     /* Expanded rail: child rows indent off the section edge so the tree
        reads as a tree; the 2px active edge stays at the container border
        where it pops against the indent. */
-    .sb-rail-x .sb-sub { padding-left: 24px !important; }
-    .sb-rail-x .sb-key:hover { transform: translateY(-1px); }
     @media (prefers-reduced-motion: reduce) {
-      .sb-key:hover, .sb-sub:hover, .sb-key:active { transform: none; }
+      .sb-key:active { transform: none; }
       .sb-rail { transition: none; }
       .sb-submenu { animation: none; }
     }
   `}</style>
 )
 
+// Open sub-menus. Expanded: an indented list hanging off a thin guide line under its
+// section. Collapsed rail: the old compact strip, so sub-pages stay reachable.
+const SUBMENU_OPEN: React.CSSProperties = { margin: '2px 10px 6px 32px', paddingLeft: 8, borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 1 }
+const SUBMENU_RAIL: React.CSSProperties = { width: '100%', background: 'var(--surface2)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '4px 0' }
+
 // ── Collapse / expand ───────────────────────────────────────────────────────
 // The app's layout math hangs off the --sidebar CSS var (src/index.css,
 // default 68px). We drive it from here: collapsed keeps the 68px icon rail,
-// expanded widens to 200px with full label rows. State lives per browser.
+// expanded widens to 236px with full label rows. State lives per browser.
 const SIDEBAR_LS_KEY = 'malkia-sidebar-expanded'
 const SIDEBAR_W_COLLAPSED = '68px'
-const SIDEBAR_W_EXPANDED = '200px'
+const SIDEBAR_W_EXPANDED = '236px'
 
 const VOUCHER_PAGES: Page[] = [
   'day-close',
@@ -171,8 +174,8 @@ const CIRCLE_SUB: { label: string; page: Page; icon: string }[] = [
 interface SidebarProps { current: Page; onNav: (p: Page) => void; stockMode?: boolean }
 
 const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
-  const c = active ? 'var(--accent)' : 'var(--text3)'
-  const p = { width: 20, height: 20, fill: 'none', stroke: c, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
+  const c = active ? 'var(--accent)' : 'var(--text2)'
+  const p = { width: 22, height: 22, fill: 'none', stroke: c, strokeWidth: active ? 2.2 : 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, viewBox: '0 0 24 24' }
   const icons: Record<string, React.ReactNode> = {
     home:      <svg {...p}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
     vouchers:  <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
@@ -436,7 +439,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         style={{
           display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
           justifyContent: expanded ? 'flex-start' : 'center',
-          padding: expanded ? '6px 12px' : '6px 0', margin: '0 0 6px',
+          padding: expanded ? '8px 22px' : '8px 0', margin: '0 0 6px',
           color: 'var(--text3)',
           position: 'sticky', top: -10, zIndex: 2, background: 'var(--surface)',
           alignSelf: 'stretch',
@@ -445,12 +448,12 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
           <path d="M13 17l5-5-5-5 M6 17l5-5-5-5" />
         </svg>
-        {expanded && <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>Collapse</span>}
+        {expanded && <span style={{ fontSize: 12.5, fontWeight: 500 }}>Collapse</span>}
       </div>
 
       {filteredNav.map((item, i) => {
         if ('sep' in item && item.sep) return (
-          <div key={i} style={{ width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
+          <div key={i} style={expanded ? { height: 10 } : { width: 36, height: 1, background: 'var(--border)', margin: '6px 0' }} />
         )
 
         // Narrow type: after sep guard, item must be a nav item
@@ -498,7 +501,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isAccountsItem = navItem.page === 'chart-of-accounts'
 
         return (
-          <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: expanded ? 'stretch' : 'center' }}>
             <div
               onClick={() => {
                 if (navItem.coming || !navItem.page) return
@@ -564,54 +567,45 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                 }
               }}
               className="sb-key"
+              title={expanded ? undefined : navItem.label}
               style={expanded ? {
-                display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10,
-                height: 38, padding: '0 12px', borderRadius: 8,
-                borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14,
+                height: 44, padding: '0 12px', borderRadius: 10,
                 background: active ? 'var(--accent-dim)' : 'transparent',
-                opacity: navItem.coming ? 0.4 : 1,
-                margin: '1px 6px',
+                opacity: navItem.coming ? 0.45 : 1,
+                margin: '1px 10px',
                 position: 'relative', cursor: navItem.coming ? 'default' : 'pointer'
               } : {
-                width: 52, height: 52, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: 3,
-                borderRadius: 10,
-                borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                width: 46, height: 46, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                borderRadius: 12,
                 background: active ? 'var(--accent-dim)' : 'transparent',
-                opacity: navItem.coming ? 0.4 : 1,
-                margin: '1px 0',
+                opacity: navItem.coming ? 0.45 : 1,
+                margin: '2px 0',
                 position: 'relative', cursor: navItem.coming ? 'default' : 'pointer'
               }}>
               <span style={{ fontSize: 18, display: 'flex', flexShrink: 0 }}><SideIcon name={navItem.icon || 'home'} active={active} /></span>
-              {/* Typography ported from the Tarakimu rail: the expanded
-                  labels wear the same voice as the collapsed ones — small,
-                  uppercase, letterspaced, text3 at rest — instead of the
-                  larger title-case rows. Big bold labels compete with the
-                  page; a quiet index does not. Active still reads accent. */}
-              <span className="sb-label" style={expanded ? {
-                fontSize: 10.5, fontWeight: 600,
-                color: active ? 'var(--accent)' : 'var(--text3)',
-                textTransform: 'uppercase', letterSpacing: '.6px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden', textOverflow: 'ellipsis',
-              } : {
-                fontSize: 8, fontWeight: 600,
-                color: active ? 'var(--accent)' : 'var(--text3)',
-                textTransform: 'uppercase', letterSpacing: '.4px'
-              }}>{navItem.label}</span>
+              {/* Readable rows: normal case at a comfortable size. Only the current
+                  page is bold. When the rail is collapsed the label is the
+                  tooltip (the row's title), so the rail is icons only. */}
+              {expanded && <span className="sb-label" style={{
+                fontSize: 14, fontWeight: active ? 700 : 500,
+                color: active ? 'var(--text)' : 'var(--text2)',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0,
+              }}>{navItem.label}</span>}
 
               {Boolean(isExpenseItem || isSalesItem || isVouchersItem || isInventoryItem || isAccountsItem || isCrmItem || isCircleItem || isSettingsItem || isHrmItem) && (
                 <span style={{ 
-                  position:'absolute', right:4, top:'50%', 
+                  position:'absolute', right: expanded ? 12 : 3, top:'50%', 
                   transform:`translateY(-50%) rotate(${(isExpenseItem && expensesOpen) || (isSalesItem && salesOpen) || (isVouchersItem && vouchersOpen) || (isInventoryItem && inventoryOpen) || (isAccountsItem && accountsOpen) || (isCrmItem && crmOpen) || (isCircleItem && circleOpen) || (isSettingsItem && settingsOpen) || (isHrmItem && hrmOpen) ? 90 : 0}deg)`, 
-                  transition:'transform .2s', color:'var(--text3)', fontSize:8 
+                  transition:'transform .2s', color:'var(--text3)', fontSize: expanded ? 15 : 9, lineHeight: 1 
                 }}>›</span>
               )}
 
               {Boolean(isCrmItem) && waWaiting > 0 && (
                 <span className="wa-side-dot" title={`WhatsApp: ${waWaiting} wanasubiri jibu`} style={{
                   // expanded: sits inline after the label; collapsed: pinned to the icon's corner
-                  position: expanded ? 'static' : 'absolute', top: 3, right: 6, marginLeft: expanded ? 2 : 0, flexShrink: 0,
+                  position: expanded ? 'static' : 'absolute', top: 3, right: 6, marginLeft: expanded ? 2 : 0, marginRight: expanded ? 20 : 0, flexShrink: 0,
                   minWidth: 16, height: 16, padding: '0 4px', boxSizing: 'border-box',
                   borderRadius: 999, background: '#D92D20', color: '#fff', fontSize: 9.5, fontWeight: 800,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -629,30 +623,31 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
               {navItem.coming && (
                 <span style={{
-                  position: 'absolute', top: 4, right: 2, background: 'var(--surface3)',
-                  border: '1px solid var(--border)', borderRadius: 3, fontSize: 6,
-                  fontFamily: 'var(--mono)', color: 'var(--text3)', padding: '1px 3px'
-                }}>SOON</span>
+                  position: 'absolute', top: expanded ? '50%' : 2, right: expanded ? 12 : 0, transform: expanded ? 'translateY(-50%)' : 'none', background: 'var(--surface3)',
+                  border: '1px solid var(--border)', borderRadius: expanded ? 20 : 3, fontSize: expanded ? 10 : 6,
+                  fontWeight: 600, color: 'var(--text3)', padding: expanded ? '2px 8px' : '1px 3px'
+                }}>{expanded ? 'Soon' : 'SOON'}</span>
               )}
             </div>
 
             {/* Inventory sub-menu */}
             {Boolean(isInventoryItem) && inventoryOpen && visibleInventorySub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleInventorySub.map(sub => {
                   const subActive = current === sub.page
                   const subBadge = sub.page === 'stock-transfer-approvals' ? (incomingCount || 0) : sub.page === 'stock-movements' ? (stockInCount || 0) : 0
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ position:'relative', display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ position:'relative', display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                       {subBadge > 0 && (
                         <span style={{ position:'absolute', top:2, right:8, minWidth:14, height:14, padding:'0 3px', borderRadius:7, background:'var(--accent)', color:'#fff', fontSize:8, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{subBadge}</span>
                       )}
@@ -664,20 +659,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Accounts sub-menu */}
             {Boolean(isAccountsItem) && accountsOpen && visibleAccountsSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleAccountsSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -686,20 +682,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Vouchers sub-menu */}
             {Boolean(isVouchersItem) && vouchersOpen && visibleVouchersSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleVouchersSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -708,7 +705,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Expenses sub-menu */}
             {Boolean(isExpenseItem) && expensesOpen && visibleExpenseSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleExpenseSub.map(sub => {
                   // Tab items (Budget, Recurring) all point at expense-register;
                   // only the plain Register item shows the active highlight to
@@ -717,14 +714,15 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   return (
                     <div key={sub.label} onClick={() => { if (sub.page === 'expense-register') requestExpenseRegisterTab(sub.tab || 'transactions'); onNav(sub.page) }}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -733,7 +731,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Sales sub-menu */}
             {Boolean(isSalesItem) && salesOpen && visibleSalesSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleSalesSub.map(sub => {
                   // Reports and Targets both point at sales-register; only the
                   // plain Reports row shows the active highlight (same rule as
@@ -742,14 +740,15 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
                   return (
                     <div key={sub.label} onClick={() => { if (sub.page === 'sales-register') requestSalesRegisterTab(sub.tab || 'transactions'); onNav(sub.page) }}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -758,20 +757,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* CRM sub-menu */}
             {Boolean(isCrmItem) && crmOpen && visibleCrmSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleCrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ position:'relative', display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ position:'relative', display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                       {sub.page === 'whatsapp-centre' && waWaiting > 0 && (
                         <span className="wa-side-dot" title={`${waWaiting} wanasubiri jibu`} style={{
                           position: expanded ? 'static' : 'absolute', top: 2, right: 6, marginLeft: expanded ? 'auto' : 0,
@@ -787,20 +787,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Circle sub-menu */}
             {Boolean(isCircleItem) && circleOpen && visibleCircleSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleCircleSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -809,20 +810,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* Settings sub-menu */}
             {Boolean(isSettingsItem) && settingsOpen && visibleSettingsSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleSettingsSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
@@ -831,20 +833,21 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
             {/* HRM sub-menu */}
             {Boolean(isHrmItem) && hrmOpen && visibleHrmSub.length > 0 && (
-              <div className="sb-submenu" style={{ width:'100%', background:'var(--surface2)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', padding:'4px 0' }}>
+              <div className="sb-submenu" style={expanded ? SUBMENU_OPEN : SUBMENU_RAIL}>
                 {visibleHrmSub.map(sub => {
                   const subActive = current === sub.page
                   return (
                     <div key={sub.page} onClick={() => onNav(sub.page)}
                       className="sb-sub"
-                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 8 : 0, padding: expanded ? '7px 12px' : '6px 4px', cursor:'pointer',
+                      title={expanded ? undefined : sub.label}
+                      style={{ display:'flex', flexDirection: expanded ? 'row' : 'column', alignItems:'center', gap: expanded ? 10 : 0, padding: expanded ? '8px 10px' : '6px 4px', cursor:'pointer',
+                        borderRadius: expanded ? 8 : 0,
                         background: subActive ? 'var(--accent-dim)' : 'transparent',
-                        borderLeft: `2px solid ${subActive ? 'var(--accent)' : 'transparent'}`,
                       }}>
-                      <svg width="14" height="14" fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                      <svg width="15" height="15" style={{ flexShrink: 0 }} fill="none" stroke={subActive?'var(--accent)':'var(--text3)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                         <path d={sub.icon}/>
                       </svg>
-                      <span style={expanded ? { fontSize:9.5, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase' as const, letterSpacing:'.5px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
+                      <span className="sb-sublabel" style={expanded ? { fontSize:13, fontWeight: subActive ? 700 : 500, color:subActive?'var(--accent)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } : { fontSize:7, fontWeight:600, color:subActive?'var(--accent)':'var(--text3)', textTransform:'uppercase', letterSpacing:'.3px', marginTop:2, textAlign:'center', lineHeight:1.2 }}>{sub.label}</span>
                     </div>
                   )
                 })}
