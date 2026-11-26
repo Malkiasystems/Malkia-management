@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import type { Page } from '../lib/types'
 import { useAuth, canAccessPage } from '../lib/useAuth'
 import { requestExpenseRegisterTab } from '../lib/expenseRegisterTab'
@@ -50,7 +50,7 @@ const SUBMENU_RAIL: React.CSSProperties = { width: '100%', background: 'var(--su
 // The app's layout math hangs off the --sidebar CSS var (src/index.css,
 // default 68px). We drive it from here: collapsed keeps the 68px icon rail,
 // expanded widens to 236px with full label rows. State lives per browser.
-const SIDEBAR_LS_KEY = 'malkia-sidebar-expanded'
+const SIDEBAR_PIN_KEY = 'malkia-sidebar-pinned'
 const SIDEBAR_W_COLLAPSED = '68px'
 const SIDEBAR_W_EXPANDED = '236px'
 
@@ -205,16 +205,30 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   // Expanded is the default. Only an explicit collapse by this user, on this
   // browser, keeps the narrow rail: a missing key means "never chose", which
   // should land on the wider, more legible rail rather than the icon strip.
-  const [expanded, setExpanded] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem(SIDEBAR_LS_KEY)
-      return v === null ? true : v === '1'
-    } catch { return true }
+  // The rail rests as icons only. Bringing the cursor onto it shows the words; taking
+  // the cursor away hides them again a moment later, as on Instagram. While it is open
+  // this way it floats over the page, so the page behind does not jump about.
+  // "Keep open" pins it: then it stays wide and the page makes room for it.
+  const [pinned, setPinned] = useState<boolean>(() => {
+    try { return localStorage.getItem(SIDEBAR_PIN_KEY) === '1' } catch { return false }
   })
+  const [hover, setHover] = useState(false)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const expanded = pinned || hover
+  const floating = hover && !pinned
   useEffect(() => {
-    document.documentElement.style.setProperty('--sidebar', expanded ? SIDEBAR_W_EXPANDED : SIDEBAR_W_COLLAPSED)
-    try { localStorage.setItem(SIDEBAR_LS_KEY, expanded ? '1' : '0') } catch { /* private mode */ }
-  }, [expanded])
+    document.documentElement.style.setProperty('--sidebar', pinned ? SIDEBAR_W_EXPANDED : SIDEBAR_W_COLLAPSED)
+    try { localStorage.setItem(SIDEBAR_PIN_KEY, pinned ? '1' : '0') } catch { /* private mode */ }
+  }, [pinned])
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current) }, [])
+  // A short wait both ways, so brushing past the rail does not make it flap.
+  const onRailEnter = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(true), 90) }
+  const onRailLeave = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(false), 260) }
+  const togglePin = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    // Unpinning folds it away at once, even though the cursor is still on it.
+    if (pinned) { setPinned(false); setHover(false) } else setPinned(true)
+  }
 
   const [salesOpen, setSalesOpen] = useState(false)
   const [expensesOpen, setExpensesOpen] = useState(false)
@@ -421,12 +435,15 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleAccountsSub = ACCOUNTS_SUB.filter(sub => canAccess(sub.page))
 
   return (
+    <div onMouseEnter={onRailEnter} onMouseLeave={onRailLeave}
+      style={{ width: 'var(--sidebar)', flexShrink: 0, position: 'relative', zIndex: 60 }}>
     <div className={expanded ? 'sb-rail sb-rail-x' : 'sb-rail'} style={{
-      width: 'var(--sidebar)', background: 'var(--surface)',
+      position: 'absolute', top: 0, left: 0, bottom: 0,
+      width: expanded ? SIDEBAR_W_EXPANDED : SIDEBAR_W_COLLAPSED, background: 'var(--surface)',
       borderRight: '1px solid var(--border)', display: 'flex',
       flexDirection: 'column', alignItems: expanded ? 'stretch' : 'center',
-      padding: '10px 0', flexShrink: 0, overflowY: 'auto', scrollbarWidth: 'none',
-      position: 'relative'
+      padding: '10px 0', overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'none',
+      boxShadow: floating ? '14px 0 36px rgba(0,0,0,.28)' : 'none',
     }}>
       {SB_CSS}
       <style>{'@keyframes waSideRing{0%{box-shadow:0 0 0 0 rgba(217,45,32,.6)}70%{box-shadow:0 0 0 7px rgba(217,45,32,0)}100%{box-shadow:0 0 0 0 rgba(217,45,32,0)}}.wa-side-dot{animation:waSideRing 1.3s ease-out infinite}@media (prefers-reduced-motion:reduce){.wa-side-dot{animation:none}}'}</style>
@@ -434,8 +451,8 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
       {/* Rail head: the collapse toggle, pinned above the nav so its position
           never moves as sections open and close. */}
       <div
-        onClick={() => setExpanded(v => !v)}
-        title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        onClick={togglePin}
+        title={pinned ? 'Collapse the sidebar to icons. It will open when you point at it.' : 'Keep the sidebar open'}
         style={{
           display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
           justifyContent: expanded ? 'flex-start' : 'center',
@@ -445,10 +462,10 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           alignSelf: 'stretch',
         }}>
         <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"
-          style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
+          style={{ transform: pinned ? 'rotate(180deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>
           <path d="M13 17l5-5-5-5 M6 17l5-5-5-5" />
         </svg>
-        {expanded && <span style={{ fontSize: 12.5, fontWeight: 500 }}>Collapse</span>}
+        {expanded && <span style={{ fontSize: 12.5, fontWeight: 500, whiteSpace: 'nowrap' }}>{pinned ? 'Collapse' : 'Keep open'}</span>}
       </div>
 
       {filteredNav.map((item, i) => {
@@ -864,6 +881,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           {company.shortName}
         </div>
       </div>
+    </div>
     </div>
   )
 }
