@@ -222,8 +222,10 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   }, [pinned])
   useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current) }, [])
   // A short wait both ways, so brushing past the rail does not make it flap.
-  const onRailEnter = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(true), 90) }
-  const onRailLeave = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(false), 260) }
+  // Only a real cursor opens it. A finger has no hover: on a touch screen a tap just
+  // opens the page, and the top button opens or closes the words.
+  const onRailEnter = (e: React.PointerEvent) => { if (e.pointerType !== 'mouse') return; if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(true), 90) }
+  const onRailLeave = (e: React.PointerEvent) => { if (e.pointerType !== 'mouse') return; if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(false), 260) }
   const togglePin = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current)
     // Unpinning folds it away at once, even though the cursor is still on it.
@@ -435,7 +437,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
   const visibleAccountsSub = ACCOUNTS_SUB.filter(sub => canAccess(sub.page))
 
   return (
-    <div onMouseEnter={onRailEnter} onMouseLeave={onRailLeave}
+    <div onPointerEnter={onRailEnter} onPointerLeave={onRailLeave}
       style={{ width: 'var(--sidebar)', flexShrink: 0, position: 'relative', zIndex: 60 }}>
     <div className={expanded ? 'sb-rail sb-rail-x' : 'sb-rail'} style={{
       position: 'absolute', top: 0, left: 0, bottom: 0,
