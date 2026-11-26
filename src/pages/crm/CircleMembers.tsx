@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../../lib/supabase'
+import { printHtmlDocument } from '../../lib/printDocument'
 
 // Small line icons, drawn here because MalkiaOS carries no icon library.
 const PATHS: Record<string, string> = {
@@ -175,21 +176,82 @@ export default function CircleMembers() {
     setBusy('')
   }
 
-  const exportRows = async () => {
+  // Export what the list shows (or only the ticked rows) as PDF, CSV or Excel.
+  // The export is written down first; the file is only made once that succeeded.
+  const exportRows = async (format: 'pdf' | 'csv' | 'xlsx') => {
     const list = pickedShown.length ? rows.filter(r => picked.has(r.user_id)) : rows
     if (!list.length) return
-    if (!window.confirm(`Export ${list.length} member${list.length === 1 ? '' : 's'} to Excel?\n\nThe file holds names and WhatsApp numbers. This export is recorded with your name.`)) return
+    const label = format === 'pdf' ? 'PDF' : format === 'csv' ? 'CSV' : 'Excel'
+    if (!window.confirm(`Export ${list.length} member${list.length === 1 ? '' : 's'} as ${label}?\n\nThe file holds names and WhatsApp numbers. This export is recorded with your name.`)) return
     setBusy('export')
-    const filters = { kind, stage, group: group === 'all' ? null : groupName(group), activity, terms, bought: buy, from: from || null, to: to || null, search: q.trim() || null, ticked_only: pickedShown.length > 0 }
+    const filters = { format, kind, stage, group: group === 'all' ? null : groupName(group), activity, terms, bought: buy, from: from || null, to: to || null, search: q.trim() || null, ticked_only: pickedShown.length > 0 }
     const { error } = await supabase.rpc('circle_members_export_log', { p_rows: list.length, p_filters: filters })
     if (error) { say('', `Nothing was exported: ${error.message}`); setBusy(''); return }
-    const aoa: (string | number)[][] = [['Member no', 'Name', 'WhatsApp', 'Stage', 'Week or baby age', 'Joined', 'Questions', 'Answers', 'Last active', 'Orders', 'Total bought (TZS)', 'Last purchase', 'Founder no', 'Terms accepted', 'Terms version', 'Number proved', 'Weekly lessons', 'Groups']]
-    list.forEach(m => aoa.push([m.member_no, m.name, m.whatsapp, STAGE_LABEL[m.stage] || m.stage, detail(m), day(m.created_at), m.questions, m.answers, day(m.last_active), bought[m.user_id]?.orders || 0, Math.round(Number(bought[m.user_id]?.total || 0)), day(bought[m.user_id]?.last_at), m.founder_no || '', day(m.terms_accepted_at), m.terms_version || '', m.whatsapp_verified_at ? 'Yes' : 'No', m.weekly_wa ? 'Yes' : 'No', m.groups.map(groupName).filter(Boolean).join(', ')]))
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = [10, 26, 16, 18, 18, 14, 10, 10, 14, 8, 16, 14, 10, 14, 12, 12, 12, 30].map(wch => ({ wch }))
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Circle members')
-    XLSX.writeFile(wb, `Malkia-Circle-members-${new Date().toISOString().slice(0, 10)}.xlsx`)
-    say(`Exported ${list.length} member${list.length === 1 ? '' : 's'}. The export was recorded.`)
+    const head = ['Member no', 'Name', 'WhatsApp', 'Stage', 'Week or baby age', 'Joined', 'Questions', 'Answers', 'Last active', 'Orders', 'Total bought (TZS)', 'Last purchase', 'Founder no', 'Terms accepted', 'Terms version', 'Number proved', 'Weekly lessons', 'Groups']
+    const body: (string | number)[][] = list.map(m => [m.member_no, m.name, m.whatsapp, STAGE_LABEL[m.stage] || m.stage, detail(m), day(m.created_at), m.questions, m.answers, day(m.last_active), bought[m.user_id]?.orders || 0, Math.round(Number(bought[m.user_id]?.total || 0)), day(bought[m.user_id]?.last_at), m.founder_no || '', day(m.terms_accepted_at), m.terms_version || '', m.whatsapp_verified_at ? 'Yes' : 'No', m.weekly_wa ? 'Yes' : 'No', m.groups.map(groupName).filter(Boolean).join(', ')])
+    const stamp = new Date().toISOString().slice(0, 10)
+    const fileBase = `Malkia-Circle-members-${stamp}`
+    try {
+      if (format === 'xlsx' || format === 'csv') {
+        const ws = XLSX.utils.aoa_to_sheet([head, ...body])
+        if (format === 'xlsx') {
+          ws['!cols'] = [10, 26, 16, 18, 18, 14, 10, 10, 14, 8, 16, 14, 10, 14, 12, 12, 12, 30].map(wch => ({ wch }))
+          const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Circle members')
+          XLSX.writeFile(wb, `${fileBase}.xlsx`)
+        } else {
+          // The leading mark makes Excel read names with accents correctly.
+          const blob = new Blob(['\uFEFF' + XLSX.utils.sheet_to_csv(ws)], { type: 'text/csv;charset=utf-8' })
+          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${fileBase}.csv`
+          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+        }
+      } else {
+        const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const said: string[] = [kind === 'mother' ? 'Mothers' : kind === 'expert' ? 'Experts' : 'Test accounts']
+        if (stage !== 'all') said.push(STAGE_LABEL[stage])
+        if (group !== 'all') said.push(`Group: ${groupName(group)}`)
+        if (activity !== 'all') said.push(activity === 'active' ? 'Has asked or answered' : 'Never posted')
+        if (buy !== 'all') said.push(buy === 'yes' ? 'Has bought from Malkia' : 'Never bought')
+        if (terms !== 'all') said.push(terms === 'yes' ? 'Accepted the terms' : 'No terms record')
+        if (from || to) said.push(`Joined ${from ? 'from ' + day(from) : ''}${to ? ' to ' + day(to) : ''}`.trim())
+        if (q.trim()) said.push(`Search: ${q.trim()}`)
+        if (pickedShown.length) said.push('Ticked rows only')
+        const trs = list.map(m => `<tr>
+          <td class="num">${m.member_no}</td><td><b>${esc(m.name)}</b>${m.founder_no ? ` <span class="tag">Founder #${m.founder_no}</span>` : ''}</td>
+          <td class="mono">${esc(local(m.whatsapp))}</td><td>${esc(STAGE_LABEL[m.stage] || m.stage)}${detail(m) ? `<div class="sub">${esc(detail(m))}</div>` : ''}</td>
+          <td>${esc(day(m.created_at))}</td><td class="num">${m.questions || ''}</td><td class="num">${m.answers || ''}</td>
+          <td>${esc(m.last_active ? day(m.last_active) : 'Never posted')}</td>
+          <td class="num">${bought[m.user_id]?.orders > 0 ? `${esc(tzs(Number(bought[m.user_id].total)))}<div class="sub">${bought[m.user_id].orders} order${bought[m.user_id].orders === 1 ? '' : 's'}, last ${esc(day(bought[m.user_id].last_at))}</div>` : ''}</td>
+          <td>${esc(m.groups.map(groupName).filter(Boolean).join(', '))}</td></tr>`).join('')
+        const res = printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileBase}</title>
+          <style>
+            @page{size:A4 landscape;margin:12mm}
+            *{box-sizing:border-box;margin:0;padding:0}
+            body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;padding:8px}
+            .brand{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #5EA8A2;padding-bottom:10px;margin-bottom:12px}
+            .brand h1{font-size:20px;color:#5E2230}
+            .brand .co{font-size:12px;color:#5EA8A2;font-weight:700;letter-spacing:.5px;text-align:right}
+            .meta{font-size:10.5px;color:#555;margin-bottom:12px;line-height:1.5}
+            table{width:100%;border-collapse:collapse;font-size:10px}
+            th{background:#5EA8A2;color:#fff;text-align:left;padding:6px 7px;font-size:8.5px;text-transform:uppercase;letter-spacing:.3px}
+            td{padding:5px 7px;border-bottom:1px solid #eee;vertical-align:top}
+            tr:nth-child(even) td{background:#f7faf9}
+            tr{break-inside:avoid}
+            .num{text-align:right;font-variant-numeric:tabular-nums}
+            th.num{text-align:right}
+            .mono{font-variant-numeric:tabular-nums;white-space:nowrap}
+            .sub{font-size:8.5px;color:#666;margin-top:1px}
+            .tag{font-size:8px;font-weight:700;background:#FFF4D2;color:#6B4E00;padding:1px 5px;border-radius:8px;white-space:nowrap}
+            .foot{margin-top:14px;font-size:9px;color:#777;display:flex;justify-content:space-between;border-top:1px solid #ddd;padding-top:8px}
+          </style></head><body>
+          <div class="brand"><h1>Malkia Circle members</h1><div class="co">MALKIA WELLNESS GROUP LTD<br>Your partner in motherhood</div></div>
+          <div class="meta"><b>${list.length}</b> member${list.length === 1 ? '' : 's'} &middot; ${esc(said.join(' &middot; ')).replace(/&amp;middot;/g, '&middot;')}<br>Printed ${esc(new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</div>
+          <table><thead><tr><th class="num">No</th><th>Name</th><th>WhatsApp</th><th>Stage</th><th>Joined</th><th class="num">Asked</th><th class="num">Answered</th><th>Last active</th><th class="num">Bought</th><th>Groups</th></tr></thead><tbody>${trs}</tbody></table>
+          <div class="foot"><span>Confidential. Holds mothers' names and WhatsApp numbers. Do not share outside Malkia.</span><span>www.malkia.co.tz &middot; @malkia_tz</span></div>
+          </body></html>`)
+        if (!res.ok) { say('', `The export was recorded, but the PDF could not open: ${res.error || 'the browser blocked printing'}. Allow pop-ups for MalkiaOS and try again.`); setBusy(''); return }
+      }
+      say(format === 'pdf' ? `The print window opened for ${list.length} member${list.length === 1 ? '' : 's'}. Choose "Save as PDF" as the printer. The export was recorded.` : `Exported ${list.length} member${list.length === 1 ? '' : 's'} as ${label}. The export was recorded.`)
+    } catch (e: any) { say('', `The export was recorded, but the file could not be made: ${e?.message || e}`) }
     setBusy('')
   }
 
@@ -246,7 +308,14 @@ export default function CircleMembers() {
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', margin: 0 }}>Circle Members</h1>
           <div style={{ ...muted, marginTop: 4 }}>Everyone who has joined Malkia Circle. This page only reads; nothing here changes a mother's record.</div>
         </div>
-        {canExport && <button style={primary} onClick={exportRows} disabled={!!busy || !rows.length}><Icon name="download" size={15} />{busy === 'export' ? 'Exporting...' : pickedShown.length ? `Export ${pickedShown.length} ticked` : `Export ${rows.length} to Excel`}</button>}
+        {canExport && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={muted}><Icon name="download" size={13} style={{ verticalAlign: -2, marginRight: 4 }} />{busy === 'export' ? 'Exporting...' : pickedShown.length ? `Export ${pickedShown.length} ticked as` : `Export ${rows.length} as`}</span>
+            <button style={primary} onClick={() => exportRows('pdf')} disabled={!!busy || !rows.length}>PDF</button>
+            <button style={btn} onClick={() => exportRows('csv')} disabled={!!busy || !rows.length}>CSV</button>
+            <button style={btn} onClick={() => exportRows('xlsx')} disabled={!!busy || !rows.length}>Excel</button>
+          </div>
+        )}
       </div>
 
       {notice && <div style={{ ...card, borderColor: '#A9D9B4', background: '#EAF8EE', color: '#1E6B34', fontSize: 13 }}>{notice}</div>}
