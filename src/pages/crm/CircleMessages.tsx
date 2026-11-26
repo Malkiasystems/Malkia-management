@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
+import { CirclePage } from './circleUi'
 
 const FN = 'https://ebokhvibnypiomzqimfg.supabase.co/functions/v1/'
 async function call(fn: string, payload: Record<string, unknown>) {
@@ -175,9 +176,7 @@ export default function CircleMessages() {
   )
 
   return (
-    <div style={{ padding: 20, maxWidth: 1040, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', margin: 0 }}>Circle Messages</h1>
-      <p style={{ ...muted, margin: '4px 0 14px', maxWidth: 720 }}>What Malkia Circle sends on WhatsApp: alerts about questions, and the week-by-week pregnancy lessons. A test goes only to the number you type here.</p>
+    <CirclePage title="Messages" sub="What Malkia Circle sends on WhatsApp: alerts about questions, and the week-by-week pregnancy lessons. A test goes only to the number you type here.">
 
       <div style={{ ...card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <b style={{ fontSize: 13, color: 'var(--text)' }}>Number for test messages</b>
@@ -346,6 +345,6 @@ export default function CircleMessages() {
           </div>
         </div>
       </>)}
-    </div>
+    </CirclePage>
   )
 }

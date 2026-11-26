@@ -40,6 +40,7 @@ export type Page =
   | 'wa-templates'
   | 'circle-messages'
   | 'circle-members'
+  | 'circle-home'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles

@@ -405,6 +405,9 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   // numbers are not opened to everyone who can run Circle Messages. The database checks
   // the same permission (site_049). Super admins pass via the 40+ bypass.
   'circle-members': ['crm.circle.members'],
+  // The Circle overview holds counts and question titles only (no phone numbers), so
+  // anyone who works on Circle or CRM may open it. The database allows any active staff.
+  'circle-home': ['crm.konnect', 'crm.circle.members', 'crm.view'],
   'crm-automations': ['crm.automations'],
   'crm-preorders': ['crm.view'],
   // The waiting list is captured at the counter by whoever meets the customer,

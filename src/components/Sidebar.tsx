@@ -68,7 +68,7 @@ const IMPORT_PAGES: Page[] = ['import-register', 'import-order']
 
 const CRM_PAGES: Page[] = ['crm', 'crm-hub', 'crm-inbox', 'crm-automations', 'crm-preorders', 'crm-waiting-list', 'crm-referrals', 'crm-loyalty', 'crm-wholesale-crown', 'crm-feedback', 'crm-upsell', 'crm-customers', 'whatsapp-centre', 'wa-templates']
 // Malkia Circle has its own group: who joined, what we send them, and what they posted.
-const CIRCLE_PAGES: Page[] = ['circle-members', 'circle-messages', 'circle-moderation']
+const CIRCLE_PAGES: Page[] = ['circle-home', 'circle-members', 'circle-messages', 'circle-moderation']
 
 const SETTINGS_PAGES: Page[] = ['settings', 'users', 'approvals', 'audit-trail', 'accounting-settings', 'whatsapp-settings', 'location-settings', 'inventory-settings', 'receipt-template', 'invoice-template', 'report-templates', 'company-finance-settings', 'users-access-settings', 'sales-inventory-settings', 'templates-hub', 'integrations-settings', 'regional-backup-settings', 'display-settings']
 
@@ -162,6 +162,7 @@ const CRM_SUB: { label: string; page: Page; icon: string }[] = [
   { label: 'Upsell',      page: 'crm-upsell',      icon: 'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6' },
 ]
 const CIRCLE_SUB: { label: string; page: Page; icon: string }[] = [
+  { label: 'Overview', page: 'circle-home',       icon: 'M3 3v18h18 M7 15l4-4 3 3 5-6' },
   { label: 'Members',  page: 'circle-members',    icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
   { label: 'Messages', page: 'circle-messages',   icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
   { label: 'Maoni',    page: 'circle-moderation', icon: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM8 12l3 3 5-6' },
@@ -185,7 +186,8 @@ const SideIcon = ({ name, active }: { name: string; active: boolean }) => {
     inventory: <svg {...p}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
     reports:   <svg {...p}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
     services:  <svg {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.1 1.24h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.64a16 16 0 0 0 6.29 6.29l1.46-1.46a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
-    konnect:   <svg {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
+    // The Malkia Circle mark: a ring of dots.
+    konnect:   <svg {...p}><circle cx="12.00" cy="3.50" r="1.9" fill="currentColor" stroke="none"/><circle cx="17.00" cy="5.12" r="1.4" fill="currentColor" stroke="none"/><circle cx="20.08" cy="9.37" r="1.4" fill="currentColor" stroke="none"/><circle cx="20.08" cy="14.63" r="1.9" fill="currentColor" stroke="none"/><circle cx="17.00" cy="18.88" r="1.4" fill="currentColor" stroke="none"/><circle cx="12.00" cy="20.50" r="1.4" fill="currentColor" stroke="none"/><circle cx="7.00" cy="18.88" r="1.9" fill="currentColor" stroke="none"/><circle cx="3.92" cy="14.63" r="1.4" fill="currentColor" stroke="none"/><circle cx="3.92" cy="9.37" r="1.4" fill="currentColor" stroke="none"/><circle cx="7.00" cy="5.12" r="1.9" fill="currentColor" stroke="none"/></svg>,
     crm:       <svg {...p}><circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/></svg>,
     hrm:       <svg {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
     import:    <svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
@@ -375,7 +377,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     // Investors only for companies that show them
     ...(company.showInvestors ? [{ icon: 'investors', label: 'Investors', page: 'investors-hub' as Page }] : []),
     { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
-    { icon: 'konnect',   label: 'Circle',    page: 'circle-members' as Page, hasSub: true },
+    { icon: 'konnect',   label: 'Circle',    page: 'circle-home' as Page, hasSub: true },
     { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
     { icon: 'hrm',       label: 'HRM',       page: 'hrm' as Page,       hasSub: true },
     { sep: true },
@@ -457,7 +459,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
 
         // Skip items user can't access (except coming soon items)
         // The Circle group shows when the user may open any page inside it.
-        if (navItem.page === 'circle-members' && navItem.hasSub && visibleCircleSub.length === 0) return null
+        if (navItem.page === 'circle-home' && navItem.hasSub && visibleCircleSub.length === 0) return null
         if (!navItem.coming && navItem.page && !canAccess(navItem.page as Page)) {
           // For parent items (Sales, CRM, Settings), check if any sub-items are accessible
           if (navItem.page === 'sales' && visibleSalesSub.length === 0) return null
@@ -467,7 +469,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           if (navItem.page === 'inventory' && visibleInventorySub.length === 0) return null
           // For non-parent items, just skip
           if (navItem.page === 'expense-register' && visibleExpenseSub.length === 0) return null
-          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'expense-register', 'circle-members'].includes(navItem.page as string)) return null
+          if (!['sales', 'crm-hub', 'settings', 'hrm', 'vouchers', 'inventory', 'expense-register', 'circle-home'].includes(navItem.page as string)) return null
         }
 
         const isVoucherActive = VOUCHER_PAGES.includes(current)
@@ -480,7 +482,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
           (navItem.page === 'expense-register' && isExpenseActive) ||
           (navItem.page === 'import-register' && isImportActive) ||
           (navItem.page === 'crm-hub' && isCrmActive) ||
-          (navItem.page === 'circle-members' && isCircleActive) ||
+          (navItem.page === 'circle-home' && isCircleActive) ||
           (navItem.page === 'settings' && isSettingsActive) ||
           (navItem.page === 'hrm' && isHrmActive) ||
           (navItem.page === 'chart-of-accounts' && isAccountsActive)
@@ -488,7 +490,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
         const isSalesItem = navItem.page === 'sales'
         const isExpenseItem = navItem.page === 'expense-register'
         const isCrmItem = navItem.page === 'crm-hub'
-        const isCircleItem = navItem.page === 'circle-members' && Boolean(navItem.hasSub)
+        const isCircleItem = navItem.page === 'circle-home' && Boolean(navItem.hasSub)
         const isSettingsItem = navItem.page === 'settings'
         const isHrmItem = navItem.page === 'hrm'
         const isVouchersItem = navItem.page === 'vouchers'

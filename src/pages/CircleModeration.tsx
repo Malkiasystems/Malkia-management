@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { CirclePage } from './crm/circleUi'
 
 /* Circle review moderation.
    Reviews from www.malkia.co.tz/circle land as status='pending' and are
@@ -21,26 +22,26 @@ interface Counts { live: number; reported: number; held: number; removed: number
 
 const fmtAgo = (iso: string) => {
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
-  if (m < 1) return 'sasa hivi'
-  if (m < 60) return `dk ${m} zilizopita`
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min ago`
   const h = Math.floor(m / 60)
-  if (h < 24) return `saa ${h} zilizopita`
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`
   const d = Math.floor(h / 24)
-  if (d < 30) return `siku ${d} zilizopita`
-  return new Date(iso).toLocaleDateString('sw-TZ', { day: 'numeric', month: 'short', year: 'numeric' })
+  if (d < 30) return `${d} day${d === 1 ? '' : 's'} ago`
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 const Stars = ({ n }: { n: number }) => (
-  <span style={{ color: '#B8933E', fontSize: 15, letterSpacing: 1 }} aria-label={`Nyota ${n} kati ya 5`}>
+  <span style={{ color: '#B8933E', fontSize: 15, letterSpacing: 1 }} aria-label={`${n} of 5 stars`}>
     {'\u2605'.repeat(n)}<span style={{ color: 'var(--border)' }}>{'\u2605'.repeat(5 - n)}</span>
   </span>
 )
 
 const TABS: { v: Filter; label: string }[] = [
-  { v: 'reported', label: 'Zilizoripotiwa' },
-  { v: 'held', label: 'Zimezuiliwa' },
-  { v: 'live', label: 'Hewani' },
-  { v: 'removed', label: 'Zimeondolewa' },
+  { v: 'reported', label: 'Reported' },
+  { v: 'held', label: 'Held back' },
+  { v: 'live', label: 'Live' },
+  { v: 'removed', label: 'Removed' },
 ]
 
 export default function CircleModeration() {
@@ -79,13 +80,7 @@ export default function CircleModeration() {
   })
 
   return (
-    <div style={{ padding: 20, maxWidth: 900, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Circle: Maoni ya Hospitali</h1>
-      <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
-        Maoni yanaonekana hewani papo hapo yanapotumwa. Hapa ni doria:
-        yaliyoripotiwa na akina mama, yaliyozuiliwa na kichujio (matusi, namba za
-        simu), na historia. Kila uamuzi unarekodiwa kwa jina lako.
-      </p>
+    <CirclePage title="Maoni (hospital reviews)" sub="A mother's review of a hospital goes live the moment she sends it. This page is the patrol: reviews mothers have reported, reviews the filter held back (insults, phone numbers), and the history. Every decision is recorded with your name.">
 
       <div style={{ display: 'flex', gap: 6, margin: '14px 0' }}>
         {TABS.map(t => (
@@ -97,7 +92,7 @@ export default function CircleModeration() {
             {t.label} <b style={{ opacity: .7 }}>{counts[t.v]}</b>
           </button>
         ))}
-        <button onClick={() => load(tab)} title="Pakia upya"
+        <button onClick={() => load(tab)} title="Refresh"
           style={{ marginLeft: 'auto', padding: '7px 12px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
             border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text2)' }}>
           &#8635;
@@ -110,10 +105,10 @@ export default function CircleModeration() {
         </div>
       )}
 
-      {loading && <div style={{ color: 'var(--text3)', fontSize: 13, padding: 20 }}>Inapakia...</div>}
+      {loading && <div style={{ color: 'var(--text3)', fontSize: 13, padding: 20 }}>Loading...</div>}
       {!loading && !rows.length && (
         <div style={{ padding: 28, borderRadius: 10, border: '1px dashed var(--border)', color: 'var(--text3)', fontSize: 13, textAlign: 'center' }}>
-          {tab === 'reported' ? 'Hakuna ripoti. Kazi safi.' : tab === 'held' ? 'Hakuna maoni yaliyozuiliwa.' : 'Hakuna kitu hapa bado.'}
+          {tab === 'reported' ? 'No reports. All clear.' : tab === 'held' ? 'No review is being held back.' : 'Nothing here yet.'}
         </div>
       )}
 
@@ -130,7 +125,7 @@ export default function CircleModeration() {
             <Stars n={r.rating} />
             {r.report_count > 0 && (
               <span style={{ fontSize: 11, fontWeight: 800, color: '#8A1F1F', background: '#FDECEC', border: '1px solid #F5B5B5', borderRadius: 999, padding: '2px 8px' }}>
-                Ripoti {r.report_count}
+                {r.report_count} report{r.report_count === 1 ? '' : 's'}
               </span>
             )}
             {r.hold_reason && (
@@ -141,26 +136,26 @@ export default function CircleModeration() {
           </div>
           {r.comment
             ? <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.5, color: 'var(--text2)', whiteSpace: 'pre-wrap' }}>{r.comment}</p>
-            : <p style={{ margin: '0 0 10px', fontSize: 12.5, fontStyle: 'italic', color: 'var(--text3)' }}>Nyota tu, hakuna maneno.</p>}
+            : <p style={{ margin: '0 0 10px', fontSize: 12.5, fontStyle: 'italic', color: 'var(--text3)' }}>Stars only, no words.</p>}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {tab === 'reported' && (
-              <button disabled={busy === r.id} onClick={() => act(r.id, 'approved')} style={btn('#1F7A3D', '#fff')} title="Futa ripoti, maoni yabaki hewani">
-                {busy === r.id ? '...' : 'Ripoti si ya kweli, baki hewani'}
+              <button disabled={busy === r.id} onClick={() => act(r.id, 'approved')} style={btn('#1F7A3D', '#fff')} title="Clear the report and keep the review live">
+                {busy === r.id ? '...' : 'Report is not valid, keep it live'}
               </button>
             )}
             {(tab === 'held' || tab === 'removed') && (
               <button disabled={busy === r.id} onClick={() => act(r.id, 'approved')} style={btn('#1F7A3D', '#fff')}>
-                {busy === r.id ? '...' : 'Rudisha hewani'}
+                {busy === r.id ? '...' : 'Put back live'}
               </button>
             )}
             {tab !== 'removed' && (
               <button disabled={busy === r.id} onClick={() => act(r.id, 'rejected')} style={btn('#A32626', '#fff')}>
-                {busy === r.id ? '...' : 'Ondoa'}
+                {busy === r.id ? '...' : 'Remove'}
               </button>
             )}
             {r.moderator && (
               <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text3)' }}>
-                na {r.moderator}{r.moderated_at ? `, ${fmtAgo(r.moderated_at)}` : ''}
+                by {r.moderator}{r.moderated_at ? `, ${fmtAgo(r.moderated_at)}` : ''}
               </span>
             )}
           </div>
@@ -168,10 +163,11 @@ export default function CircleModeration() {
       ))}
 
       <p style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 18 }}>
-        Kuondoa au kurudisha kunabadilisha nyota za hospitali kwenye tovuti papo hapo.
-        Ondoa maoni yenye majina ya watu binafsi, lugha ya matusi, au madai ya kimatibabu hatari.
-        Maoni yakiripotiwa na akina mama 3 yanajiondoa hewani yenyewe na kusubiri hapa.
+        Removing a review or putting it back changes the hospital's stars on the website at once.
+        Remove reviews that name private individuals, use insults, or make dangerous medical claims.
+        A review reported by 3 mothers comes off the site by itself and waits here.
+        The reviews themselves stay in the words the mother wrote.
       </p>
-    </div>
+    </CirclePage>
   )
 }

@@ -250,7 +250,8 @@ export default function WhatsAppInbox() {
   const inbox = useWaInbox()
   const [theme, setTheme] = useState<ThemeName>(readTheme)
   const t = THEMES[theme]
-  const [q, setQ] = useState('')
+  // Another page (Circle Members) can open the Inbox already searched on one number.
+  const [q, setQ] = useState(() => { try { const v = sessionStorage.getItem('wa-open-q') || ''; sessionStorage.removeItem('wa-open-q'); return v } catch { return '' } })
   const [contacts, setContacts] = useState<Contact[]>([])
   const [sel, setSel] = useState<Contact | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([])
