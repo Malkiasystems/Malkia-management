@@ -50,7 +50,7 @@ export const circleStyles = {
 /* Page frame and heading shared by every Circle page. */
 export function CirclePage({ title, sub, right, children }: { title: string; sub?: ReactNode; right?: ReactNode; children: ReactNode }) {
   return (
-    <div style={{ padding: '20px 24px', maxWidth: CIRCLE_WIDTH, margin: '0 auto' }}>
+    <div style={{ padding: '20px 24px', width: '100%', maxWidth: CIRCLE_WIDTH, margin: '0 auto', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 16 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 4 }}><CircleGlyph size={15} />Malkia Circle</div>

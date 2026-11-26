@@ -362,7 +362,7 @@ export default function CircleMembers({ onNav }: { onNav?: (p: Page) => void }) 
           <span style={{ flex: 1 }} />
           {filtersOn && <button style={btn} onClick={clearFilters}><Icon name="x" size={14} />Clear filters</button>}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1.6fr) repeat(auto-fit, minmax(150px, 1fr))', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: 8, alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
             <Icon name="search" size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text3)' }} />
             <input style={{ ...inp, width: '100%', paddingLeft: 30 }} placeholder="Search by name or number" value={q} onChange={e => setQ(e.target.value)} />
