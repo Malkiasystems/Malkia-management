@@ -43,6 +43,7 @@ const WaBusinessTemplates = lazy(() => import('./pages/crm/WaBusinessTemplates')
 const CircleMessages = lazy(() => import('./pages/crm/CircleMessages'))
 const CircleMembers = lazy(() => import('./pages/crm/CircleMembers'))
 const CircleOverview = lazy(() => import('./pages/crm/CircleOverview'))
+const Services = lazy(() => import('./pages/services/Services'))
 const StockMovementReport = lazy(() => import('./pages/StockMovementReport'))
 const Inventory = lazy(() => import('./pages/Inventory'))
 const ReportsHub = lazy(() => import('./pages/ReportsHub'))
@@ -355,6 +356,7 @@ const EXTENDED_BREADCRUMBS: Record<string, string> = {
   'circle-messages': 'Circle / Messages',
   'circle-members': 'Circle / Members',
   'circle-home': 'Circle / Overview',
+  'services': 'Services',
   'circle-moderation': 'Circle / Maoni',
   'crm-automations': 'CRM / Automations',
   'crm-preorders': 'CRM / Pre-Orders',
@@ -746,6 +748,7 @@ function AppContent() {
       case 'circle-messages':    return <CircleMessages />
       case 'circle-members':     return <CircleMembers onNav={navigate} />
       case 'circle-home':        return <CircleOverview onNav={navigate} />
+      case 'services':           return <Services onNav={navigate} />
       case 'crm-command-center': return <CRMCommandCenter onNav={navigate} />
       case 'crm-inbox':         return <WhatsAppCentre />
       case 'crm-automations':   return <CRMAutomations onNav={navigate} />

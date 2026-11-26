@@ -162,6 +162,7 @@ const PERMISSION_GROUPS: { module: string; label: string; icon: string; color: s
       { key: 'crm.konnect', label: 'Circle Messages (alerts, weekly lessons)' },
       { key: 'crm.circle.review', label: 'Circle Messages: mark a lesson as reviewed by a midwife' },
       { key: 'crm.circle.members', label: 'Circle Members: see mothers\' names and WhatsApp numbers' },
+      { key: 'crm.services', label: 'Services: manage subscriptions (weekly lessons), pause, extend and stop' },
       { key: 'crm.automations', label: 'Automations' },
       { key: 'crm.export', label: 'Export CRM Data' },
     ]

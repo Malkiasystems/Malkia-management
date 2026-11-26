@@ -395,7 +395,7 @@ export default function Sidebar({ current, onNav, stockMode }: SidebarProps) {
     { sep: true },
     // Investors only for companies that show them
     ...(company.showInvestors ? [{ icon: 'investors', label: 'Investors', page: 'investors-hub' as Page }] : []),
-    { icon: 'services',  label: 'Services',  page: 'coming-soon' as Page, coming: true },
+    { icon: 'services',  label: 'Services',  page: 'services' as Page },
     { icon: 'konnect',   label: 'Circle',    page: 'circle-home' as Page, hasSub: true },
     { icon: 'crm',       label: 'CRM',       page: 'crm-hub' as Page,    hasSub: true },
     { icon: 'hrm',       label: 'HRM',       page: 'hrm' as Page,       hasSub: true },

@@ -1,12 +1,17 @@
 // @ts-nocheck
-// circle-weekly v1: the week-by-week lessons and guides for Malkia Circle.
-// POST {action:"test", lesson_id, phone, name}  staff with the Circle Messages permission.
+// circle-weekly v2: the week-by-week lessons and guides for Malkia Circle.
+// New in v2: automatic sending.
+// POST {action:"run"}   no login needed, because it can only do one thing: send the lessons
+//        the database has already queued (service_sends, filled by service_plan_sends on
+//        Monday, Wednesday and Saturday at 10:00, and when a mother joins). It cannot choose
+//        who gets what. Each row is taken through service_send_claim, so two runs at the
+//        same moment never send the same lesson twice.
+// POST {action:"test", lesson_id, phone, name}  staff with the Services or Circle Messages permission.
 //        Sends ONE lesson or guide to the number given, exactly as a mother would get it.
 //        Works on a draft too, so wording and file can be checked before review.
 // POST {action:"set_open", on}                  administrators. Opens or closes joining.
 //        Opening is refused until at least one lesson is Ready and Meta has approved a
 //        weekly template, so no mother can join a service that cannot send.
-// Automatic sending is not in this version.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 
@@ -18,8 +23,6 @@ const CORS = {
 }
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } })
 
-// Flip to true in the version that adds the scheduled sender.
-const AUTO_SENDING_BUILT = false
 const TPL = { lesson_image: "malkia_circle_weekly_img_sw", lesson_pdf: "malkia_circle_weekly_sw", guide_pdf: "malkia_circle_guide_sw" }
 
 async function caller(authHeader) {
@@ -33,7 +36,7 @@ async function caller(authHeader) {
   if (!row || !row.is_active) return null
   const perms = Array.isArray(row.permissions) ? row.permissions : []
   const admin = perms.length >= 40
-  return { id: row.id, name: row.full_name, admin, page: admin || perms.includes("crm.konnect") }
+  return { id: row.id, name: row.full_name, admin, page: admin || perms.includes("crm.konnect") || perms.includes("crm.services") }
 }
 
 const clean = (s, max) => {
@@ -89,14 +92,59 @@ async function sendLesson(lesson, phone, name, purpose) {
   return { ok: true, twilio_sid: j.twilio_sid || null, text }
 }
 
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms))
+
+// Send what is queued. Stops after about 40 seconds; the database sweep (every 10
+// minutes) calls again if anything is still waiting.
+async function runQueue() {
+  const started = Date.now()
+  let sent = 0, failed = 0, dropped = 0
+  while (Date.now() - started < 40000) {
+    const { data: rows, error } = await sb.rpc("service_send_claim", { p_limit: 10 })
+    if (error) return { error: error.message, sent, failed, dropped }
+    if (!rows || !rows.length) break
+    for (const r of rows) {
+      try {
+        if (!r.still_on) {
+          // she stopped or was paused after this was queued: it was never sent, so it leaves no trace
+          await sb.from("service_sends").delete().eq("id", r.id)
+          dropped++
+        } else if (!r.lesson) {
+          await sb.from("service_sends").update({ status: "failed", error: "The lesson is no longer marked Ready." }).eq("id", r.id)
+          failed++
+        } else {
+          const out = await sendLesson(r.lesson, r.phone, r.name || "", "system")
+          if (out.error) {
+            await sb.from("service_sends").update({ status: "failed", error: String(out.error).slice(0, 300) }).eq("id", r.id)
+            failed++
+          } else {
+            await sb.from("service_sends").update({ status: "sent", twilio_sid: out.twilio_sid, sent_at: new Date().toISOString(), error: null }).eq("id", r.id)
+            sent++
+          }
+        }
+      } catch (e) {
+        await sb.from("service_sends").update({ status: "failed", error: String((e && e.message) || e).slice(0, 300) }).eq("id", r.id)
+        failed++
+      }
+      await sleep(250)
+    }
+  }
+  return { ok: true, sent, failed, dropped }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
   if (req.method !== "POST") return json({ error: "POST only" }, 405)
-  const who = await caller(req.headers.get("authorization"))
-  if (!who || !who.page) return json({ error: "You need the Circle Messages permission." }, 403)
   let b = {}
   try { b = await req.json() } catch (_e) { return json({ error: "bad json" }, 400) }
   const action = String(b.action || "")
+
+  if (action === "run") {
+    try { return json(await runQueue()) } catch (e) { return json({ error: String((e && e.message) || e) }, 500) }
+  }
+
+  const who = await caller(req.headers.get("authorization"))
+  if (!who || !who.page) return json({ error: "You need the Services or Circle Messages permission." }, 403)
 
   try {
     if (action === "test") {
@@ -112,7 +160,6 @@ Deno.serve(async (req) => {
     if (action === "set_open") {
       if (!who.admin) return json({ error: "Only an administrator can open or close joining." }, 403)
       const on = b.on === true
-      if (on && !AUTO_SENDING_BUILT) return json({ error: "Automatic sending is not built yet, so joining stays closed. A mother who joined now would receive nothing." }, 409)
       if (on) {
         const { count } = await sb.from("circle_lessons").select("id", { count: "exact", head: true }).eq("kind", "lesson").eq("status", "ready")
         if (!count) return json({ error: "No lesson is marked Ready yet. Joining stays closed, so no mother joins a service that cannot send." }, 409)
@@ -121,6 +168,8 @@ Deno.serve(async (req) => {
       }
       const { error } = await sb.from("circle_msg_settings").upsert({ key: "weekly_open", value: on ? "true" : "false", updated_at: new Date().toISOString() }, { onConflict: "key" })
       if (error) return json({ error: error.message }, 500)
+      const { data: svc } = await sb.from("services").update({ is_open: on, updated_at: new Date().toISOString() }).eq("slug", "weekly").select("id").maybeSingle()
+      await sb.from("service_events").insert({ service_id: (svc && svc.id) || null, action: on ? "joining_opened" : "joining_closed", by_user: who.id, by_name: who.name })
       return json({ ok: true, open: on })
     }
 

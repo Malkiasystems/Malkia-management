@@ -41,6 +41,7 @@ export type Page =
   | 'circle-messages'
   | 'circle-members'
   | 'circle-home'
+  | 'services'
   // Investors Module
   | 'investors' | 'investors-hub' | 'investors-portfolio' | 'investors-reports'
   // Bundles
