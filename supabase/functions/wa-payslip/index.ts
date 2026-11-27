@@ -441,7 +441,7 @@ Deno.serve(async (req) => {
     const periodSw = `${MONTHS_SW[mo - 1]} ${yy}`
     const caption = `Habari ${first}, taarifa yako ya malipo (payslip) kwa mwezi ${periodSw} imeambatishwa. Kwa maswali yoyote, wasiliana na HR au Meneja wako.`
 
-    const payload = { phone, purpose: "payslip", name: emp.full_name, body: caption, source: "malkiaos-hrm" }
+    const payload = { phone, purpose: "payslip", name: emp.full_name, body: caption, source: "malkiaos" }
     if (await windowOpen(phone)) {
       payload.media_url = signed.signedUrl
     } else {
