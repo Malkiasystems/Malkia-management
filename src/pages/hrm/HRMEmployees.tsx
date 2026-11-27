@@ -9,10 +9,10 @@ import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS, getInitials, DEFAULT_HR_
 
 const EMPTY_EC: EmergencyContact = { name: '', relationship: '', phone: '', alt_phone: '', address: '', email: '', notes: '' }
 
-export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmployeeId, canManage }: HRMProps) {
+export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId, canManage }: HRMProps) {
   const { user } = useAuth()
   const isSelfMode = hrmMode === 'self'
-  const readOnly = isSelfMode
+  const readOnly = isSelfMode || !canManage
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [filterDept, setFilterDept] = useState('all')
@@ -53,7 +53,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
   const [editForm, setEditForm] = useState<Record<string, any>>({})
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false)
 
-  useEffect(() => { load(); loadSettings() }, [hrmMode, linkedEmployeeId])
+  useEffect(() => { load(); if (!readOnly) loadSettings() }, [hrmMode, linkedEmployeeId])
 
   // Self mode: auto-open own profile
   useEffect(() => {
@@ -65,13 +65,18 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
 
   const load = async () => {
     setLoading(true)
-    if (isSelfMode && linkedEmployeeId) {
+    if (isSelfMode && !linkedEmployeeId) {
+      setEmployees([])
+      setLoading(false)
+      return
+    }
+    if (isSelfMode) {
       const { data } = await supabase.from('hrm_employees').select('*').eq('id', linkedEmployeeId).single()
       if (data) setEmployees([data])
       else setEmployees([])
     } else {
       const { data } = await supabase.from('hrm_employees').select('*').eq('is_active', true).order('full_name')
-      if (data) setEmployees(data)
+      setEmployees(data || [])
     }
     setLoading(false)
   }
@@ -90,10 +95,11 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
     if (cashRes.data) setCashAccounts(cashRes.data)
   }
 
-  const openDrawer = async (emp: Employee) => {
+  const openDrawer = async (emp: Employee, edit = false) => {
     setDrawerEmp(emp)
     setDrawerTab('profile')
     setEditing(false)
+    if (edit && !readOnly) startEdit(emp)
     const [letRes, assetRes, advRes, salRes] = await Promise.all([
       supabase.from('hrm_letters').select('*').eq('employee_id', emp.id).order('issued_date', { ascending: false }),
       supabase.from('hrm_assets').select('*').eq('employee_id', emp.id),
@@ -107,6 +113,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
   }
 
   const saveEmployee = async () => {
+    if (readOnly) return
     if (!form.full_name.trim() || !form.start_date || !form.gross_salary) {
       setToast('Fill in required fields'); setToastType('error'); return
     }
@@ -164,7 +171,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
   }
 
   const issueLetter = async () => {
-    if (!drawerEmp || !letterForm.letter_type || !letterForm.issued_date) return
+    if (readOnly || !drawerEmp || !letterForm.letter_type || !letterForm.issued_date) return
     const { error } = await supabase.from('hrm_letters').insert({
       employee_id: drawerEmp.id,
       letter_type: letterForm.letter_type,
@@ -181,7 +188,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
   }
 
   const issueAdvance = async () => {
-    if (!drawerEmp) return
+    if (readOnly || !drawerEmp) return
     const amount = parseFloat(advanceForm.amount)
     const monthlyDed = parseFloat(advanceForm.monthly_deduction)
     if (!amount || amount <= 0) { setToast('Enter advance amount'); setToastType('error'); return }
@@ -247,34 +254,41 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
 
   const filtered = filterDept === 'all' ? employees : employees.filter(e => e.department === filterDept)
 
-  const startEdit = () => {
-    if (!drawerEmp) return
-    const ecs: EmergencyContact[] = drawerEmp.emergency_contacts && Array.isArray(drawerEmp.emergency_contacts) && drawerEmp.emergency_contacts.length > 0
-      ? drawerEmp.emergency_contacts
-      : [{ ...EMPTY_EC, name: drawerEmp.emergency_contact?.split(' - ')?.[0] || '', phone: drawerEmp.emergency_contact?.split(' - ')?.[1] || '' }]
+  const startEdit = (employee: Employee) => {
+    if (readOnly) return
+    setDrawerTab('profile')
+    const ecs: EmergencyContact[] = employee.emergency_contacts && Array.isArray(employee.emergency_contacts) && employee.emergency_contacts.length > 0
+      ? employee.emergency_contacts
+      : [{ ...EMPTY_EC, name: employee.emergency_contact?.split(' - ')?.[0] || '', phone: employee.emergency_contact?.split(' - ')?.[1] || '' }]
     setEditForm({
-      full_name: drawerEmp.full_name, job_title: drawerEmp.job_title, department: drawerEmp.department,
-      contract_type: drawerEmp.contract_type, start_date: drawerEmp.start_date || '', end_date: drawerEmp.end_date || '',
-      gross_salary: String(drawerEmp.gross_salary || 0), whatsapp: drawerEmp.whatsapp || '',
-      bank_name: drawerEmp.bank_name || '', bank_account: drawerEmp.bank_account || '',
-      nssf_number: drawerEmp.nssf_number || '', nssf_enabled: drawerEmp.nssf_enabled,
-      paye_enabled: drawerEmp.paye_enabled !== false, sdl_enabled: drawerEmp.sdl_enabled !== false,
-      tin_number: drawerEmp.tin_number || '', nida_number: drawerEmp.nida_number || '',
-      email: drawerEmp.email || '',
-      date_of_birth: drawerEmp.date_of_birth || '',
+      full_name: employee.full_name, job_title: employee.job_title || '', department: employee.department,
+      contract_type: employee.contract_type, start_date: employee.start_date || '', end_date: employee.end_date || '',
+      gross_salary: String(employee.gross_salary || 0), whatsapp: employee.whatsapp || '',
+      bank_name: employee.bank_name || '', bank_account: employee.bank_account || '',
+      nssf_number: employee.nssf_number || '', nssf_enabled: employee.nssf_enabled,
+      paye_enabled: employee.paye_enabled !== false, sdl_enabled: employee.sdl_enabled !== false,
+      tin_number: employee.tin_number || '', nida_number: employee.nida_number || '',
+      email: employee.email || '',
+      date_of_birth: employee.date_of_birth || '',
       emergency_contacts: ecs,
-      notes: drawerEmp.notes || '',
+      notes: employee.notes || '',
     })
     setEditing(true)
   }
 
   const saveEdit = async () => {
-    if (!drawerEmp) return
+    if (readOnly || !drawerEmp) return
+    if (!editing) return
+    if (!editForm.full_name.trim() || (editForm.end_date && editForm.end_date < editForm.start_date)) {
+      setToast('Enter a name and a contract end date on or after the start date.')
+      setToastType('error')
+      return
+    }
     const oldGross = drawerEmp.gross_salary || 0
     const newGross = parseFloat(editForm.gross_salary) || 0
     const initials = getInitials(editForm.full_name || drawerEmp.full_name)
 
-    const { error } = await supabase.from('hrm_employees').update({
+    const { data: updated, error } = await supabase.from('hrm_employees').update({
       full_name: editForm.full_name.trim(), initials,
       job_title: editForm.job_title.trim(), department: editForm.department,
       contract_type: editForm.contract_type,
@@ -291,7 +305,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
       emergency_contact: (editForm.emergency_contacts || []).filter((ec: EmergencyContact) => ec.name.trim()).length > 0 ? `${editForm.emergency_contacts[0].name} - ${editForm.emergency_contacts[0].phone}` : null,
       emergency_contacts: (editForm.emergency_contacts || []).filter((ec: EmergencyContact) => ec.name.trim()).length > 0 ? editForm.emergency_contacts.filter((ec: EmergencyContact) => ec.name.trim()) : null,
       notes: editForm.notes || null,
-    }).eq('id', drawerEmp.id)
+    }).eq('id', drawerEmp.id).eq('is_active', true).select('*').single()
 
     if (error) { setToast(error.message); setToastType('error'); return }
 
@@ -307,14 +321,19 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
     setToast('Employee updated'); setToastType('success')
     setEditing(false)
     load()
-    // Refresh drawer
-    const { data: refreshed } = await supabase.from('hrm_employees').select('*').eq('id', drawerEmp.id).single()
-    if (refreshed) setDrawerEmp(refreshed)
+    setDrawerEmp(updated)
   }
 
   const deactivateEmployee = async () => {
-    if (!drawerEmp) return
-    await supabase.from('hrm_employees').update({ is_active: false }).eq('id', drawerEmp.id)
+    if (readOnly || !drawerEmp) return
+    const { error } = await supabase.from('hrm_employees').update({ is_active: false })
+      .eq('id', drawerEmp.id).eq('is_active', true).select('id').single()
+    if (error) {
+      setShowDeactivateConfirm(false)
+      setToast(error.message)
+      setToastType('error')
+      return
+    }
     setToast(`${drawerEmp.full_name} deactivated`); setToastType('success')
     setShowDeactivateConfirm(false); setDrawerEmp(null); load()
   }
@@ -361,7 +380,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
       {!isSelfMode && (loading ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading employees...</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 270px), 1fr))', gap: 16 }}>
           {filtered.map(emp => {
             const daysLeft = daysUntilExpiry(emp.end_date)
             const empColor = DEPT_COLORS[emp.department] || '#6366f1'
@@ -370,28 +389,30 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
                 {/* Header */}
                 <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
                   <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${empColor}22`, color: empColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{emp.initials}</div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                     <div style={{ fontWeight: 800, fontSize: 13 }}>{emp.full_name}</div>
                     <div style={{ fontSize: 11, color: 'var(--text3)' }}>{emp.job_title}</div>
-                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                       <span style={{ fontSize: 10, background: `${CONTRACT_COLORS[emp.contract_type]}22`, color: CONTRACT_COLORS[emp.contract_type], padding: '1px 5px', borderRadius: 4 }}>{CONTRACT_LABELS[emp.contract_type]}</span>
                       {emp.nssf_enabled && <span style={{ fontSize: 10, background: '#3b82f622', color: '#3b82f6', padding: '1px 5px', borderRadius: 4 }}>NSSF</span>}
                       {emp.paye_enabled === false && <span style={{ fontSize: 10, background: '#f59e0b22', color: '#f59e0b', padding: '1px 5px', borderRadius: 4 }}>No PAYE</span>}
                       {emp.sdl_enabled === false && <span style={{ fontSize: 10, background: '#a78bfa22', color: '#a78bfa', padding: '1px 5px', borderRadius: 4 }}>No SDL</span>}
-                      {emp.paye_enabled === false && <span style={{ fontSize: 10, background: '#f59e0b22', color: '#f59e0b', padding: '1px 5px', borderRadius: 4 }}>No PAYE</span>}
-                      {emp.sdl_enabled === false && <span style={{ fontSize: 10, background: '#f59e0b22', color: '#f59e0b', padding: '1px 5px', borderRadius: 4 }}>No SDL</span>}
                       {daysLeft !== null && daysLeft <= 90 && daysLeft > 0 && (
                         <span style={{ fontSize: 10, background: '#ef444422', color: '#ef4444', padding: '1px 5px', borderRadius: 4 }}>Renew {daysLeft}d</span>
                       )}
                     </div>
                   </div>
-                  <button onClick={() => openDrawer(emp)} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>View</button>
                 </div>
                 {/* Details */}
                 <div style={{ padding: '10px 14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, fontSize: 11 }}>
                   <div style={{ color: 'var(--text3)' }}>ID</div><div style={{ fontFamily: 'var(--mono)' }}>{emp.emp_code}</div>
                   <div style={{ color: 'var(--text3)' }}>Start</div><div>{emp.start_date}</div>
+                  <div style={{ color: 'var(--text3)' }}>Contract ends</div><div>{emp.end_date || 'Open-ended'}</div>
                   <div style={{ color: 'var(--text3)' }}>Gross</div><div style={{ fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{(emp.gross_salary || 0).toLocaleString()}</div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 14px 12px' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => openDrawer(emp)}>View profile</button>
+                  {!readOnly && <button className="btn btn-primary btn-sm" onClick={() => openDrawer(emp, true)}>Edit employee</button>}
                 </div>
               </div>
             )
@@ -416,13 +437,13 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
 
       {/* ── EMPLOYEE DRAWER ──────────────────── */}
       {drawerEmp && (
-        <div style={{ position: isSelfMode ? 'relative' : 'fixed', top: isSelfMode ? undefined : 0, right: isSelfMode ? undefined : 0, width: isSelfMode ? '100%' : 500, height: isSelfMode ? undefined : '100vh', background: 'var(--surface)', borderLeft: isSelfMode ? 'none' : '1px solid var(--border)', zIndex: isSelfMode ? 0 : 200, overflowY: 'auto', boxShadow: isSelfMode ? 'none' : '-4px 0 24px rgba(0,0,0,.4)', maxWidth: isSelfMode ? 700 : undefined, margin: isSelfMode ? '0 auto' : undefined }}>
+        <div style={{ position: isSelfMode ? 'relative' : 'fixed', top: isSelfMode ? undefined : 0, right: isSelfMode ? undefined : 0, width: isSelfMode ? '100%' : 'min(500px, 100%)', boxSizing: 'border-box', height: isSelfMode ? undefined : '100vh', background: 'var(--surface)', borderLeft: isSelfMode ? 'none' : '1px solid var(--border)', zIndex: isSelfMode ? 0 : 200, overflowY: 'auto', boxShadow: isSelfMode ? 'none' : '-4px 0 24px rgba(0,0,0,.4)', maxWidth: isSelfMode ? 700 : undefined, margin: isSelfMode ? '0 auto' : undefined }}>
           <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: isSelfMode ? undefined : 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: 14 }}>{isSelfMode ? 'My Profile' : 'Employee Profile'}</div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {!editing && canManage && !readOnly ? (
+              {!readOnly && (!editing ? (
                 <>
-                  <button onClick={startEdit} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Edit</button>
+                  <button onClick={() => startEdit(drawerEmp)} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Edit</button>
                   <button onClick={() => setShowDeactivateConfirm(true)} style={{ background: '#ef444422', border: '1px solid #ef444444', color: '#ef4444', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Deactivate</button>
                 </>
               ) : (
@@ -430,7 +451,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
                   <button onClick={saveEdit} style={{ background: '#22c55e', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Save</button>
                   <button onClick={() => setEditing(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 10px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Cancel</button>
                 </>
-              )}
+              ))}
               {!isSelfMode && <button onClick={() => { setDrawerEmp(null); setEditing(false) }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text)' }}>x</button>}
             </div>
           </div>
@@ -491,7 +512,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
                 <div><label style={labelStyle}>Department</label><select style={inputStyle} value={editForm.department} onChange={e => setEditForm({ ...editForm, department: e.target.value })}>{departments.map(d => <option key={d}>{d}</option>)}</select></div>
                 <div><label style={labelStyle}>Contract Type</label><select style={inputStyle} value={editForm.contract_type} onChange={e => setEditForm({ ...editForm, contract_type: e.target.value })}><option value="full_time">Full-time</option><option value="fixed_term">Fixed-term</option><option value="part_time">Part-time</option><option value="intern">Intern</option><option value="consultant">Consultant</option></select></div>
                 <div><label style={labelStyle}>Start Date</label><input type="date" style={inputStyle} value={editForm.start_date} onChange={e => setEditForm({ ...editForm, start_date: e.target.value })} /></div>
-                <div><label style={labelStyle}>End Date</label><input type="date" style={inputStyle} value={editForm.end_date} onChange={e => setEditForm({ ...editForm, end_date: e.target.value })} /></div>
+                <div><label htmlFor="contract-end" style={labelStyle}>Contract end date</label><input id="contract-end" type="date" min={editForm.start_date} style={inputStyle} value={editForm.end_date} onChange={e => setEditForm({ ...editForm, end_date: e.target.value })} /></div>
                 <div><label style={labelStyle}>Gross Salary (TZS)</label><input type="number" style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.gross_salary} onChange={e => setEditForm({ ...editForm, gross_salary: e.target.value })} /></div>
                 <div><label style={labelStyle}>Email (self-service link)</label><input type="email" style={inputStyle} value={editForm.email || ''} onChange={e => setEditForm({ ...editForm, email: e.target.value })} placeholder="Links employee to login" /></div>
                 <div><label style={labelStyle}>WhatsApp</label><input style={{ ...inputStyle, fontFamily: 'var(--mono)' }} value={editForm.whatsapp} onChange={e => setEditForm({ ...editForm, whatsapp: e.target.value })} /></div>
@@ -784,8 +805,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'company', linkedEmploye
             <div style={{ fontSize: 28, marginBottom: 12 }}>!</div>
             <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>Deactivate {drawerEmp.full_name}?</div>
             <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>
-              They will be removed from active employee lists, payroll, and attendance.
-              This does not delete their records. They can be reactivated later from the database.
+              This removes the employee from the active list and newly loaded payroll runs. Previous payroll records are kept. Reopen Payroll to refresh an existing salary preview.
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
               <button onClick={() => setShowDeactivateConfirm(false)} className="btn btn-ghost">Cancel</button>

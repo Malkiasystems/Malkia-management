@@ -5,7 +5,7 @@ import Toast from '../../components/Toast'
 import type { HRMProps, HRMEvent } from './hrmTypes'
 import { EVENT_COLORS, EVENT_LABELS } from './hrmTypes'
 
-export default function HRMEvents({ onNav: _onNav, hrmMode: _hrmMode = 'company', linkedEmployeeId: _linkedEmployeeId }: HRMProps) {
+export default function HRMEvents({ onNav: _onNav, hrmMode, canManage }: HRMProps) {
   const [events, setEvents] = useState<HRMEvent[]>([])
   const [employees, setEmployees] = useState<{ id: string; full_name: string; date_of_birth: string | null }[]>([])
   const [loading, setLoading] = useState(true)
@@ -21,7 +21,7 @@ export default function HRMEvents({ onNav: _onNav, hrmMode: _hrmMode = 'company'
     setLoading(true)
     const [evtRes, empRes] = await Promise.all([
       supabase.from('hrm_events').select('*').order('event_date', { ascending: false }),
-      supabase.from('hrm_employees').select('id, full_name, date_of_birth').eq('is_active', true).order('full_name'),
+      hrmMode !== 'company' ? { data: [] } : supabase.from('hrm_employees').select('id, full_name, date_of_birth').eq('is_active', true).order('full_name'),
     ])
     setEvents(evtRes.data || [])
     setEmployees(empRes.data || [])
@@ -29,6 +29,7 @@ export default function HRMEvents({ onNav: _onNav, hrmMode: _hrmMode = 'company'
   }
 
   const saveEvent = async () => {
+    if (!canManage) return
     if (!form.title || !form.event_date) { setToast('Title and date required'); setToastType('error'); return }
     const { error } = await supabase.from('hrm_events').insert({
       title: form.title, event_type: form.event_type, event_date: form.event_date,
@@ -68,7 +69,7 @@ export default function HRMEvents({ onNav: _onNav, hrmMode: _hrmMode = 'company'
             <option value="all">All Events</option>
             {Object.entries(EVENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Event</button>
+          {canManage && <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>+ New Event</button>}
         </div>
       </div>
 

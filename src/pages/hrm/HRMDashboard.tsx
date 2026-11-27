@@ -11,7 +11,7 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
   const [stats, setStats] = useState({ total: 0, fullTime: 0, contract: 0, intern: 0, payroll: 0, onLeave: 0, assetsOut: 0 })
   const [events, setEvents] = useState<any[]>([])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { if (!isSelfMode) load() }, [isSelfMode])
 
   const load = async () => {
     setLoading(true)
