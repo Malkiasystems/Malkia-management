@@ -29,6 +29,8 @@ export async function verifyHrmBackend(env) {
   }
 
   await Promise.all([
+    checkRpc('deactivate_hrm_employee', ['p_employee', 'p_reason']),
+    checkPrivateRelation('table', 'hrm_employee_deactivations', 'id,employee_id,recorded_at,recorded_by,recorded_by_name,reason'),
     checkPrivateRelation('view', 'hrm_staff_directory', 'id,emp_code,full_name,is_active,user_id'),
     checkPrivateRelation('table', 'hrm_payroll_lines', 'advance_recoveries'),
     checkPrivateRelation('table', 'hrm_payroll_runs', 'operation_id'),

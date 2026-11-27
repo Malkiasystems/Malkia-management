@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
 import { tzs, localIso } from '../../lib/utils'
+import EmployeeDialog from './EmployeeDialog'
+import EmployeeStatus from './EmployeeStatus'
+import './employee-profile.css'
 import Toast from '../../components/Toast'
 import type { HRMProps, Employee, EmployeeLetter, HRMAsset, SalaryAdvance, EmergencyContact } from './hrmTypes'
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS, getInitials, DEFAULT_HR_SETTINGS } from './hrmTypes'
@@ -14,7 +17,9 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
   const isSelfMode = hrmMode === 'self'
   const readOnly = isSelfMode || !canManage
   const [employees, setEmployees] = useState<Employee[]>([])
+  const rosterRequest = useRef(0)
   const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState('active')
   const [filterDept, setFilterDept] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState('')
@@ -53,9 +58,16 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
   // Edit mode
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState<Record<string, any>>({})
+  const [reason, setReason] = useState('')
+  const [deactivationError, setDeactivationError] = useState('')
+  const [deactivating, setDeactivating] = useState(false)
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false)
 
-  useEffect(() => { load(); if (!readOnly) loadSettings() }, [hrmMode, linkedEmployeeId])
+  useEffect(() => {
+    void load()
+    return () => { rosterRequest.current++ }
+  }, [hrmMode, linkedEmployeeId, readOnly, statusFilter])
+  useEffect(() => { if (!readOnly) void loadSettings() }, [readOnly])
 
   // Self mode: auto-open own profile
   useEffect(() => {
@@ -66,6 +78,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
   }, [isSelfMode, linkedEmployeeId, employees])
 
   const load = async () => {
+    const request = ++rosterRequest.current
     setLoading(true)
     if (isSelfMode && !linkedEmployeeId) {
       setEmployees([])
@@ -74,10 +87,13 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
     }
     if (isSelfMode) {
       const { data } = await supabase.from('hrm_employees').select('*').eq('id', linkedEmployeeId).single()
-      if (data) setEmployees([data])
-      else setEmployees([])
+      if (request !== rosterRequest.current) return
+      setEmployees(data ? [data] : [])
     } else {
-      const { data } = await supabase.from('hrm_employees').select('*').eq('is_active', true).order('full_name')
+      const { data, error } = await supabase.from('hrm_employees').select('*')
+        .eq('is_active', readOnly || statusFilter === 'active').order('full_name')
+      if (request !== rosterRequest.current) return
+      if (error) { setToast(error.message); setToastType('error') }
       setEmployees(data || [])
     }
     setLoading(false)
@@ -221,7 +237,9 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
     }
   }
 
-  const filtered = filterDept === 'all' ? employees : employees.filter(e => e.department === filterDept)
+  const filtered = employees.filter(emp =>
+    (filterDept === 'all' || emp.department === filterDept) &&
+    (statusFilter === 'inactive' ? !emp.is_active : emp.is_active))
 
   const startEdit = (employee: Employee) => {
     if (readOnly) return
@@ -294,17 +312,22 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
   }
 
   const deactivateEmployee = async () => {
-    if (readOnly || !drawerEmp) return
-    const { error } = await supabase.from('hrm_employees').update({ is_active: false })
-      .eq('id', drawerEmp.id).eq('is_active', true).select('id').single()
-    if (error) {
+    if (readOnly || !drawerEmp?.is_active || !reason.trim() || deactivating) return
+    setDeactivating(true)
+    setDeactivationError('')
+    try {
+      const { error } = await supabase.rpc('deactivate_hrm_employee', { p_employee: drawerEmp.id, p_reason: reason.trim() })
+      if (error) throw error
       setShowDeactivateConfirm(false)
-      setToast(error.message)
-      setToastType('error')
-      return
+      setDrawerEmp(null)
+      setToastType('success')
+      setToast(`${drawerEmp.full_name} deactivated. Reason saved to the employee profile.`)
+      await load()
+    } catch (error) {
+      setDeactivationError((error as { message?: string }).message || 'Could not deactivate employee. Please retry.')
+    } finally {
+      setDeactivating(false)
     }
-    setToast(`${drawerEmp.full_name} deactivated`); setToastType('success')
-    setShowDeactivateConfirm(false); setDrawerEmp(null); load()
   }
 
   const daysUntilExpiry = (d: string | null) => {
@@ -314,6 +337,9 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
 
   const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }
   const labelStyle: React.CSSProperties = { fontSize: 11, color: 'var(--text3)', display: 'block', marginBottom: 4 }
+
+  const closeProfile = () => { setDrawerEmp(null); setEditing(false) }
+  const notice = toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />
 
   // Self mode: show not-linked message
   if (isSelfMode && !linkedEmployeeId) {
@@ -337,6 +363,10 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
         </div>
         {!isSelfMode && (
           <div className="page-actions">
+            {canManage && <select aria-label="Employment status" style={{ ...inputStyle, width: 'auto' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option value="active">Active employees</option>
+              <option value="inactive">Inactive employees</option>
+            </select>}
             <select style={{ ...inputStyle, width: 'auto', padding: '6px 10px' }} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
               <option value="all">All Departments</option>
               {departments.map(d => <option key={d} value={d}>{d}</option>)}
@@ -381,14 +411,16 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 'auto', padding: '10px 14px', borderTop: '1px solid var(--border)' }}>
                   <button className="btn btn-primary" style={cardActionStyle} onClick={() => openDrawer(emp)}>View profile</button>
-                  {!readOnly && <button className="btn btn-ghost" style={cardActionStyle} onClick={() => openDrawer(emp, true)}>Edit employee</button>}
+                  {!readOnly && emp.is_active && <button className="btn btn-ghost" style={cardActionStyle} onClick={() => openDrawer(emp, true)}>Edit employee</button>}
                 </div>
               </div>
             )
           })}
 
+          {statusFilter === 'inactive' && filtered.length === 0 && <p>No inactive employees match this filter.</p>}
+
           {/* Add Employee card */}
-          {canManage && (
+          {canManage && statusFilter === 'active' && (
             <div className="card" onClick={() => setShowModal(true)} style={{ padding: 0, border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 160, cursor: 'pointer', background: 'var(--surface2)' }}>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>+</div>
@@ -406,22 +438,19 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
 
       {/* ── EMPLOYEE DRAWER ──────────────────── */}
       {drawerEmp && (
-        <div style={{ position: isSelfMode ? 'relative' : 'fixed', top: isSelfMode ? undefined : 0, right: isSelfMode ? undefined : 0, width: isSelfMode ? '100%' : 'min(500px, 100%)', boxSizing: 'border-box', height: isSelfMode ? undefined : '100vh', background: 'var(--surface)', borderLeft: isSelfMode ? 'none' : '1px solid var(--border)', zIndex: isSelfMode ? 0 : 200, overflowY: 'auto', boxShadow: isSelfMode ? 'none' : '-4px 0 24px rgba(0,0,0,.4)', maxWidth: isSelfMode ? 700 : undefined, margin: isSelfMode ? '0 auto' : undefined }}>
+        <EmployeeDialog title="Employee profile" inline={isSelfMode} onDismiss={closeProfile}>
           <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: isSelfMode ? undefined : 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: 14 }}>{isSelfMode ? 'My Profile' : 'Employee Profile'}</div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {!readOnly && (!editing ? (
-                <>
-                  <button onClick={() => startEdit(drawerEmp)} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Edit</button>
-                  <button onClick={() => setShowDeactivateConfirm(true)} style={{ background: '#ef444422', border: '1px solid #ef444444', color: '#ef4444', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Deactivate</button>
-                </>
+              {!readOnly && drawerEmp.is_active && (!editing ? (
+                <button className="btn btn-primary" onClick={() => { setDrawerTab('profile'); startEdit(drawerEmp) }}>Edit</button>
               ) : (
                 <>
                   <button onClick={saveEdit} style={{ background: '#22c55e', color: '#000', border: 'none', padding: '5px 12px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Save</button>
                   <button onClick={() => setEditing(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 10px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Cancel</button>
                 </>
               ))}
-              {!isSelfMode && <button onClick={() => { setDrawerEmp(null); setEditing(false) }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text)' }}>x</button>}
+              {!isSelfMode && <button aria-label="Close employee profile" onClick={closeProfile} className="btn btn-ghost" style={{ minHeight: 40 }}>Close</button>}
             </div>
           </div>
           <div style={{ padding: '16px 20px' }}>
@@ -435,7 +464,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
             </div>
 
             {/* Tabs */}
-            <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
               {(['profile', 'emergency', 'letters', 'assets', 'advances', 'salary_history'] as const).map(tab => (
                 <button key={tab} onClick={() => setDrawerTab(tab)} style={{ flex: 1, padding: 8, fontSize: 10, fontWeight: drawerTab === tab ? 700 : 600, background: drawerTab === tab ? 'var(--accent)' : 'var(--surface2)', color: drawerTab === tab ? '#000' : 'var(--text3)', border: 'none', cursor: 'pointer', borderLeft: tab !== 'profile' ? '1px solid var(--border)' : 'none' }}>
                   {tab === 'profile' ? 'Profile' : tab === 'emergency' ? 'Emergency' : tab === 'letters' ? 'Letters' : tab === 'assets' ? 'Assets' : tab === 'advances' ? 'Advances' : 'Salary'}
@@ -470,6 +499,8 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
                     </div>
                   ))}
                 </div>
+                {!readOnly && <EmployeeStatus key={drawerEmp.id} employeeId={drawerEmp.id} active={drawerEmp.is_active}
+                  onDeactivate={() => { setReason(''); setDeactivationError(''); setShowDeactivateConfirm(true) }} />}
               </div>
             )}
 
@@ -549,7 +580,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>COMPANY LETTERS</div>
-                  {canManage && !readOnly && <button onClick={() => { setLetterForm({ letter_type: 'Offer Letter', issued_date: localIso(new Date()), issued_by: '', notes: '' }); setShowLetterModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Letter</button>}
+                  {canManage && !readOnly && drawerEmp.is_active && <button onClick={() => { setLetterForm({ letter_type: 'Offer Letter', issued_date: localIso(new Date()), issued_by: '', notes: '' }); setShowLetterModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Letter</button>}
                 </div>
                 {letters.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No letters issued yet</div>
@@ -589,7 +620,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>SALARY ADVANCES / LOANS</div>
-                  {canManage && !readOnly && <button onClick={() => { setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: localIso(new Date()), source_account: cashAccounts[0]?.id || '', notes: '' }); setShowAdvanceModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Advance</button>}
+                  {canManage && !readOnly && drawerEmp.is_active && <button onClick={() => { setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: localIso(new Date()), source_account: cashAccounts[0]?.id || '', notes: '' }); setShowAdvanceModal(true) }} style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Issue Advance</button>}
                 </div>
                 {advances.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>No advances on record</div>
@@ -634,7 +665,8 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
               </div>
             )}
           </div>
-        </div>
+          {!showLetterModal && !showAdvanceModal && !showDeactivateConfirm && notice}
+        </EmployeeDialog>
       )}
 
       {/* ── NEW EMPLOYEE MODAL ──────────────── */}
@@ -717,8 +749,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
 
       {/* ── ISSUE LETTER MODAL ─────────────── */}
       {showLetterModal && drawerEmp && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400 }} onClick={e => { if (e.target === e.currentTarget) setShowLetterModal(false) }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, width: 480, maxWidth: '95vw' }}>
+        <EmployeeDialog title="Issue letter" compact onDismiss={() => setShowLetterModal(false)}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>Issue Letter to {drawerEmp.full_name}</div>
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div><label style={labelStyle}>Letter Type *</label><select style={inputStyle} value={letterForm.letter_type} onChange={e => setLetterForm({ ...letterForm, letter_type: e.target.value })}>
@@ -732,14 +763,13 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
               <button className="btn btn-ghost" onClick={() => setShowLetterModal(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={issueLetter}>Issue Letter</button>
             </div>
-          </div>
-        </div>
+          {notice}
+        </EmployeeDialog>
       )}
 
       {/* ── ISSUE ADVANCE MODAL ────────────── */}
       {showAdvanceModal && drawerEmp && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400 }} onClick={e => { if (e.target === e.currentTarget) setShowAdvanceModal(false) }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, width: 480, maxWidth: '95vw' }}>
+        <EmployeeDialog title="Issue salary advance" compact onDismiss={() => setShowAdvanceModal(false)}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>Issue Salary Advance to {drawerEmp.full_name}</div>
             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div><label style={labelStyle}>Advance Amount (TZS) *</label><input type="number" style={{ ...inputStyle, fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 700 }} value={advanceForm.amount} onChange={e => setAdvanceForm({ ...advanceForm, amount: e.target.value })} placeholder="e.g. 500000" /></div>
@@ -763,28 +793,29 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
               <button className="btn btn-ghost" onClick={() => setShowAdvanceModal(false)}>Cancel</button>
               <button className="btn btn-primary" disabled={issuing} onClick={issueAdvance}>{issuing ? 'Issuing…' : 'Issue Advance'}</button>
             </div>
-          </div>
-        </div>
+          {notice}
+        </EmployeeDialog>
       )}
 
       {/* ── DEACTIVATE CONFIRM ──────────────── */}
       {showDeactivateConfirm && drawerEmp && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }} onClick={e => { if (e.target === e.currentTarget) setShowDeactivateConfirm(false) }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid #ef444444', borderRadius: 16, width: 400, maxWidth: '95vw', padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, marginBottom: 12 }}>!</div>
-            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>Deactivate {drawerEmp.full_name}?</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>
-              This removes the employee from the active list and newly loaded payroll runs. Previous payroll records are kept. Reopen Payroll to refresh an existing salary preview.
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
-              <button onClick={() => setShowDeactivateConfirm(false)} className="btn btn-ghost">Cancel</button>
-              <button onClick={deactivateEmployee} style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Deactivate</button>
+        <EmployeeDialog compact title={`Deactivate ${drawerEmp.full_name}?`} onDismiss={() => { if (!deactivating) setShowDeactivateConfirm(false) }}>
+          <div style={{ padding: 24 }}>
+            <h2 style={{ fontSize: 18, marginTop: 0 }}>Deactivate {drawerEmp.full_name}?</h2>
+            <p>This removes the employee from the active roster and future payroll calculations. Previously posted payslips remain available.</p>
+            <label htmlFor="deactivation-reason">Reason for deactivation (required)</label>
+            <textarea id="deactivation-reason" required maxLength={1000} rows={4} value={reason} disabled={deactivating}
+              onChange={event => setReason(event.target.value)} style={{ ...inputStyle, marginTop: 6, resize: 'vertical' }} />
+            {deactivationError && <p role="alert">{deactivationError}</p>}
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
+              <button autoFocus disabled={deactivating} onClick={() => setShowDeactivateConfirm(false)} className="btn btn-ghost">Keep active</button>
+              <button disabled={!reason.trim() || deactivating} onClick={deactivateEmployee} className="btn btn-danger">{deactivating ? 'Saving…' : 'Confirm deactivation'}</button>
             </div>
           </div>
-        </div>
+        </EmployeeDialog>
       )}
 
-      {toast && <Toast message={toast} type={toastType} onClose={() => setToast('')} />}
+      {!drawerEmp && notice}
     </div>
   )
 }
