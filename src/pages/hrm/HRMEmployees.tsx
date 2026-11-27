@@ -7,6 +7,7 @@ import type { HRMProps, Employee, EmployeeLetter, HRMAsset, SalaryAdvance, Emerg
 import { CONTRACT_LABELS, CONTRACT_COLORS, DEPT_COLORS, getInitials, DEFAULT_HR_SETTINGS } from './hrmTypes'
 
 const EMPTY_EC: EmergencyContact = { name: '', relationship: '', phone: '', alt_phone: '', address: '', email: '', notes: '' }
+const cardActionStyle: React.CSSProperties = { flex: '1 1 110px', minHeight: 44, justifyContent: 'center' }
 
 export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId, canManage }: HRMProps) {
   const { user } = useAuth()
@@ -348,12 +349,12 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
       {!isSelfMode && (loading ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading employees...</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 270px), 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 290px), 1fr))', gap: 16 }}>
           {filtered.map(emp => {
             const daysLeft = daysUntilExpiry(emp.end_date)
             const empColor = DEPT_COLORS[emp.department] || '#6366f1'
             return (
-              <div key={emp.id} className="card" style={{ padding: 0, overflow: 'hidden', borderTop: `3px solid ${empColor}` }}>
+              <div key={emp.id} className="card" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, padding: 0, borderTop: `3px solid ${empColor}` }}>
                 {/* Header */}
                 <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
                   <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${empColor}22`, color: empColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{emp.initials}</div>
@@ -372,15 +373,15 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
                   </div>
                 </div>
                 {/* Details */}
-                <div style={{ padding: '10px 14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, fontSize: 11 }}>
+                <div style={{ padding: '10px 14px', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', overflowWrap: 'anywhere', gap: 5, fontSize: 11 }}>
                   <div style={{ color: 'var(--text3)' }}>ID</div><div style={{ fontFamily: 'var(--mono)' }}>{emp.emp_code}</div>
                   <div style={{ color: 'var(--text3)' }}>Start</div><div>{emp.start_date}</div>
                   <div style={{ color: 'var(--text3)' }}>Contract ends</div><div>{emp.end_date || 'Open-ended'}</div>
                   <div style={{ color: 'var(--text3)' }}>Gross</div><div style={{ fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{(emp.gross_salary || 0).toLocaleString()}</div>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 14px 12px' }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openDrawer(emp)}>View profile</button>
-                  {!readOnly && <button className="btn btn-primary btn-sm" onClick={() => openDrawer(emp, true)}>Edit employee</button>}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 'auto', padding: '10px 14px', borderTop: '1px solid var(--border)' }}>
+                  <button className="btn btn-primary" style={cardActionStyle} onClick={() => openDrawer(emp)}>View profile</button>
+                  {!readOnly && <button className="btn btn-ghost" style={cardActionStyle} onClick={() => openDrawer(emp, true)}>Edit employee</button>}
                 </div>
               </div>
             )
