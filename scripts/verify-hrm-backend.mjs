@@ -32,8 +32,8 @@ export async function verifyHrmBackend(env) {
     checkRpc('deactivate_hrm_employee', ['p_employee', 'p_reason']),
     checkPrivateRelation('table', 'hrm_employee_deactivations', 'id,employee_id,recorded_at,recorded_by,recorded_by_name,reason'),
     checkPrivateRelation('view', 'hrm_staff_directory', 'id,emp_code,full_name,is_active,user_id'),
-    checkPrivateRelation('table', 'hrm_payroll_lines', 'advance_recoveries'),
-    checkPrivateRelation('table', 'hrm_payroll_runs', 'operation_id'),
+    checkPrivateRelation('table', 'hrm_payroll_lines', 'id,payroll_run_id,employee_id,gross,allowances,bonus,paye,nssf_ee,advance_deduction,deductions,net_pay,nssf_er,sdl,notes,advance_recoveries'),
+    checkPrivateRelation('table', 'hrm_payroll_runs', 'id,period,status,journal_ref,operation_id'),
     checkRpc('issue_hrm_advance', ['p_id', 'p_employee', 'p_source', 'p_date', 'p_amount', 'p_monthly', 'p_notes']),
     checkRpc('post_hrm_payroll', ['p_period', 'p_lines', 'p_operation', 'p_previous']),
     probe('/functions/v1/wa-payslip', {}, (status, result) =>

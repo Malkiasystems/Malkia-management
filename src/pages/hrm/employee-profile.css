@@ -18,3 +18,23 @@
 .employee-dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .employee-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .employee-dialog button:disabled { opacity: .5; cursor: default; }
+
+.employee-tools, .employee-view-switch, .employee-list-actions {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+.employee-tools { margin-bottom: 16px; gap: 12px; }
+.employee-tools label { display: flex; align-items: center; gap: 6px; }
+.employee-tools button, .employee-tools select, .employee-list-actions button { min-height: 40px; }
+.employee-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 145px), 1fr)); gap: 10px; }
+.employee-tile { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 12px 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r); font: inherit; overflow-wrap: anywhere; cursor: pointer; }
+.employee-tile:hover { border-color: var(--accent); }
+.employee-tile-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; font-weight: 700; }
+.employee-tile small, .employee-list small { display: block; color: var(--text3); }
+.employee-list { padding: 0; overflow-x: auto; }
+.employee-list table { width: 100%; border-collapse: collapse; }
+.employee-list th, .employee-list td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+@media (max-width: 600px) {
+  .employee-list th:nth-child(2), .employee-list td:nth-child(2),
+  .employee-list th:nth-child(3), .employee-list td:nth-child(3) { display: none; }
+  .employee-list-actions button { padding: 5px 8px; }
+}
