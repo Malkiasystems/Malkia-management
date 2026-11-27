@@ -7,6 +7,8 @@ import { useAuth } from '../../lib/useAuth'
 import type { Page } from '../../lib/types'
 import { CirclePage, Icon, circleStyles } from './circleUi'
 
+import CircleExpertReplies from './CircleExpertReplies'
+
 interface Day { day: string; joined: number; questions: number; answers: number }
 interface Overview {
   mothers: number; mothers_today: number; mothers_7d: number
@@ -20,6 +22,8 @@ const waited = (h: number) => h < 1 ? 'under an hour' : h < 24 ? `${h} hour${h =
 
 export default function CircleOverview({ onNav }: { onNav: (p: Page) => void }) {
   const { can, isSuperAdmin } = useAuth()
+  const canReply = isSuperAdmin() || can('crm.circle.expert_replies')
+  const [replyTo, setReplyTo] = useState<string | null>(null)
   const seesMembers = isSuperAdmin() || can('crm.circle.members')
   const seesMessages = isSuperAdmin() || can('crm.konnect')
   const [o, setO] = useState<Overview | null>(null)
@@ -53,6 +57,7 @@ export default function CircleOverview({ onNav }: { onNav: (p: Page) => void }) 
     </button>
   )
 
+  if (canReply && replyTo !== null) return <CircleExpertReplies initialId={replyTo} onClose={() => { setReplyTo(null); void load() }} />
   if (loading && !o) return <CirclePage title="Overview"><div style={muted}>Loading the overview...</div></CirclePage>
   if (!o) return <CirclePage title="Overview"><div style={{ ...card, borderColor: '#E3A5A5', background: '#FCEDED', color: '#8F1D1D', fontSize: 13.5 }}>{error || 'The overview could not be loaded.'}</div></CirclePage>
 
@@ -67,7 +72,9 @@ export default function CircleOverview({ onNav }: { onNav: (p: Page) => void }) 
 
   return (
     <CirclePage title="Overview" sub="How Malkia Circle is doing, and what needs someone today."
-      right={<button style={btn} onClick={load} disabled={loading}><Icon name="refresh" size={14} />{loading ? 'Refreshing...' : 'Refresh'}</button>}>
+      right={<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {canReply && <button style={btn} onClick={() => setReplyTo('')}><Icon name="chat" size={14} />Expert replies</button>}
+        <button style={btn} onClick={load} disabled={loading}><Icon name="refresh" size={14} />{loading ? 'Refreshing...' : 'Refresh'}</button></div>}>
       {error && <div style={{ ...card, borderColor: '#E3A5A5', background: '#FCEDED', color: '#8F1D1D', fontSize: 13 }}>{error}</div>}
 
       <div style={{ ...card, borderColor: calm ? 'var(--border)' : '#E8B93E' }}>
@@ -80,12 +87,15 @@ export default function CircleOverview({ onNav }: { onNav: (p: Page) => void }) 
           <div style={{ marginBottom: reviewCount || o.alerts_failed_7d ? 12 : 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>{o.unanswered.length} question{o.unanswered.length === 1 ? '' : 's'} with no answer{late.length ? `, ${late.length} waiting more than 6 hours` : ''}</div>
             {o.unanswered.slice(0, 8).map(q => (
-              <a key={q.id} href={SITE + q.id} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, background: 'var(--surface2)', marginBottom: 6, textDecoration: 'none', color: 'var(--text)' }}>
+              <div key={q.id} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
+              <a href={SITE + q.id} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', flex: 1, minWidth: 0, borderRadius: 8, background: 'var(--surface2)', textDecoration: 'none', color: 'var(--text)' }}>
                 <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap', background: q.hours >= 6 ? '#FCEDED' : '#FFF6DA', color: q.hours >= 6 ? '#8F1D1D' : '#7A5B00' }}>{waited(q.hours)}</span>
                 <span style={{ fontSize: 13, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.title}</span>
                 <Icon name="external" size={14} style={{ color: 'var(--text3)', flex: 'none' }} />
               </a>
+              {canReply && <button style={btn} onClick={() => setReplyTo(q.id)}>Reply as expert</button>}
+              </div>
             ))}
             {o.unanswered.length > 8 && <div style={muted}>and {o.unanswered.length - 8} more.</div>}
           </div>

@@ -407,7 +407,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'circle-members': ['crm.circle.members'],
   // The Circle overview holds counts and question titles only (no phone numbers), so
   // anyone who works on Circle or CRM may open it. The database allows any active staff.
-  'circle-home': ['crm.konnect', 'crm.circle.members', 'crm.view'],
+  'circle-home': ['crm.konnect', 'crm.circle.members', 'crm.circle.expert_replies', 'crm.view'],
   // Services: subscriptions to what Malkia sells that is not a product (first: the weekly
   // lessons). Its own permission; the database checks the same one (migration 100).
   // Super admins pass via the 40+ bypass.
