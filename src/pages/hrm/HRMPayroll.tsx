@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { monthBounds, prorate, proratedGross } from './proration'
+import { exportPayroll, type PayrollExportLine } from './hrmExport'
 import Toast from '../../components/Toast'
 import type { HRMProps } from './hrmTypes'
 import { computePayrollLine, DEFAULT_HR_SETTINGS } from './hrmTypes'
@@ -22,6 +23,7 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
   const [lines, setLines] = useState<PayLine[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7))
+  const [exporting, setExporting] = useState(false)
   const [posting, setPosting] = useState(false)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
@@ -173,6 +175,50 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
     }
   }
 
+  const downloadRegister = async (kind: 'preview' | 'posted') => {
+    if (!canManage || isSelfMode || posting || exporting || loading || period !== loadedPeriod) return
+    setExporting(true)
+    try {
+      if (kind === 'preview') {
+        await exportPayroll(period, kind, lines)
+        return
+      }
+      if (!previousRun) throw new Error('No posted payroll for this month.')
+      const recorded: PayrollExportLine[] = []
+      let reference = ''
+      let expected = 0
+      do {
+        const result = await supabase.from('hrm_payroll_lines')
+          .select('employee_id,gross,allowances,bonus,paye,nssf_ee,advance_deduction,deductions,net_pay,nssf_er,sdl,notes,employee:hrm_employees(emp_code,full_name),run:hrm_payroll_runs!inner(journal_ref)', { count: 'exact' })
+          .eq('payroll_run_id', previousRun).eq('run.status', 'posted').eq('run.period', period)
+          .order('id').range(recorded.length, recorded.length + 499)
+        if (result.error) throw result.error
+        if (!result.data?.length || result.count === null || (recorded.length && expected !== result.count)) {
+          throw new Error('Posted payroll changed or is unavailable. Recompute and try again.')
+        }
+        expected = result.count
+        for (const row of result.data) {
+          const emp = Array.isArray(row.employee) ? row.employee[0] : row.employee
+          const run = Array.isArray(row.run) ? row.run[0] : row.run
+          reference = run?.journal_ref || ''
+          recorded.push({
+            code: emp?.emp_code || row.employee_id, name: emp?.full_name || '', gross: row.gross,
+            allowances: row.allowances, bonus: row.bonus, paye: row.paye, nssfEe: row.nssf_ee,
+            advanceDeduction: row.advance_deduction, deductions: row.deductions, net: row.net_pay,
+            nssfEr: row.nssf_er, sdl: row.sdl, notes: row.notes,
+          })
+        }
+      } while (recorded.length < expected)
+      recorded.sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code))
+      await exportPayroll(period, kind, recorded, reference)
+    } catch (error) {
+      setToast(error && typeof error === 'object' && 'message' in error ? String(error.message) : 'Could not export payroll. Please try again.')
+      setToastType('error')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   // Self mode: show only own line
   const displayLines = isSelfMode && linkedEmployeeId
     ? lines.filter(l => l.empId === linkedEmployeeId)
@@ -193,15 +239,21 @@ export default function HRMPayroll({ onNav: _onNav, hrmMode = 'company', linkedE
       <div className="page-header">
         <div>
           <div className="page-title">{isSelfMode ? 'My Payroll' : 'Payroll Run'}</div>
-          <div className="page-sub">{isSelfMode ? 'Your salary breakdown' : `TRA 2024 PAYE bands · NSSF optional per employee · SDL ${settings.sdl_rate}% · Posts to accounts: 6010, 2030, 2040, 2050, 2060`}</div>
+          <div className="page-sub">{isSelfMode ? 'Your salary breakdown' : `TRA 2024 PAYE bands · NSSF optional per employee · SDL ${settings.sdl_rate}% · Posting records salaries and deductions. Bank payments and WhatsApp delivery are separate.`}</div>
         </div>
         <div className="page-actions">
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 11 }}>
             <span>Month</span>
-            <input type="month" disabled={posting} value={period} onChange={e => setPeriod(e.target.value)} style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontSize: 11, fontFamily: 'var(--mono)', cursor: 'pointer', outline: 'none' }} />
+            <input type="month" disabled={posting || exporting} value={period} onChange={e => setPeriod(e.target.value)} style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontSize: 11, fontFamily: 'var(--mono)', cursor: 'pointer', outline: 'none' }} />
           </div>
-          <button className="btn btn-ghost btn-sm" disabled={posting} onClick={load}>Recompute</button>
-          {canManage && <button className="btn btn-primary btn-sm" onClick={postPayroll} disabled={posting || loading || loadedPeriod !== period || !lines.length}>{posting ? 'Posting...' : 'Post Journal'}</button>}
+          <button className="btn btn-ghost btn-sm" disabled={posting || exporting} onClick={load}>Recompute</button>
+          {!isSelfMode && canManage && <>
+            <button className="btn btn-ghost btn-sm" disabled={loading || posting || exporting || loadedPeriod !== period || !lines.length}
+              onClick={() => downloadRegister('preview')}>Export preview (.xlsx)</button>
+            {previousRun && loadedPeriod === period && <button className="btn btn-ghost btn-sm" disabled={loading || posting || exporting}
+              onClick={() => downloadRegister('posted')}>Export posted (.xlsx)</button>}
+          </>}
+          {canManage && <button className="btn btn-primary btn-sm" onClick={postPayroll} disabled={posting || exporting || loading || loadedPeriod !== period || !lines.length}>{posting ? 'Posting...' : 'Post Journal'}</button>}
         </div>
       </div>
 

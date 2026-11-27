@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
 import { tzs, localIso } from '../../lib/utils'
+import { EmployeeDirectoryViews, type DirectoryView } from './EmployeeDirectoryViews'
+import { exportEmployees } from './hrmExport'
 import EmployeeDialog from './EmployeeDialog'
 import EmployeeStatus from './EmployeeStatus'
 import './employee-profile.css'
@@ -20,6 +22,8 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
   const rosterRequest = useRef(0)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('active')
+  const [view, setView] = useState<DirectoryView>('Cards')
+  const [sortBy, setSortBy] = useState('name')
   const [filterDept, setFilterDept] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState('')
@@ -239,7 +243,26 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
 
   const filtered = employees.filter(emp =>
     (filterDept === 'all' || emp.department === filterDept) &&
-    (statusFilter === 'inactive' ? !emp.is_active : emp.is_active))
+    (statusFilter === 'inactive' ? !emp.is_active : emp.is_active)).sort((a, b) => {
+    const byName = a.full_name.localeCompare(b.full_name)
+    switch (sortBy) {
+      case 'name-desc': return -byName
+      case 'department': return (a.department || '').localeCompare(b.department || '') || byName
+      case 'code': return (a.emp_code || '').localeCompare(b.emp_code || '', undefined, { numeric: true }) || byName
+      case 'end': return (a.end_date || '9999').localeCompare(b.end_date || '9999') || byName
+      case 'gross': return (b.gross_salary || 0) - (a.gross_salary || 0) || byName
+      default: return byName
+    }
+  })
+
+  const downloadEmployees = async () => {
+    if (readOnly || loading || !filtered.length) return
+    try {
+      await exportEmployees(filtered, statusFilter)
+    } catch {
+      setToast('Employee export failed. Please try again.'); setToastType('error')
+    }
+  }
 
   const startEdit = (employee: Employee) => {
     if (readOnly) return
@@ -376,8 +399,24 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
         )}
       </div>
 
+      {!isSelfMode && (
+        <div className="employee-tools">
+          <div className="employee-view-switch" role="group" aria-label="Employee directory view">
+            {(['Cards', 'Compact', 'List'] as const).map(option => <button key={option} aria-pressed={view === option}
+              className={view === option ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setView(option)}>{option}</button>)}
+          </div>
+          <label>Sort by <select style={{ ...inputStyle, width: 'auto' }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+            <option value="name">Name A–Z</option><option value="name-desc">Name Z–A</option>
+            <option value="department">Department</option><option value="code">Employee ID</option>
+            <option value="end">Contract ending soonest</option><option value="gross">Highest gross salary</option>
+          </select></label>
+          {!readOnly && <button className="btn btn-ghost" disabled={loading || !filtered.length} onClick={downloadEmployees}>Export employees (.xlsx)</button>}
+        </div>
+      )}
       {!isSelfMode && (loading ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading employees...</div>
+      ) : view !== 'Cards' ? (
+        filtered.length ? <EmployeeDirectoryViews view={view} employees={filtered} open={openDrawer} canEdit={!readOnly} /> : <p>No employees match this filter.</p>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 290px), 1fr))', gap: 16 }}>
           {filtered.map(emp => {
