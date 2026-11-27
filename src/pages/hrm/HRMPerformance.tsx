@@ -23,7 +23,7 @@ export default function HRMPerformance({ onNav: _onNav, hrmMode = 'company', lin
       isSelfMode && linkedEmployeeId
         ? supabase.from('hrm_appraisals').select('*, employee:hrm_employees(id, full_name, initials, job_title, department)').eq('employee_id', linkedEmployeeId).order('created_at', { ascending: false })
         : supabase.from('hrm_appraisals').select('*, employee:hrm_employees(id, full_name, initials, job_title, department)').order('created_at', { ascending: false }),
-      supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
+      isSelfMode ? { data: [] } : supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
     ])
     setAppraisals(appRes.data || [])
     setEmployees(empRes.data || [])

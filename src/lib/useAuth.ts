@@ -453,7 +453,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'investors-portfolio': ['reports.financials'],
   'investors-reports': ['reports.financials'],
   'bundles': ['sales.view'],
-  // HRM Module — view_own gives self-service access, view_all/manage gives company mode
+  // HR routes require explicit grants, including for accounts with many other permissions.
   'hrm': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
   'hrm-employees': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
   'hrm-assets': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
@@ -462,6 +462,9 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   'hrm-payslip-template': ['hrm.confidential'],
   'hrm-leave': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
   'hrm-attendance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'hrm-kpi': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'attendance-checkin': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
+  'attendance-kiosk': ['hrm.confidential'],
   'hrm-performance': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
   'hrm-recruitment': ['hrm.recruit', 'hrm.confidential'],
   'hrm-events': ['hrm.view', 'hrm.view_own', 'hrm.view_all', 'hrm.manage', 'hrm.confidential'],
@@ -469,8 +472,11 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
 }
 
 export function canAccessPage(page: string, permissions: string[]): boolean {
-  if (permissions.length >= 40) return true
   const requiredPerms = PAGE_PERMISSIONS[page]
+  if (page === 'hrm' || page.startsWith('hrm-') || page === 'attendance-checkin' || page === 'attendance-kiosk') {
+    return requiredPerms?.some(p => permissions.includes(p)) ?? false
+  }
+  if (permissions.length >= 40) return true
   if (!requiredPerms) return true
   return requiredPerms.some(p => permissions.includes(p))
 }

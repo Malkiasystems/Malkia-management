@@ -11,14 +11,14 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
   const [stats, setStats] = useState({ total: 0, fullTime: 0, contract: 0, intern: 0, payroll: 0, onLeave: 0, assetsOut: 0 })
   const [events, setEvents] = useState<any[]>([])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { if (!isSelfMode) load() }, [isSelfMode])
 
   const load = async () => {
     setLoading(true)
     const [empRes, leaveRes, assetRes, evtRes] = await Promise.all([
       supabase.from('hrm_employees').select('*').eq('is_active', true).order('full_name'),
       supabase.from('hrm_leave_requests').select('employee_id').eq('status', 'approved')
-        .gte('start_date', localIso(new Date()))
+        .gte('end_date', localIso(new Date()))
         .lte('start_date', localIso(new Date())),
       supabase.from('hrm_assets').select('id').eq('status', 'assigned'),
       supabase.from('hrm_events').select('*').gte('event_date', localIso(new Date())).order('event_date').limit(5),
@@ -63,7 +63,7 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
             <div className="page-sub">Quick access to your HR information</div>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,210px),1fr))', gap: 16, marginTop: 8 }}>
           {[
             { label: 'My Profile', desc: 'Personal details, bank info, documents', page: 'hrm-employees' as const, color: '#6366f1', icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
             { label: 'My Leave', desc: 'Balance, requests, history', page: 'hrm-leave' as const, color: '#22c55e', icon: 'M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z' },
@@ -100,7 +100,7 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
       </div>
 
       {/* KPI Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,150px),1fr))', gap: 12, marginBottom: 20 }}>
         {statCards.map((s, i) => (
           <div key={i} className="card" style={{ padding: 14, textAlign: 'center', borderLeft: `3px solid ${s.color}` }}>
             <div style={{ fontSize: 22, fontWeight: 900, color: s.color }}>{loading ? '...' : s.value}</div>
@@ -109,9 +109,9 @@ export default function HRMDashboard({ onNav, hrmMode = 'company', linkedEmploye
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,320px),1fr))', gap: 16 }}>
         {/* Staff Overview */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
           <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 13 }}>Staff Overview</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 90px 80px', padding: '8px 18px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 10, color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px' }}>
             <span>Employee</span><span>Dept</span><span>Type</span><span style={{ textAlign: 'right' }}>Gross</span>

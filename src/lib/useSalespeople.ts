@@ -7,7 +7,7 @@ export interface Salesperson { id: string; emp_code: string; full_name: string }
 export function useSalespeople() {
   const [salespeople, setSalespeople] = useState<Salesperson[]>([])
   useEffect(() => {
-    supabase.from('hrm_employees').select('id, emp_code, full_name')
+    supabase.from('hrm_staff_directory').select('id, emp_code, full_name')
       .eq('is_active', true).order('full_name')
       .then(({ data }) => { if (data) setSalespeople(data as Salesperson[]) })
   }, [])

@@ -34,7 +34,7 @@ export default function HRMAssets({ onNav: _onNav, hrmMode = 'company', linkedEm
       isSelfMode && linkedEmployeeId
         ? supabase.from('hrm_assets').select('*, employee:hrm_employees(id, full_name, initials)').eq('employee_id', linkedEmployeeId).order('asset_name')
         : supabase.from('hrm_assets').select('*, employee:hrm_employees(id, full_name, initials)').order('asset_name'),
-      supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
+      isSelfMode ? { data: [] } : supabase.from('hrm_employees').select('id, full_name').eq('is_active', true).order('full_name'),
       supabase.from('accounts').select('id, code, name').eq('type', 'asset').in('category', ['Fixed Assets', 'Equipment', 'Property & Equipment', 'Current Assets']).eq('is_active', true).order('code'),
       supabase.from('accounts').select('id, code, name').eq('category', 'Cash & Bank').eq('is_active', true).order('code'),
     ])

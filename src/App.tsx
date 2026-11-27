@@ -476,7 +476,7 @@ function AppContent() {
     } catch { /* private mode */ }
   }
   const [receiptPrefill, setReceiptPrefill] = useState<{ customerId?: string } | null>(null)
-  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser, can, isSuperAdmin } = useAuth()
+  const { user, permissions, loading: authLoading, isAuthenticated, refreshUser } = useAuth()
   useInactivityLogout()
 
   // Keep internal page state in sync with browser back/forward buttons
@@ -504,34 +504,29 @@ function AppContent() {
   }, [])
 
   // ── HRM Mode: Self vs Company ──────────────────────────
-  const [hrmMode, setHrmMode] = useState<HRMViewMode>('self')
-  const [linkedEmployeeId, setLinkedEmployeeId] = useState<string | null>(null)
-  const [hrmLinked, setHrmLinked] = useState(false)
+  const [hrmMode, setHrmMode] = useState<HRMViewMode>('company')
+  const [employeeLink, setEmployeeLink] = useState<{ userId: string; id: string | null } | null>(null)
+  const hrmCanManage = permissions.includes('hrm.confidential')
+  const isHrmPage = page === 'hrm' || page.startsWith('hrm-')
+  const hrmAllowed = isHrmPage && canAccessPage(page, permissions)
+  const verified = !!user && (!user.mfa_enabled || isMfaVerifiedThisSession(user.id))
+  const hrmLinked = !!user && employeeLink?.userId === user.id
+  const linkedEmployeeId = hrmLinked ? employeeLink?.id ?? null : null
 
-  // Determine HRM access level
-  const hrmCanManage = isSuperAdmin() || can('hrm.confidential')
-  const hrmSelfOnly = !hrmCanManage && can('hrm.view_own')
-
-  // Link logged-in user to their employee record (by email)
   useEffect(() => {
-    if (!user?.email) return
+    if (!user || !hrmAllowed || !verified) return
+    let active = true
     const linkEmployee = async () => {
-      const { data } = await supabase
-        .from('hrm_employees')
-        .select('id')
-        .eq('email', user.email.toLowerCase())
-        .eq('is_active', true)
-        .single()
-      setLinkedEmployeeId(data?.id || null)
-      setHrmLinked(true)
-      // Self-only users always stay in self mode
-      if (hrmSelfOnly) setHrmMode('self')
+      const { data } = await supabase.from('hrm_employees').select('id')
+        .eq('email', user.email.toLowerCase()).eq('is_active', true).maybeSingle()
+      if (active) setEmployeeLink({ userId: user.id, id: data?.id ?? null })
     }
     linkEmployee()
-  }, [user?.email])
+    return () => { active = false }
+  }, [user?.id, user?.email, hrmAllowed, verified])
 
-  // For self-only users, force self mode
-  const effectiveHrmMode = hrmSelfOnly ? 'self' : hrmMode
+  const effectiveHrmMode = hrmCanManage ? hrmMode : 'self'
+  const companyActions = hrmCanManage && effectiveHrmMode === 'company'
 
   const navigate = (p: Page) => {
     if (p !== 'cash-receipt') setReceiptPrefill(null)   // clear stale prefill when leaving the receipt page
@@ -616,6 +611,12 @@ function AppContent() {
     // Show access denied if user doesn't have permission
     if (!hasAccess && !authLoading) {
       return <AccessDenied page={page} onNav={navigate} />
+    }
+
+    if (hrmAllowed && !hrmLinked) return <PageLoader />
+    const recruitmentAccess = page === 'hrm-recruitment' && permissions.includes('hrm.recruit')
+    if (hrmAllowed && effectiveHrmMode === 'self' && !linkedEmployeeId && !recruitmentAccess) {
+      return <div className="page">No active employee profile is linked to this account.</div>
     }
 
     switch (page) {
@@ -765,27 +766,25 @@ function AppContent() {
       case 'crm-customers':     return <Customers onNav={navigate} onViewStatement={navigateToStatement} onReceipt={navigateToReceipt} />
       
       // HRM Module Routes — pass mode, linked employee, and manage permission
-      case 'hrm':               return <HRMDashboard onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-employees':     return <HRMEmployees onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-assets':        return <HRMAssets onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-payroll':       return <HRMPayroll onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-payslips':      return <HRMPayslips onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-payslip-template': return <HRMPayslipTemplate onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-leave':         return <HRMLeave onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-attendance':    return <HRMAttendance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-performance':   return <HRMPerformance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-kpi':           return <HRMKpi onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-recruitment':   return <HRMRecruitment onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-events':        return <HRMEvents onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
-      case 'hrm-settings':      return <HRMSettings onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={hrmCanManage} />
+      case 'hrm':               return <HRMDashboard onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-employees':     return <HRMEmployees onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-assets':        return <HRMAssets onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-payroll':       return <HRMPayroll onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-payslips':      return <HRMPayslips onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-payslip-template': return <HRMPayslipTemplate onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-leave':         return <HRMLeave onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-attendance':    return <HRMAttendance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-performance':   return <HRMPerformance onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-kpi':           return <HRMKpi onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-recruitment':   return <HRMRecruitment onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-events':        return <HRMEvents onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
+      case 'hrm-settings':      return <HRMSettings onNav={navigate} hrmMode={effectiveHrmMode} linkedEmployeeId={linkedEmployeeId} canManage={companyActions} />
       
       default:                  return <ComingSoon module={BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || page} />
     }
   }
 
   const breadcrumb = BREADCRUMBS[page] || EXTENDED_BREADCRUMBS[page] || 'Dashboard'
-  const isHrmPage = page === 'hrm' || page.startsWith('hrm-')
-
   return (
       <CacheProvider>
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -828,13 +827,7 @@ function AppContent() {
                   </div>
                 </div>
               )}
-              {/* Not-linked warning for self-only users */}
-              {isHrmPage && hrmSelfOnly && hrmLinked && !linkedEmployeeId && (
-                <div style={{ padding: '12px 20px', background: '#f59e0b11', borderBottom: '2px solid #f59e0b', fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>
-                  Your account is not linked to an employee profile. Please ask an administrator to set your email address on your employee record.
-                </div>
-              )}
-              <Suspense fallback={<PageLoader />}>
+              <Suspense key={isHrmPage ? JSON.stringify([user?.id, effectiveHrmMode, linkedEmployeeId]) : undefined} fallback={<PageLoader />}>
                 {renderPage()}
               </Suspense>
             </div>
