@@ -5,8 +5,9 @@ import { useTableSort } from '../lib/useTableSort'
 import { exportStatementCSV, exportStatementExcel, exportStatementPDF, type StatementExportRow, type StatementExportMeta } from '../lib/bankStatementExport'
 import { supabase } from '../lib/supabase'
 import { accountBrand, defaultColorForNature, iconForNature, hexToTint } from '../components/accountBrand'
-import { tzs, localIso, today } from '../lib/utils'
-import { clampFrom } from '../lib/ledgerCutover'
+import { tzs, today } from '../lib/utils'
+import { bankToday, daysBefore, bankStatement, postedBalances } from '../lib/bankLedger'
+import { getCutoverDate, clampFrom } from '../lib/ledgerCutover'
 import { entryTime, entryTimeSeconds, chronoKey } from '../lib/entryTime'
 import { usePermission } from '../lib/useAuth'
 import type { Page } from '../lib/types'
@@ -150,10 +151,16 @@ export default function Banks({ onNav }: Props) {
   const [accounts, setAccounts] = useState<BankAccount[]>([])
   const [selected, setSelected] = useState<BankAccount | null>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
+  const [range, setRange] = useState<{ from: string; to: string; opening: number; closing: number } | null>(null)
+  const [ledgerError, setLedgerError] = useState('')
+  const [accountError, setAccountError] = useState('')
+  const accountRequest = useRef(0)
+  const ledgerRequest = useRef(0)
+  const selectedId = useRef('')
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [loadingLedger, setLoadingLedger] = useState(false)
-  const [fromDate, setFromDate] = useState(clampFrom(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1))))
-  const [toDate, setToDate] = useState(localIso(new Date()))
+  const [fromDate, setFromDate] = useState(clampFrom(bankToday().slice(0, 7) + '-01'))
+  const [toDate, setToDate] = useState(bankToday())
   const [monthStats, setMonthStats] = useState<Record<string, { in: number; out: number }>>({})
   const [statementBalance, setStatementBalance] = useState('')
   const [showReconcile, setShowReconcile] = useState(false)
@@ -406,34 +413,35 @@ export default function Banks({ onNav }: Props) {
   }, [accounts, loadingAccounts])
 
   const loadAccounts = async () => {
+    const request = ++accountRequest.current
     setLoadingAccounts(true)
-    // Fetch by CATEGORY, not by a hardcoded list of codes. The old approach
-    // baked Malkia's specific numbering (1010, 1020, 1021, 1022, 1030, 1031,
-    // 1040) into the query, which meant any tenant using different codes
-    // saw an empty page OR any tenant that happened to have 1050 land in
-    // that code set saw Accounts Receivable as a bank account. Neither is
-    // right. Cash & Bank is the accounting category we actually want.
-    const { data } = await supabase
-      .from('accounts')
-      .select('id, code, name, balance, nature, display_color, account_number, description, show_in_cash_sale, branch')
-      .eq('category', 'Cash & Bank')
-      .eq('is_active', true)
-      .order('code')
-    if (data) {
-      setAccounts(data)
-      loadMonthStats(data)
-      if (!selected && data.length > 0) {
-        setSelected(data[0])
-        loadLedger(data[0])
-      }
+    setAccountError('')
+    try {
+      const { data, error } = await supabase.from('accounts')
+        .select('id, code, name, nature, display_color, account_number, description, show_in_cash_sale, branch')
+        .eq('category', 'Cash & Bank').eq('is_active', true).order('code')
+      if (error) throw error
+      const rows = data || []
+      const balances = await postedBalances(rows.map(row => row.id), await getCutoverDate(), bankToday())
+      if (request !== accountRequest.current) return
+      const accts = rows.map(row => ({ ...row, balance: balances.get(row.id) || 0 }))
+      setAccounts(accts)
+      void loadMonthStats(accts)
+      const acct = accts.find(row => row.id === selectedId.current) || accts[0]
+      selectedId.current = acct?.id || ''
+      setSelected(acct || null)
+      if (acct) void loadLedger(acct)
+    } catch {
+      if (request === accountRequest.current) setAccountError('Could not refresh posted bank balances. Please retry.')
+    } finally {
+      if (request === accountRequest.current) setLoadingAccounts(false)
     }
-    setLoadingAccounts(false)
   }
 
   const loadMonthStats = async (accts: BankAccount[]) => {
     const stats: Record<string, { in: number; out: number }> = {}
-    const monthStart = clampFrom(localIso(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
-    const todayStr = localIso(new Date())
+    const monthStart = clampFrom(bankToday().slice(0, 7) + '-01')
+    const todayStr = bankToday()
 
     // Bounded in the query. The unbounded version hit the same 1,000-row cap
     // as loadLedger and quietly reported MONTH IN/OUT as zero.
@@ -455,72 +463,28 @@ export default function Banks({ onNav }: Props) {
   }
 
   const loadLedger = async (acct: BankAccount, from?: string, to?: string) => {
-    const f = from || fromDate
-    const t = to || toDate
+    const request = ++ledgerRequest.current
     setLoadingLedger(true)
-    // One query, filtered server-side through the embedded journals relation.
-    //
-    // The two-step version this replaces fetched EVERY line for the account
-    // unbounded and oldest-first, and PostgREST caps a response at 1,000 rows.
-    // M-Pesa 1020 carries 2,300+ lines, so the cap returned only the OLDEST
-    // thousand, none from the requested range, and the statement rendered
-    // empty under a correct balance. Fixed once on the pre-port page, lost in
-    // the wholesale port, now fixed at the source.
-    const { data: lines } = await supabase
-      .from('journal_lines')
-      .select('id, created_at, debit, credit, description, journal_id, journals!inner(ref, posting_date, journal_type, source_ref, status)')
-      .eq('account_id', acct.id)
-      .gte('journals.posting_date', f)
-      .lte('journals.posting_date', t)
-      .eq('journals.status', 'posted')
-      .order('created_at', { ascending: true })
-
-    if (!lines || lines.length === 0) { setLedger([]); setLoadingLedger(false); return }
-
-    // Running balance must follow ACCOUNTING chronology: posting_date first,
-    // creation time second. The old code accumulated in raw created_at order,
-    // which walks a BACKDATED entry (posted today, dated last week) at the
-    // END of the run instead of on its accounting date, skewing every
-    // running figure between the two dates. Sort the composite key first,
-    // then accumulate.
-    //
-    // created_at MUST be in the select above for this to do anything. It was
-    // not, so every same-day row produced the identical key, the sort became
-    // a no-op, and the day's entries stayed in arrival order — oldest at the
-    // top of the day, newest buried at the bottom.
-    const chrono = [...lines].sort((a: any, b: any) =>
-      chronoKey(a.journals.posting_date, a.created_at).localeCompare(chronoKey(b.journals.posting_date, b.created_at)))
-
-    let running = 0
-    const entries = chrono
-      .map((l: any) => {
-        const j = l.journals
-        running += (l.debit || 0) - (l.credit || 0)
-        return {
-          id: l.id,
-          posting_date: j.posting_date,
-          created_at: l.created_at || '',
-          description: l.description || '—',
-          debit: l.debit || 0,
-          credit: l.credit || 0,
-          voucher_ref: j.source_ref || j.ref || '—',
-          voucher_type: j.journal_type || '',
-          running_balance: running,
-        }
-      })
-      // Display newest-first down to the individual entry. posting_date has
-      // no time component, so a date-only sort left same-day entries in
-      // creation order (oldest at top of the day, NEWEST at the very bottom
-      // of the day's block) — which is exactly how a 21:09 receipt "went
-      // missing" below the scroll fold under 20 earlier entries.
-      .sort((a: any, b: any) =>
-        chronoKey(b.posting_date, b.created_at).localeCompare(chronoKey(a.posting_date, a.created_at)))
-
-    setLedger(entries)
-    setLoadingLedger(false)
+    setLedger([])
+    setRange(null)
+    setLedgerError('')
+    setStatementBalance('')
+    try {
+      const result = await bankStatement(acct.id, from ?? fromDate, to ?? toDate)
+      if (request !== ledgerRequest.current || selectedId.current !== acct.id) return
+      setLedger(result.entries)
+      setRange({ from: result.from, to: result.to, opening: result.opening, closing: result.closing })
+      setSelected({ ...acct, balance: result.current })
+      setAccounts(all => all.map(row => row.id === acct.id ? { ...row, balance: result.current } : row))
+    } catch (error) {
+      if (request === ledgerRequest.current) setLedgerError(error instanceof Error ? error.message : 'Could not load the complete statement. Please retry.')
+    } finally {
+      if (request === ledgerRequest.current) setLoadingLedger(false)
+    }
   }
 
   const selectAccount = (acct: BankAccount) => {
+    selectedId.current = acct.id
     setSelected(acct)
     setShowReconcile(false)
     loadLedger(acct)
@@ -542,7 +506,7 @@ export default function Banks({ onNav }: Props) {
   const totalIn = ledger.reduce((s, l) => s + l.debit, 0)
   const totalOut = ledger.reduce((s, l) => s + l.credit, 0)
   const netFlow = totalIn - totalOut
-  const diff = selected ? (parseFloat(statementBalance.replace(/,/g, '')) || 0) - selected.balance : 0
+  const diff = range ? (parseFloat(statementBalance.replace(/,/g, '')) || 0) - range.closing : 0
 
   // Export the currently-loaded statement. Three formats share one row
   // builder. Rows are re-sorted CHRONOLOGICALLY and carry the same per-row
@@ -560,8 +524,8 @@ export default function Banks({ onNav }: Props) {
   }, [exportOpen])
 
   const exportStatement = (kind: 'csv' | 'excel' | 'pdf') => {
-    if (!selected || ledger.length === 0) return
-    const chrono = [...ledger].sort((a, b) => chronoKey(a.posting_date, a.created_at).localeCompare(chronoKey(b.posting_date, b.created_at)))
+    if (!selected || !range) return
+    const chrono = [...ledger].reverse()
     const rows: StatementExportRow[] = chrono.map(l => ({
       date: l.posting_date,
       time: entryTime(l.created_at),
@@ -576,7 +540,7 @@ export default function Banks({ onNav }: Props) {
       accountName: selected.name,
       accountCode: selected.code,
       accountNumber: selected.account_number,
-      fromDate, toDate,
+      fromDate: range.from, toDate: range.to, opening: range.opening, closing: range.closing,
       totalIn, totalOut, netFlow,
       count: ledger.length,
     }
@@ -629,9 +593,9 @@ export default function Banks({ onNav }: Props) {
           <div style={{ position: 'relative' }}>
             <button
               className="btn btn-ghost btn-sm"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: selected && ledger.length > 0 ? 1 : 0.5 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: selected && range ? 1 : 0.5 }}
               onClick={e => { e.stopPropagation(); setExportOpen(o => o === 'header' ? null : 'header') }}
-              disabled={!selected || ledger.length === 0}
+              disabled={!selected || !range}
               title={selected ? 'Download the current statement as PDF, Excel, or CSV' : 'Select an account first'}
             >
               <Icon name="export" size={14} /> Export ▾
@@ -655,6 +619,7 @@ export default function Banks({ onNav }: Props) {
         </div>
       </div>
 
+      {accountError && <p role="alert">{accountError}</p>}
       {/* TOTAL BALANCE BANNER */}
       <div style={{ background: 'linear-gradient(135deg, rgba(var(--accent-rgb),.15) 0%, rgba(0,229,160,.08) 100%)', border: '1px solid rgba(var(--accent-rgb),.2)', borderRadius: 'var(--r)', padding: '16px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -946,9 +911,9 @@ export default function Banks({ onNav }: Props) {
                       <button className="btn btn-primary btn-sm" onClick={() => loadLedger(selected)}>Load</button>
                     </div>
                     {[
-                        { label: 'Today', f: localIso(new Date()), t: localIso(new Date()) },
-                        { label: 'This Week', f: localIso(new Date(Date.now()-6*86400000)), t: localIso(new Date()) },
-                        { label: 'This Month', f: localIso(new Date(new Date().getFullYear(),new Date().getMonth(),1)), t: localIso(new Date()) },
+                        { label: 'Today', f: bankToday(), t: bankToday() },
+                        { label: 'This Week', f: daysBefore(bankToday(), 6), t: bankToday() },
+                        { label: 'This Month', f: bankToday().slice(0, 7) + '-01', t: bankToday() },
                       ].map(p => (
                       <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => {
                         setFromDate(p.f); setToDate(p.t)
@@ -961,7 +926,7 @@ export default function Banks({ onNav }: Props) {
                   </div>
 
                   {/* RECONCILIATION PANEL */}
-                  {showReconcile && (
+                  {showReconcile && range && (
                     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
                       <div style={{ fontFamily: 'var(--display)', fontSize: 14, fontWeight: 700, marginBottom: 14, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Icon name="reconcile" size={16} color="var(--accent)" /> Bank Reconciliation
@@ -972,8 +937,8 @@ export default function Banks({ onNav }: Props) {
                           <input className="form-input" style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700 }} placeholder="Enter bank statement balance" value={statementBalance} onChange={e => setStatementBalance(e.target.value)} />
                         </div>
                         <div>
-                          <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>GL BALANCE (system)</div>
-                          <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: 'var(--text)', padding: '10px 14px', background: 'var(--surface2)', borderRadius: 'var(--r)', border: '1px solid var(--border)' }}>{tzs(selected.balance)}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>GL closing balance · {range.to}</div>
+                          <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: 'var(--text)', padding: '10px 14px', background: 'var(--surface2)', borderRadius: 'var(--r)', border: '1px solid var(--border)' }}>{tzs(range.closing)}</div>
                         </div>
                       </div>
                       {statementBalance && (
@@ -1000,7 +965,8 @@ export default function Banks({ onNav }: Props) {
                       <div>
                         <div className="card-title">{selected.name} — Statement</div>
                         <div className="card-sub">
-                          {fromDate} to {toDate} · {ledger.length} entries
+                          {range && <>{range.from} to {range.to} · {ledger.length} entries<br />
+                            Opening balance {tzs(range.opening)} · <strong>Closing balance {tzs(range.closing)}</strong></>}
                           {ledgerSortSpecs.length > 0 && ' · sorted — Balance shows each entry\u2019s balance after posting'}
                         </div>
                       </div>
@@ -1016,9 +982,9 @@ export default function Banks({ onNav }: Props) {
                         <div style={{ position: 'relative' }}>
                           <button
                             className="btn btn-ghost btn-sm"
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: ledger.length > 0 ? 1 : 0.5 }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: range ? 1 : 0.5 }}
                             onClick={e => { e.stopPropagation(); setExportOpen(o => o === 'card' ? null : 'card') }}
-                            disabled={ledger.length === 0}
+                            disabled={!range}
                             title="Download the current statement as PDF, Excel, or CSV"
                           >
                             <Icon name="export" size={13} /> Export ▾
@@ -1044,7 +1010,7 @@ export default function Banks({ onNav }: Props) {
 
                     {loadingLedger ? (
                       <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>Loading ledger…</div>
-                    ) : ledger.length === 0 ? (
+                    ) : ledgerError ? <div role="alert">{ledgerError}</div> : ledger.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text3)' }}>
                         <div style={{ marginBottom: 8 }}><Icon name="bank" size={32} color="var(--surface3)" /></div>
                         No transactions found for this period.
@@ -1105,7 +1071,7 @@ export default function Banks({ onNav }: Props) {
                               <td colSpan={5} style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase' }}>Period Totals</td>
                               <td className="td-right td-mono" style={{ color: 'var(--green)', fontSize: 13, padding: '10px 14px' }}>{tzs(totalIn)}</td>
                               <td className="td-right td-mono" style={{ color: 'var(--red)', fontSize: 13, padding: '10px 14px' }}>({tzs(totalOut)})</td>
-                              <td className="td-right td-mono" style={{ color: netFlow >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 14, fontWeight: 800, padding: '10px 14px' }}>{tzs(selected.balance)}</td>
+                              <td className="td-right td-mono" style={{ color: netFlow >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 14, fontWeight: 800, padding: '10px 14px' }}>{range && tzs(range.closing)}</td>
                             </tr>
                           </tfoot>
                         </table>

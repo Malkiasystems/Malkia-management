@@ -44,6 +44,8 @@ export interface StatementExportMeta {
   accountNumber?: string | null
   fromDate: string
   toDate: string
+  opening: number
+  closing: number
   totalIn: number
   totalOut: number
   netFlow: number
@@ -66,7 +68,9 @@ export function exportStatementCSV(rows: StatementExportRow[], meta: StatementEx
     [r.date, r.time || '', r.ref, r.type, r.description, r.moneyIn || '', r.moneyOut || '', r.balance]
       .map(escape).join(',')
   )
-  const csv = [HEAD.map(escape).join(','), ...lines].join('\n')
+  const summary = (date: string, label: string, balance: number) => [date, '', '', '', label, '', '', balance].map(escape).join(',')
+  const csv = [HEAD.map(escape).join(','), summary(meta.fromDate, 'Opening balance', meta.opening),
+    ...lines, summary(meta.toDate, 'Closing balance', meta.closing)].join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -85,8 +89,10 @@ export function exportStatementExcel(rows: StatementExportRow[], meta: Statement
     [`Generated: ${new Date().toLocaleString()}`],
     [],
     HEAD,
+    [meta.fromDate, '', '', '', 'Opening balance', '', '', meta.opening],
     ...rows.map(r => [r.date, r.time || '', r.ref, r.type, r.description, r.moneyIn || '', r.moneyOut || '', r.balance]),
     [],
+    [meta.toDate, '', '', '', 'Closing balance', '', '', meta.closing],
     ['', '', '', '', '', 'Money In', meta.totalIn],
     ['', '', '', '', '', 'Money Out', meta.totalOut],
     ['', '', '', '', '', 'Net Flow', meta.netFlow],
@@ -156,7 +162,9 @@ export function exportStatementPDF(rows: StatementExportRow[], meta: StatementEx
         <th>Date</th><th>Time</th><th>Reference</th><th>Type</th><th>Description</th>
         <th class="num">Money In</th><th class="num">Money Out</th><th class="num">Balance</th>
       </tr></thead>
-      <tbody>${bodyRows}</tbody>
+      <tbody><tr><td colspan="7">Opening balance</td><td class="num">${money(meta.opening)}</td></tr>
+        ${bodyRows}
+        <tr><td colspan="7">Closing balance</td><td class="num">${money(meta.closing)}</td></tr></tbody>
     </table>
     <div class="totals">
       <div>Money In: <b>TZS ${money(meta.totalIn)}</b></div>
