@@ -14,6 +14,8 @@ export default function CircleExpertReplies({ initialId, onClose }: { initialId:
   const [questions, setQuestions] = useState<Question[]>([])
   const [experts, setExperts] = useState<Expert[]>([])
   const [expertId, setExpertId] = useState('')
+  const expertPicker = useRef<HTMLSelectElement>(null)
+  const [showExpertPrompt, setShowExpertPrompt] = useState(false)
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -71,6 +73,7 @@ export default function CircleExpertReplies({ initialId, onClose }: { initialId:
     setQuestion(null)
     setBody('')
     setExpertId('')
+    setShowExpertPrompt(false)
     request.current = ''
   }
 
@@ -116,13 +119,25 @@ export default function CircleExpertReplies({ initialId, onClose }: { initialId:
         <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{question.body}</p>
         <a href={'https://www.malkia.co.tz/circle/swali/' + question.id} target="_blank" rel="noreferrer">View question and existing replies in Circle</a>
         <form style={{ marginTop: 18 }} onSubmit={e => { e.preventDefault(); void publish() }}>
-          <label>Expert who supplied the reply<select className="form-input" style={field} required disabled={busy} value={expertId} onChange={e => { setExpertId(e.target.value); request.current = '' }}>
+          <label>Expert who supplied the reply<select ref={expertPicker} className="form-input" style={field} required disabled={busy} value={expertId}
+            aria-invalid={showExpertPrompt || undefined} aria-describedby={showExpertPrompt ? 'expert-prompt' : undefined}
+            onChange={e => { setExpertId(e.target.value); setShowExpertPrompt(false); request.current = '' }}>
             <option value="">Select an approved expert</option>
             {experts.map(x => <option key={x.user_id} value={x.user_id}>@{x.username}{x.expert_title ? ' · ' + x.expert_title : ''}</option>)}
           </select></label>
+          {showExpertPrompt && <p id="expert-prompt" role="alert">Select the expert who supplied this reply.</p>}
           {loadedExperts && !expertsError && !experts.length && <p role="status">No approved expert accounts are available.</p>}
           <label>Reply supplied by the expert<textarea className="form-input" style={{ ...field, resize: 'vertical' }} rows={6} required disabled={busy} value={body} onChange={e => { setBody(e.target.value); request.current = '' }} /></label>
-          <button className="btn btn-primary" disabled={busy || !expert || body.trim().length < 2}>{busy ? 'Publishing…' : expert ? 'Publish reply as @' + expert.username : 'Publish reply'}</button>
+          {expert ? (
+            <button type="submit" className="btn btn-primary" disabled={busy || body.trim().length < 2}>
+              {busy ? 'Publishing…' : 'Publish reply as @' + expert.username}
+            </button>
+          ) : (
+            <button type="button" style={btn} disabled={!experts.length}
+              onClick={() => { setShowExpertPrompt(true); expertPicker.current?.focus() }}>
+              Select the expert
+            </button>
+          )}
         </form>
       </> : !error && <p role="status">Loading question…</p>}
     </section>}
