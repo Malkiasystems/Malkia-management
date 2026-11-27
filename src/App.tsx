@@ -504,7 +504,7 @@ function AppContent() {
   }, [])
 
   // ── HRM Mode: Self vs Company ──────────────────────────
-  const [hrmMode, setHrmMode] = useState<HRMViewMode>('self')
+  const [hrmMode, setHrmMode] = useState<HRMViewMode>('company')
   const [employeeLink, setEmployeeLink] = useState<{ userId: string; id: string | null } | null>(null)
   const hrmCanManage = permissions.includes('hrm.confidential')
   const isHrmPage = page === 'hrm' || page.startsWith('hrm-')

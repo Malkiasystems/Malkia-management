@@ -103,7 +103,7 @@ export default function SalesInvoicesList({ onNav: _onNav }: Props) {
     // recomputed from the FULL roster (collisions depend on everyone, not
     // just this seller).
     if (voucher?.salesperson_id) {
-      const { data: roster } = await supabase.from('hrm_employees').select('id, emp_code, full_name')
+      const { data: roster } = await supabase.from('hrm_staff_directory').select('id, emp_code, full_name')
       const sp = (roster || []).find(r => r.id === voucher.salesperson_id)
       if (sp?.full_name) {
         (voucher as any).salesperson = sp.full_name

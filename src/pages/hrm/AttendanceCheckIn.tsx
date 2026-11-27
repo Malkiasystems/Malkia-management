@@ -51,14 +51,14 @@ export default function AttendanceCheckIn() {
     if (!user?.id) return
     let alive = true
     ;(async () => {
-      const { data: me } = await supabase.from('hrm_employees')
+      const { data: me } = await supabase.from('hrm_staff_directory')
         .select('full_name').eq('user_id', user.id).eq('is_active', true).maybeSingle()
       if (!alive) return
       if (me) { setLinkedName(me.full_name) }
       else {
         // only UNCLAIMED employees are offered — a name already linked to a
         // login cannot be picked by anyone else
-        const { data } = await supabase.from('hrm_employees')
+        const { data } = await supabase.from('hrm_staff_directory')
           .select('id, full_name').eq('is_active', true).is('user_id', null).order('full_name')
         if (alive && data) setEmps(data as Emp[])
       }

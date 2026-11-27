@@ -90,7 +90,7 @@ async function loadOperations(b: ReturnType<typeof monthBounds>): Promise<Operat
     // run in a Promise.all, the error landed in empRes.error rather than
     // throwing, empRes.data came back null, and the dashboard quietly reported a
     // headcount of ZERO. Not just the leave count — the entire HRM widget.
-    supabase.from('hrm_employees').select('id, is_active'),
+    supabase.from('hrm_staff_directory').select('id, is_active'),
     // Who is on leave is a fact about TODAY, not a flag on the employee record.
     // hrm_attendance already carries it: HRMAttendance.tsx writes status
     // 'on_leave' when entry_type is 'leave'. Read the real data rather than

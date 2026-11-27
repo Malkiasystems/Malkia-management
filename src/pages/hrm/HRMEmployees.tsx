@@ -1,5 +1,4 @@
-import { insertJournalWithRetry } from '../../lib/refs'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/useAuth'
 import { tzs, localIso } from '../../lib/utils'
@@ -44,6 +43,8 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
   const [letterForm, setLetterForm] = useState({ letter_type: 'Offer Letter', issued_date: '', issued_by: '', notes: '' })
 
   // Advance modal
+  const advanceOperation = useRef<{ signature: string; id: string } | null>(null)
+  const [issuing, setIssuing] = useState(false)
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
   const [advanceForm, setAdvanceForm] = useState({ amount: '', monthly_deduction: '', issued_date: '', source_account: '', notes: '' })
   const [cashAccounts, setCashAccounts] = useState<{ id: string; code: string; name: string }[]>([])
@@ -196,59 +197,26 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
     if (!advanceForm.source_account) { setToast('Select source account (Cash/Bank)'); setToastType('error'); return }
     if (!advanceForm.issued_date) { setToast('Enter issue date'); setToastType('error'); return }
 
+    if (issuing) return
+    setIssuing(true)
+    const signature = JSON.stringify([drawerEmp.id, advanceForm])
+    if (advanceOperation.current?.signature !== signature) advanceOperation.current = {signature, id: crypto.randomUUID()}
     try {
-      // Ensure Salary Advance Receivable account exists (1060)
-      let { data: advAcct } = await supabase.from('accounts').select('id').eq('code', '1060').single()
-      if (!advAcct) {
-        const { data: created, error: createErr } = await supabase.from('accounts').insert({
-          code: '1060', name: 'Salary Advance Receivable', type: 'asset',
-          // accounts table has no is_default column — see HRMPayroll for context.
-          category: 'Current Assets', balance: 0, is_active: true,
-        }).select('id').single()
-        if (createErr) throw new Error(createErr.message)
-        advAcct = created
-      }
-
-      // Create journal: Dr Salary Advance Receivable (1060) / Cr Cash/Bank
-      const ref = `ADV-${drawerEmp.emp_code}-${advanceForm.issued_date.replace(/-/g, '')}`
-      const { data: journalRaw, error: jErr } = await insertJournalWithRetry({
-        ref: 'JV-' + ref, posting_date: advanceForm.issued_date,
-        description: `Salary Advance — ${drawerEmp.full_name} — ${ref}`,
-        journal_type: 'salary_advance', source_type: 'salary_advance', source_ref: ref,
-        posted_by: user?.full_name || 'System', status: 'posted',
-      })  
-      if (jErr || !journalRaw) throw new Error(jErr?.message || "Journal insert failed")
-      const journal = journalRaw
-
-      const jLines = [
-        { journal_id: journal.id, line_number: 1, account_id: advAcct!.id, description: `Advance to ${drawerEmp.full_name}`, debit: amount, credit: 0 },
-        { journal_id: journal.id, line_number: 2, account_id: advanceForm.source_account, description: `Cash/Bank out — Advance ${ref}`, debit: 0, credit: amount },
-      ]
-      await supabase.from('journal_lines').insert(jLines)
-      await Promise.all(jLines.map(l => supabase.rpc('update_account_balance', { p_account_id: l.account_id, p_debit: l.debit, p_credit: l.credit })))
-
-      // Create voucher
-      await supabase.from('vouchers').insert({
-        ref, type: 'salary_advance', posting_date: advanceForm.issued_date,
-        description: `Salary Advance — ${drawerEmp.full_name}`,
-        total_amount: amount, status: 'posted', journal_id: journal.id,
-        notes: advanceForm.notes || null, posted_by: user?.full_name || 'System',
+      const { error } = await supabase.rpc('issue_hrm_advance', {
+        p_id: advanceOperation.current.id, p_employee: drawerEmp.id, p_source: advanceForm.source_account,
+        p_date: advanceForm.issued_date, p_amount: amount, p_monthly: monthlyDed, p_notes: advanceForm.notes || null,
       })
-
-      // Create advance record
-      await supabase.from('hrm_salary_advances').insert({
-        employee_id: drawerEmp.id, amount, remaining: amount,
-        monthly_deduction: monthlyDed, issued_date: advanceForm.issued_date,
-        status: 'active', notes: advanceForm.notes || null,
-      })
-
-      setToast(`Advance ${tzs(amount)} issued to ${drawerEmp.full_name} — Dr 1060 / Cr ${cashAccounts.find(a => a.id === advanceForm.source_account)?.code || 'Bank'}`)
+      if (error) throw error
+      advanceOperation.current = null
+      setToast(`Advance ${tzs(amount)} issued to ${drawerEmp.full_name}`)
       setToastType('success')
       setShowAdvanceModal(false)
       setAdvanceForm({ amount: '', monthly_deduction: '', issued_date: '', source_account: '', notes: '' })
       openDrawer(drawerEmp)
     } catch (err: any) {
       setToast(err.message || 'Failed'); setToastType('error')
+    } finally {
+      setIssuing(false)
     }
   }
 
@@ -735,7 +703,7 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
                 <textarea style={{ ...inputStyle, resize: 'none', height: 60 }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Any additional notes..." />
               </div>
               <div style={{ marginTop: 10, padding: '8px 12px', background: '#6366f111', border: '1px solid #6366f133', borderRadius: 6, fontSize: 10, color: '#6366f1' }}>
-                Employee will be added to payroll from next cycle. Set their <strong>email</strong> to link them for self-service HRM access.
+                Payroll uses the start date to calculate pay for the first month. Set their <strong>email</strong> to link them for self-service HRM access.
               </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -787,12 +755,12 @@ export default function HRMEmployees({ onNav, hrmMode = 'self', linkedEmployeeId
               </select></div>
               <div><label style={labelStyle}>Notes</label><textarea style={{ ...inputStyle, resize: 'none', height: 50 }} value={advanceForm.notes} onChange={e => setAdvanceForm({ ...advanceForm, notes: e.target.value })} placeholder="Reason for advance..." /></div>
               <div style={{ padding: '8px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 10, color: 'var(--text3)' }}>
-                Journal: Dr Salary Advance Receivable (1060) / Cr Cash or Bank · Auto-deducted monthly from payroll.
+                Journal: Dr Salary Advance Receivable / Cr Cash or Bank · Auto-deducted monthly from payroll.
               </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn btn-ghost" onClick={() => setShowAdvanceModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={issueAdvance}>Issue Advance</button>
+              <button className="btn btn-primary" disabled={issuing} onClick={issueAdvance}>{issuing ? 'Issuing…' : 'Issue Advance'}</button>
             </div>
           </div>
         </div>
